@@ -1,4 +1,10 @@
-import React, { createContext, FormEvent, useEffect, useRef } from "react";
+import React, {
+  createContext,
+  FormEvent,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { createRoot } from "react-dom/client";
 import {
   createStore,
@@ -8,26 +14,37 @@ import {
 } from "jotai";
 import { bindScope, BunjaStoreProvider, useBunja } from "bunja/react";
 import {
-  AlertCircle,
+  type DividerRenderProps,
+  Handle,
+  type LayoutState,
+  Pane,
+  Root as PaneRoot,
+  useLayout,
+} from "panecake";
+import {
+  Activity,
   ArrowLeft,
   ArrowUp,
-  CheckCircle2,
   ChevronDown,
   ChevronRight,
+  Columns2,
   FileQuestion,
   FileText,
   Folder,
+  GripVertical,
   HardDrive,
+  Info,
   KeyRound,
   Link2,
   Loader2,
+  PanelLeftClose,
+  PanelLeftOpen,
   Plus,
   RefreshCw,
-  Search,
+  Rows2,
   Settings,
+  Terminal,
   Trash2,
-  Wifi,
-  WifiOff,
   X,
 } from "lucide-react";
 import "./styles.css";
@@ -37,6 +54,8 @@ import {
   displayName,
   explorerBunja,
   ExplorerMachineScope,
+  explorerNavigationBunja,
+  ExplorerPaneScope,
   formatDate,
   formatSize,
   kindLabel,
@@ -47,18 +66,34 @@ import { machineMenuBunja } from "./state/machine-menu.ts";
 import { machineModalBunja } from "./state/machine-modal.ts";
 import { machineStoreBunja } from "./state/machine-store.ts";
 import { Machine } from "./state/machines.ts";
-import { ConnectionState, StreamState } from "./state/types.ts";
+import {
+  workbenchBunja,
+  type WorkbenchFeature,
+  type WorkbenchPane,
+  type WorkbenchTab,
+} from "./state/workbench.ts";
 
 const jotaiStore = createStore();
 const JotaiStoreContext = createContext<JotaiStore>(jotaiStore);
 bindScope(JotaiStoreScope, JotaiStoreContext);
 const projectLogoUrl = new URL("./assets/wgo.svg", import.meta.url).href;
+const machinePanelMinWidth = 212;
+const machinePanelMaxWidth = 420;
+const minimumWorkbenchWidth = 360;
+const machineRailWidth = 64;
+
+type EntryMenuState = {
+  entry: FsEntry;
+  x: number;
+  y: number;
+};
 
 function App() {
   const machineStore = useBunja(machineStoreBunja);
   const machineMenuState = useBunja(machineMenuBunja);
   const machineModal = useBunja(machineModalBunja);
   const connectionState = useBunja(connectionBunja);
+  const workbench = useBunja(workbenchBunja);
 
   const machines = useAtomValue(machineStore.machinesAtom);
   const selected = useAtomValue(machineStore.selectedAtom);
@@ -78,12 +113,17 @@ function App() {
   const connection = useAtomValue(connectionState.connectionAtom);
   const connectionEpoch = useAtomValue(connectionState.connectionEpochAtom);
   const modalTitle = useAtomValue(machineModal.modalTitleAtom);
+  const activeFeature = useAtomValue(workbench.activeFeatureAtom);
+  const workbenchLayout = useAtomValue(workbench.layoutAtom);
+  const workbenchPanes = useAtomValue(workbench.panesAtom);
   const setConfigNameDraft = useSetAtom(machineModal.configNameDraftAtom);
   const setConfigUrlDraft = useSetAtom(machineModal.configUrlDraftAtom);
   const setPairingCode = useSetAtom(machineModal.pairingCodeAtom);
   const machineNameInputRef = useRef<HTMLInputElement>(null);
   const configNameInputRef = useRef<HTMLInputElement>(null);
   const pairingCodeInputRef = useRef<HTMLInputElement>(null);
+  const [machinePanelWidth, setMachinePanelWidth] = useState(264);
+  const [machinePanelCollapsed, setMachinePanelCollapsed] = useState(false);
 
   useEffect(() => {
     if (machines.length === 0 && !machineModalMode) {
@@ -169,6 +209,10 @@ function App() {
   ) {
     event.preventDefault();
     event.stopPropagation();
+    if (machineMenu?.machineId === machine.id) {
+      machineMenuState.closeMachineMenu();
+      return;
+    }
     const rect = event.currentTarget.getBoundingClientRect();
     machineMenuState.openMachineMenu(machine.id, rect.left, rect.bottom + 8);
   }
@@ -222,6 +266,74 @@ function App() {
     machineModal.updateBaseUrlDraft(value);
   }
 
+  function clampMachinePanelWidth(width: number) {
+    const maxByViewport = Math.max(
+      machinePanelMinWidth,
+      globalThis.innerWidth - machineRailWidth - minimumWorkbenchWidth,
+    );
+    return Math.round(
+      Math.min(
+        Math.max(width, machinePanelMinWidth),
+        Math.min(machinePanelMaxWidth, maxByViewport),
+      ),
+    );
+  }
+
+  function startMachinePanelResize(event: React.PointerEvent<HTMLDivElement>) {
+    event.preventDefault();
+    const initialX = event.clientX;
+    const initialWidth = machinePanelWidth;
+    const previousCursor = document.body.style.cursor;
+    const previousUserSelect = document.body.style.userSelect;
+
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+
+    function resize(moveEvent: PointerEvent) {
+      setMachinePanelWidth(
+        clampMachinePanelWidth(
+          initialWidth + moveEvent.clientX - initialX,
+        ),
+      );
+    }
+
+    function stopResize() {
+      document.body.style.cursor = previousCursor;
+      document.body.style.userSelect = previousUserSelect;
+      globalThis.removeEventListener("pointermove", resize);
+      globalThis.removeEventListener("pointerup", stopResize);
+      globalThis.removeEventListener("pointercancel", stopResize);
+    }
+
+    globalThis.addEventListener("pointermove", resize);
+    globalThis.addEventListener("pointerup", stopResize);
+    globalThis.addEventListener("pointercancel", stopResize);
+  }
+
+  function resizeMachinePanelWithKeyboard(
+    event: React.KeyboardEvent<HTMLDivElement>,
+  ) {
+    const step = event.shiftKey ? 40 : 16;
+    if (event.key === "ArrowLeft") {
+      event.preventDefault();
+      setMachinePanelWidth((width) => clampMachinePanelWidth(width - step));
+    }
+    if (event.key === "ArrowRight") {
+      event.preventDefault();
+      setMachinePanelWidth((width) => clampMachinePanelWidth(width + step));
+    }
+    if (event.key === "Home") {
+      event.preventDefault();
+      setMachinePanelWidth(machinePanelMinWidth);
+    }
+    if (event.key === "End") {
+      event.preventDefault();
+      setMachinePanelWidth((width) =>
+        clampMachinePanelWidth(Math.max(width, machinePanelMaxWidth))
+      );
+    }
+  }
+
   function renderAddMachineForm(showCancel: boolean) {
     return (
       <form className="machine-modal-form" onSubmit={addMachine}>
@@ -265,7 +377,14 @@ function App() {
   }
 
   return (
-    <main className="app-shell">
+    <main
+      className={machinePanelCollapsed
+        ? "app-shell machine-panel-collapsed"
+        : "app-shell"}
+      style={{
+        "--machine-panel-width": `${machinePanelWidth}px`,
+      } as React.CSSProperties}
+    >
       <aside className="machine-rail" aria-label="Machine switcher">
         <div className="rail-brand" title="wgo">
           <img src={projectLogoUrl} alt="wgo" />
@@ -327,50 +446,93 @@ function App() {
         )
         : null}
 
-      <section
-        className={machines.length === 0 ? "workspace no-machine" : "workspace"}
+      <header className="global-topbar">
+        <div className="global-topbar-left">
+          <button
+            type="button"
+            className="global-icon-button"
+            onClick={() => setMachinePanelCollapsed((collapsed) => !collapsed)}
+            title={machinePanelCollapsed
+              ? "Expand machine panel"
+              : "Collapse machine panel"}
+            aria-label={machinePanelCollapsed
+              ? "Expand machine panel"
+              : "Collapse machine panel"}
+            aria-pressed={machinePanelCollapsed}
+          >
+            {machinePanelCollapsed
+              ? <PanelLeftOpen size={14} />
+              : <PanelLeftClose size={14} />}
+          </button>
+        </div>
+        <div className="global-machine-title">
+          <span>{selected?.name ?? "No machine"}</span>
+        </div>
+        <PairingPill
+          machine={selected}
+          paired={selectedIsPaired}
+          checking={connection.phase === "checking"}
+          onRefresh={() => void checkSelected()}
+        />
+      </header>
+
+      <aside
+        className="machine-panel"
+        aria-label="Machine workspace"
+        aria-hidden={machinePanelCollapsed}
       >
-        {machines.length > 0
+        {!machinePanelCollapsed
           ? (
-            <header className="topbar">
-              <div className="machine-title">
-                <h1>
-                  {selected
-                    ? (
-                      <button
-                        type="button"
-                        className="machine-title-button"
-                        onClick={(event) =>
-                          openMachineTitleMenu(event, selected)}
-                        title="Machine actions"
-                        aria-label={`${selected.name} machine actions`}
-                      >
-                        <span className="machine-title-text">
-                          {selected.name}
-                        </span>
-                        <ChevronDown size={16} />
-                      </button>
-                    )
-                    : "No machine"}
-                </h1>
-              </div>
-              <div className="topbar-actions">
-                <StatusPill connection={connection} paired={selectedIsPaired} />
-                <button
-                  type="button"
-                  onClick={() => void checkSelected()}
-                  disabled={!selected}
-                  title="Check"
-                  aria-label="Check"
-                  className="icon-button"
-                >
-                  <RefreshCw size={16} />
-                </button>
-              </div>
-            </header>
+            <>
+              <section className="machine-panel-summary">
+                <div className="machine-title">
+                  <h1>
+                    {selected
+                      ? (
+                        <button
+                          type="button"
+                          className="machine-title-button"
+                          onMouseDown={(event) => event.stopPropagation()}
+                          onClick={(event) =>
+                            openMachineTitleMenu(event, selected)}
+                          title="Machine actions"
+                          aria-label={`${selected.name} machine actions`}
+                        >
+                          <span className="machine-title-text">
+                            {selected.name}
+                          </span>
+                          <ChevronDown size={16} />
+                        </button>
+                      )
+                      : "No machine"}
+                  </h1>
+                </div>
+              </section>
+
+              <FeatureMenu
+                activeFeature={activeFeature}
+                onSelect={workbench.selectFeature}
+              />
+              <div
+                className="machine-panel-resizer"
+                role="separator"
+                aria-label="Resize machine panel"
+                aria-orientation="vertical"
+                aria-valuemin={machinePanelMinWidth}
+                aria-valuemax={machinePanelMaxWidth}
+                aria-valuenow={machinePanelWidth}
+                tabIndex={0}
+                onPointerDown={startMachinePanelResize}
+                onKeyDown={resizeMachinePanelWithKeyboard}
+              />
+            </>
           )
           : null}
+      </aside>
 
+      <section
+        className={machines.length === 0 ? "workbench no-machine" : "workbench"}
+      >
         {machines.length === 0
           ? (
             <section className="inline-machine-setup">
@@ -386,7 +548,15 @@ function App() {
             </section>
           )
           : (
-            <Explorer
+            <Workbench
+              layout={workbenchLayout}
+              panes={workbenchPanes}
+              setLayout={workbench.setLayout}
+              addPane={workbench.addPane}
+              removePane={workbench.removePane}
+              addFilesTab={workbench.addFilesTab}
+              selectTab={workbench.selectTab}
+              closeTab={workbench.closeTab}
               machine={selected}
               isPaired={selectedIsPaired}
               connectionEpoch={connectionEpoch}
@@ -606,30 +776,437 @@ function machineInitials(name: string): string {
   return letters || "PC";
 }
 
-function StatusPill(
-  { connection, paired }: { connection: ConnectionState; paired: boolean },
+function PairingPill(
+  { machine, paired, checking, onRefresh }: {
+    machine?: Machine;
+    paired: boolean;
+    checking: boolean;
+    onRefresh: () => void;
+  },
 ) {
-  const Icon = connection.phase === "reachable"
-    ? Wifi
-    : connection.phase === "offline"
-    ? WifiOff
-    : connection.phase === "checking"
-    ? Loader2
-    : AlertCircle;
+  if (!machine) return null;
+
+  const className = [
+    "global-pairing-pill",
+    paired ? "paired" : "",
+    checking ? "checking" : "",
+  ].filter(Boolean).join(" ");
+
   return (
-    <div className={`status-pill ${connection.phase}`}>
-      <Icon
-        size={15}
-        className={connection.phase === "checking" ? "spin" : ""}
-      />
+    <button
+      type="button"
+      className={className}
+      onClick={onRefresh}
+      title={checking ? "Checking pairing status" : "Refresh pairing status"}
+      aria-label={checking
+        ? "Checking pairing status"
+        : "Refresh pairing status"}
+      aria-busy={checking}
+    >
+      <span className="global-pairing-status-icon" aria-hidden="true">
+        <span className="global-pairing-dot" />
+        <RefreshCw
+          size={13}
+          className={checking
+            ? "global-pairing-refresh spin"
+            : "global-pairing-refresh"}
+        />
+      </span>
       <span>{paired ? "Paired" : "Unpaired"}</span>
-      <span>{connection.message}</span>
+    </button>
+  );
+}
+
+const features: {
+  id: WorkbenchFeature;
+  label: string;
+  disabled?: boolean;
+  Icon: typeof Folder;
+}[] = [
+  {
+    id: "files",
+    label: "Files",
+    Icon: Folder,
+  },
+  {
+    id: "processes",
+    label: "Processes",
+    Icon: Activity,
+    disabled: true,
+  },
+  {
+    id: "terminal",
+    label: "Terminal",
+    Icon: Terminal,
+    disabled: true,
+  },
+];
+
+function FeatureMenu(
+  { activeFeature, onSelect }: {
+    activeFeature: WorkbenchFeature;
+    onSelect: (feature: WorkbenchFeature) => void;
+  },
+) {
+  return (
+    <nav className="feature-menu" aria-label="Workspace features">
+      {features.map(({ id, label, disabled, Icon }) => (
+        <button
+          type="button"
+          key={id}
+          className={activeFeature === id
+            ? "feature-item active"
+            : "feature-item"}
+          onClick={() => onSelect(id)}
+          disabled={disabled}
+          aria-current={activeFeature === id ? "page" : undefined}
+        >
+          <Icon size={17} />
+          <span>{label}</span>
+        </button>
+      ))}
+    </nav>
+  );
+}
+
+function Workbench(
+  {
+    layout,
+    panes,
+    setLayout,
+    addPane,
+    removePane,
+    addFilesTab,
+    selectTab,
+    closeTab,
+    machine,
+    isPaired,
+    connectionEpoch,
+    onPair,
+  }: {
+    layout: LayoutState;
+    panes: WorkbenchPane[];
+    setLayout: (layout: LayoutState) => void;
+    addPane: () => string;
+    removePane: (paneId: string) => void;
+    addFilesTab: (paneId: string) => void;
+    selectTab: (paneId: string, tabId: string) => void;
+    closeTab: (paneId: string, tabId: string) => void;
+    machine?: Machine;
+    isPaired: boolean;
+    connectionEpoch: number;
+    onPair: () => void;
+  },
+) {
+  return (
+    <PaneRoot
+      layout={layout}
+      onLayoutChange={setLayout}
+      className="pane-root"
+      renderDivider={PaneDivider}
+      emptyContent={<div className="empty-workspace">No panes</div>}
+    >
+      {panes.map((pane) => (
+        <Pane key={pane.id} id={pane.id} minWidth={320} minHeight={220}>
+          {(nodeId) => (
+            <WorkbenchPaneView
+              pane={pane}
+              paneCount={panes.length}
+              nodeId={nodeId}
+              addPane={addPane}
+              removePane={removePane}
+              addFilesTab={addFilesTab}
+              selectTab={selectTab}
+              closeTab={closeTab}
+              machine={machine}
+              isPaired={isPaired}
+              connectionEpoch={connectionEpoch}
+              onPair={onPair}
+            />
+          )}
+        </Pane>
+      ))}
+    </PaneRoot>
+  );
+}
+
+function WorkbenchPaneView(
+  {
+    pane,
+    paneCount,
+    nodeId,
+    addPane,
+    removePane,
+    addFilesTab,
+    selectTab,
+    closeTab,
+    machine,
+    isPaired,
+    connectionEpoch,
+    onPair,
+  }: {
+    pane: WorkbenchPane;
+    paneCount: number;
+    nodeId: string;
+    addPane: () => string;
+    removePane: (paneId: string) => void;
+    addFilesTab: (paneId: string) => void;
+    selectTab: (paneId: string, tabId: string) => void;
+    closeTab: (paneId: string, tabId: string) => void;
+    machine?: Machine;
+    isPaired: boolean;
+    connectionEpoch: number;
+    onPair: () => void;
+  },
+) {
+  const { removePane: removeLayoutPane, split } = useLayout();
+  const [newTabMenuOpen, setNewTabMenuOpen] = useState(false);
+  const newTabMenuRef = useRef<HTMLDivElement>(null);
+  const canClosePane = paneCount > 1;
+
+  useEffect(() => {
+    if (!newTabMenuOpen) return;
+
+    function closeNewTabMenu(event: MouseEvent) {
+      const target = event.target;
+      if (target instanceof Node && newTabMenuRef.current?.contains(target)) {
+        return;
+      }
+      setNewTabMenuOpen(false);
+    }
+
+    function closeNewTabMenuOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") setNewTabMenuOpen(false);
+    }
+
+    globalThis.addEventListener("mousedown", closeNewTabMenu);
+    globalThis.addEventListener("keydown", closeNewTabMenuOnEscape);
+    return () => {
+      globalThis.removeEventListener("mousedown", closeNewTabMenu);
+      globalThis.removeEventListener("keydown", closeNewTabMenuOnEscape);
+    };
+  }, [newTabMenuOpen]);
+
+  function splitPane(direction: "horizontal" | "vertical") {
+    const newPaneId = addPane();
+    split(nodeId, direction, newPaneId, "after");
+  }
+
+  function closePane() {
+    if (!canClosePane) return;
+    removeLayoutPane(nodeId);
+    removePane(pane.id);
+  }
+
+  function closeWorkbenchTab(tabId: string) {
+    if (pane.tabs.length > 1) {
+      closeTab(pane.id, tabId);
+      return;
+    }
+    closePane();
+  }
+
+  function openFilesTab() {
+    addFilesTab(pane.id);
+    setNewTabMenuOpen(false);
+  }
+
+  return (
+    <section className="workbench-pane">
+      <header className="workbench-pane-head">
+        <Handle className="pane-handle">
+          <GripVertical size={14} />
+        </Handle>
+        <div className="workbench-tabs" role="tablist">
+          {pane.tabs.map((tab) => (
+            <WorkbenchTabItem
+              key={tab.id}
+              tab={tab}
+              machine={machine}
+              active={tab.id === pane.activeTabId}
+              showClose={pane.tabs.length > 1 || canClosePane}
+              onSelect={() => selectTab(pane.id, tab.id)}
+              onClose={() => closeWorkbenchTab(tab.id)}
+            />
+          ))}
+        </div>
+        <div className="pane-actions">
+          <div className="new-tab-menu-wrap" ref={newTabMenuRef}>
+            <button
+              type="button"
+              className="icon-button compact new-tab-trigger"
+              onClick={() => setNewTabMenuOpen((open) => !open)}
+              title="Open tab"
+              aria-label="Open tab"
+              aria-haspopup="menu"
+              aria-expanded={newTabMenuOpen}
+            >
+              <Plus size={13} />
+              <ChevronDown size={11} />
+            </button>
+            {newTabMenuOpen
+              ? (
+                <div className="new-tab-menu" role="menu">
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={openFilesTab}
+                  >
+                    <Folder size={14} />
+                    Files
+                  </button>
+                </div>
+              )
+              : null}
+          </div>
+          <button
+            type="button"
+            className="icon-button compact"
+            onClick={() => splitPane("horizontal")}
+            title="Split right"
+            aria-label="Split right"
+          >
+            <Columns2 size={14} />
+          </button>
+          <button
+            type="button"
+            className="icon-button compact"
+            onClick={() => splitPane("vertical")}
+            title="Split down"
+            aria-label="Split down"
+          >
+            <Rows2 size={14} />
+          </button>
+          <button
+            type="button"
+            className="icon-button compact"
+            onClick={closePane}
+            disabled={!canClosePane}
+            title="Close pane"
+            aria-label="Close pane"
+          >
+            <X size={14} />
+          </button>
+        </div>
+      </header>
+      <div className="workbench-pane-body">
+        {pane.tabs.map((tab) => (
+          <section
+            key={tab.id}
+            className="workbench-tab-page"
+            hidden={tab.id !== pane.activeTabId}
+          >
+            <WorkbenchTabContent
+              tab={tab}
+              machine={machine}
+              isPaired={isPaired}
+              connectionEpoch={connectionEpoch}
+              onPair={onPair}
+            />
+          </section>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function WorkbenchTabItem(
+  { tab, machine, active, showClose, onSelect, onClose }: {
+    tab: WorkbenchTab;
+    machine?: Machine;
+    active: boolean;
+    showClose: boolean;
+    onSelect: () => void;
+    onClose: () => void;
+  },
+) {
+  const label = useWorkbenchTabLabel(tab, machine);
+
+  return (
+    <div className={active ? "workbench-tab active" : "workbench-tab"}>
+      <button
+        type="button"
+        role="tab"
+        aria-selected={active}
+        onClick={onSelect}
+        title={label}
+      >
+        <Folder size={14} className="workbench-tab-icon" />
+        <span className="workbench-tab-title">{label}</span>
+      </button>
+      {showClose
+        ? (
+          <button
+            type="button"
+            className="tab-close"
+            onClick={onClose}
+            title="Close tab"
+            aria-label={`Close ${label}`}
+          >
+            <X size={13} />
+          </button>
+        )
+        : null}
     </div>
   );
 }
 
+function useWorkbenchTabLabel(tab: WorkbenchTab, machine?: Machine): string {
+  const navigation = useBunja(explorerNavigationBunja, [
+    ExplorerMachineScope.bind(machine?.id),
+    ExplorerPaneScope.bind(tab.id),
+  ]);
+  const currentPath = useAtomValue(navigation.currentPathAtom);
+
+  if (tab.tool === "files") return folderNameFromPath(currentPath);
+  return tab.title;
+}
+
+function folderNameFromPath(path?: string): string {
+  const crumbs = pathCrumbs(path);
+  return crumbs[crumbs.length - 1]?.label ?? "Roots";
+}
+
+function WorkbenchTabContent(
+  { tab, machine, isPaired, connectionEpoch, onPair }: {
+    tab: WorkbenchTab;
+    machine?: Machine;
+    isPaired: boolean;
+    connectionEpoch: number;
+    onPair: () => void;
+  },
+) {
+  if (tab.tool === "files") {
+    return (
+      <Explorer
+        paneScopeId={tab.id}
+        machine={machine}
+        isPaired={isPaired}
+        connectionEpoch={connectionEpoch}
+        onPair={onPair}
+      />
+    );
+  }
+}
+
+function PaneDivider(
+  { direction, onMouseDown, onKeyDown, ref }: DividerRenderProps,
+) {
+  return (
+    <div
+      ref={ref}
+      className={`pane-divider ${direction}`}
+      role="separator"
+      tabIndex={0}
+      onMouseDown={onMouseDown}
+      onKeyDown={onKeyDown}
+    />
+  );
+}
+
 function Explorer(
-  { machine, isPaired, connectionEpoch, onPair }: {
+  { paneScopeId, machine, isPaired, connectionEpoch, onPair }: {
+    paneScopeId: string;
     machine?: Machine;
     isPaired: boolean;
     connectionEpoch: number;
@@ -638,15 +1215,16 @@ function Explorer(
 ) {
   const explorer = useBunja(explorerBunja, [
     ExplorerMachineScope.bind(machine?.id),
+    ExplorerPaneScope.bind(paneScopeId),
   ]);
   const currentPath = useAtomValue(explorer.currentPathAtom);
   const history = useAtomValue(explorer.historyAtom);
   const selectedPath = useAtomValue(explorer.selectedPathAtom);
-  const filter = useAtomValue(explorer.filterAtom);
   const visibleRows = useAtomValue(explorer.visibleRowsAtom);
   const selectedEntry = useAtomValue(explorer.selectedEntryAtom);
-  const streamState = useAtomValue(explorer.streamStateAtom);
   const lastConnectionEpochRef = useRef(connectionEpoch);
+  const [entryMenu, setEntryMenu] = useState<EntryMenuState>();
+  const [propertiesEntry, setPropertiesEntry] = useState<FsEntry>();
 
   useEffect(() => {
     if (lastConnectionEpochRef.current === connectionEpoch) return;
@@ -654,14 +1232,58 @@ function Explorer(
     explorer.refresh();
   }, [connectionEpoch, explorer]);
 
+  useEffect(() => {
+    if (!entryMenu) return;
+
+    function closeMenu() {
+      setEntryMenu(undefined);
+    }
+
+    function closeMenuOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") closeMenu();
+    }
+
+    globalThis.addEventListener("mousedown", closeMenu);
+    globalThis.addEventListener("keydown", closeMenuOnEscape);
+    return () => {
+      globalThis.removeEventListener("mousedown", closeMenu);
+      globalThis.removeEventListener("keydown", closeMenuOnEscape);
+    };
+  }, [entryMenu]);
+
+  useEffect(() => {
+    if (!propertiesEntry) return;
+
+    function closeModalOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") setPropertiesEntry(undefined);
+    }
+
+    globalThis.addEventListener("keydown", closeModalOnEscape);
+    return () => globalThis.removeEventListener("keydown", closeModalOnEscape);
+  }, [propertiesEntry]);
+
   const {
     goBack,
     goUp,
     navigate,
     openEntry,
     selectEntry,
-    setFilter,
   } = explorer;
+
+  function openEntryMenu(
+    entry: FsEntry,
+    event: React.MouseEvent<HTMLButtonElement>,
+  ) {
+    event.preventDefault();
+    event.stopPropagation();
+    selectEntry(entry);
+    setEntryMenu({ entry, x: event.clientX, y: event.clientY });
+  }
+
+  function openEntryProperties(entry: FsEntry) {
+    setEntryMenu(undefined);
+    setPropertiesEntry(entry);
+  }
 
   if (!machine) {
     return (
@@ -709,20 +1331,6 @@ function Explorer(
           <ArrowUp size={16} />
         </button>
         <PathCrumbs path={currentPath} onNavigate={navigate} />
-        <label className="search-box">
-          <Search size={15} />
-          <input
-            value={filter}
-            onChange={(event) => setFilter(event.target.value)}
-            placeholder="Filter"
-            aria-label="Filter files"
-          />
-        </label>
-      </div>
-
-      <div className="stream-line">
-        <StreamBadge state={streamState} />
-        <span>{visibleRows.length} rows</span>
       </div>
 
       <div className="browser-layout">
@@ -731,9 +1339,43 @@ function Explorer(
           selectedPath={selectedPath}
           onSelect={selectEntry}
           onOpen={openEntry}
+          onContextMenu={openEntryMenu}
         />
         <Inspector entry={selectedEntry} currentPath={currentPath} />
       </div>
+
+      <div className="explorer-footer">
+        <span>{visibleRows.length} items</span>
+      </div>
+
+      {entryMenu
+        ? (
+          <div
+            className="entry-context-menu"
+            style={{ left: entryMenu.x, top: entryMenu.y }}
+            role="menu"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => openEntryProperties(entryMenu.entry)}
+            >
+              <Info size={15} />
+              Properties
+            </button>
+          </div>
+        )
+        : null}
+
+      {propertiesEntry
+        ? (
+          <EntryPropertiesModal
+            entry={propertiesEntry}
+            onClose={() => setPropertiesEntry(undefined)}
+          />
+        )
+        : null}
     </section>
   );
 }
@@ -744,9 +1386,66 @@ function PathCrumbs(
     onNavigate: (path?: string) => void;
   },
 ) {
+  const [editing, setEditing] = useState(false);
+  const [draftPath, setDraftPath] = useState(path ?? "");
+  const inputRef = useRef<HTMLInputElement>(null);
   const crumbs = pathCrumbs(path);
+
+  useEffect(() => {
+    if (!editing) setDraftPath(path ?? "");
+  }, [editing, path]);
+
+  useEffect(() => {
+    if (!editing) return;
+    inputRef.current?.focus();
+    inputRef.current?.select();
+  }, [editing]);
+
+  function beginEditing() {
+    setDraftPath(path ?? "");
+    setEditing(true);
+  }
+
+  function cancelEditing() {
+    setDraftPath(path ?? "");
+    setEditing(false);
+  }
+
+  function submitPath(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const nextPath = draftPath.trim();
+    setEditing(false);
+    onNavigate(nextPath || undefined);
+  }
+
+  if (editing) {
+    return (
+      <form className="path-input-form" onSubmit={submitPath}>
+        <input
+          ref={inputRef}
+          value={draftPath}
+          onChange={(event) => setDraftPath(event.target.value)}
+          onBlur={cancelEditing}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") cancelEditing();
+          }}
+          aria-label="Path"
+          placeholder="Path"
+        />
+      </form>
+    );
+  }
+
   return (
-    <div className="crumbs" aria-label="Path">
+    <div
+      className="crumbs"
+      aria-label="Path"
+      onMouseDown={(event) => {
+        if (event.target !== event.currentTarget) return;
+        event.preventDefault();
+        beginEditing();
+      }}
+    >
       {crumbs.map((crumb, index) => (
         <React.Fragment key={`${crumb.path ?? "roots"}:${index}`}>
           {index > 0 ? <ChevronRight size={14} /> : null}
@@ -763,35 +1462,22 @@ function PathCrumbs(
   );
 }
 
-function StreamBadge({ state }: { state: StreamState }) {
-  const Icon = state.phase === "live"
-    ? CheckCircle2
-    : state.phase === "connecting"
-    ? Loader2
-    : state.phase === "error"
-    ? AlertCircle
-    : state.phase === "closed"
-    ? X
-    : AlertCircle;
-  return (
-    <span className={`stream-badge ${state.phase}`}>
-      <Icon size={14} className={state.phase === "connecting" ? "spin" : ""} />
-      {state.message}
-    </span>
-  );
-}
-
 function FileTable(
   {
     rows,
     selectedPath,
     onSelect,
     onOpen,
+    onContextMenu,
   }: {
     rows: FsEntry[];
     selectedPath?: string;
     onSelect: (entry: FsEntry) => void;
     onOpen: (entry: FsEntry) => void;
+    onContextMenu: (
+      entry: FsEntry,
+      event: React.MouseEvent<HTMLButtonElement>,
+    ) => void;
   },
 ) {
   return (
@@ -810,6 +1496,7 @@ function FileTable(
               : "file-row"}
             onClick={() => onSelect(entry)}
             onDoubleClick={() => onOpen(entry)}
+            onContextMenu={(event) => onContextMenu(entry, event)}
           >
             <span className="file-cell name">
               <EntryIcon entry={entry} />
@@ -836,30 +1523,78 @@ function Inspector(
   return (
     <aside className="inspector">
       <div className="inspector-title">Selection</div>
-      {entry
-        ? (
-          <dl>
-            <dt>Name</dt>
-            <dd>{displayName(entry)}</dd>
-            <dt>Path</dt>
-            <dd>{entry.path}</dd>
-            <dt>Kind</dt>
-            <dd>{kindLabel(entry.kind)}</dd>
-            <dt>Size</dt>
-            <dd>{formatSize(entry.size)}</dd>
-            <dt>Modified</dt>
-            <dd>{formatDate(entry.modifiedAtMs)}</dd>
-            <dt>Flags</dt>
-            <dd>{entry.readonly ? "Readonly" : "Writable"}</dd>
-          </dl>
-        )
-        : (
-          <dl>
-            <dt>Location</dt>
-            <dd>{currentPath ?? "Roots"}</dd>
-          </dl>
-        )}
+      <EntryDetails entry={entry} currentPath={currentPath} />
     </aside>
+  );
+}
+
+function EntryPropertiesModal(
+  { entry, onClose }: { entry: FsEntry; onClose: () => void },
+) {
+  return (
+    <div
+      className="modal-backdrop"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <section
+        className="machine-modal entry-properties-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="entry-properties-title"
+      >
+        <header className="modal-head">
+          <div>
+            <span>File</span>
+            <h2 id="entry-properties-title">Properties</h2>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            title="Close"
+            aria-label="Close properties modal"
+            className="icon-button"
+          >
+            <X size={16} />
+          </button>
+        </header>
+
+        <div className="entry-properties-body">
+          <EntryDetails entry={entry} />
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function EntryDetails(
+  { entry, currentPath }: { entry?: FsEntry; currentPath?: string },
+) {
+  if (!entry) {
+    return (
+      <dl>
+        <dt>Location</dt>
+        <dd>{currentPath ?? "Roots"}</dd>
+      </dl>
+    );
+  }
+
+  return (
+    <dl>
+      <dt>Name</dt>
+      <dd>{displayName(entry)}</dd>
+      <dt>Path</dt>
+      <dd>{entry.path}</dd>
+      <dt>Kind</dt>
+      <dd>{kindLabel(entry.kind)}</dd>
+      <dt>Size</dt>
+      <dd>{formatSize(entry.size)}</dd>
+      <dt>Modified</dt>
+      <dd>{formatDate(entry.modifiedAtMs)}</dd>
+      <dt>Flags</dt>
+      <dd>{entry.readonly ? "Readonly" : "Writable"}</dd>
+    </dl>
   );
 }
 

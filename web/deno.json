@@ -14,6 +14,7 @@
     "bunja/react": "npm:bunja@^3.0.0/react",
     "jotai": "npm:jotai@^2.15.0",
     "lucide-react": "npm:lucide-react@^0.468.0",
+    "panecake": "npm:panecake@^0.0.1",
     "react": "npm:react@^19.0.0",
     "react/": "npm:react@^19.0.0/",
     "react-dom": "npm:react-dom@^19.0.0",

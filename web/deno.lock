@@ -6,6 +6,8 @@
     "npm:bunja@3": "3.0.0_@types+react@19.2.14_react@19.2.6",
     "npm:jotai@^2.15.0": "2.20.0_@types+react@19.2.14_react@19.2.6",
     "npm:lucide-react@0.468": "0.468.0_react@19.2.6",
+    "npm:panecake@*": "0.0.1_react@19.2.6",
+    "npm:panecake@^0.0.1": "0.0.1_react@19.2.6",
     "npm:react-dom@19": "19.2.6_react@19.2.6",
     "npm:react@19": "19.2.6",
     "npm:typescript@^5.9.0": "5.9.3",
@@ -499,6 +501,15 @@
       ],
       "bin": true
     },
+    "bunja@2.1.1_react@19.2.6": {
+      "integrity": "sha512-o5M6OuPbIUEs2CdgaTWpfIPIg7cAR2Z8K0lG7RSLZC8WWttDVw0pyHuwnnvXYSq73kGFW07P/T/5DXSG+oRWtw==",
+      "dependencies": [
+        "react"
+      ],
+      "optionalPeers": [
+        "react"
+      ]
+    },
     "bunja@3.0.0_@types+react@19.2.14_react@19.2.6": {
       "integrity": "sha512-ZKu2bgpwC5l3JnR8tl2mDNvDVVaiq0Zvdtxuyjb3n+F+05OYzicFkA4bqhmB34wYA8Rs7aT2ebbqCUDJCNDCmA==",
       "dependencies": [
@@ -625,6 +636,14 @@
     "node-releases@2.0.44": {
       "integrity": "sha512-5WUyunoPMsvvEhS8AxHtRzP+oA8UCkJ7YRxatWKjngndhDGLiqEVAQKWjFAiAiuL8zMRGzGSJxFnLetoa43qGQ=="
     },
+    "panecake@0.0.1_react@19.2.6": {
+      "integrity": "sha512-dofnTT/WJzXtaORRz4fVDvWKGwctaf1UTdWAf8kqNJaBSZ7O5YvJqbzJVwmw/Vg4Lt6Ru+mJgQogMCNCIdloJw==",
+      "dependencies": [
+        "bunja@2.1.1_react@19.2.6",
+        "jotai",
+        "react"
+      ]
+    },
     "picocolors@1.1.1": {
       "integrity": "sha512-xceH2snhtb5M9liqDsmEw56le376mTZkEX/jEb/RxNFyegNul7eNslCXP9FDj/Lcu0X8KEyMceP2ntpaHrDEVA=="
     },
@@ -742,6 +761,7 @@
       "npm:bunja@3",
       "npm:jotai@^2.15.0",
       "npm:lucide-react@0.468",
+      "npm:panecake@^0.0.1",
       "npm:react-dom@19",
       "npm:react@19",
       "npm:vite@6"

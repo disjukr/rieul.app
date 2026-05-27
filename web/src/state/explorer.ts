@@ -14,6 +14,7 @@ import { Machine } from "./machines.ts";
 import { StreamState } from "./types.ts";
 
 export const ExplorerMachineScope = createScope<string | undefined>();
+export const ExplorerPaneScope = createScope<string>();
 
 export const explorerMachineBunja = bunja(() => {
   const machineId = bunja.use(ExplorerMachineScope);
@@ -37,6 +38,7 @@ export const explorerMachineBunja = bunja(() => {
 
 export const explorerRefreshBunja = bunja(() => {
   bunja.use(ExplorerMachineScope);
+  bunja.use(ExplorerPaneScope);
   const store = bunja.use(JotaiStoreScope);
   const refreshAtom = atom(0);
 
@@ -52,16 +54,12 @@ export const explorerRefreshBunja = bunja(() => {
 
 export const explorerNavigationBunja = bunja(() => {
   bunja.use(ExplorerMachineScope);
+  bunja.use(ExplorerPaneScope);
   const store = bunja.use(JotaiStoreScope);
 
   const currentPathAtom = atom<string | undefined>(undefined);
   const historyAtom = atom<(string | undefined)[]>([]);
   const selectedPathAtom = atom<string | undefined>(undefined);
-  const filterAtom = atom("");
-
-  function setFilter(value: string) {
-    store.set(filterAtom, value);
-  }
 
   function selectEntry(entry: FsEntry) {
     store.set(selectedPathAtom, entry.path);
@@ -103,8 +101,6 @@ export const explorerNavigationBunja = bunja(() => {
     currentPathAtom,
     historyAtom,
     selectedPathAtom,
-    filterAtom,
-    setFilter,
     selectEntry,
     navigate,
     goBack,
@@ -115,6 +111,7 @@ export const explorerNavigationBunja = bunja(() => {
 
 export const explorerRootsBunja = bunja(() => {
   bunja.use(ExplorerMachineScope);
+  bunja.use(ExplorerPaneScope);
   const store = bunja.use(JotaiStoreScope);
   const machineState = bunja.use(explorerMachineBunja);
   const refresh = bunja.use(explorerRefreshBunja);
@@ -189,6 +186,7 @@ export const explorerRootsBunja = bunja(() => {
 
 export const explorerDirectoryBunja = bunja(() => {
   bunja.use(ExplorerMachineScope);
+  bunja.use(ExplorerPaneScope);
   const store = bunja.use(JotaiStoreScope);
   const machineState = bunja.use(explorerMachineBunja);
   const refresh = bunja.use(explorerRefreshBunja);
@@ -281,6 +279,7 @@ export const explorerDirectoryBunja = bunja(() => {
 
 export const explorerBunja = bunja(() => {
   bunja.use(ExplorerMachineScope);
+  bunja.use(ExplorerPaneScope);
   const navigation = bunja.use(explorerNavigationBunja);
   const roots = bunja.use(explorerRootsBunja);
   const directory = bunja.use(explorerDirectoryBunja);
@@ -291,36 +290,20 @@ export const explorerBunja = bunja(() => {
       ? get(directory.directoryRowsAtom)
       : get(roots.rootsAtom)
   );
-  const visibleRowsAtom = atom((get) => {
-    const query = get(navigation.filterAtom).trim().toLowerCase();
-    const sorted = sortEntries(get(rowsAtom));
-    if (!query) return sorted;
-    return sorted.filter((entry) =>
-      displayName(entry).toLowerCase().includes(query) ||
-      entry.path.toLowerCase().includes(query)
-    );
-  });
+  const visibleRowsAtom = atom((get) => sortEntries(get(rowsAtom)));
   const selectedEntryAtom = atom((get) =>
     get(rowsAtom).find((entry) =>
       entry.path === get(navigation.selectedPathAtom)
     ) ?? undefined
-  );
-  const streamStateAtom = atom((get) =>
-    get(navigation.currentPathAtom)
-      ? get(directory.directoryStateAtom)
-      : get(roots.rootsStateAtom)
   );
 
   return {
     currentPathAtom: navigation.currentPathAtom,
     historyAtom: navigation.historyAtom,
     selectedPathAtom: navigation.selectedPathAtom,
-    filterAtom: navigation.filterAtom,
     visibleRowsAtom,
     selectedEntryAtom,
-    streamStateAtom,
     refresh: refresh.refresh,
-    setFilter: navigation.setFilter,
     selectEntry: navigation.selectEntry,
     navigate: navigation.navigate,
     goBack: navigation.goBack,
