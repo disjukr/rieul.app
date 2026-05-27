@@ -1,0 +1,79 @@
+use anyhow::Result;
+use clap::{Parser, Subcommand};
+use std::net::SocketAddr;
+use std::path::PathBuf;
+use std::time::Duration;
+use time::OffsetDateTime;
+use wgo_daemon_core::config::{
+    load_or_default, save, windows_program_data_config_path, SystemConfig,
+};
+use wgo_daemon_core::pairing::create_pairing_code;
+use wgo_windows_daemon::pairing_ui::{show_pairing_window, PairingWindowModel};
+
+#[derive(Debug, Parser)]
+#[command(name = "wgo-windows-user")]
+#[command(about = "Windows user tray daemon for whats-going-on")]
+struct Args {
+    #[command(subcommand)]
+    command: Command,
+}
+
+#[derive(Debug, Subcommand)]
+enum Command {
+    Run,
+    PairingWindow {
+        #[arg(long)]
+        daemon_url: Option<String>,
+
+        #[arg(long)]
+        config: Option<PathBuf>,
+    },
+}
+
+fn main() -> Result<()> {
+    tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .init();
+
+    match Args::parse().command {
+        Command::Run => {
+            println!("wgo user tray daemon scaffold running. Press Ctrl+C in the parent dev script to stop it.");
+            loop {
+                std::thread::sleep(Duration::from_secs(60));
+            }
+        }
+        Command::PairingWindow { daemon_url, config } => {
+            let config_path = config.unwrap_or_else(windows_program_data_config_path);
+            let mut config = load_or_default(&config_path)?;
+            let now = OffsetDateTime::now_utc().unix_timestamp();
+            let pairing = create_pairing_code(now);
+            config.pairing = Some(pairing.record.clone());
+            save(&config_path, &config)?;
+            show_pairing_window(&PairingWindowModel {
+                daemon_url: daemon_url.unwrap_or_else(|| default_daemon_url(&config)),
+                pairing_code: pairing.code,
+                expires_in_seconds: pairing.record.expires_at_unix - now,
+            })
+        }
+    }
+}
+
+fn default_daemon_url(config: &SystemConfig) -> String {
+    let port = config
+        .listen_addr
+        .parse::<SocketAddr>()
+        .map(|addr| addr.port())
+        .unwrap_or(8765);
+    if let Some(domain) = config
+        .domain
+        .as_deref()
+        .map(str::trim)
+        .filter(|domain| !domain.is_empty())
+    {
+        if port == 443 {
+            return format!("https://{domain}");
+        }
+        return format!("https://{domain}:{port}");
+    }
+    format!("https://localhost:{port}")
+}

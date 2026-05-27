@@ -1,0 +1,45 @@
+name: wgo Wire Standard
+description: |-
+  BDL standard used for wgo wire/envelope messages. In wgo, "wire" means the
+  byte-level envelope family carried over WebTransport reqres streams and
+  datagrams. It does not mean the whole WebTransport/QUIC stack and it does not
+  define domain RPC payload contracts.
+
+  The reqres envelope defines flattened CBOR sequence messages for reliable
+  request/response-direction exchanges: RPC invocations and session-control
+  commands. The datagram envelope defines one-message WebTransport datagrams,
+  starting with Ping and Pong probes.
+
+  All CBOR values in this layer use the deterministic wgo CBOR profile defined
+  in ./wgo-cbor.md.
+
+  Normal reqres request/response direction completion is represented by
+  WebTransport stream half-close/EOF. wgo-wire does not define
+  application-level RequestEnd or ResponseEnd messages.
+
+  Session authentication is represented by ReqResMessage session-control
+  variants. SessionAuthenticate carries a mechanism name and opaque
+  mechanism-specific payload bytes; application RPC schemas do not define a
+  session-authentication proc.
+
+primitives:
+  u53:
+    name: Unsigned safe integer
+    description: Encoded as a CBOR unsigned integer and range-checked to 0 through 2^53 - 1.
+  string:
+    name: UTF-8 string
+    description: Encoded as CBOR text string.
+  bytes:
+    name: Bytes
+    description: Encoded as CBOR byte string.
+
+attributes:
+  bdl.struct.field:
+    - key: id
+      description: Stable field id used as the CBOR map key.
+  bdl.enum.item:
+    - key: id
+      description: Stable enum item id encoded as a CBOR unsigned integer.
+  bdl.union.item:
+    - key: id
+      description: Stable union variant id encoded as the first element of a CBOR tuple, or as the flattened kind item for top-level ReqResMessage values.

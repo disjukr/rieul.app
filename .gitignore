@@ -1,0 +1,10 @@
+target/
+node_modules/
+dist/
+tmp/
+.vite/
+*.log
+*.pem
+*.pfx
+*.local
+*.tsbuildinfo

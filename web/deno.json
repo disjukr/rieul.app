@@ -1,0 +1,20 @@
+{
+  "nodeModulesDir": "auto",
+  "tasks": {
+    "dev": "deno run -A npm:vite@^6.0.0 --host 0.0.0.0",
+    "build": "deno run -A npm:typescript@^5.9.0/tsc -b && deno run -A npm:vite@^6.0.0 build",
+    "check": "deno task check:tools && deno run -A npm:typescript@^5.9.0/tsc -b",
+    "check:daemon": "deno run --unstable-net --allow-net --allow-read=.. src/tools/check-daemon.ts",
+    "check:tools": "deno check --unstable-net src/tools/check-daemon.ts",
+    "preview": "deno run -A npm:vite@^6.0.0 preview --host 0.0.0.0"
+  },
+  "imports": {
+    "@vitejs/plugin-react": "npm:@vitejs/plugin-react@^4.3.4",
+    "lucide-react": "npm:lucide-react@^0.468.0",
+    "react": "npm:react@^19.0.0",
+    "react/": "npm:react@^19.0.0/",
+    "react-dom": "npm:react-dom@^19.0.0",
+    "react-dom/": "npm:react-dom@^19.0.0/",
+    "vite": "npm:vite@^6.0.0"
+  }
+}

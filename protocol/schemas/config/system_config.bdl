@@ -1,0 +1,35 @@
+# standard - conventional
+# description
+| System daemon configuration persisted at the OS-specific machine config path.
+| On Windows dev runs this maps to the generated wgo.yaml under tmp/dev.
+
+@ description - Complete system daemon configuration document.
+struct SystemConfig {
+  @ description - Address the daemon listens on, for example `0.0.0.0:8765`.
+  listenAddr: string,
+
+  @ description - Public DNS name clients should use for WebTransport handshakes.
+  domain?: string,
+
+  @ description
+  | Explicit TLS certificate files.
+  | If omitted for a `.ts.net` domain, the daemon uses `tailscale cert`.
+  tls?: TlsConfig,
+
+  @ description - Stored paired-client credential records.
+  clients: ClientCredentialRecord[],
+}
+
+@ description - PEM certificate and key file paths used by the WebTransport TLS listener.
+struct TlsConfig {
+  certFile: string,
+  keyFile: string,
+}
+
+@ description - Persistent paired-client credential record. The plaintext secret is never stored.
+struct ClientCredentialRecord {
+  clientId: string,
+  label: string,
+  secretSha256Base64url: string,
+  createdAtUnix: int64,
+}

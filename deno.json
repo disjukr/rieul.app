@@ -1,0 +1,7 @@
+{
+  "tasks": {
+    "windows:dev:daemons": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/windows/dev-daemons.ps1",
+    "windows:kill:daemons": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/windows/kill-daemons.ps1",
+    "windows:pair:dev": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/windows/pair-dev.ps1"
+  }
+}

@@ -1,0 +1,550 @@
+# standard - wgo-rpc
+# description
+| Filesystem RPC methods for the active user context. These methods require
+| valid paired client credentials. Read-side table state is exposed through
+| server-streaming subscriptions: the first event is a Snapshot, later Snapshot
+| events replace the subscribed table view, and Patch events update membership
+| in that view. Mutating commands are best-effort bulk operations with per-item
+| results and no rollback guarantee; subscribed table events are the source of
+| truth for resulting filesystem state.
+| Authorization, routing, and malformed wire messages are wgo-wire envelope
+| errors.
+
+@ description
+| Subscribes to available filesystem roots for the active user context. The
+| first response event is RootsTableEvent.Snapshot. Later Snapshot events
+| replace the whole roots table view; Patch events apply incremental root
+| membership updates.
+@ id - 3
+@ stream - server
+proc SubscribeRoots = void -> RootsTableEvent throws SubscribeRootsError
+
+@ description
+| Subscribes to a directory table view in the active user context. The first
+| response event is DirectoryTableEvent.Snapshot. Later Snapshot events replace
+| the whole subscribed view; Patch events apply incremental view membership
+| updates.
+@ id - 4
+@ stream - server
+proc SubscribeDirectory = SubscribeDirectoryReq -> DirectoryTableEvent throws SubscribeDirectoryError
+
+@ description
+| Reads a whole file as bytes. Range reads and server-streaming large-file
+| reads are reserved for a later protocol revision.
+@ id - 5
+@ stream - unary
+proc ReadFile = ReadFileReq -> ReadFileRes throws ReadFileError
+
+@ description
+| Writes a whole file from bytes. Parent directories must already exist.
+| Client-streaming large-file writes, append, and partial writes are reserved
+| for a later protocol revision. The resulting filesystem state is observed
+| through active table subscriptions.
+@ id - 6
+@ stream - unary
+proc WriteFile = WriteFileReq -> void throws WriteFileError
+
+@ description
+| Creates filesystem nodes in the active user context. This is a best-effort
+| bulk command: each result item references the zero-based request item index.
+| Directory creation behaves like mkdir -p. File, symlink, and hardlink creation
+| create missing parent directories but fail if the target path already exists.
+| The resulting filesystem state is observed through active table subscriptions.
+@ id - 7
+@ stream - unary
+proc CreateNodes = CreateNodesReq -> BulkMutationRes throws FsMutationError
+
+@ description
+| Renames or moves filesystem entries in the active user context. This is a
+| best-effort bulk command: each result item references the zero-based request
+| item index. Destination parent directories must already exist. The resulting
+| filesystem state is observed through active table subscriptions.
+@ id - 8
+@ stream - unary
+proc RenamePaths = RenamePathsReq -> BulkMutationRes throws FsMutationError
+
+@ description
+| Deletes filesystem entries in the active user context. This is a best-effort
+| bulk command: each result item references the zero-based request item index.
+| The resulting filesystem state is observed through active table
+| subscriptions.
+@ id - 9
+@ stream - unary
+proc DeletePaths = DeletePathsReq -> BulkMutationRes throws FsMutationError
+
+@ description - Whole-file read request.
+struct ReadFileReq {
+  @ id - 1
+  path: string,
+}
+
+@ description - Directory table subscription request.
+struct SubscribeDirectoryReq {
+  @ id - 1
+  path: string,
+}
+
+@ description
+| Reactive roots table event. Snapshot replaces the whole subscribed roots
+| table view. Patch applies membership changes to the current view. Closed is a
+| domain-level terminal event and is followed by normal response stream close.
+union RootsTableEvent {
+  @ id - 1
+  Snapshot(
+    @ id - 1
+    rows: FsEntry[],
+  ),
+
+  @ id - 2
+  Patch(
+    @ id - 1
+    removes: RootEntryKey[],
+
+    @ id - 2
+    upserts: FsEntry[],
+  ),
+
+  @ id - 3
+  Closed(
+    @ id - 1
+    reason: RootsSubscriptionCloseReason,
+  ),
+}
+
+@ description
+| Reactive directory table event. Snapshot replaces the whole subscribed
+| directory table view and is used for both the initial response and later
+| resynchronization. Patch applies membership changes to the current view:
+| removes means a row leaves this subscribed table view, not necessarily that
+| the underlying filesystem entry was deleted. Closed is a domain-level
+| terminal event and is followed by normal response stream close.
+union DirectoryTableEvent {
+  @ id - 1
+  Snapshot(
+    @ id - 1
+    rows: FsEntry[],
+  ),
+
+  @ id - 2
+  Patch(
+    @ id - 1
+    removes: DirectoryEntryKey[],
+
+    @ id - 2
+    upserts: FsEntry[],
+  ),
+
+  @ id - 3
+  Closed(
+    @ id - 1
+    reason: DirectorySubscriptionCloseReason,
+  ),
+}
+
+@ description - Root table row key. Root rows use path as their stable key.
+struct RootEntryKey {
+  @ id - 1
+  path: string,
+}
+
+@ description
+| Directory table row key. Directory rows use exact entry name as their stable
+| key within the subscribed directory.
+struct DirectoryEntryKey {
+  @ id - 1
+  name: string,
+}
+
+@ description
+| Terminal reason for a roots subscription. These are domain events, not
+| wgo-wire reqres stream errors.
+union RootsSubscriptionCloseReason {
+  @ id - 0
+  Failed(),
+
+  @ id - 1
+  PermissionLost(),
+
+  @ id - 2
+  Unknown(),
+}
+
+@ description
+| Terminal reason for a directory subscription. These are domain events, not
+| wgo-wire reqres stream errors. Moved.to is present only when the daemon can
+| determine the destination path reliably.
+union DirectorySubscriptionCloseReason {
+  @ id - 0
+  Failed(),
+
+  @ id - 1
+  Deleted(),
+
+  @ id - 2
+  Moved(
+    @ id - 1
+    to?: string,
+  ),
+
+  @ id - 3
+  PermissionLost(),
+
+  @ id - 4
+  ReplacedByNonDirectory(),
+
+  @ id - 5
+  Unknown(),
+}
+
+@ description - One filesystem entry visible to the active user context.
+struct FsEntry {
+  @ id - 1
+  name: string,
+
+  @ id - 2
+  path: string,
+
+  @ id - 3
+  kind: FsEntryKind,
+
+  @ id - 4
+  size?: u53,
+
+  @ id - 5
+  modifiedAtMs?: u53,
+
+  @ id - 6
+  readonly: bool,
+}
+
+@ description - Portable entry kind used by the file explorer UI.
+enum FsEntryKind {
+  @ id - 1
+  File,
+
+  @ id - 2
+  Directory,
+
+  @ id - 3
+  Symlink,
+
+  @ id - 4
+  Other,
+}
+
+@ description - Whole-file read response.
+struct ReadFileRes {
+  @ id - 1
+  bytes: bytes,
+}
+
+@ description - Whole-file write request.
+struct WriteFileReq {
+  @ id - 1
+  path: string,
+
+  @ id - 2
+  mode: WriteFileMode,
+
+  @ id - 3
+  bytes: bytes,
+}
+
+@ description - Existing-target behavior for WriteFile.
+enum WriteFileMode {
+  @ id - 1
+  @ description
+  | Create a new regular file and fail with AlreadyExists if the target path
+  | already exists.
+  CreateNew,
+
+  @ id - 2
+  @ description
+  | Create the file if it is missing, or replace the content of an existing
+  | regular file. Fail with NotFile if the target exists but is not a regular
+  | file.
+  CreateOrReplace,
+}
+
+@ description - Bulk create-nodes request.
+struct CreateNodesReq {
+  @ id - 1
+  nodes: CreateNodeOp[],
+}
+
+@ description - One create-node operation in a bulk request.
+struct CreateNodeOp {
+  @ id - 1
+  path: string,
+
+  @ id - 2
+  spec: CreateNodeSpec,
+}
+
+@ description
+| Filesystem node creation spec. Symlink.target is stored as the OS symlink
+| target string as provided; relative and absolute targets are distinguished by
+| the string itself. Hardlink.target must identify an existing regular file.
+union CreateNodeSpec {
+  @ id - 1
+  File(),
+
+  @ id - 2
+  Directory(),
+
+  @ id - 3
+  Symlink(
+    @ id - 1
+    target: string,
+  ),
+
+  @ id - 4
+  Hardlink(
+    @ id - 1
+    target: string,
+  ),
+}
+
+@ description - Bulk rename/move request.
+struct RenamePathsReq {
+  @ id - 1
+  ops: RenamePathOp[],
+}
+
+@ description - One rename/move operation in a bulk request.
+struct RenamePathOp {
+  @ id - 1
+  from: string,
+
+  @ id - 2
+  to: string,
+}
+
+@ description - Bulk delete request.
+struct DeletePathsReq {
+  @ id - 1
+  paths: string[],
+
+  @ id - 2
+  mode: DeleteMode,
+}
+
+@ description - Deletion behavior for DeletePaths.
+enum DeleteMode {
+  @ id - 1
+  @ description
+  | Move entries to the OS recycle bin/trash. The daemon must not permanently
+  | delete when trash/recycle fails.
+  Trash,
+
+  @ id - 2
+  @ description
+  | Remove files and directory trees without using the OS trash.
+  Permanent,
+}
+
+@ description
+| Result for a best-effort bulk filesystem mutation. Each result item references
+| the zero-based index of the request item it describes.
+struct BulkMutationRes {
+  @ id - 1
+  results: BulkMutationItemResult[],
+}
+
+@ description - Per-item result for a best-effort bulk filesystem mutation.
+union BulkMutationItemResult {
+  @ id - 0
+  Failed(
+    @ id - 1
+    index: u53,
+
+    @ id - 2
+    error: FsMutationItemError,
+  ),
+
+  @ id - 1
+  Ok(
+    @ id - 1
+    index: u53,
+  ),
+}
+
+@ description - Per-item filesystem mutation failure.
+union FsMutationItemError {
+  @ id - 0
+  Failed(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 1
+  PermissionDenied(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 2
+  NotFound(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 3
+  AlreadyExists(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 4
+  NotDirectory(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 5
+  NotFile(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 6
+  InvalidPath(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 7
+  Unsupported(
+    @ id - 1
+    message: string,
+  ),
+}
+
+@ description - Method-level roots subscription start errors.
+union SubscribeRootsError {
+  @ id - 0
+  Failed(
+    @ id - 1
+    message: string,
+  ),
+}
+
+@ description
+| Method-level directory subscription start errors. Authentication failures,
+| malformed wire messages, and generic routing failures are wire/envelope
+| errors. Domain changes after a successful start are reported as
+| DirectoryTableEvent.Closed when possible.
+union SubscribeDirectoryError {
+  @ id - 0
+  Failed(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 1
+  PermissionDenied(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 2
+  NotFound(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 3
+  NotDirectory(
+    @ id - 1
+    message: string,
+  ),
+}
+
+@ description - Method-level whole-file read errors.
+union ReadFileError {
+  @ id - 0
+  Failed(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 1
+  PermissionDenied(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 2
+  NotFound(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 3
+  NotFile(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 4
+  InvalidPath(
+    @ id - 1
+    message: string,
+  ),
+}
+
+@ description - Method-level whole-file write errors.
+union WriteFileError {
+  @ id - 0
+  Failed(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 1
+  PermissionDenied(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 2
+  NotFound(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 3
+  AlreadyExists(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 4
+  NotDirectory(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 5
+  NotFile(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 6
+  InvalidPath(
+    @ id - 1
+    message: string,
+  ),
+}
+
+@ description
+| Method-level bulk filesystem mutation errors. Item-level filesystem failures
+| are reported in BulkMutationRes.
+union FsMutationError {
+  @ id - 0
+  Failed(
+    @ id - 1
+    message: string,
+  ),
+}

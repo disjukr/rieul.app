@@ -1,0 +1,273 @@
+# standard - wgo-wire
+# description
+| wgo-wire reqres defines the reliable request/response-direction envelope
+| carried inside one WebTransport bidirectional stream. It defines the stream
+| grammar for RPC invocations and session-control commands, not domain RPC
+| payload contracts.
+|
+| One WebTransport bidirectional stream carries exactly one reqres exchange:
+| either one RPC invocation or one session-control command. Request/response
+| matching is provided by that exchange stream, so ReqResMessage has no request
+| id. Unary RPC calls are represented by a single request message and a single
+| response message. Streaming calls start with a stream-start message and then
+| carry zero or more stream-chunk messages. Normal direction completion is
+| represented by the WebTransport stream half-close/EOF, not by an
+| application-level end message.
+|
+| The reqres stream body is an RFC 8742-style CBOR sequence of flattened
+| ReqResMessage pairs:
+|
+|   +-------------------+-------------------+-------------------+
+|   | kind (CBOR uint)  | fields (CBOR map) | kind (CBOR uint)  |
+|   +-------------------+-------------------+-------------------+
+|   | fields (CBOR map) |   ... repeated until stream end ...   |
+|   +-----------------------------------------------------------+
+|
+| Each ReqResMessage is encoded as two complete deterministic CBOR items: the
+| union variant id followed by that variant's fields map. The top-level
+| ReqResMessage array prefix is omitted because the reqres stream grammar
+| already groups messages into fixed kind/map pairs. Nested unions and payload
+| values still use the normal two-element array union encoding. There is no
+| extra length prefix, frame header, section table, or varint layer. Malformed
+| CBOR or an invalid message closes the affected stream/session.
+|
+| The proc's wgo-rpc stream shape defines request and response direction
+| cardinality:
+|
+|   unary:  request=RequestUnary; response=ResponseUnaryOk | ResponseUnaryError
+|   client: request=RequestStreamStart, RequestStreamChunk*, half-close;
+|           response=ResponseUnaryOk | ResponseUnaryError
+|   server: request=RequestUnary, half-close;
+|           response=ResponseStreamStart, ResponseStreamChunk*, half-close
+|                 or ResponseStreamErrorEnd, close
+|   bidi:   request=RequestStreamStart, RequestStreamChunk*, half-close;
+|           response=ResponseStreamStart, ResponseStreamChunk*, half-close
+|                 or ResponseStreamErrorEnd, close
+|
+| For all stream shapes, normal direction completion is represented by
+| WebTransport half-close/EOF rather than an application-level end message.
+|
+| Session-control reqres streams use the same ReqResMessage union. A client
+| authenticates the WebTransport session by sending exactly one
+| SessionAuthenticate message and half-closing the request direction. The server
+| replies with exactly one SessionAuthenticated or SessionAuthError message and
+| closes the response direction. SessionAuthenticate is generic: it names an
+| authentication mechanism and carries mechanism-specific opaque payload bytes.
+| Protected RPC procs use the resulting session authentication state.
+| Authentication failures are wire/session failures, not method-level throws
+| variants.
+
+@ description
+| A logical message in the CBOR sequence for an RPC invocation or
+| session-control command. At the top-level reqres stream this union is encoded
+| as a flattened kind/map pair rather than a two-element CBOR array. RPC payload
+| and error fields are raw bytes whose schema is determined by proc id and
+| response variant.
+union ReqResMessage {
+  @ id - 0
+  @ description
+  | Complete request for a unary RPC invocation.
+  RequestUnary(
+    @ id - 1
+    procId: u53,
+
+    @ id - 2
+    payload?: bytes,
+  ),
+
+  @ id - 1
+  @ description
+  | First request-direction message for a streaming RPC invocation.
+  RequestStreamStart(
+    @ id - 1
+    procId: u53,
+
+    @ id - 2
+    payload?: bytes,
+  ),
+
+  @ id - 2
+  @ description
+  | Middle request-direction payload chunk for a streaming RPC invocation.
+  RequestStreamChunk(
+    @ id - 2
+    payload: bytes,
+  ),
+
+  @ id - 3
+  @ description
+  | Successful response for a unary RPC invocation.
+  ResponseUnaryOk(
+    @ id - 2
+    payload?: bytes,
+  ),
+
+  @ id - 4
+  @ description
+  | Failed response for a unary RPC invocation. The error field contains either
+  | a method throws union or RpcErrorPayload for generic protocol failures.
+  ResponseUnaryError(
+    @ id - 3
+    error: bytes,
+
+    @ id - 4
+    errorKind: RpcErrorKind,
+  ),
+
+  @ id - 5
+  @ description
+  | First successful response-direction message for a streaming RPC invocation.
+  ResponseStreamStart(
+    @ id - 2
+    payload?: bytes,
+  ),
+
+  @ id - 6
+  @ description
+  | Middle response-direction payload chunk for a streaming RPC invocation.
+  ResponseStreamChunk(
+    @ id - 2
+    payload: bytes,
+  ),
+
+  @ id - 7
+  @ description
+  | Terminal failed response for a streaming RPC invocation.
+  ResponseStreamErrorEnd(
+    @ id - 3
+    error: bytes,
+
+    @ id - 4
+    errorKind: RpcErrorKind,
+  ),
+
+  @ id - 8
+  @ description
+  | Request to authenticate the current WebTransport session. The mechanism
+  | field identifies the authentication profile. The payload field is
+  | mechanism-specific deterministic CBOR bytes.
+  SessionAuthenticate(
+    @ id - 1
+    mechanism: string,
+
+    @ id - 2
+    payload: bytes,
+  ),
+
+  @ id - 9
+  @ description - Successful session authentication response.
+  SessionAuthenticated(),
+
+  @ id - 10
+  @ description - Failed session authentication response.
+  SessionAuthError(
+    @ id - 1
+    code: SessionAuthErrorCode,
+
+    @ id - 2
+    message: string,
+  ),
+}
+
+@ description
+| Session authentication failure codes. These belong to the wire/session
+| control protocol, not to any application RPC proc.
+enum SessionAuthErrorCode {
+  @ id - 1
+  @ description - The requested authentication mechanism is not supported.
+  UnsupportedMechanism,
+
+  @ id - 2
+  @ description - The mechanism payload was well-formed but credentials failed verification.
+  InvalidCredentials,
+
+  @ id - 3
+  @ description - The mechanism payload or control stream cardinality is invalid.
+  MalformedPayload,
+
+  @ id - 4
+  @ description - The WebTransport session is already authenticated.
+  AlreadyAuthenticated,
+}
+
+@ description
+| Mechanism-specific payload for mechanism "wgo.paired-secret.v1". This struct
+| is encoded as deterministic CBOR and carried as SessionAuthenticate.payload.
+struct PairedSecretCredential {
+  @ id - 1
+  credentialId: string,
+
+  @ id - 2
+  credentialSecret: string,
+}
+
+@ description - Discriminator for the schema used by an error response payload.
+enum RpcErrorKind {
+  @ id - 1
+  @ description - The error field contains RpcErrorPayload.
+  System,
+
+  @ id - 2
+  @ description - The error field contains the proc's declared throws union.
+  Method,
+}
+
+@ description
+| Generic wire/envelope error codes. These are used only when the failure is
+| outside a proc's declared throws union. Method-specific errors stay in the
+| relevant wgo-rpc schema.
+enum RpcErrorCode {
+  @ id - 1
+  @ description - Received message is not valid for the current RPC endpoint.
+  BadMessage,
+
+  @ id - 2
+  @ description - Paired client credentials are missing or invalid.
+  Unauthorized,
+
+  @ id - 3
+  @ description - A payload is required for this request but was absent.
+  MissingPayload,
+
+  @ id - 4
+  @ description - The proc id is reserved or not implemented by this daemon.
+  NotImplemented,
+
+  @ id - 6
+  @ description - The lower-level service rejected the operation for permissions.
+  PermissionDenied,
+
+  @ id - 7
+  @ description - The lower-level service could not find the requested resource.
+  NotFound,
+
+  @ id - 8
+  @ description - The lower-level service found an existing conflicting resource.
+  AlreadyExists,
+
+  @ id - 9
+  @ description - The lower-level service failed without a more specific protocol code.
+  OperationFailed,
+
+  @ id - 10
+  @ description - The payload exists but cannot be decoded for the proc.
+  MalformedPayload,
+}
+
+@ description
+| Generic protocol error carried in the error field when failure happens
+| outside a method contract: invalid message kind, missing request payload,
+| unimplemented proc id, failed authentication, or other low-level daemon
+| routing failures.
+|
+| If a proc's declared throws union covers the failure, the error field carries
+| that union instead.
+struct RpcErrorPayload {
+  @ id - 1
+  @ description - Stable generic wire/envelope error code.
+  code: RpcErrorCode,
+
+  @ id - 2
+  @ description - Human-readable diagnostic message, not a stable discriminator.
+  message: string,
+}

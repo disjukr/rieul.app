@@ -1,0 +1,38 @@
+# standard - wgo-wire
+# description
+| wgo-wire datagram defines the message-oriented envelope carried by
+| WebTransport datagrams. Datagram messages do not use CBOR sequence framing,
+| request/response stream cardinality, or half-close semantics.
+|
+| Each WebTransport datagram carries exactly one DatagramMessage encoded as the
+| normal two-element union tuple: [variant_id, fields_map]. Datagram delivery
+| may be lost, duplicated, or reordered, so each message must be self-contained.
+|
+| Ping and Pong are application-level probes for datagram path visibility and
+| latency measurement. Missing Pong messages do not by themselves mean the
+| WebTransport session, reqres streams, or RPC invocations have failed.
+| Implementations may rate-limit Ping and Pong handling.
+
+@ description
+| Message carried by one WebTransport datagram. Unlike ReqResMessage, this union
+| uses the normal two-element CBOR union tuple because the datagram boundary
+| already frames exactly one message.
+union DatagramMessage {
+  @ id - 1
+  @ description
+  | Application-level datagram probe. pingId is a sender-chosen session-local
+  | monotonic id. It is only a correlation id, not an authentication token or
+  | replay-protection primitive.
+  Ping(
+    @ id - 1
+    pingId: u53,
+  ),
+
+  @ id - 2
+  @ description
+  | Response to Ping. The receiver echoes pingId unchanged.
+  Pong(
+    @ id - 1
+    pingId: u53,
+  ),
+}

@@ -1,0 +1,53 @@
+name: wgo RPC Standard
+description: |-
+  BDL standard used by wgo-rpc. It defines proc ids, stream shape,
+  deterministic field-id CBOR payload encoding, payload schema selection, and
+  method-level error unions. It does not define the WebTransport stream
+  envelope; that is wgo-wire.
+
+  RPC payloads and method-level error payloads use the deterministic wgo CBOR
+  profile defined in ./wgo-cbor.md.
+
+  A proc's stream shape defines request and response direction cardinality:
+  unary means unary request and unary response, client means streaming request
+  and unary response, server means unary request and streaming response, and
+  bidi means streaming request and streaming response.
+
+primitives:
+  bool:
+    name: Boolean
+    description: Encoded as CBOR simple true/false.
+  i53:
+    name: Signed safe integer
+    description: Encoded as a CBOR integer and range-checked to JavaScript's safe integer range.
+  u53:
+    name: Unsigned safe integer
+    description: Encoded as a CBOR unsigned integer and range-checked to 0 through 2^53 - 1.
+  f64:
+    name: 64-bit floating point
+    description: Encoded as CBOR float64.
+  string:
+    name: UTF-8 string
+    description: Encoded as CBOR text string.
+  bytes:
+    name: Bytes
+    description: Encoded as CBOR byte string.
+  void:
+    name: Void
+    description: No payload.
+
+attributes:
+  bdl.proc:
+    - key: id
+      description: Stable wgo-rpc method id. Required for every proc.
+    - key: stream
+      description: Stream shape. Supported values are unary, client, server, and bidi.
+  bdl.struct.field:
+    - key: id
+      description: Stable field id used as the CBOR map key. Required for wire payload fields.
+  bdl.enum.item:
+    - key: id
+      description: Stable enum item id encoded as a CBOR unsigned integer.
+  bdl.union.item:
+    - key: id
+      description: Stable union variant id encoded as the first element of a CBOR tuple.

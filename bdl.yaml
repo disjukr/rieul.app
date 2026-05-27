@@ -1,0 +1,6 @@
+paths:
+  wgo: ./protocol/schemas
+
+standards:
+  wgo-rpc: ./protocol/standards/wgo-rpc.yaml
+  wgo-wire: ./protocol/standards/wgo-wire.yaml
