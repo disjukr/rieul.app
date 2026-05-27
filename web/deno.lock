@@ -2,6 +2,9 @@
   "version": "5",
   "specifiers": {
     "npm:@vitejs/plugin-react@^4.3.4": "4.7.0_vite@6.4.2",
+    "npm:bunja@*": "3.0.0_@types+react@19.2.14_react@19.2.6",
+    "npm:bunja@3": "3.0.0_@types+react@19.2.14_react@19.2.6",
+    "npm:jotai@^2.15.0": "2.20.0_@types+react@19.2.14_react@19.2.6",
     "npm:lucide-react@0.468": "0.468.0_react@19.2.6",
     "npm:react-dom@19": "19.2.6_react@19.2.6",
     "npm:react@19": "19.2.6",
@@ -463,6 +466,12 @@
     "@types/estree@1.0.8": {
       "integrity": "sha512-dWHzHa2WqEXI/O1E9OjrocMTKJl2mSrEolh1Iomrv6U+JuNwaHXsXx9bLu5gG7BUWFIN0skIQJQ/L1rIex4X6w=="
     },
+    "@types/react@19.2.14": {
+      "integrity": "sha512-ilcTH/UniCkMdtexkoCN0bI7pMcJDvmQFPvuPvmEaYA/NSfFTAgdUSLAoVjaRJm7+6PvcM+q1zYOwS4wTYMF9w==",
+      "dependencies": [
+        "csstype"
+      ]
+    },
     "@vitejs/plugin-react@4.7.0_vite@6.4.2": {
       "integrity": "sha512-gUu9hwfWvvEDBBmgtAowQCojwZmJ5mcLn3aufeCsitijs3+f2NsrPtlAWIR6OPiqljl96GVCUbLe0HyqIpVaoA==",
       "dependencies": [
@@ -490,11 +499,25 @@
       ],
       "bin": true
     },
+    "bunja@3.0.0_@types+react@19.2.14_react@19.2.6": {
+      "integrity": "sha512-ZKu2bgpwC5l3JnR8tl2mDNvDVVaiq0Zvdtxuyjb3n+F+05OYzicFkA4bqhmB34wYA8Rs7aT2ebbqCUDJCNDCmA==",
+      "dependencies": [
+        "@types/react",
+        "react"
+      ],
+      "optionalPeers": [
+        "@types/react",
+        "react"
+      ]
+    },
     "caniuse-lite@1.0.30001792": {
       "integrity": "sha512-hVLMUZFgR4JJ6ACt1uEESvQN1/dBVqPAKY0hgrV70eN3391K6juAfTjKZLKvOMsx8PxA7gsY1/tLMMTcfFLLpw=="
     },
     "convert-source-map@2.0.0": {
       "integrity": "sha512-Kvp459HrV2FEJ1CAsi1Ku+MY3kasH19TFykTz2xWmMeq6bk2NU3XXvfJ+Q61m0xktWwt+1HSYf3JZsTms3aRJg=="
+    },
+    "csstype@3.2.3": {
+      "integrity": "sha512-z1HGKcYy2xA8AGQfwrn0PAy+PB7X/GSj3UVJW9qKyn43xWa+gl5nXmU4qqLMRzWVLFC8KusUX8T/0kCiOYpAIQ=="
     },
     "debug@4.4.3": {
       "integrity": "sha512-RGwwWnwQvkVfavKVt22FGLw+xYSdzARwm0ru6DhTVA3umU5hZc28V3kO4stgYryrTlLpuvgI9GiijltAjNbcqA==",
@@ -557,6 +580,17 @@
     },
     "gensync@1.0.0-beta.2": {
       "integrity": "sha512-3hN7NaskYvMDLQY55gnW3NQ+mesEAepTqlg+VEbj7zzqEMBVNhzcGYYeqFo/TlYz6eQiFcp1HcsCZO+nGgS8zg=="
+    },
+    "jotai@2.20.0_@types+react@19.2.14_react@19.2.6": {
+      "integrity": "sha512-b5GAqgmXmXzB4WPaTH26ppk9Sl7AA9WSQX7yfdM+gJ1rFROiWcVbi97gFuN/yVCojOcbcvop2sfLL+fjxW0JVg==",
+      "dependencies": [
+        "@types/react",
+        "react"
+      ],
+      "optionalPeers": [
+        "@types/react",
+        "react"
+      ]
     },
     "js-tokens@4.0.0": {
       "integrity": "sha512-RdJUflcE3cUzKiMqQgsCu06FPu9UdIJO0beYbPhHN4k6apgJtifcoCtT9bcxOpYBtpD2kCM6Sbzg4CausW/PKQ=="
@@ -705,6 +739,8 @@
   "workspace": {
     "dependencies": [
       "npm:@vitejs/plugin-react@^4.3.4",
+      "npm:bunja@3",
+      "npm:jotai@^2.15.0",
       "npm:lucide-react@0.468",
       "npm:react-dom@19",
       "npm:react@19",

@@ -1,0 +1,94 @@
+import { bunja } from "bunja";
+import { atom } from "jotai";
+import { loadMachines, Machine, saveMachines } from "./machines.ts";
+import { JotaiStoreScope } from "./jotai-store.ts";
+
+const initialMachines = loadMachines();
+
+export const machineStoreBunja = bunja(() => {
+  const store = bunja.use(JotaiStoreScope);
+
+  const machinesAtom = atom<Machine[]>(initialMachines);
+  const selectedIdAtom = atom<string | undefined>(initialMachines[0]?.id);
+  const selectedAtom = atom((get) =>
+    getMachine(get(machinesAtom), get(selectedIdAtom))
+  );
+  const selectedIsPairedAtom = atom((get) => isPaired(get(selectedAtom)));
+
+  function selectMachine(machineId?: string) {
+    store.set(selectedIdAtom, machineId);
+  }
+
+  function findMachine(machineId?: string): Machine | undefined {
+    return getMachine(store.get(machinesAtom), machineId);
+  }
+
+  function addMachine(machine: Machine) {
+    store.set(machinesAtom, (current) => [...current, machine]);
+    store.set(selectedIdAtom, machine.id);
+  }
+
+  function updateMachine(
+    machineId: string,
+    update: (machine: Machine) => Machine,
+  ) {
+    store.set(
+      machinesAtom,
+      (current) =>
+        current.map((machine) =>
+          machine.id === machineId ? update(machine) : machine
+        ),
+    );
+  }
+
+  function setMachineCredentials(
+    machineId: string,
+    credentials: { clientId: string; clientSecret: string },
+  ) {
+    updateMachine(machineId, (machine) => ({ ...machine, ...credentials }));
+  }
+
+  function deleteSelectedMachine(): Machine | undefined {
+    const selected = store.get(selectedAtom);
+    if (!selected) return undefined;
+    const remaining = store.get(machinesAtom).filter((machine) =>
+      machine.id !== selected.id
+    );
+    store.set(machinesAtom, remaining);
+    store.set(
+      selectedIdAtom,
+      (current) => current === selected.id ? remaining[0]?.id : current,
+    );
+    return selected;
+  }
+
+  bunja.effect(() =>
+    store.sub(machinesAtom, () => {
+      saveMachines(store.get(machinesAtom));
+    })
+  );
+
+  return {
+    machinesAtom,
+    selectedIdAtom,
+    selectedAtom,
+    selectedIsPairedAtom,
+    selectMachine,
+    findMachine,
+    addMachine,
+    updateMachine,
+    setMachineCredentials,
+    deleteSelectedMachine,
+  };
+});
+
+function getMachine(
+  machines: Machine[],
+  machineId?: string,
+): Machine | undefined {
+  return machines.find((machine) => machine.id === machineId);
+}
+
+export function isPaired(machine?: Machine): boolean {
+  return Boolean(machine?.clientId && machine?.clientSecret);
+}

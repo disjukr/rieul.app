@@ -10,6 +10,9 @@
   },
   "imports": {
     "@vitejs/plugin-react": "npm:@vitejs/plugin-react@^4.3.4",
+    "bunja": "npm:bunja@^3.0.0",
+    "bunja/react": "npm:bunja@^3.0.0/react",
+    "jotai": "npm:jotai@^2.15.0",
     "lucide-react": "npm:lucide-react@^0.468.0",
     "react": "npm:react@^19.0.0",
     "react/": "npm:react@^19.0.0/",

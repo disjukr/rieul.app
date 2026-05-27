@@ -16,7 +16,7 @@ export function loadMachines(): Machine[] {
     if (!Array.isArray(parsed)) return [];
     return parsed
       .map((item) => normalizeMachine(item))
-      .filter((item): item is Machine => item !== null);
+      .filter((item): item is Machine => item !== undefined);
   } catch {
     return [];
   }
@@ -43,11 +43,11 @@ export function normalizeMachineUrl(raw: string): string {
   return url.toString().replace(/\/$/, "");
 }
 
-function normalizeMachine(item: unknown): Machine | null {
-  if (!item || typeof item !== "object") return null;
+function normalizeMachine(item: unknown): Machine | undefined {
+  if (!item || typeof item !== "object") return undefined;
   const record = item as Record<string, unknown>;
   if (typeof record.id !== "string" || typeof record.baseUrl !== "string") {
-    return null;
+    return undefined;
   }
   try {
     return {
@@ -64,7 +64,7 @@ function normalizeMachine(item: unknown): Machine | null {
         : undefined,
     };
   } catch {
-    return null;
+    return undefined;
   }
 }
 

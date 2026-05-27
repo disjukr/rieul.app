@@ -1,5 +1,12 @@
-import React, { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import React, { createContext, FormEvent, useEffect, useRef } from "react";
 import { createRoot } from "react-dom/client";
+import {
+  createStore,
+  Provider as JotaiProvider,
+  useAtomValue,
+  useSetAtom,
+} from "jotai";
+import { bindScope, BunjaStoreProvider, useBunja } from "bunja/react";
 import {
   AlertCircle,
   ArrowLeft,
@@ -24,90 +31,59 @@ import {
   X,
 } from "lucide-react";
 import "./styles.css";
+import { FsEntry, FsEntryKind } from "./protocol/rpc.ts";
+import { connectionBunja } from "./state/connection.ts";
 import {
-  checkReachable,
-  completePairing,
-  DirectoryTableEvent,
-  FsEntry,
-  FsEntryKind,
-  isDatagramPingTimeoutError,
-  RootsTableEvent,
-  subscribeDirectory,
-  subscribeRoots,
-} from "./protocol/rpc.ts";
-import {
-  loadMachines,
-  Machine,
-  normalizeMachineUrl,
-  saveMachines,
-} from "./state/machines.ts";
+  displayName,
+  explorerBunja,
+  ExplorerMachineScope,
+  formatDate,
+  formatSize,
+  kindLabel,
+  pathCrumbs,
+} from "./state/explorer.ts";
+import { type JotaiStore, JotaiStoreScope } from "./state/jotai-store.ts";
+import { machineMenuBunja } from "./state/machine-menu.ts";
+import { machineModalBunja } from "./state/machine-modal.ts";
+import { machineStoreBunja } from "./state/machine-store.ts";
+import { Machine } from "./state/machines.ts";
+import { ConnectionState, StreamState } from "./state/types.ts";
 
-type ConnectionState =
-  | { phase: "idle"; message: string }
-  | { phase: "checking"; message: string }
-  | { phase: "reachable"; message: string; latencyMs: number }
-  | { phase: "offline"; message: string };
-
-type StreamState =
-  | { phase: "idle"; message: string }
-  | { phase: "connecting"; message: string }
-  | { phase: "live"; message: string }
-  | { phase: "closed"; message: string }
-  | { phase: "error"; message: string };
-
-type MachineModalMode = "add" | "pair" | "config" | "delete";
-type MachineMenuState = { machineId: string; x: number; y: number };
-type RailTooltipState = { name: string; x: number; y: number };
-
-const STATUS_PING_INTERVAL_MS = 5_000;
-const initialMachines = loadMachines();
+const jotaiStore = createStore();
+const JotaiStoreContext = createContext<JotaiStore>(jotaiStore);
+bindScope(JotaiStoreScope, JotaiStoreContext);
 const projectLogoUrl = new URL("./assets/wgo.svg", import.meta.url).href;
 
 function App() {
-  const [machines, setMachines] = useState<Machine[]>(() => initialMachines);
-  const [selectedId, setSelectedId] = useState<string | null>(() =>
-    initialMachines[0]?.id ?? null
-  );
-  const [machineName, setMachineName] = useState("");
-  const [machineNameEdited, setMachineNameEdited] = useState(false);
-  const [baseUrl, setBaseUrl] = useState("");
-  const [configNameDraft, setConfigNameDraft] = useState("");
-  const [configUrlDraft, setConfigUrlDraft] = useState("");
-  const [machineModalMode, setMachineModalMode] = useState<
-    MachineModalMode | null
-  >(null);
-  const [machineFormError, setMachineFormError] = useState("");
-  const [pairingCode, setPairingCode] = useState("");
-  const [isPairing, setIsPairing] = useState(false);
-  const [machineMenu, setMachineMenu] = useState<MachineMenuState | null>(null);
-  const [railTooltip, setRailTooltip] = useState<RailTooltipState | null>(null);
+  const machineStore = useBunja(machineStoreBunja);
+  const machineMenuState = useBunja(machineMenuBunja);
+  const machineModal = useBunja(machineModalBunja);
+  const connectionState = useBunja(connectionBunja);
+
+  const machines = useAtomValue(machineStore.machinesAtom);
+  const selected = useAtomValue(machineStore.selectedAtom);
+  const selectedId = useAtomValue(machineStore.selectedIdAtom);
+  const selectedIsPaired = useAtomValue(machineStore.selectedIsPairedAtom);
+  const machineName = useAtomValue(machineModal.machineNameAtom);
+  const baseUrl = useAtomValue(machineModal.baseUrlAtom);
+  const configNameDraft = useAtomValue(machineModal.configNameDraftAtom);
+  const configUrlDraft = useAtomValue(machineModal.configUrlDraftAtom);
+  const machineModalMode = useAtomValue(machineModal.machineModalModeAtom);
+  const machineFormError = useAtomValue(machineModal.machineFormErrorAtom);
+  const pairingCode = useAtomValue(machineModal.pairingCodeAtom);
+  const isPairing = useAtomValue(machineModal.isPairingAtom);
+  const machineMenu = useAtomValue(machineMenuState.machineMenuAtom);
+  const menuMachine = useAtomValue(machineMenuState.menuMachineAtom);
+  const railTooltip = useAtomValue(machineMenuState.railTooltipAtom);
+  const connection = useAtomValue(connectionState.connectionAtom);
+  const connectionEpoch = useAtomValue(connectionState.connectionEpochAtom);
+  const modalTitle = useAtomValue(machineModal.modalTitleAtom);
+  const setConfigNameDraft = useSetAtom(machineModal.configNameDraftAtom);
+  const setConfigUrlDraft = useSetAtom(machineModal.configUrlDraftAtom);
+  const setPairingCode = useSetAtom(machineModal.pairingCodeAtom);
   const machineNameInputRef = useRef<HTMLInputElement>(null);
   const configNameInputRef = useRef<HTMLInputElement>(null);
   const pairingCodeInputRef = useRef<HTMLInputElement>(null);
-  const [connection, setConnection] = useState<ConnectionState>({
-    phase: "idle",
-    message: "No machine selected",
-  });
-  const [connectionEpoch, setConnectionEpoch] = useState(0);
-  const connectionReachableRef = useRef(false);
-  const selected = useMemo(
-    () => machines.find((machine) => machine.id === selectedId) ?? null,
-    [machines, selectedId],
-  );
-  const selectedIsPaired = Boolean(
-    selected?.clientId && selected?.clientSecret,
-  );
-  const menuMachine = useMemo(
-    () =>
-      machines.find((machine) => machine.id === machineMenu?.machineId) ??
-        null,
-    [machines, machineMenu?.machineId],
-  );
-  const modalTitle = machineModalTitle(machineModalMode);
-
-  useEffect(() => {
-    saveMachines(machines);
-  }, [machines]);
 
   useEffect(() => {
     if (machines.length === 0 && !machineModalMode) {
@@ -147,7 +123,7 @@ function App() {
     if (!machineMenu) return;
 
     function closeMenu() {
-      setMachineMenu(null);
+      machineMenuState.closeMachineMenu();
     }
 
     function closeMenuOnEscape(event: KeyboardEvent) {
@@ -160,119 +136,22 @@ function App() {
       globalThis.removeEventListener("mousedown", closeMenu);
       globalThis.removeEventListener("keydown", closeMenuOnEscape);
     };
-  }, [machineMenu]);
-
-  useEffect(() => {
-    if (!selected) {
-      connectionReachableRef.current = false;
-      setConnection({ phase: "idle", message: "No machine selected" });
-      return;
-    }
-
-    const currentMachine = selected;
-    let stopped = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-
-    async function pingStatus(showChecking: boolean) {
-      if (showChecking) {
-        setConnection({ phase: "checking", message: "Checking transport" });
-      }
-      try {
-        const latencyMs = await checkReachable(currentMachine);
-        if (stopped) return;
-        markConnectionReachable(formatLatency(latencyMs), latencyMs);
-      } catch (err) {
-        if (stopped) return;
-        if (isDatagramPingTimeoutError(err)) {
-          setConnection((current) =>
-            current.phase === "reachable"
-              ? { ...current, message: "No pong" }
-              : { phase: "checking", message: "No pong" }
-          );
-          return;
-        }
-        markConnectionOffline(connectionErrorMessage(err, currentMachine));
-      } finally {
-        if (!stopped) {
-          timer = setTimeout(
-            () => void pingStatus(false),
-            STATUS_PING_INTERVAL_MS,
-          );
-        }
-      }
-    }
-
-    void pingStatus(true);
-
-    return () => {
-      stopped = true;
-      if (timer !== undefined) clearTimeout(timer);
-    };
-  }, [
-    selected?.id,
-    selected?.baseUrl,
-    selected?.clientId,
-    selected?.clientSecret,
-  ]);
-
-  function markConnectionReachable(message: string, latencyMs: number) {
-    if (!connectionReachableRef.current) {
-      setConnectionEpoch((current) => current + 1);
-    }
-    connectionReachableRef.current = true;
-    setConnection({ phase: "reachable", message, latencyMs });
-  }
-
-  function markConnectionOffline(message: string) {
-    connectionReachableRef.current = false;
-    setConnection({ phase: "offline", message });
-  }
+  }, [machineMenuState, machineMenu]);
 
   function addMachine(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setMachineFormError("");
-    let normalizedBaseUrl;
-    try {
-      normalizedBaseUrl = normalizeMachineUrl(baseUrl);
-    } catch (err) {
-      setMachineFormError(errorMessage(err));
-      return;
-    }
-
-    const machine: Machine = {
-      id: crypto.randomUUID(),
-      name: machineName.trim() || inferMachineNameFromUrl(normalizedBaseUrl),
-      baseUrl: normalizedBaseUrl,
-    };
-    setMachines((current) => [...current, machine]);
-    setSelectedId(machine.id);
-    setMachineName("");
-    setMachineNameEdited(false);
-    setBaseUrl("");
-    setPairingCode("");
-    setMachineModalMode("pair");
+    machineModal.addMachine();
   }
 
   function closeMachineModal() {
-    if (machines.length === 0) return;
-    setMachineModalMode(null);
-    setMachineFormError("");
-    setPairingCode("");
+    machineModal.closeMachineModal();
   }
 
   function openAddMachineModal() {
-    setMachineMenu(null);
-    setMachineName("");
-    setMachineNameEdited(false);
-    setBaseUrl("");
-    setMachineFormError("");
-    setPairingCode("");
+    machineModal.openAddMachineModal();
     if (machines.length === 0) {
-      setMachineModalMode(null);
       machineNameInputRef.current?.focus();
-      return;
     }
-    setMachineModalMode("add");
   }
 
   function openMachineContextMenu(
@@ -281,8 +160,7 @@ function App() {
   ) {
     event.preventDefault();
     event.stopPropagation();
-    setRailTooltip(null);
-    openMachineMenu(machine, event.clientX, event.clientY);
+    machineMenuState.openMachineMenu(machine.id, event.clientX, event.clientY);
   }
 
   function openMachineTitleMenu(
@@ -292,157 +170,56 @@ function App() {
     event.preventDefault();
     event.stopPropagation();
     const rect = event.currentTarget.getBoundingClientRect();
-    openMachineMenu(machine, rect.left, rect.bottom + 8);
-  }
-
-  function openMachineMenu(machine: Machine, x: number, y: number) {
-    setRailTooltip(null);
-    setSelectedId(machine.id);
-    setMachineMenu({
-      machineId: machine.id,
-      x: Math.max(8, Math.min(x, globalThis.innerWidth - 190)),
-      y: Math.max(8, Math.min(y, globalThis.innerHeight - 150)),
-    });
+    machineMenuState.openMachineMenu(machine.id, rect.left, rect.bottom + 8);
   }
 
   function showRailTooltip(target: HTMLElement, name: string) {
     const rect = target.getBoundingClientRect();
-    setRailTooltip({
+    machineMenuState.showRailTooltip(
       name,
-      x: rect.right + 12,
-      y: rect.top + rect.height / 2,
-    });
+      rect.right + 12,
+      rect.top + rect.height / 2,
+    );
   }
 
   function openConfigMachineModal(machine: Machine) {
-    setSelectedId(machine.id);
-    setConfigNameDraft(machine.name);
-    setConfigUrlDraft(machine.baseUrl);
-    setMachineFormError("");
-    setMachineMenu(null);
-    setMachineModalMode("config");
+    machineModal.openConfigMachineModal(machine.id);
   }
 
   function openPairMachineModal(machine: Machine) {
-    setSelectedId(machine.id);
-    setPairingCode("");
-    setMachineFormError("");
-    setMachineMenu(null);
-    setMachineModalMode("pair");
+    machineModal.openPairMachineModal(machine.id);
   }
 
   function openDeleteMachineModal(machine: Machine) {
-    setSelectedId(machine.id);
-    setMachineFormError("");
-    setMachineMenu(null);
-    setMachineModalMode("delete");
+    machineModal.openDeleteMachineModal(machine.id);
   }
 
   function saveMachineConfig(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!selected) return;
-    const name = configNameDraft.trim();
-    if (!name) {
-      setMachineFormError("Name is required");
-      return;
-    }
-    let normalizedBaseUrl;
-    try {
-      normalizedBaseUrl = normalizeMachineUrl(configUrlDraft);
-    } catch (err) {
-      setMachineFormError(errorMessage(err));
-      return;
-    }
-    setMachines((current) =>
-      current.map((machine) =>
-        machine.id === selected.id
-          ? { ...machine, name, baseUrl: normalizedBaseUrl }
-          : machine
-      )
-    );
-    setMachineFormError("");
-    setMachineModalMode(null);
+    machineModal.saveMachineConfig();
   }
 
   function deleteSelectedMachine() {
-    if (!selected) return;
-    const deletedId = selected.id;
-    const remaining = machines.filter((machine) => machine.id !== deletedId);
-    setMachines(remaining);
-    setSelectedId((current) =>
-      current === deletedId ? remaining[0]?.id ?? null : current
-    );
-    setMachineFormError("");
-    setPairingCode("");
-    setMachineModalMode(null);
+    machineModal.deleteSelectedMachine();
   }
 
   async function checkSelected() {
-    if (!selected) return;
-    setConnection({ phase: "checking", message: "Checking transport" });
-    try {
-      const latencyMs = await checkReachable(selected);
-      markConnectionReachable(formatLatency(latencyMs), latencyMs);
-    } catch (err) {
-      if (isDatagramPingTimeoutError(err)) {
-        setConnection((current) =>
-          current.phase === "reachable"
-            ? { ...current, message: "No pong" }
-            : { phase: "checking", message: "No pong" }
-        );
-        return;
-      }
-      markConnectionOffline(connectionErrorMessage(err, selected));
-    }
+    await connectionState.checkSelected();
   }
 
   async function pairSelected(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!selected || isPairing) return;
-    const code = pairingCode.trim();
-    if (!code) return;
-    setIsPairing(true);
-    setConnection({ phase: "checking", message: "Pairing" });
-    try {
-      const credentials = await completePairing(
-        selected,
-        code,
-        `web:${globalThis.location.host || "local"}`,
-      );
-      setMachines((current) =>
-        current.map((machine) =>
-          machine.id === selected.id
-            ? {
-              ...machine,
-              clientId: credentials.clientId,
-              clientSecret: credentials.clientSecret,
-            }
-            : machine
-        )
-      );
-      setPairingCode("");
-      markConnectionReachable("Paired", 0);
-      setMachineModalMode(null);
-    } catch (err) {
-      setConnection({
-        phase: "offline",
-        message: connectionErrorMessage(err, selected),
-      });
-    } finally {
-      setIsPairing(false);
-    }
+    await machineModal.pairSelected(
+      `web:${globalThis.location.host || "local"}`,
+    );
   }
 
   function updateMachineNameDraft(value: string) {
-    setMachineName(value);
-    setMachineNameEdited(value.trim().length > 0);
+    machineModal.updateMachineNameDraft(value);
   }
 
   function updateBaseUrlDraft(value: string) {
-    setBaseUrl(value);
-    if (!machineNameEdited) {
-      setMachineName(inferMachineNameFromUrl(value));
-    }
+    machineModal.updateBaseUrlDraft(value);
   }
 
   function renderAddMachineForm(showCancel: boolean) {
@@ -503,16 +280,14 @@ function App() {
                 ? "rail-machine active"
                 : "rail-machine"}
               onClick={() => {
-                setRailTooltip(null);
-                setMachineMenu(null);
-                setSelectedId(machine.id);
+                machineMenuState.selectMachine(machine.id);
               }}
               onMouseEnter={(event) =>
                 showRailTooltip(event.currentTarget, machine.name)}
-              onMouseLeave={() => setRailTooltip(null)}
+              onMouseLeave={machineMenuState.hideRailTooltip}
               onFocus={(event) =>
                 showRailTooltip(event.currentTarget, machine.name)}
-              onBlur={() => setRailTooltip(null)}
+              onBlur={machineMenuState.hideRailTooltip}
               onContextMenu={(event) => openMachineContextMenu(event, machine)}
               aria-label={machine.name}
             >
@@ -820,33 +595,6 @@ function App() {
   );
 }
 
-function machineModalTitle(mode: MachineModalMode | null): string {
-  switch (mode) {
-    case "pair":
-      return "Pair machine";
-    case "config":
-      return "Machine config";
-    case "delete":
-      return "Delete machine";
-    case "add":
-    case null:
-      return "Add machine";
-  }
-}
-
-function inferMachineNameFromUrl(raw: string): string {
-  try {
-    const hostname = new URL(normalizeMachineUrl(raw)).hostname;
-    const firstLabel = hostname.split(".")[0] ?? "";
-    if (hostname.includes(".") && /[a-z]/i.test(firstLabel)) {
-      return firstLabel;
-    }
-    return hostname;
-  } catch {
-    return "";
-  }
-}
-
 function machineInitials(name: string): string {
   const letters = name
     .split(/[\s._-]+/)
@@ -882,162 +630,38 @@ function StatusPill(
 
 function Explorer(
   { machine, isPaired, connectionEpoch, onPair }: {
-    machine: Machine | null;
+    machine?: Machine;
     isPaired: boolean;
     connectionEpoch: number;
     onPair: () => void;
   },
 ) {
-  const [roots, setRoots] = useState<FsEntry[]>([]);
-  const [directoryRows, setDirectoryRows] = useState<FsEntry[]>([]);
-  const [currentPath, setCurrentPath] = useState<string | null>(null);
-  const [history, setHistory] = useState<(string | null)[]>([]);
-  const [selectedPath, setSelectedPath] = useState<string | null>(null);
-  const [filter, setFilter] = useState("");
-  const [rootsState, setRootsState] = useState<StreamState>({
-    phase: "idle",
-    message: "Roots idle",
-  });
-  const [directoryState, setDirectoryState] = useState<StreamState>({
-    phase: "idle",
-    message: "Directory idle",
-  });
-
-  useEffect(() => {
-    setRoots([]);
-    setDirectoryRows([]);
-    setCurrentPath(null);
-    setHistory([]);
-    setSelectedPath(null);
-    setFilter("");
-    setRootsState({ phase: "idle", message: "Roots idle" });
-    setDirectoryState({ phase: "idle", message: "Directory idle" });
-  }, [machine?.id]);
-
-  useEffect(() => {
-    if (!machine || !isPaired) return;
-
-    let cancelled = false;
-    const iterator = subscribeRoots(machine);
-    setRootsState({ phase: "connecting", message: "Opening roots" });
-    void (async () => {
-      try {
-        for await (const event of iterator) {
-          if (cancelled) break;
-          applyRootsEvent(event, setRoots, setRootsState);
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setRootsState({ phase: "error", message: errorMessage(err) });
-        }
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-      void iterator.return(undefined);
-    };
-  }, [
-    machine?.id,
-    machine?.baseUrl,
-    machine?.clientId,
-    machine?.clientSecret,
-    isPaired,
-    connectionEpoch,
+  const explorer = useBunja(explorerBunja, [
+    ExplorerMachineScope.bind(machine?.id),
   ]);
+  const currentPath = useAtomValue(explorer.currentPathAtom);
+  const history = useAtomValue(explorer.historyAtom);
+  const selectedPath = useAtomValue(explorer.selectedPathAtom);
+  const filter = useAtomValue(explorer.filterAtom);
+  const visibleRows = useAtomValue(explorer.visibleRowsAtom);
+  const selectedEntry = useAtomValue(explorer.selectedEntryAtom);
+  const streamState = useAtomValue(explorer.streamStateAtom);
+  const lastConnectionEpochRef = useRef(connectionEpoch);
 
   useEffect(() => {
-    setDirectoryRows([]);
-    setSelectedPath(null);
-    if (!machine || !isPaired || !currentPath) {
-      setDirectoryState({ phase: "idle", message: "Directory idle" });
-      return;
-    }
+    if (lastConnectionEpochRef.current === connectionEpoch) return;
+    lastConnectionEpochRef.current = connectionEpoch;
+    explorer.refresh();
+  }, [connectionEpoch, explorer]);
 
-    let cancelled = false;
-    const iterator = subscribeDirectory(machine, currentPath);
-    setDirectoryState({ phase: "connecting", message: "Opening directory" });
-    void (async () => {
-      try {
-        for await (const event of iterator) {
-          if (cancelled) break;
-          applyDirectoryEvent(
-            event,
-            setDirectoryRows,
-            setDirectoryState,
-            (path) => {
-              if (path) {
-                setCurrentPath(path);
-                setHistory([]);
-              }
-            },
-          );
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setDirectoryState({ phase: "error", message: errorMessage(err) });
-        }
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-      void iterator.return(undefined);
-    };
-  }, [
-    machine?.id,
-    machine?.baseUrl,
-    machine?.clientId,
-    machine?.clientSecret,
-    isPaired,
-    currentPath,
-    connectionEpoch,
-  ]);
-
-  const rows = currentPath ? directoryRows : roots;
-  const visibleRows = useMemo(() => {
-    const query = filter.trim().toLowerCase();
-    const sorted = sortEntries(rows);
-    if (!query) return sorted;
-    return sorted.filter((entry) =>
-      displayName(entry).toLowerCase().includes(query) ||
-      entry.path.toLowerCase().includes(query)
-    );
-  }, [rows, filter]);
-  const selectedEntry = useMemo(
-    () => rows.find((entry) => entry.path === selectedPath) ?? null,
-    [rows, selectedPath],
-  );
-  const streamState = currentPath ? directoryState : rootsState;
-
-  function navigate(path: string | null) {
-    setHistory((current) => [...current, currentPath]);
-    setCurrentPath(path);
-    setSelectedPath(null);
-  }
-
-  function goBack() {
-    setHistory((current) => {
-      if (current.length === 0) return current;
-      const next = current[current.length - 1] ?? null;
-      setCurrentPath(next);
-      setSelectedPath(null);
-      return current.slice(0, -1);
-    });
-  }
-
-  function goUp() {
-    if (!currentPath) return;
-    navigate(parentPath(currentPath));
-  }
-
-  function openEntry(entry: FsEntry) {
-    if (entry.kind === FsEntryKind.Directory) {
-      navigate(entry.path);
-    } else {
-      setSelectedPath(entry.path);
-    }
-  }
+  const {
+    goBack,
+    goUp,
+    navigate,
+    openEntry,
+    selectEntry,
+    setFilter,
+  } = explorer;
 
   if (!machine) {
     return (
@@ -1105,7 +729,7 @@ function Explorer(
         <FileTable
           rows={visibleRows}
           selectedPath={selectedPath}
-          onSelect={(entry) => setSelectedPath(entry.path)}
+          onSelect={selectEntry}
           onOpen={openEntry}
         />
         <Inspector entry={selectedEntry} currentPath={currentPath} />
@@ -1116,8 +740,8 @@ function Explorer(
 
 function PathCrumbs(
   { path, onNavigate }: {
-    path: string | null;
-    onNavigate: (path: string | null) => void;
+    path?: string;
+    onNavigate: (path?: string) => void;
   },
 ) {
   const crumbs = pathCrumbs(path);
@@ -1165,7 +789,7 @@ function FileTable(
     onOpen,
   }: {
     rows: FsEntry[];
-    selectedPath: string | null;
+    selectedPath?: string;
     onSelect: (entry: FsEntry) => void;
     onOpen: (entry: FsEntry) => void;
   },
@@ -1207,7 +831,7 @@ function FileTable(
 }
 
 function Inspector(
-  { entry, currentPath }: { entry: FsEntry | null; currentPath: string | null },
+  { entry, currentPath }: { entry?: FsEntry; currentPath?: string },
 ) {
   return (
     <aside className="inspector">
@@ -1250,196 +874,12 @@ function EntryIcon({ entry }: { entry: FsEntry }) {
   return <FileQuestion size={16} />;
 }
 
-function applyRootsEvent(
-  event: RootsTableEvent,
-  setRoots: React.Dispatch<React.SetStateAction<FsEntry[]>>,
-  setState: React.Dispatch<React.SetStateAction<StreamState>>,
-) {
-  if (event.type === "snapshot") {
-    setRoots(event.rows);
-    setState({ phase: "live", message: "Roots live" });
-    return;
-  }
-  if (event.type === "patch") {
-    setRoots((current) =>
-      applyEntryPatch(
-        current,
-        event.removes.map((item) => item.path),
-        event.upserts,
-      )
-    );
-    setState({ phase: "live", message: "Roots updated" });
-    return;
-  }
-  setState({ phase: "closed", message: `Roots closed: ${event.reason}` });
-}
-
-function applyDirectoryEvent(
-  event: DirectoryTableEvent,
-  setRows: React.Dispatch<React.SetStateAction<FsEntry[]>>,
-  setState: React.Dispatch<React.SetStateAction<StreamState>>,
-  onMoved: (path: string | undefined) => void,
-) {
-  if (event.type === "snapshot") {
-    setRows(event.rows);
-    setState({ phase: "live", message: "Directory live" });
-    return;
-  }
-  if (event.type === "patch") {
-    setRows((current) => {
-      const removedNames = new Set(event.removes.map((item) => item.name));
-      const remaining = current.filter((entry) =>
-        !removedNames.has(entry.name)
-      );
-      const upsertNames = new Set(event.upserts.map((entry) => entry.name));
-      return sortEntries([
-        ...remaining.filter((entry) => !upsertNames.has(entry.name)),
-        ...event.upserts,
-      ]);
-    });
-    setState({ phase: "live", message: "Directory updated" });
-    return;
-  }
-  if (event.reason === "Moved") onMoved(event.to);
-  setState({ phase: "closed", message: `Directory closed: ${event.reason}` });
-}
-
-function applyEntryPatch(
-  current: FsEntry[],
-  removedPaths: string[],
-  upserts: FsEntry[],
-): FsEntry[] {
-  const removed = new Set(removedPaths);
-  const upsertPaths = new Set(upserts.map((entry) => entry.path));
-  return sortEntries([
-    ...current.filter((entry) =>
-      !removed.has(entry.path) && !upsertPaths.has(entry.path)
-    ),
-    ...upserts,
-  ]);
-}
-
-function sortEntries(entries: FsEntry[]): FsEntry[] {
-  return [...entries].sort((left, right) => {
-    const leftRank = kindRank(left.kind);
-    const rightRank = kindRank(right.kind);
-    if (leftRank !== rightRank) return leftRank - rightRank;
-    return displayName(left).localeCompare(displayName(right), undefined, {
-      numeric: true,
-      sensitivity: "base",
-    });
-  });
-}
-
-function kindRank(kind: FsEntryKind): number {
-  if (kind === FsEntryKind.Directory) return 0;
-  if (kind === FsEntryKind.Symlink) return 1;
-  if (kind === FsEntryKind.File) return 2;
-  return 3;
-}
-
-function pathCrumbs(
-  path: string | null,
-): { label: string; path: string | null }[] {
-  if (!path) return [{ label: "Roots", path: null }];
-  const root = rootPath(path);
-  const crumbs = [
-    { label: "Roots", path: null },
-    { label: root, path: root },
-  ];
-  const rest = path.slice(root.length).replace(/[\\/]+$/g, "");
-  if (!rest) return crumbs;
-  let cursor = root;
-  for (const part of rest.split(/[\\/]+/).filter(Boolean)) {
-    cursor = cursor.endsWith("\\") ? `${cursor}${part}` : `${cursor}\\${part}`;
-    crumbs.push({ label: part, path: cursor });
-  }
-  return crumbs;
-}
-
-function rootPath(path: string): string {
-  const drive = /^[A-Za-z]:\\/.exec(path);
-  if (drive) return drive[0];
-  const unc = /^\\\\[^\\]+\\[^\\]+\\?/.exec(path);
-  if (unc) return unc[0].endsWith("\\") ? unc[0] : `${unc[0]}\\`;
-  return path;
-}
-
-function parentPath(path: string): string | null {
-  const root = rootPath(path);
-  const trimmed = path.replace(/[\\/]+$/g, "");
-  if (trimmed === root.replace(/[\\/]+$/g, "")) return null;
-  const index = trimmed.lastIndexOf("\\");
-  if (index < 0) return null;
-  if (index < root.length) return root;
-  return trimmed.slice(0, index) || null;
-}
-
-function displayName(entry: FsEntry): string {
-  return entry.name.trim() || entry.path;
-}
-
-function kindLabel(kind: FsEntryKind): string {
-  switch (kind) {
-    case FsEntryKind.File:
-      return "File";
-    case FsEntryKind.Directory:
-      return "Directory";
-    case FsEntryKind.Symlink:
-      return "Link";
-    case FsEntryKind.Other:
-      return "Other";
-  }
-}
-
-function formatSize(size: number | undefined): string {
-  if (size === undefined) return "";
-  if (size < 1024) return `${size} B`;
-  const units = ["KB", "MB", "GB", "TB"];
-  let value = size / 1024;
-  let unitIndex = 0;
-  while (value >= 1024 && unitIndex < units.length - 1) {
-    value /= 1024;
-    unitIndex++;
-  }
-  return `${value >= 10 ? value.toFixed(0) : value.toFixed(1)} ${
-    units[unitIndex]
-  }`;
-}
-
-function formatDate(ms: number | undefined): string {
-  if (ms === undefined) return "";
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(new Date(ms));
-}
-
-function formatLatency(latencyMs: number): string {
-  return `${Math.max(1, Math.round(latencyMs))}ms`;
-}
-
-function errorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
-}
-
-function connectionErrorMessage(err: unknown, machine: Machine | null): string {
-  const message = errorMessage(err);
-  if (!message.toLowerCase().includes("handshake")) return message;
-
-  const host = machine ? safeHost(machine.baseUrl) : "";
-  if (host === "localhost" || host === "127.0.0.1" || host === "::1") {
-    return "WebTransport TLS handshake failed. Use the daemon URL printed by the pairing command; localhost will fail when the daemon certificate is issued for another host.";
-  }
-  return "WebTransport TLS handshake failed. Check that the daemon URL matches a trusted certificate host.";
-}
-
-function safeHost(raw: string): string {
-  try {
-    return new URL(raw).hostname.toLowerCase();
-  } catch {
-    return "";
-  }
-}
-
-createRoot(document.getElementById("root")!).render(<App />);
+createRoot(document.getElementById("root")!).render(
+  <JotaiProvider store={jotaiStore}>
+    <JotaiStoreContext.Provider value={jotaiStore}>
+      <BunjaStoreProvider>
+        <App />
+      </BunjaStoreProvider>
+    </JotaiStoreContext.Provider>
+  </JotaiProvider>,
+);
