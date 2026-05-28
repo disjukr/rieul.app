@@ -2213,6 +2213,40 @@ dependencies = [
 ]
 
 [[package]]
+name = "wgo-daemon-host"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "http",
+ "notify",
+ "rcgen",
+ "rustls",
+ "rustls-pemfile",
+ "tempfile",
+ "time",
+ "tokio",
+ "tracing",
+ "web-transport-quinn",
+ "wgo-daemon-core",
+]
+
+[[package]]
+name = "wgo-macos-daemon"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "tempfile",
+ "time",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "trash",
+ "wgo-daemon-core",
+ "wgo-daemon-host",
+]
+
+[[package]]
 name = "wgo-windows-daemon"
 version = "0.1.0"
 dependencies = [
@@ -2231,6 +2265,7 @@ dependencies = [
  "trash",
  "web-transport-quinn",
  "wgo-daemon-core",
+ "wgo-daemon-host",
  "windows 0.62.2",
 ]
 

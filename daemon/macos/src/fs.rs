@@ -8,25 +8,32 @@ use wgo_daemon_core::rpc::{
 use wgo_daemon_core::traits::{BoxFutureResult, FileService, ServiceError};
 
 #[derive(Debug, Default, Clone)]
-pub struct WindowsFileService;
+pub struct MacFileService;
 
-impl FileService for WindowsFileService {
+impl FileService for MacFileService {
     fn roots(&self) -> BoxFutureResult<'_, Vec<FsEntry>> {
         Box::pin(async move {
             let mut roots = Vec::new();
-            for drive in b'A'..=b'Z' {
-                let path = format!("{}:\\", drive as char);
-                if Path::new(&path).exists() {
-                    roots.push(FsEntry {
-                        name: path.clone(),
-                        path,
-                        kind: FsEntryKind::Directory,
-                        size: None,
-                        modified_at_ms: None,
-                        readonly: false,
-                    });
+
+            if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
+                push_root(&mut roots, "Home", home);
+                for name in ["Desktop", "Documents", "Downloads"] {
+                    push_root(&mut roots, name, roots_path("HOME", name));
                 }
             }
+
+            push_root(&mut roots, "Root", PathBuf::from("/"));
+            if let Ok(entries) = fs::read_dir("/Volumes") {
+                for entry in entries.flatten() {
+                    push_root(
+                        &mut roots,
+                        &entry.file_name().to_string_lossy(),
+                        entry.path(),
+                    );
+                }
+            }
+            roots.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+            roots.dedup_by(|a, b| a.path == b.path);
             Ok(roots)
         })
     }
@@ -174,6 +181,30 @@ fn fs_entry_name(path: &Path) -> String {
         .unwrap_or_else(|| path.to_string_lossy().to_string())
 }
 
+fn push_root(roots: &mut Vec<FsEntry>, name: &str, path: PathBuf) {
+    if !path.exists() {
+        return;
+    }
+    let readonly = fs::metadata(&path)
+        .map(|metadata| metadata.permissions().readonly())
+        .unwrap_or(true);
+    roots.push(FsEntry {
+        name: name.to_string(),
+        path: path.to_string_lossy().to_string(),
+        kind: FsEntryKind::Directory,
+        size: None,
+        modified_at_ms: None,
+        readonly,
+    });
+}
+
+fn roots_path(env_name: &str, child: &str) -> PathBuf {
+    std::env::var_os(env_name)
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join(child)
+}
+
 fn create_directory_node(path: &Path) -> Result<(), ServiceError> {
     match fs::symlink_metadata(path) {
         Ok(metadata) if metadata.is_dir() => Ok(()),
@@ -277,7 +308,7 @@ mod tests {
             return;
         };
 
-        let rows = WindowsFileService
+        let rows = MacFileService
             .list_directory(PathBuf::from(profile).to_string_lossy().to_string())
             .await
             .unwrap();
@@ -285,6 +316,7 @@ mod tests {
         assert!(!rows.is_empty());
     }
 
+    #[cfg(windows)]
     #[test]
     fn fallback_entry_preserves_name_and_marks_unknown_readonly() {
         let entry = fallback_fs_entry(PathBuf::from(r"C:\Users\user\nul"));

@@ -22,6 +22,7 @@ const PROC_WRITE_FILE = 6;
 const PROC_CREATE_NODES = 7;
 const PROC_RENAME_PATHS = 8;
 const PROC_DELETE_PATHS = 9;
+const CONNECT_TIMEOUT_MS = 10_000;
 const DATAGRAM_PING_TIMEOUT_MS = 5_000;
 
 interface RpcSession {
@@ -355,11 +356,37 @@ async function connect(
   const transport = new WebTransport(
     `${normalizeMachineUrl(machine.baseUrl)}${path}`,
   );
-  await transport.ready;
+  try {
+    await withTimeout(
+      transport.ready,
+      CONNECT_TIMEOUT_MS,
+      "WebTransport connection",
+    );
+  } catch (err) {
+    transport.close();
+    throw err;
+  }
   return {
     transport,
     datagrams: startDatagramRuntime(transport),
   };
+}
+
+function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  label: string,
+): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeout = setTimeout(
+      () => reject(new Error(`${label} timed out after ${timeoutMs}ms`)),
+      timeoutMs,
+    );
+  });
+  return Promise.race([promise, timeoutPromise]).finally(() => {
+    if (timeout !== undefined) clearTimeout(timeout);
+  });
 }
 
 function authenticatedSession(machine: Machine): Promise<RpcSession> {

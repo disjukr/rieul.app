@@ -23,7 +23,7 @@ if (-not (Test-Path $SystemExe)) {
   throw "Missing $SystemExe. Run without -SkipBuild first."
 }
 if (-not (Test-Path $ConfigPath)) {
-  throw "Config not found: $ConfigPath. Start .\scripts\windows\dev-daemons.ps1 first."
+  throw "Config not found: $ConfigPath. Run deno task scaffold:dev-config first."
 }
 
 $commandArgs = @("pair", "--listen", $Listen, "--config", $ConfigPath)

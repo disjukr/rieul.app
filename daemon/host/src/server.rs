@@ -13,9 +13,7 @@ use tokio::sync::Mutex;
 use tracing::{info, warn};
 use web_transport_quinn::proto::ConnectResponse;
 use wgo_daemon_core::cbor::Value;
-use wgo_daemon_core::config::{
-    load_or_default, save, windows_program_data_config_path, SystemConfig,
-};
+use wgo_daemon_core::config::{load_or_default, save, SystemConfig};
 use wgo_daemon_core::pairing::{issue_client_secret, verify_client_secret, verify_pairing_code};
 use wgo_daemon_core::rpc::{
     BulkMutationItemResult, BulkMutationRes, CompletePairingRequest, CompletePairingResponse,
@@ -33,35 +31,27 @@ use wgo_daemon_core::wire::{
 use crate::cert::{
     configured_certificate_paths, prepare_server_certificate, uses_scheduled_certificate_refresh,
 };
-use crate::fs::WindowsFileService;
 
 const CERT_RELOAD_DEBOUNCE: Duration = Duration::from_millis(250);
 const SCHEDULED_CERT_REFRESH_INTERVAL: Duration = Duration::from_secs(60 * 60);
 const SUBSCRIPTION_DEBOUNCE: Duration = Duration::from_millis(150);
-// TODO: Replace root subscription polling with Windows volume notifications.
-// `notify` watches concrete filesystem paths, so it does not cover the drive
-// root namespace well. Prefer `CM_Register_Notification` over WM_DEVICECHANGE:
-// it can work in dev/background daemons without a hidden window or Windows
-// service control handler. The `windows` crate is already used here; the likely
-// extra Cargo features are `Win32_Devices_DeviceAndDriverInstallation` for
-// `CM_Register_Notification`/`CM_Unregister_Notification`/`CM_NOTIFY_FILTER`
-// and `Win32_System_Ioctl` for `GUID_DEVINTERFACE_VOLUME`. Register a
-// device-interface filter for volume changes, forward the callback into an
-// async channel, keep the notification handle alive, unregister it in Drop, and
-// keep this polling path as a fallback if registration fails or events prove
-// incomplete for network drives/mount points.
 const ROOTS_SUBSCRIPTION_POLL_INTERVAL: Duration = Duration::from_secs(2);
 
 type SharedSystemConfig = Arc<Mutex<SystemConfig>>;
 type SharedRpcSessionState = Arc<Mutex<RpcSessionState>>;
+type SharedFileService = Arc<dyn FileService>;
 
 #[derive(Default)]
 struct RpcSessionState {
     authenticated_client_id: Option<String>,
 }
 
-pub async fn run_system_server(addr: SocketAddr, config_path: Option<PathBuf>) -> Result<()> {
-    let config_path = config_path.unwrap_or_else(windows_program_data_config_path);
+pub async fn run_system_server(
+    addr: SocketAddr,
+    config_path: PathBuf,
+    files: SharedFileService,
+    log_label: &'static str,
+) -> Result<()> {
     let provider = web_transport_quinn::crypto::default_provider();
     let mut config = load_or_default(&config_path)?;
     config.listen_addr = addr.to_string();
@@ -79,13 +69,14 @@ pub async fn run_system_server(addr: SocketAddr, config_path: Option<PathBuf>) -
         resolver,
     ));
 
-    info!(%addr, "wgo Windows system daemon listening");
+    info!(%addr, daemon = log_label, "wgo system daemon listening");
 
     while let Some(request) = server.accept().await {
         let config_path = config_path.clone();
         let config_state = config_state.clone();
+        let files = files.clone();
         tokio::spawn(async move {
-            if let Err(err) = handle_request(request, config_path, config_state).await {
+            if let Err(err) = handle_request(request, config_path, config_state, files).await {
                 warn!(?err, "WebTransport request failed");
             }
         });
@@ -458,12 +449,13 @@ async fn handle_request(
     request: web_transport_quinn::Request,
     config_path: PathBuf,
     config_state: SharedSystemConfig,
+    files: SharedFileService,
 ) -> Result<()> {
     let path = request.url.path().to_string();
     match path.as_str() {
         "/rpc" => {
             let session = request.respond(ConnectResponse::OK).await?;
-            run_rpc_session(session, config_path, config_state).await
+            run_rpc_session(session, config_path, config_state, files).await
         }
         "/moqt" => {
             let session = request.respond(ConnectResponse::OK).await?;
@@ -482,6 +474,7 @@ async fn run_rpc_session(
     session: web_transport_quinn::Session,
     config_path: PathBuf,
     config_state: SharedSystemConfig,
+    files: SharedFileService,
 ) -> Result<()> {
     let session_state = Arc::new(Mutex::new(RpcSessionState::default()));
     loop {
@@ -491,6 +484,7 @@ async fn run_rpc_session(
                 let config_path = config_path.clone();
                 let config_state = config_state.clone();
                 let session_state = session_state.clone();
+                let files = files.clone();
                 tokio::spawn(async move {
                     let response = async {
                         let messages = read_reqres_message_sequence_from_stream(&mut recv)
@@ -502,6 +496,7 @@ async fn run_rpc_session(
                             &config_path,
                             config_state,
                             session_state,
+                            files,
                         )
                         .await?;
                         send.finish()?;
@@ -554,6 +549,7 @@ async fn handle_reqres_messages(
     config_path: &Path,
     config_state: SharedSystemConfig,
     session_state: SharedRpcSessionState,
+    files: SharedFileService,
 ) -> Result<Vec<ReqResMessage>> {
     let Some(first) = messages.first() else {
         return Ok(vec![generic_error_message(
@@ -565,7 +561,7 @@ async fn handle_reqres_messages(
     if first.is_session_control() {
         handle_session_control_messages(messages, config_state, session_state).await
     } else {
-        handle_rpc_messages(messages, config_path, config_state, session_state).await
+        handle_rpc_messages(messages, config_path, config_state, session_state, files).await
     }
 }
 
@@ -575,16 +571,24 @@ async fn handle_reqres_stream(
     config_path: &Path,
     config_state: SharedSystemConfig,
     session_state: SharedRpcSessionState,
+    files: SharedFileService,
 ) -> Result<()> {
     if let Some((proc_id, payload)) = request_unary_parts(&messages) {
         if is_subscription_proc(proc_id) {
-            return handle_subscription_stream(proc_id, payload, send, config_state, session_state)
-                .await;
+            return handle_subscription_stream(
+                proc_id,
+                payload,
+                send,
+                config_state,
+                session_state,
+                files,
+            )
+            .await;
         }
     }
 
     let responses =
-        handle_reqres_messages(messages, config_path, config_state, session_state).await?;
+        handle_reqres_messages(messages, config_path, config_state, session_state, files).await?;
     write_reqres_messages(send, &responses).await
 }
 
@@ -604,6 +608,7 @@ async fn handle_subscription_stream(
     send: &mut web_transport_quinn::SendStream,
     _config_state: SharedSystemConfig,
     session_state: SharedRpcSessionState,
+    files: SharedFileService,
 ) -> Result<()> {
     if requires_authentication(proc_id) && !is_authenticated(&session_state).await {
         write_reqres_message(
@@ -618,9 +623,8 @@ async fn handle_subscription_stream(
         return Ok(());
     }
 
-    let files = WindowsFileService::default();
     if proc_id == ProcId::SubscribeRoots.as_u64() {
-        return stream_roots_subscription(send, files, proc_id).await;
+        return stream_roots_subscription(send, files.clone(), proc_id).await;
     }
 
     let Some(payload) = payload else {
@@ -655,7 +659,7 @@ async fn handle_subscription_stream(
 
 async fn stream_roots_subscription(
     send: &mut web_transport_quinn::SendStream,
-    files: WindowsFileService,
+    files: SharedFileService,
     proc_id: u64,
 ) -> Result<()> {
     let mut rows = match files.roots().await {
@@ -697,7 +701,7 @@ async fn stream_roots_subscription(
 
 async fn stream_directory_subscription(
     send: &mut web_transport_quinn::SendStream,
-    files: WindowsFileService,
+    files: SharedFileService,
     proc_id: u64,
     path: String,
 ) -> Result<()> {
@@ -979,6 +983,7 @@ async fn handle_rpc_messages(
     config_path: &Path,
     config_state: SharedSystemConfig,
     session_state: SharedRpcSessionState,
+    files: SharedFileService,
 ) -> Result<Vec<ReqResMessage>> {
     if messages.len() != 1 {
         return Ok(vec![generic_error_message(
@@ -998,7 +1003,6 @@ async fn handle_rpc_messages(
         }
     };
     let payload = payload.as_deref();
-    let files = WindowsFileService::default();
     if is_subscription_proc(proc_id) {
         return Ok(vec![stream_generic_error_message(
             proc_id,
@@ -1166,7 +1170,10 @@ async fn handle_rpc_messages(
                     )]);
                 }
             };
-            ok_payload_message(proc_id, create_nodes(&files, request).await.encode())
+            ok_payload_message(
+                proc_id,
+                create_nodes(files.as_ref(), request).await.encode(),
+            )
         }
         id if id == ProcId::RenamePaths.as_u64() => {
             let Some(payload) = payload else {
@@ -1186,7 +1193,10 @@ async fn handle_rpc_messages(
                     )]);
                 }
             };
-            ok_payload_message(proc_id, rename_paths(&files, request).await.encode())
+            ok_payload_message(
+                proc_id,
+                rename_paths(files.as_ref(), request).await.encode(),
+            )
         }
         id if id == ProcId::DeletePaths.as_u64() => {
             let Some(payload) = payload else {
@@ -1206,7 +1216,10 @@ async fn handle_rpc_messages(
                     )]);
                 }
             };
-            ok_payload_message(proc_id, delete_paths(&files, request).await.encode())
+            ok_payload_message(
+                proc_id,
+                delete_paths(files.as_ref(), request).await.encode(),
+            )
         }
         _ => error_message(
             proc_id,
@@ -1221,7 +1234,7 @@ fn requires_authentication(proc_id: u64) -> bool {
     proc_id != ProcId::StartPairing.as_u64() && proc_id != ProcId::CompletePairing.as_u64()
 }
 
-async fn create_nodes(files: &WindowsFileService, request: CreateNodesReq) -> BulkMutationRes {
+async fn create_nodes(files: &dyn FileService, request: CreateNodesReq) -> BulkMutationRes {
     let mut results = Vec::with_capacity(request.nodes.len());
     for (index, op) in request.nodes.into_iter().enumerate() {
         match files.create_node(op).await {
@@ -1232,7 +1245,7 @@ async fn create_nodes(files: &WindowsFileService, request: CreateNodesReq) -> Bu
     BulkMutationRes { results }
 }
 
-async fn rename_paths(files: &WindowsFileService, request: RenamePathsReq) -> BulkMutationRes {
+async fn rename_paths(files: &dyn FileService, request: RenamePathsReq) -> BulkMutationRes {
     let mut results = Vec::with_capacity(request.ops.len());
     for (index, op) in request.ops.into_iter().enumerate() {
         match files.rename_path(op.from, op.to).await {
@@ -1243,7 +1256,7 @@ async fn rename_paths(files: &WindowsFileService, request: RenamePathsReq) -> Bu
     BulkMutationRes { results }
 }
 
-async fn delete_paths(files: &WindowsFileService, request: DeletePathsReq) -> BulkMutationRes {
+async fn delete_paths(files: &dyn FileService, request: DeletePathsReq) -> BulkMutationRes {
     let mut results = Vec::with_capacity(request.paths.len());
     for (index, path) in request.paths.into_iter().enumerate() {
         match files.delete_path(path, request.mode).await {
@@ -1492,7 +1505,7 @@ fn method_error_variant(proc_id: u64, code: &str) -> Option<u64> {
 mod tests {
     use super::*;
     use wgo_daemon_core::pairing::create_pairing_code;
-    use wgo_daemon_core::rpc::FsEntryKind;
+    use wgo_daemon_core::rpc::{CreateNodeOp, DeleteMode, FsEntryKind, WriteFileMode};
 
     #[tokio::test]
     async fn complete_pairing_reads_config_written_after_server_start() {
@@ -1522,6 +1535,7 @@ mod tests {
             &config_path,
             state.clone(),
             session_state.clone(),
+            test_files(),
         )
         .await
         .unwrap();
@@ -1553,6 +1567,7 @@ mod tests {
             &config_path,
             state,
             Arc::new(Mutex::new(RpcSessionState::default())),
+            test_files(),
         )
         .await
         .unwrap();
@@ -1685,6 +1700,7 @@ mod tests {
             &config_path,
             state,
             session_state.clone(),
+            test_files(),
         )
         .await
         .unwrap();
@@ -1721,6 +1737,65 @@ mod tests {
             size,
             modified_at_ms: None,
             readonly: false,
+        }
+    }
+
+    fn test_files() -> SharedFileService {
+        Arc::new(TestFileService)
+    }
+
+    #[derive(Debug)]
+    struct TestFileService;
+
+    impl FileService for TestFileService {
+        fn roots(&self) -> wgo_daemon_core::traits::BoxFutureResult<'_, Vec<FsEntry>> {
+            Box::pin(async { Err(ServiceError::Unsupported) })
+        }
+
+        fn list_directory(
+            &self,
+            _path: String,
+        ) -> wgo_daemon_core::traits::BoxFutureResult<'_, Vec<FsEntry>> {
+            Box::pin(async { Err(ServiceError::Unsupported) })
+        }
+
+        fn read_file(
+            &self,
+            _path: String,
+        ) -> wgo_daemon_core::traits::BoxFutureResult<'_, Vec<u8>> {
+            Box::pin(async { Err(ServiceError::Unsupported) })
+        }
+
+        fn write_file(
+            &self,
+            _path: String,
+            _mode: WriteFileMode,
+            _bytes: Vec<u8>,
+        ) -> wgo_daemon_core::traits::BoxFutureResult<'_, ()> {
+            Box::pin(async { Err(ServiceError::Unsupported) })
+        }
+
+        fn create_node(
+            &self,
+            _op: CreateNodeOp,
+        ) -> wgo_daemon_core::traits::BoxFutureResult<'_, ()> {
+            Box::pin(async { Err(ServiceError::Unsupported) })
+        }
+
+        fn rename_path(
+            &self,
+            _from: String,
+            _to: String,
+        ) -> wgo_daemon_core::traits::BoxFutureResult<'_, ()> {
+            Box::pin(async { Err(ServiceError::Unsupported) })
+        }
+
+        fn delete_path(
+            &self,
+            _path: String,
+            _mode: DeleteMode,
+        ) -> wgo_daemon_core::traits::BoxFutureResult<'_, ()> {
+            Box::pin(async { Err(ServiceError::Unsupported) })
         }
     }
 }

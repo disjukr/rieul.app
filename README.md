@@ -9,7 +9,9 @@ and uses a system service plus a per-user tray daemon.
 ## Layout
 
 - `daemon/core`: shared Rust protocol, config, pairing, and service traits.
+- `daemon/host`: shared daemon runtime for WebTransport, RPC, auth, filesystem subscriptions, and TLS.
 - `daemon/windows`: Windows-specific system/user daemon binaries.
+- `daemon/macos`: macOS-specific system/user daemon binaries.
 - `protocol`: BDL schemas, RPC/wire standards, and protocol docs.
 - `web`: Vite + React + TypeScript browser client, managed with Deno.
 
@@ -23,13 +25,38 @@ method errors.
 Run the currently implemented daemon pair:
 
 ```sh
+deno task scaffold:dev-config
+```
+
+Edit `tmp/dev/system-wgo.yaml` and set `domain` to the Windows machine's
+Tailscale hostname, or pass `-Domain` to the scaffold script.
+
+```sh
 deno task windows:dev:daemons
+```
+
+Run the macOS daemon pair in dev mode. The system daemon is launched with
+`sudo`; the user daemon runs as the current user.
+
+```sh
+deno task scaffold:dev-config
+```
+
+Edit `tmp/dev/system-wgo.yaml` and set `domain` to the Mac's Tailscale
+hostname, or pass it as `DOMAIN=...`.
+
+```sh
+deno task macos:dev:daemons
 ```
 
 Stop any detached dev daemons:
 
 ```sh
 deno task windows:kill:daemons
+```
+
+```sh
+deno task macos:kill:daemons
 ```
 
 Check the daemon RPC endpoint:
@@ -43,6 +70,10 @@ Create a short-lived pairing code for the dev daemon:
 
 ```sh
 deno task windows:pair:dev
+```
+
+```sh
+deno task macos:pair:dev
 ```
 
 Enter the printed code in the web client's pairing field. The browser stores the

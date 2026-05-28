@@ -1,6 +1,8 @@
 [workspace]
 members = [
   "daemon/core",
+  "daemon/host",
+  "daemon/macos",
   "daemon/windows",
 ]
 resolver = "2"
@@ -9,4 +11,3 @@ resolver = "2"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 rust-version = "1.88"
-

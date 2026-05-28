@@ -95,6 +95,23 @@ pub fn windows_program_data_config_path() -> PathBuf {
     root.join("wgo").join("wgo.yaml")
 }
 
+pub fn macos_system_config_path() -> PathBuf {
+    PathBuf::from("/Library")
+        .join("Application Support")
+        .join("wgo")
+        .join("wgo.yaml")
+}
+
+pub fn macos_user_config_path() -> PathBuf {
+    let root = std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("."));
+    root.join("Library")
+        .join("Application Support")
+        .join("wgo")
+        .join("wgo-user.yaml")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -1,21 +1,20 @@
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use time::OffsetDateTime;
 use tracing::info;
-use wgo_daemon_core::config::{
-    load_or_default, save, windows_program_data_config_path, SystemConfig,
-};
+use wgo_daemon_core::config::{load_or_default, macos_system_config_path, save, SystemConfig};
 use wgo_daemon_core::pairing::create_pairing_code;
 use wgo_daemon_core::DEFAULT_LISTEN_ADDR;
 use wgo_daemon_host::server::run_system_server;
-use wgo_windows_daemon::fs::WindowsFileService;
+use wgo_macos_daemon::fs::MacFileService;
 
 #[derive(Debug, Parser)]
-#[command(name = "wgo-windows-system")]
-#[command(about = "Windows system daemon for whats-going-on")]
+#[command(name = "wgo-macos-system")]
+#[command(about = "macOS system daemon for whats-going-on")]
 struct Args {
     #[command(subcommand)]
     command: Command,
@@ -64,9 +63,9 @@ async fn main() -> Result<()> {
         Command::Run { listen, config } => {
             run_system_server(
                 listen,
-                config.unwrap_or_else(windows_program_data_config_path),
-                std::sync::Arc::new(WindowsFileService::default()),
-                "Windows system daemon",
+                config.unwrap_or_else(macos_system_config_path),
+                Arc::new(MacFileService::default()),
+                "macOS system daemon",
             )
             .await
         }
@@ -75,7 +74,7 @@ async fn main() -> Result<()> {
             config,
             url,
         } => {
-            let config_path = config.unwrap_or_else(windows_program_data_config_path);
+            let config_path = config.unwrap_or_else(macos_system_config_path);
             let mut config = load_or_default(&config_path)?;
             config.listen_addr = listen.to_string();
             let now = OffsetDateTime::now_utc().unix_timestamp();
@@ -92,9 +91,9 @@ async fn main() -> Result<()> {
         Command::Service { command } => {
             info!(
                 ?command,
-                "service management is scaffolded for the Windows backend"
+                "service management is scaffolded for the macOS backend"
             );
-            println!("service command {command:?} is scaffolded; installer integration is next");
+            println!("service command {command:?} is scaffolded; LaunchDaemon integration is next");
             Ok(())
         }
     }
