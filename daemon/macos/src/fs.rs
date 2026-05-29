@@ -12,48 +12,11 @@ pub struct MacFileService;
 
 impl FileService for MacFileService {
     fn roots(&self) -> BoxFutureResult<'_, Vec<FsEntry>> {
-        Box::pin(async move {
-            let mut roots = Vec::new();
-
-            if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
-                push_root(&mut roots, "Home", home);
-                for name in ["Desktop", "Documents", "Downloads"] {
-                    push_root(&mut roots, name, roots_path("HOME", name));
-                }
-            }
-
-            push_root(&mut roots, "Root", PathBuf::from("/"));
-            if let Ok(entries) = fs::read_dir("/Volumes") {
-                for entry in entries.flatten() {
-                    push_root(
-                        &mut roots,
-                        &entry.file_name().to_string_lossy(),
-                        entry.path(),
-                    );
-                }
-            }
-            roots.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
-            roots.dedup_by(|a, b| a.path == b.path);
-            Ok(roots)
-        })
+        Box::pin(async move { list_directory_entries("/") })
     }
 
     fn list_directory(&self, path: String) -> BoxFutureResult<'_, Vec<FsEntry>> {
-        Box::pin(async move {
-            let mut entries = Vec::new();
-            for entry in fs::read_dir(&path).map_err(map_io_error)? {
-                let Ok(entry) = entry else {
-                    continue;
-                };
-                let path = entry.path();
-                entries.push(match fs::symlink_metadata(&path) {
-                    Ok(metadata) => to_fs_entry(path, metadata),
-                    Err(_) => fallback_fs_entry(path),
-                });
-            }
-            entries.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
-            Ok(entries)
-        })
+        Box::pin(async move { list_directory_entries(&path) })
     }
 
     fn read_file(&self, path: String) -> BoxFutureResult<'_, Vec<u8>> {
@@ -181,28 +144,20 @@ fn fs_entry_name(path: &Path) -> String {
         .unwrap_or_else(|| path.to_string_lossy().to_string())
 }
 
-fn push_root(roots: &mut Vec<FsEntry>, name: &str, path: PathBuf) {
-    if !path.exists() {
-        return;
+fn list_directory_entries(path: &str) -> Result<Vec<FsEntry>, ServiceError> {
+    let mut entries = Vec::new();
+    for entry in fs::read_dir(path).map_err(map_io_error)? {
+        let Ok(entry) = entry else {
+            continue;
+        };
+        let path = entry.path();
+        entries.push(match fs::symlink_metadata(&path) {
+            Ok(metadata) => to_fs_entry(path, metadata),
+            Err(_) => fallback_fs_entry(path),
+        });
     }
-    let readonly = fs::metadata(&path)
-        .map(|metadata| metadata.permissions().readonly())
-        .unwrap_or(true);
-    roots.push(FsEntry {
-        name: name.to_string(),
-        path: path.to_string_lossy().to_string(),
-        kind: FsEntryKind::Directory,
-        size: None,
-        modified_at_ms: None,
-        readonly,
-    });
-}
-
-fn roots_path(env_name: &str, child: &str) -> PathBuf {
-    std::env::var_os(env_name)
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join(child)
+    entries.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    Ok(entries)
 }
 
 fn create_directory_node(path: &Path) -> Result<(), ServiceError> {
@@ -249,39 +204,8 @@ fn delete_permanently(path: &Path) -> Result<(), ServiceError> {
     }
 }
 
-#[cfg(windows)]
-fn create_symlink_node(target: &str, path: &Path) -> Result<(), ServiceError> {
-    use std::os::windows::fs::{symlink_dir, symlink_file};
-
-    let target_path = symlink_target_path(target, path);
-    if target_path.is_dir() {
-        symlink_dir(target, path).map_err(map_io_error)
-    } else {
-        symlink_file(target, path).map_err(map_io_error)
-    }
-}
-
-#[cfg(unix)]
 fn create_symlink_node(target: &str, path: &Path) -> Result<(), ServiceError> {
     std::os::unix::fs::symlink(target, path).map_err(map_io_error)
-}
-
-#[cfg(not(any(windows, unix)))]
-fn create_symlink_node(_target: &str, _path: &Path) -> Result<(), ServiceError> {
-    Err(ServiceError::Unsupported)
-}
-
-#[cfg(windows)]
-fn symlink_target_path(target: &str, link_path: &Path) -> PathBuf {
-    let target_path = PathBuf::from(target);
-    if target_path.is_absolute() {
-        target_path
-    } else {
-        link_path
-            .parent()
-            .map(|parent| parent.join(&target_path))
-            .unwrap_or(target_path)
-    }
 }
 
 fn map_io_error(err: std::io::Error) -> ServiceError {
@@ -295,36 +219,5 @@ fn map_io_error(err: std::io::Error) -> ServiceError {
         std::io::ErrorKind::NotADirectory => ServiceError::NotDirectory,
         std::io::ErrorKind::IsADirectory => ServiceError::NotFile,
         _ => ServiceError::OperationFailed(err.to_string()),
-    }
-}
-
-#[cfg(all(test, windows))]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn list_directory_tolerates_profile_entries_without_metadata() {
-        let Some(profile) = std::env::var_os("USERPROFILE") else {
-            return;
-        };
-
-        let rows = MacFileService
-            .list_directory(PathBuf::from(profile).to_string_lossy().to_string())
-            .await
-            .unwrap();
-
-        assert!(!rows.is_empty());
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn fallback_entry_preserves_name_and_marks_unknown_readonly() {
-        let entry = fallback_fs_entry(PathBuf::from(r"C:\Users\user\nul"));
-
-        assert_eq!(entry.name, "nul");
-        assert_eq!(entry.kind, FsEntryKind::Other);
-        assert_eq!(entry.size, None);
-        assert_eq!(entry.modified_at_ms, None);
-        assert!(entry.readonly);
     }
 }

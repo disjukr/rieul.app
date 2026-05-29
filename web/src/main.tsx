@@ -1164,7 +1164,7 @@ function useWorkbenchTabLabel(tab: WorkbenchTab, machine?: Machine): string {
 
 function folderNameFromPath(path?: string): string {
   const crumbs = pathCrumbs(path);
-  return crumbs[crumbs.length - 1]?.label ?? "Roots";
+  return crumbs[crumbs.length - 1]?.label ?? "Files";
 }
 
 function WorkbenchTabContent(
@@ -1575,7 +1575,7 @@ function EntryDetails(
     return (
       <dl>
         <dt>Location</dt>
-        <dd>{currentPath ?? "Roots"}</dd>
+        <dd>{currentPath ?? "Files"}</dd>
       </dl>
     );
   }

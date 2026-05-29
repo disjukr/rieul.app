@@ -429,35 +429,45 @@ function kindRank(kind: FsEntryKind): number {
 export function pathCrumbs(
   path?: string,
 ): { label: string; path?: string }[] {
-  if (!path) return [{ label: "Roots" }];
-  const root = rootPath(path);
-  const crumbs = [
-    { label: "Roots" },
-    { label: root, path: root },
-  ];
+  if (!path) return [{ label: "Files" }];
+  const { root, separator } = pathRoot(path);
+  const crumbs = [{ label: "Files", path: root }];
+  if (root !== "/") crumbs.push({ label: root, path: root });
   const rest = path.slice(root.length).replace(/[\\/]+$/g, "");
   if (!rest) return crumbs;
   let cursor = root;
   for (const part of rest.split(/[\\/]+/).filter(Boolean)) {
-    cursor = cursor.endsWith("\\") ? `${cursor}${part}` : `${cursor}\\${part}`;
+    cursor = cursor.endsWith(separator)
+      ? `${cursor}${part}`
+      : `${cursor}${separator}${part}`;
     crumbs.push({ label: part, path: cursor });
   }
   return crumbs;
 }
 
-function rootPath(path: string): string {
-  const drive = /^[A-Za-z]:\\/.exec(path);
-  if (drive) return drive[0];
+function pathRoot(path: string): { root: string; separator: "\\" | "/" } {
+  const drive = /^[A-Za-z]:[\\/]/.exec(path);
+  if (drive) {
+    const root = drive[0];
+    return {
+      root,
+      separator: root.endsWith("/") ? "/" : "\\",
+    };
+  }
   const unc = /^\\\\[^\\]+\\[^\\]+\\?/.exec(path);
-  if (unc) return unc[0].endsWith("\\") ? unc[0] : `${unc[0]}\\`;
-  return path;
+  if (unc) {
+    const root = unc[0].endsWith("\\") ? unc[0] : `${unc[0]}\\`;
+    return { root, separator: "\\" };
+  }
+  if (path.startsWith("/")) return { root: "/", separator: "/" };
+  return { root: path, separator: path.includes("/") ? "/" : "\\" };
 }
 
 function parentPath(path: string): string | undefined {
-  const root = rootPath(path);
+  const { root } = pathRoot(path);
   const trimmed = path.replace(/[\\/]+$/g, "");
   if (trimmed === root.replace(/[\\/]+$/g, "")) return undefined;
-  const index = trimmed.lastIndexOf("\\");
+  const index = Math.max(trimmed.lastIndexOf("\\"), trimmed.lastIndexOf("/"));
   if (index < 0) return undefined;
   if (index < root.length) return root;
   return trimmed.slice(0, index) || undefined;
