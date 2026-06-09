@@ -20,10 +20,12 @@ export const ExplorerPaneScope = createScope<string>();
 interface ExplorerNavigationState {
   currentPath?: string;
   history: ExplorerHistoryEntry[];
+  openedFile?: FsEntry;
 }
 
 interface ExplorerHistoryEntry {
   path?: string;
+  openedFile?: FsEntry;
 }
 
 export const explorerMachineBunja = bunja(() => {
@@ -86,16 +88,30 @@ export const explorerNavigationBunja = bunja(() => {
       }));
     },
   );
-  const historyAtom = atom(
-    (get) => get(navigationStateAtom).history.map((entry) => entry.path),
-    (get, set, update: SetStateAction<(string | undefined)[]>) => {
-      const currentHistory = get(navigationStateAtom).history.map((entry) =>
-        entry.path
+  const openedFileAtom = atom(
+    (get) => get(navigationStateAtom).openedFile,
+    (get, set, update: SetStateAction<FsEntry | undefined>) => {
+      const next = resolveSetStateAction(
+        update,
+        get(navigationStateAtom).openedFile,
       );
+      set(navigationStateAtom, (current) => ({
+        ...current,
+        openedFile: next,
+      }));
+    },
+  );
+  const displayPathAtom = atom((get) =>
+    get(openedFileAtom)?.path ?? get(currentPathAtom)
+  );
+  const historyAtom = atom(
+    (get) => get(navigationStateAtom).history,
+    (get, set, update: SetStateAction<ExplorerHistoryEntry[]>) => {
+      const currentHistory = get(navigationStateAtom).history;
       const next = resolveSetStateAction(update, currentHistory);
       set(navigationStateAtom, (current) => ({
         ...current,
-        history: next.map((path) => ({ path })),
+        history: next,
       }));
     },
   );
@@ -108,9 +124,10 @@ export const explorerNavigationBunja = bunja(() => {
   function navigate(path?: string) {
     store.set(
       historyAtom,
-      (current) => [...current, store.get(currentPathAtom)],
+      (current) => [...current, currentLocation()],
     );
     store.set(currentPathAtom, path);
+    store.set(openedFileAtom, undefined);
     store.set(selectedPathAtom, undefined);
   }
 
@@ -118,12 +135,17 @@ export const explorerNavigationBunja = bunja(() => {
     const history = store.get(historyAtom);
     if (history.length === 0) return;
     const next = history[history.length - 1];
-    store.set(currentPathAtom, next);
-    store.set(selectedPathAtom, undefined);
+    store.set(currentPathAtom, next.path);
+    store.set(openedFileAtom, next.openedFile);
+    store.set(selectedPathAtom, next.openedFile?.path);
     store.set(historyAtom, history.slice(0, -1));
   }
 
   function goUp() {
+    if (store.get(openedFileAtom)) {
+      navigate(store.get(currentPathAtom));
+      return;
+    }
     const currentPath = store.get(currentPathAtom);
     if (!currentPath) return;
     navigate(parentPath(currentPath));
@@ -137,15 +159,34 @@ export const explorerNavigationBunja = bunja(() => {
     store.set(selectedPathAtom, entry.path);
   }
 
+  function openFile(entry: FsEntry) {
+    store.set(
+      historyAtom,
+      (current) => [...current, currentLocation()],
+    );
+    store.set(openedFileAtom, entry);
+    store.set(selectedPathAtom, entry.path);
+  }
+
+  function currentLocation(): ExplorerHistoryEntry {
+    return {
+      path: store.get(currentPathAtom),
+      openedFile: store.get(openedFileAtom),
+    };
+  }
+
   return {
     currentPathAtom,
+    displayPathAtom,
     historyAtom,
+    openedFileAtom,
     selectedPathAtom,
     selectEntry,
     navigate,
     goBack,
     goUp,
     openEntry,
+    openFile,
   };
 });
 
@@ -287,6 +328,7 @@ export const explorerDirectoryBunja = bunja(() => {
               (path) => {
                 if (path) {
                   store.set(navigation.currentPathAtom, path);
+                  store.set(navigation.openedFileAtom, undefined);
                   store.set(navigation.historyAtom, []);
                 }
               },
@@ -339,7 +381,9 @@ export const explorerBunja = bunja(() => {
 
   return {
     currentPathAtom: navigation.currentPathAtom,
+    displayPathAtom: navigation.displayPathAtom,
     historyAtom: navigation.historyAtom,
+    openedFileAtom: navigation.openedFileAtom,
     selectedPathAtom: navigation.selectedPathAtom,
     visibleRowsAtom,
     selectedEntryAtom,
@@ -349,6 +393,7 @@ export const explorerBunja = bunja(() => {
     goBack: navigation.goBack,
     goUp: navigation.goUp,
     openEntry: navigation.openEntry,
+    openFile: navigation.openFile,
   };
 });
 

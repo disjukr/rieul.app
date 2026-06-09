@@ -49,7 +49,7 @@ import {
   X,
 } from "lucide-react";
 import "./styles.css";
-import { FsEntry, FsEntryKind } from "./protocol/rpc.ts";
+import { FsEntry, FsEntryKind, readFile } from "./protocol/rpc.ts";
 import { connectionBunja } from "./state/connection.ts";
 import {
   displayName,
@@ -86,12 +86,22 @@ const machinePanelMaxWidth = 420;
 const minimumWorkbenchWidth = 360;
 const machineRailWidth = 64;
 const workbenchTabDragType = "application/x-wgo-workbench-tab";
+const inlineFileOpenLimitBytes = 1024 * 1024;
 
 type EntryMenuState = {
   entry: FsEntry;
   x: number;
   y: number;
 };
+
+type FilePreview =
+  | { kind: "text"; text: string }
+  | { kind: "binary"; text: string };
+
+type FileLoadState =
+  | { phase: "loading" }
+  | { phase: "ready"; byteLength: number; preview: FilePreview }
+  | { phase: "error"; message: string };
 
 type WorkbenchTabDragData = {
   paneId: string;
@@ -1462,13 +1472,16 @@ function Explorer(
     ExplorerPaneScope.bind(paneScopeId),
   ]);
   const currentPath = useAtomValue(explorer.currentPathAtom);
+  const displayPath = useAtomValue(explorer.displayPathAtom);
   const history = useAtomValue(explorer.historyAtom);
+  const openedFile = useAtomValue(explorer.openedFileAtom);
   const selectedPath = useAtomValue(explorer.selectedPathAtom);
   const visibleRows = useAtomValue(explorer.visibleRowsAtom);
   const selectedEntry = useAtomValue(explorer.selectedEntryAtom);
   const lastConnectionEpochRef = useRef(connectionEpoch);
   const [entryMenu, setEntryMenu] = useState<EntryMenuState>();
   const [propertiesEntry, setPropertiesEntry] = useState<FsEntry>();
+  const [fileOpenPrompt, setFileOpenPrompt] = useState<FsEntry>();
 
   useEffect(() => {
     if (lastConnectionEpochRef.current === connectionEpoch) return;
@@ -1511,8 +1524,61 @@ function Explorer(
     goUp,
     navigate,
     openEntry,
+    openFile,
     selectEntry,
   } = explorer;
+
+  function goBackFromToolbar() {
+    if (fileOpenPrompt) {
+      setFileOpenPrompt(undefined);
+      return;
+    }
+    goBack();
+  }
+
+  function goUpFromToolbar() {
+    if (fileOpenPrompt) {
+      setFileOpenPrompt(undefined);
+      return;
+    }
+    goUp();
+  }
+
+  function navigateFromToolbar(path?: string) {
+    if (fileOpenPrompt && path === fileOpenPrompt.path) return;
+    setFileOpenPrompt(undefined);
+    if (openedFile && path === openedFile.path) return;
+    navigate(path);
+  }
+
+  function openTableEntry(entry: FsEntry) {
+    if (entry.kind === FsEntryKind.Directory) {
+      setFileOpenPrompt(undefined);
+      openEntry(entry);
+      return;
+    }
+    if (entry.kind !== FsEntryKind.File) {
+      selectEntry(entry);
+      return;
+    }
+
+    selectEntry(entry);
+    if (
+      entry.size === undefined ||
+      entry.size > inlineFileOpenLimitBytes
+    ) {
+      setFileOpenPrompt(entry);
+      return;
+    }
+    setFileOpenPrompt(undefined);
+    openFile(entry);
+  }
+
+  function confirmFileOpen() {
+    if (!fileOpenPrompt) return;
+    openFile(fileOpenPrompt);
+    setFileOpenPrompt(undefined);
+  }
 
   function openEntryMenu(
     entry: FsEntry,
@@ -1556,8 +1622,8 @@ function Explorer(
       <div className="path-toolbar">
         <button
           type="button"
-          onClick={goBack}
-          disabled={history.length === 0}
+          onClick={goBackFromToolbar}
+          disabled={history.length === 0 && !fileOpenPrompt}
           title="Back"
           aria-label="Back"
           className="icon-button"
@@ -1566,7 +1632,7 @@ function Explorer(
         </button>
         <button
           type="button"
-          onClick={goUp}
+          onClick={goUpFromToolbar}
           disabled={!currentPath}
           title="Up"
           aria-label="Up"
@@ -1574,22 +1640,43 @@ function Explorer(
         >
           <ArrowUp size={16} />
         </button>
-        <PathCrumbs path={currentPath} onNavigate={navigate} />
+        <PathCrumbs
+          path={fileOpenPrompt?.path ?? displayPath}
+          onNavigate={navigateFromToolbar}
+        />
       </div>
 
-      <div className="browser-layout">
-        <FileTable
-          rows={visibleRows}
-          selectedPath={selectedPath}
-          onSelect={selectEntry}
-          onOpen={openEntry}
-          onContextMenu={openEntryMenu}
-        />
-        <Inspector entry={selectedEntry} currentPath={currentPath} />
-      </div>
+      {fileOpenPrompt
+        ? (
+          <FileOpenPrompt
+            file={fileOpenPrompt}
+            onCancel={() => setFileOpenPrompt(undefined)}
+            onConfirm={confirmFileOpen}
+          />
+        )
+        : openedFile
+        ? <FileViewer machine={machine} file={openedFile} />
+        : (
+          <div className="browser-layout">
+            <FileTable
+              rows={visibleRows}
+              selectedPath={selectedPath}
+              onSelect={selectEntry}
+              onOpen={openTableEntry}
+              onContextMenu={openEntryMenu}
+            />
+            <Inspector entry={selectedEntry} currentPath={currentPath} />
+          </div>
+        )}
 
       <div className="explorer-footer">
-        <span>{visibleRows.length} items</span>
+        <span>
+          {fileOpenPrompt
+            ? formatSize(fileOpenPrompt.size)
+            : openedFile
+            ? formatSize(openedFile.size)
+            : `${visibleRows.length} items`}
+        </span>
       </div>
 
       {entryMenu
@@ -1624,6 +1711,160 @@ function Explorer(
   );
 }
 
+function FileViewer({ machine, file }: { machine: Machine; file: FsEntry }) {
+  const [state, setState] = useState<FileLoadState>({ phase: "loading" });
+
+  useEffect(() => {
+    let cancelled = false;
+    setState({ phase: "loading" });
+    void (async () => {
+      try {
+        const bytes = await readFile(machine, file.path);
+        if (cancelled) return;
+        setState({
+          phase: "ready",
+          byteLength: bytes.byteLength,
+          preview: decodeFilePreview(bytes),
+        });
+      } catch (err) {
+        if (!cancelled) {
+          setState({
+            phase: "error",
+            message: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [file.path, machine]);
+
+  return (
+    <section className="file-viewer">
+      <header className="file-viewer-head">
+        <div className="file-viewer-title">
+          <FileText size={16} />
+          <span>{displayName(file)}</span>
+        </div>
+        <span className="file-viewer-meta">
+          {state.phase === "ready"
+            ? formatSize(state.byteLength)
+            : formatSize(file.size)}
+        </span>
+      </header>
+      {state.phase === "loading"
+        ? (
+          <div className="file-viewer-status">
+            <Loader2 size={18} className="spin" />
+            <span>Loading file</span>
+          </div>
+        )
+        : state.phase === "error"
+        ? (
+          <div className="file-viewer-status error">
+            <span>{state.message}</span>
+          </div>
+        )
+        : (
+          <pre
+            className={state.preview.kind === "binary"
+              ? "file-content binary"
+              : "file-content"}
+          >
+            {state.preview.text}
+          </pre>
+        )}
+    </section>
+  );
+}
+
+function FileOpenPrompt(
+  { file, onCancel, onConfirm }: {
+    file: FsEntry;
+    onCancel: () => void;
+    onConfirm: () => void;
+  },
+) {
+  const sizeLabel = file.size === undefined
+    ? "Unknown size"
+    : formatSize(file.size);
+
+  return (
+    <section className="file-open-prompt">
+      <div className="file-open-prompt-panel">
+        <div className="file-open-prompt-icon">
+          <FileText size={24} />
+        </div>
+        <div className="file-open-prompt-copy">
+          <h2>{displayName(file)}</h2>
+          <p>
+            This file is <strong>{sizeLabel}</strong>. Do you want to open it?
+          </p>
+          <p>{file.path}</p>
+        </div>
+        <div className="file-open-prompt-actions">
+          <button type="button" onClick={onCancel}>
+            Cancel
+          </button>
+          <button type="button" onClick={onConfirm}>
+            <FileText size={16} />
+            Open
+          </button>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function decodeFilePreview(bytes: Uint8Array): FilePreview {
+  if (looksBinary(bytes)) {
+    return { kind: "binary", text: hexPreview(bytes) };
+  }
+
+  try {
+    return {
+      kind: "text",
+      text: new TextDecoder("utf-8", { fatal: true }).decode(bytes),
+    };
+  } catch {
+    return { kind: "binary", text: hexPreview(bytes) };
+  }
+}
+
+function looksBinary(bytes: Uint8Array): boolean {
+  const sample = bytes.subarray(0, Math.min(bytes.length, 4096));
+  if (sample.includes(0)) return true;
+  let controls = 0;
+  for (const byte of sample) {
+    const isTextControl = byte === 9 || byte === 10 || byte === 13;
+    if (byte < 32 && !isTextControl) controls++;
+  }
+  return sample.length > 0 && controls / sample.length > 0.08;
+}
+
+function hexPreview(bytes: Uint8Array): string {
+  const previewLength = Math.min(bytes.length, 4096);
+  const lines: string[] = [];
+  for (let offset = 0; offset < previewLength; offset += 16) {
+    const chunk = bytes.subarray(offset, Math.min(offset + 16, previewLength));
+    const hex = Array.from(chunk)
+      .map((byte) => byte.toString(16).padStart(2, "0"))
+      .join(" ")
+      .padEnd(47, " ");
+    const ascii = Array.from(chunk)
+      .map((byte) =>
+        byte >= 32 && byte <= 126 ? String.fromCharCode(byte) : "."
+      )
+      .join("");
+    lines.push(`${offset.toString(16).padStart(8, "0")}  ${hex}  |${ascii}|`);
+  }
+  if (bytes.length > previewLength) {
+    lines.push(`... ${formatSize(bytes.length - previewLength)} more`);
+  }
+  return lines.join("\n");
+}
+
 function PathCrumbs(
   { path, onNavigate }: {
     path?: string;
@@ -1633,6 +1874,7 @@ function PathCrumbs(
   const [editing, setEditing] = useState(false);
   const [draftPath, setDraftPath] = useState(path ?? "");
   const inputRef = useRef<HTMLInputElement>(null);
+  const crumbsRef = useRef<HTMLDivElement>(null);
   const crumbs = pathCrumbs(path);
 
   useEffect(() => {
@@ -1644,6 +1886,16 @@ function PathCrumbs(
     inputRef.current?.focus();
     inputRef.current?.select();
   }, [editing]);
+
+  useEffect(() => {
+    if (editing) return;
+    const element = crumbsRef.current;
+    if (!element) return;
+    const frame = requestAnimationFrame(() => {
+      element.scrollLeft = element.scrollWidth;
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [editing, path]);
 
   function beginEditing() {
     setDraftPath(path ?? "");
@@ -1682,6 +1934,7 @@ function PathCrumbs(
 
   return (
     <div
+      ref={crumbsRef}
       className="crumbs"
       aria-label="Path"
       onMouseDown={(event) => {
@@ -1853,7 +2106,14 @@ function EntryIcon({ entry }: { entry: FsEntry }) {
   return <FileQuestion size={16} />;
 }
 
-createRoot(document.getElementById("root")!).render(
+const rootHost = globalThis as typeof globalThis & {
+  __wgoReactRoot?: ReturnType<typeof createRoot>;
+};
+const reactRoot = rootHost.__wgoReactRoot ??= createRoot(
+  document.getElementById("root")!,
+);
+
+reactRoot.render(
   <JotaiProvider store={jotaiStore}>
     <JotaiStoreContext.Provider value={jotaiStore}>
       <BunjaStoreProvider>

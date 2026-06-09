@@ -865,11 +865,28 @@ button.rail-machine.active:hover {
   width: 100%;
   min-height: 26px;
   min-width: 0;
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
   cursor: text;
 }
 
+.crumbs::-webkit-scrollbar {
+  height: 6px;
+}
+
+.crumbs::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: #c6cfdb;
+}
+
+.crumbs svg {
+  flex: 0 0 auto;
+}
+
 .crumbs button {
+  flex: 0 0 auto;
   min-width: 0;
   max-width: 180px;
   min-height: 24px;
@@ -1039,6 +1056,168 @@ button.rail-machine.active:hover {
   overflow-wrap: anywhere;
   color: #303642;
   font-size: 13px;
+}
+
+.file-viewer {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: #ffffff;
+}
+
+.file-viewer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+  min-height: 34px;
+  border-bottom: 1px solid #eef1f5;
+  background: #fbfcfe;
+  padding: 0 12px;
+}
+
+.file-viewer-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: #303642;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.file-viewer-title span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-viewer-title svg {
+  flex: 0 0 auto;
+  color: #4f8cff;
+}
+
+.file-viewer-meta {
+  flex: 0 0 auto;
+  color: #667085;
+  font-size: 12px;
+}
+
+.file-viewer-status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 0;
+  color: #667085;
+  font-size: 13px;
+}
+
+.file-viewer-status.error {
+  align-items: start;
+  justify-content: start;
+  overflow: auto;
+  color: #b42318;
+  padding: 14px;
+}
+
+.file-content {
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  overflow: auto;
+  background: #ffffff;
+  color: #20242d;
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  line-height: 1.55;
+  padding: 14px;
+  tab-size: 2;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.file-content.binary {
+  white-space: pre;
+  overflow-wrap: normal;
+}
+
+.file-open-prompt {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  background: #ffffff;
+  padding: 24px;
+}
+
+.file-open-prompt-panel {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 14px;
+  width: min(520px, 100%);
+  border: 1px solid #d8dde7;
+  border-radius: 8px;
+  background: #fbfcfe;
+  padding: 16px;
+}
+
+.file-open-prompt-icon {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 8px;
+  background: #eef3fb;
+  color: #4f8cff;
+}
+
+.file-open-prompt-copy {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.file-open-prompt-copy h2 {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: #20242d;
+  font-size: 15px;
+  letter-spacing: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-open-prompt-copy p {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: #667085;
+  font-size: 12px;
+}
+
+.file-open-prompt-copy strong {
+  color: #303642;
+  font-size: 13px;
+}
+
+.file-open-prompt-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .entry-properties-body {
