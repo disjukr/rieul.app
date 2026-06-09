@@ -1,5 +1,6 @@
 import { bunja, createScope } from "bunja";
-import { atom, type PrimitiveAtom } from "jotai";
+import { atom, type PrimitiveAtom, type SetStateAction } from "jotai";
+import { atomWithStorage } from "jotai/utils";
 import {
   DirectoryTableEvent,
   FsEntry,
@@ -15,6 +16,15 @@ import { StreamState } from "./types.ts";
 
 export const ExplorerMachineScope = createScope<string | undefined>();
 export const ExplorerPaneScope = createScope<string>();
+
+interface ExplorerNavigationState {
+  currentPath?: string;
+  history: ExplorerHistoryEntry[];
+}
+
+interface ExplorerHistoryEntry {
+  path?: string;
+}
 
 export const explorerMachineBunja = bunja(() => {
   const machineId = bunja.use(ExplorerMachineScope);
@@ -53,12 +63,42 @@ export const explorerRefreshBunja = bunja(() => {
 });
 
 export const explorerNavigationBunja = bunja(() => {
-  bunja.use(ExplorerMachineScope);
-  bunja.use(ExplorerPaneScope);
+  const machineId = bunja.use(ExplorerMachineScope);
+  const paneScopeId = bunja.use(ExplorerPaneScope);
   const store = bunja.use(JotaiStoreScope);
 
-  const currentPathAtom = atom<string | undefined>(undefined);
-  const historyAtom = atom<(string | undefined)[]>([]);
+  const navigationStateAtom = atomWithStorage<ExplorerNavigationState>(
+    explorerNavigationStorageKey(machineId, paneScopeId),
+    { history: [] },
+    undefined,
+    { getOnInit: true },
+  );
+  const currentPathAtom = atom(
+    (get) => get(navigationStateAtom).currentPath,
+    (get, set, update: SetStateAction<string | undefined>) => {
+      const next = resolveSetStateAction(
+        update,
+        get(navigationStateAtom).currentPath,
+      );
+      set(navigationStateAtom, (current) => ({
+        ...current,
+        currentPath: next,
+      }));
+    },
+  );
+  const historyAtom = atom(
+    (get) => get(navigationStateAtom).history.map((entry) => entry.path),
+    (get, set, update: SetStateAction<(string | undefined)[]>) => {
+      const currentHistory = get(navigationStateAtom).history.map((entry) =>
+        entry.path
+      );
+      const next = resolveSetStateAction(update, currentHistory);
+      set(navigationStateAtom, (current) => ({
+        ...current,
+        history: next.map((path) => ({ path })),
+      }));
+    },
+  );
   const selectedPathAtom = atom<string | undefined>(undefined);
 
   function selectEntry(entry: FsEntry) {
@@ -320,6 +360,22 @@ function explorerConnectionKey(machine?: Machine): string {
     machine.clientId ?? "",
     machine.clientSecret ?? "",
   ].join("\n");
+}
+
+function explorerNavigationStorageKey(
+  machineId: string | undefined,
+  paneScopeId: string,
+): string {
+  return `wgo.explorer.navigation.${machineId ?? "none"}.${paneScopeId}.v1`;
+}
+
+function resolveSetStateAction<Value>(
+  action: SetStateAction<Value>,
+  current: Value,
+): Value {
+  return typeof action === "function"
+    ? (action as (current: Value) => Value)(current)
+    : action;
 }
 
 function applyRootsEvent(

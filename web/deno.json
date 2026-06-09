@@ -13,6 +13,7 @@
     "bunja": "npm:bunja@^3.0.0",
     "bunja/react": "npm:bunja@^3.0.0/react",
     "jotai": "npm:jotai@^2.15.0",
+    "jotai/utils": "npm:jotai@^2.15.0/utils",
     "lucide-react": "npm:lucide-react@^0.468.0",
     "panecake": "npm:panecake@^0.0.1",
     "react": "npm:react@^19.0.0",

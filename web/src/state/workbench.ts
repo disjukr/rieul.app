@@ -1,5 +1,6 @@
-import { bunja } from "bunja";
+import { bunja, createScope } from "bunja";
 import { atom } from "jotai";
+import { atomWithStorage } from "jotai/utils";
 import { createLayout, type LayoutState } from "panecake";
 import { JotaiStoreScope } from "./jotai-store.ts";
 
@@ -18,32 +19,49 @@ export interface WorkbenchPane {
   activeTabId: string;
 }
 
+interface WorkbenchState {
+  layout: LayoutState;
+  activeFeature: WorkbenchFeature;
+  panes: WorkbenchPane[];
+}
+
 export type TabDropPosition = "before" | "after" | "end";
 
-const initialPaneId = "pane-1";
-const initialTab = createFilesTab();
-
-const initialLayout = createLayout((builder) => builder.leaf(initialPaneId));
+export const WorkbenchMachineScope = createScope<string | undefined>();
 
 export const workbenchBunja = bunja(() => {
+  const machineId = bunja.use(WorkbenchMachineScope);
   const store = bunja.use(JotaiStoreScope);
-
-  const layoutAtom = atom<LayoutState>(initialLayout);
-  const activeFeatureAtom = atom<WorkbenchFeature>("files");
-  const panesAtom = atom<WorkbenchPane[]>([
-    {
-      id: initialPaneId,
-      tabs: [initialTab],
-      activeTabId: initialTab.id,
-    },
-  ]);
+  const initialPaneId = `pane-${crypto.randomUUID()}`;
+  const initialTab = createFilesTab();
+  const initialLayout = createLayout((builder) => builder.leaf(initialPaneId));
+  const initialState: WorkbenchState = {
+    layout: initialLayout,
+    activeFeature: "files",
+    panes: [
+      {
+        id: initialPaneId,
+        tabs: [initialTab],
+        activeTabId: initialTab.id,
+      },
+    ],
+  };
+  const stateAtom = atomWithStorage<WorkbenchState>(
+    workbenchStorageKey(machineId),
+    initialState,
+    undefined,
+    { getOnInit: true },
+  );
+  const layoutAtom = atom((get) => get(stateAtom).layout);
+  const activeFeatureAtom = atom((get) => get(stateAtom).activeFeature);
+  const panesAtom = atom((get) => get(stateAtom).panes);
 
   function setLayout(layout: LayoutState) {
-    store.set(layoutAtom, layout);
+    store.set(stateAtom, (current) => ({ ...current, layout }));
   }
 
   function selectFeature(feature: WorkbenchFeature) {
-    store.set(activeFeatureAtom, feature);
+    store.set(stateAtom, (current) => ({ ...current, activeFeature: feature }));
   }
 
   function addPane(): string {
@@ -53,59 +71,68 @@ export const workbenchBunja = bunja(() => {
       activeTabId: "",
     };
     pane.activeTabId = pane.tabs[0].id;
-    store.set(panesAtom, (current) => [...current, pane]);
+    store.set(stateAtom, (current) => ({
+      ...current,
+      panes: [...current.panes, pane],
+    }));
     return pane.id;
   }
 
   function removePane(paneId: string) {
     store.set(
-      panesAtom,
-      (current) =>
-        current.length <= 1
-          ? current
-          : current.filter((pane) => pane.id !== paneId),
+      stateAtom,
+      (current) => ({
+        ...current,
+        panes: current.panes.length <= 1
+          ? current.panes
+          : current.panes.filter((pane) => pane.id !== paneId),
+      }),
+    );
+  }
+
+  function updatePanes(update: (panes: WorkbenchPane[]) => WorkbenchPane[]) {
+    store.set(
+      stateAtom,
+      (current) => ({
+        ...current,
+        panes: update(current.panes),
+      }),
     );
   }
 
   function addFilesTab(paneId: string) {
     const tab = createFilesTab();
-    store.set(
-      panesAtom,
-      (current) =>
-        current.map((pane) =>
-          pane.id === paneId
-            ? {
-              ...pane,
-              tabs: [...pane.tabs, tab],
-              activeTabId: tab.id,
-            }
-            : pane
-        ),
+    updatePanes((current) =>
+      current.map((pane) =>
+        pane.id === paneId
+          ? {
+            ...pane,
+            tabs: [...pane.tabs, tab],
+            activeTabId: tab.id,
+          }
+          : pane
+      )
     );
   }
 
   function selectTab(paneId: string, tabId: string) {
-    store.set(
-      panesAtom,
-      (current) =>
-        current.map((pane) =>
-          pane.id === paneId ? { ...pane, activeTabId: tabId } : pane
-        ),
+    updatePanes((current) =>
+      current.map((pane) =>
+        pane.id === paneId ? { ...pane, activeTabId: tabId } : pane
+      )
     );
   }
 
   function closeTab(paneId: string, tabId: string) {
-    store.set(
-      panesAtom,
-      (current) =>
-        current.map((pane) => {
-          if (pane.id !== paneId || pane.tabs.length <= 1) return pane;
-          const tabs = pane.tabs.filter((tab) => tab.id !== tabId);
-          const activeTabId = pane.activeTabId === tabId
-            ? tabs[0].id
-            : pane.activeTabId;
-          return { ...pane, tabs, activeTabId };
-        }),
+    updatePanes((current) =>
+      current.map((pane) => {
+        if (pane.id !== paneId || pane.tabs.length <= 1) return pane;
+        const tabs = pane.tabs.filter((tab) => tab.id !== tabId);
+        const activeTabId = pane.activeTabId === tabId
+          ? tabs[0].id
+          : pane.activeTabId;
+        return { ...pane, tabs, activeTabId };
+      })
     );
   }
 
@@ -116,7 +143,7 @@ export const workbenchBunja = bunja(() => {
     targetTabId: string | undefined,
     position: TabDropPosition,
   ) {
-    store.set(panesAtom, (current) => {
+    updatePanes((current) => {
       const sourcePane = current.find((pane) => pane.id === sourcePaneId);
       const targetPane = current.find((pane) => pane.id === targetPaneId);
       const movingTab = sourcePane?.tabs.find((tab) => tab.id === tabId);
@@ -163,6 +190,10 @@ export const workbenchBunja = bunja(() => {
     moveTab,
   };
 });
+
+function workbenchStorageKey(machineId: string | undefined): string {
+  return `wgo.workbench.${machineId ?? "none"}.v1`;
+}
 
 function moveTabWithinPane(
   pane: WorkbenchPane,

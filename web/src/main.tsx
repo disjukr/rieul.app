@@ -72,6 +72,7 @@ import {
   type TabDropPosition,
   workbenchBunja,
   type WorkbenchFeature,
+  WorkbenchMachineScope,
   type WorkbenchPane,
   type WorkbenchTab,
 } from "./state/workbench.ts";
@@ -102,11 +103,13 @@ function App() {
   const machineMenuState = useBunja(machineMenuBunja);
   const machineModal = useBunja(machineModalBunja);
   const connectionState = useBunja(connectionBunja);
-  const workbench = useBunja(workbenchBunja);
+  const selectedId = useAtomValue(machineStore.selectedIdAtom);
+  const workbench = useBunja(workbenchBunja, [
+    WorkbenchMachineScope.bind(selectedId),
+  ]);
 
   const machines = useAtomValue(machineStore.machinesAtom);
   const selected = useAtomValue(machineStore.selectedAtom);
-  const selectedId = useAtomValue(machineStore.selectedIdAtom);
   const selectedIsPaired = useAtomValue(machineStore.selectedIsPairedAtom);
   const machineName = useAtomValue(machineModal.machineNameAtom);
   const baseUrl = useAtomValue(machineModal.baseUrlAtom);
