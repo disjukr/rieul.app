@@ -103,6 +103,17 @@ Bulk mutation responses report item-level results by zero-based request item
 index. There is no rollback guarantee. Subscribed table events are the source of
 truth for resulting filesystem state.
 
-Whole-file content I/O is currently represented by unary `ReadFile` and
-`WriteFile`. Range reads, append, partial writes, and large-file streaming are
-reserved for a later protocol revision.
+File content I/O is range-oriented rather than cursor-oriented:
+
+- `ReadFile` is unary request, server-streaming response. The request names a
+  path plus optional `offset` and `length`. The response carries zero or more
+  `ReadFileChunk` messages. EOF and empty reads are represented by normal stream
+  close.
+- `WriteFile` is client-streaming request, unary response. The request stream
+  starts with exactly one `WriteFileStart`; all later request messages are
+  `WriteFileChunk`. Normal request completion is represented by transport
+  half-close. The response reports `bytesWritten` and `resultSize`.
+
+Offsets, lengths, sizes, and epoch millisecond timestamps use `u53`.
+`WriteFileStart.modifiedAtMs` is best-effort; inability to apply it does not
+fail an otherwise successful write.

@@ -1,7 +1,9 @@
 use std::future::Future;
 use std::pin::Pin;
 
-use crate::rpc::{CreateNodeOp, DeleteMode, FsEntry, WriteFileMode};
+use crate::rpc::{
+    CreateNodeOp, DeleteMode, FsEntry, ReadFileReq, WriteFileChunk, WriteFileResult, WriteFileStart,
+};
 
 pub type BoxFutureResult<'a, T> =
     Pin<Box<dyn Future<Output = Result<T, ServiceError>> + Send + 'a>>;
@@ -29,13 +31,12 @@ pub enum ServiceError {
 pub trait FileService: Send + Sync {
     fn roots(&self) -> BoxFutureResult<'_, Vec<FsEntry>>;
     fn list_directory(&self, path: String) -> BoxFutureResult<'_, Vec<FsEntry>>;
-    fn read_file(&self, path: String) -> BoxFutureResult<'_, Vec<u8>>;
+    fn read_file(&self, request: ReadFileReq) -> BoxFutureResult<'_, Vec<u8>>;
     fn write_file(
         &self,
-        path: String,
-        mode: WriteFileMode,
-        bytes: Vec<u8>,
-    ) -> BoxFutureResult<'_, ()>;
+        start: WriteFileStart,
+        chunks: Vec<WriteFileChunk>,
+    ) -> BoxFutureResult<'_, WriteFileResult>;
     fn create_node(&self, op: CreateNodeOp) -> BoxFutureResult<'_, ()>;
     fn rename_path(&self, from: String, to: String) -> BoxFutureResult<'_, ()>;
     fn delete_path(&self, path: String, mode: DeleteMode) -> BoxFutureResult<'_, ()>;

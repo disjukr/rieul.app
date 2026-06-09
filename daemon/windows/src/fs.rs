@@ -1,9 +1,11 @@
-use std::fs::{self, OpenOptions};
+use std::fs::{self, FileTimes, OpenOptions};
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
-use std::time::UNIX_EPOCH;
+use std::time::{Duration, UNIX_EPOCH};
 
 use wgo_daemon_core::rpc::{
-    CreateNodeOp, CreateNodeSpec, DeleteMode, FsEntry, FsEntryKind, WriteFileMode,
+    CreateNodeOp, CreateNodeSpec, DeleteMode, FsEntry, FsEntryKind, ReadFileReq, WriteFileChunk,
+    WriteFileMode, WriteFileResult, WriteFileStart, MAX_U53,
 };
 use wgo_daemon_core::traits::{BoxFutureResult, FileService, ServiceError};
 
@@ -49,40 +51,60 @@ impl FileService for WindowsFileService {
         })
     }
 
-    fn read_file(&self, path: String) -> BoxFutureResult<'_, Vec<u8>> {
+    fn read_file(&self, request: ReadFileReq) -> BoxFutureResult<'_, Vec<u8>> {
         Box::pin(async move {
-            let metadata = fs::symlink_metadata(&path).map_err(map_io_error)?;
+            let metadata = fs::symlink_metadata(&request.path).map_err(map_io_error)?;
             if !metadata.is_file() {
                 return Err(ServiceError::NotFile);
             }
-            fs::read(path).map_err(map_io_error)
+            let mut file = fs::File::open(&request.path).map_err(map_io_error)?;
+            file.seek(SeekFrom::Start(request.offset.unwrap_or(0)))
+                .map_err(map_io_error)?;
+            let mut bytes = Vec::new();
+            match request.length {
+                Some(length) => {
+                    file.take(length)
+                        .read_to_end(&mut bytes)
+                        .map_err(map_io_error)?;
+                }
+                None => {
+                    file.read_to_end(&mut bytes).map_err(map_io_error)?;
+                }
+            }
+            Ok(bytes)
         })
     }
 
     fn write_file(
         &self,
-        path: String,
-        mode: WriteFileMode,
-        bytes: Vec<u8>,
-    ) -> BoxFutureResult<'_, ()> {
+        start: WriteFileStart,
+        chunks: Vec<WriteFileChunk>,
+    ) -> BoxFutureResult<'_, WriteFileResult> {
         Box::pin(async move {
-            ensure_parent_directory_exists(Path::new(&path))?;
-            match mode {
-                WriteFileMode::CreateNew => OpenOptions::new()
-                    .write(true)
-                    .create_new(true)
-                    .open(path)
-                    .and_then(|mut file| std::io::Write::write_all(&mut file, &bytes))
-                    .map_err(map_io_error),
-                WriteFileMode::CreateOrReplace => {
-                    if let Ok(metadata) = fs::symlink_metadata(&path) {
-                        if !metadata.is_file() {
-                            return Err(ServiceError::NotFile);
-                        }
-                    }
-                    fs::write(path, bytes).map_err(map_io_error)
-                }
+            let path = PathBuf::from(&start.path);
+            ensure_parent_directory_exists(&path)?;
+            let bytes_written = write_file_chunks(&path, start.mode, &chunks)?;
+            set_modified_time_best_effort(&path, start.modified_at_ms);
+            let metadata = fs::metadata(&path).map_err(map_io_error)?;
+            let result_size = metadata.len();
+            if result_size > MAX_U53 {
+                return Err(ServiceError::OperationFailed(
+                    "result file size exceeds u53".to_string(),
+                ));
             }
+            if start
+                .expected_result_size
+                .is_some_and(|expected| expected != result_size)
+            {
+                return Err(ServiceError::OperationFailed(
+                    "result file size does not match expectedResultSize".to_string(),
+                ));
+            }
+            Ok(WriteFileResult {
+                bytes_written,
+                result_size,
+                modified_at_ms: metadata_modified_at_ms(&metadata),
+            })
         })
     }
 
@@ -131,6 +153,110 @@ impl FileService for WindowsFileService {
     }
 }
 
+fn write_file_chunks(
+    path: &Path,
+    mode: WriteFileMode,
+    chunks: &[WriteFileChunk],
+) -> Result<u64, ServiceError> {
+    let mut bytes_written = 0u64;
+    match mode {
+        WriteFileMode::Create => {
+            let mut file = OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(path)
+                .map_err(map_io_error)?;
+            write_seekable_chunks(&mut file, chunks, false, &mut bytes_written)?;
+        }
+        WriteFileMode::Replace => {
+            if let Ok(metadata) = fs::symlink_metadata(path) {
+                if !metadata.is_file() {
+                    return Err(ServiceError::NotFile);
+                }
+            }
+            let mut file = OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .open(path)
+                .map_err(map_io_error)?;
+            write_seekable_chunks(&mut file, chunks, false, &mut bytes_written)?;
+        }
+        WriteFileMode::Append => {
+            ensure_regular_file_exists(path)?;
+            let mut file = OpenOptions::new()
+                .append(true)
+                .open(path)
+                .map_err(map_io_error)?;
+            for chunk in chunks {
+                if chunk.offset.is_some() {
+                    return Err(ServiceError::InvalidPath);
+                }
+                file.write_all(&chunk.bytes).map_err(map_io_error)?;
+                bytes_written = add_chunk_len(bytes_written, chunk)?;
+            }
+        }
+        WriteFileMode::Patch => {
+            ensure_regular_file_exists(path)?;
+            let mut file = OpenOptions::new()
+                .write(true)
+                .open(path)
+                .map_err(map_io_error)?;
+            write_seekable_chunks(&mut file, chunks, true, &mut bytes_written)?;
+        }
+    }
+    Ok(bytes_written)
+}
+
+fn write_seekable_chunks(
+    file: &mut fs::File,
+    chunks: &[WriteFileChunk],
+    require_offset: bool,
+    bytes_written: &mut u64,
+) -> Result<(), ServiceError> {
+    for chunk in chunks {
+        match chunk.offset {
+            Some(offset) => {
+                file.seek(SeekFrom::Start(offset)).map_err(map_io_error)?;
+            }
+            None if require_offset => return Err(ServiceError::InvalidPath),
+            None => {}
+        }
+        file.write_all(&chunk.bytes).map_err(map_io_error)?;
+        *bytes_written = add_chunk_len(*bytes_written, chunk)?;
+    }
+    Ok(())
+}
+
+fn add_chunk_len(current: u64, chunk: &WriteFileChunk) -> Result<u64, ServiceError> {
+    current
+        .checked_add(chunk.bytes.len() as u64)
+        .filter(|value| *value <= MAX_U53)
+        .ok_or_else(|| ServiceError::OperationFailed("bytesWritten exceeds u53".to_string()))
+}
+
+fn ensure_regular_file_exists(path: &Path) -> Result<(), ServiceError> {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.is_file() => Ok(()),
+        Ok(_) => Err(ServiceError::NotFile),
+        Err(err) => Err(map_io_error(err)),
+    }
+}
+
+fn set_modified_time_best_effort(path: &Path, modified_at_ms: Option<u64>) {
+    let Some(modified_at_ms) = modified_at_ms else {
+        return;
+    };
+    let Some(modified_time) = UNIX_EPOCH.checked_add(Duration::from_millis(modified_at_ms)) else {
+        return;
+    };
+    let Ok(file) = OpenOptions::new().write(true).open(path) else {
+        return;
+    };
+    let times = FileTimes::new().set_modified(modified_time);
+    let _ = file.set_times(times);
+}
+
 fn to_fs_entry(path: PathBuf, metadata: fs::Metadata) -> FsEntry {
     let file_type = metadata.file_type();
     let kind = if file_type.is_symlink() {
@@ -142,19 +268,22 @@ fn to_fs_entry(path: PathBuf, metadata: fs::Metadata) -> FsEntry {
     } else {
         FsEntryKind::Other
     };
-    let modified_at_ms = metadata
-        .modified()
-        .ok()
-        .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
-        .map(|duration| duration.as_millis() as u64);
     FsEntry {
         name: fs_entry_name(&path),
         path: path.to_string_lossy().to_string(),
         kind,
         size: metadata.is_file().then_some(metadata.len()),
-        modified_at_ms,
+        modified_at_ms: metadata_modified_at_ms(&metadata),
         readonly: metadata.permissions().readonly(),
     }
+}
+
+fn metadata_modified_at_ms(metadata: &fs::Metadata) -> Option<u64> {
+    metadata
+        .modified()
+        .ok()
+        .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+        .map(|duration| duration.as_millis() as u64)
 }
 
 fn fallback_fs_entry(path: PathBuf) -> FsEntry {
@@ -294,5 +423,33 @@ mod tests {
         assert_eq!(entry.size, None);
         assert_eq!(entry.modified_at_ms, None);
         assert!(entry.readonly);
+    }
+
+    #[tokio::test]
+    async fn write_file_reports_best_effort_modified_time() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("file.txt");
+        let modified_at_ms = 1_710_000_000_000;
+
+        let result = WindowsFileService
+            .write_file(
+                WriteFileStart {
+                    path: path.to_string_lossy().to_string(),
+                    mode: WriteFileMode::Replace,
+                    expected_result_size: Some(5),
+                    modified_at_ms: Some(modified_at_ms),
+                },
+                vec![WriteFileChunk {
+                    offset: None,
+                    bytes: b"hello".to_vec(),
+                }],
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(result.bytes_written, 5);
+        assert_eq!(result.result_size, 5);
+        let returned = result.modified_at_ms.unwrap();
+        assert!(returned.abs_diff(modified_at_ms) <= 1_000);
     }
 }

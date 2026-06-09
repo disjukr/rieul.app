@@ -29,20 +29,25 @@ proc SubscribeRoots = void -> RootsTableEvent throws SubscribeRootsError
 proc SubscribeDirectory = SubscribeDirectoryReq -> DirectoryTableEvent throws SubscribeDirectoryError
 
 @ description
-| Reads a whole file as bytes. Range reads and server-streaming large-file
-| reads are reserved for a later protocol revision.
+| Reads a file byte range. The response stream contains zero or more
+| ReadFileChunk messages and then closes normally at EOF or after the requested
+| length has been sent. Chunk size is chosen by the server. Each chunk carries
+| the absolute file offset of its bytes.
 @ id - 5
-@ stream - unary
-proc ReadFile = ReadFileReq -> ReadFileRes throws ReadFileError
+@ stream - server
+proc ReadFile = ReadFileReq -> ReadFileChunk throws ReadFileError
 
 @ description
-| Writes a whole file from bytes. Parent directories must already exist.
-| Client-streaming large-file writes, append, and partial writes are reserved
-| for a later protocol revision. The resulting filesystem state is observed
-| through active table subscriptions.
+| Writes file bytes. Parent directories must already exist. The request stream
+| MUST begin with exactly one WriteFileReq.WriteFileStart message. All
+| following request messages MUST be WriteFileReq.WriteFileChunk. WriteFileStart
+| MUST NOT appear after the first request message, and an empty request stream
+| is invalid. Normal request completion is represented by transport half-close.
+| The resulting filesystem state is observed through active table
+| subscriptions.
 @ id - 6
-@ stream - unary
-proc WriteFile = WriteFileReq -> void throws WriteFileError
+@ stream - client
+proc WriteFile = WriteFileReq -> WriteFileResult throws WriteFileError
 
 @ description
 | Creates filesystem nodes in the active user context. This is a best-effort
@@ -72,10 +77,18 @@ proc RenamePaths = RenamePathsReq -> BulkMutationRes throws FsMutationError
 @ stream - unary
 proc DeletePaths = DeletePathsReq -> BulkMutationRes throws FsMutationError
 
-@ description - Whole-file read request.
+@ description - File range read request.
 struct ReadFileReq {
   @ id - 1
   path: string,
+
+  @ id - 2
+  @ description - Absolute byte offset to start reading from. Defaults to 0.
+  offset?: u53,
+
+  @ id - 3
+  @ description - Maximum number of bytes to read. If absent, read until EOF.
+  length?: u53,
 }
 
 @ description - Directory table subscription request.
@@ -232,38 +245,97 @@ enum FsEntryKind {
   Other,
 }
 
-@ description - Whole-file read response.
-struct ReadFileRes {
+@ description - File read response chunk.
+struct ReadFileChunk {
   @ id - 1
-  bytes: bytes,
-}
-
-@ description - Whole-file write request.
-struct WriteFileReq {
-  @ id - 1
-  path: string,
+  @ description - Absolute byte offset of bytes in this chunk.
+  offset: u53,
 
   @ id - 2
-  mode: WriteFileMode,
-
-  @ id - 3
   bytes: bytes,
 }
 
-@ description - Existing-target behavior for WriteFile.
+@ description - File write request stream item.
+union WriteFileReq {
+  @ id - 1
+  @ description
+  | First request-stream message for WriteFile. It declares the target path and
+  | write policy. It must appear exactly once as the first request message.
+  WriteFileStart(
+    @ id - 1
+    path: string,
+
+    @ id - 2
+    mode: WriteFileMode,
+
+    @ id - 3
+    @ description
+    | If present, the target file size after the write completes must equal
+    | this value.
+    expectedResultSize?: u53,
+
+    @ id - 4
+    @ description
+    | If present, request that the final file modified time be set to this Unix
+    | epoch millisecond value. This timestamp update is best-effort: failure to
+    | apply it MUST NOT fail an otherwise successful WriteFile operation.
+    modifiedAtMs?: u53,
+  ),
+
+  @ id - 2
+  @ description
+  | File data request-stream message. Create and Replace may omit offset to
+  | write sequentially after the previous chunk. Append must omit offset. Patch
+  | must include offset.
+  WriteFileChunk(
+    @ id - 1
+    offset?: u53,
+
+    @ id - 2
+    bytes: bytes,
+  ),
+}
+
+@ description - File write result.
+struct WriteFileResult {
+  @ id - 1
+  bytesWritten: u53,
+
+  @ id - 2
+  resultSize: u53,
+
+  @ id - 3
+  @ description - Actual final file modified time when the daemon can read it.
+  modifiedAtMs?: u53,
+}
+
+@ description - Write behavior for WriteFile.
 enum WriteFileMode {
   @ id - 1
   @ description
-  | Create a new regular file and fail with AlreadyExists if the target path
-  | already exists.
-  CreateNew,
+  | Create a new regular file and fail with AlreadyExists if the target path already exists.
+  Create,
 
   @ id - 2
   @ description
   | Create the file if it is missing, or replace the content of an existing
   | regular file. Fail with NotFile if the target exists but is not a regular
   | file.
-  CreateOrReplace,
+  Replace,
+
+  @ id - 3
+  @ description
+  | Append bytes to an existing regular file. Fail with NotFound if the target
+  | path does not exist, and fail with NotFile if it is not a regular file.
+  | WriteFileChunk.offset must be absent.
+  Append,
+
+  @ id - 4
+  @ description
+  | Modify an existing regular file at explicit byte offsets. Fail with NotFound
+  | if the target path does not exist, and fail with NotFile if it is not a
+  | regular file. WriteFileChunk.offset is required.
+  Patch,
 }
 
 @ description - Bulk create-nodes request.
@@ -460,7 +532,7 @@ union SubscribeDirectoryError {
   ),
 }
 
-@ description - Method-level whole-file read errors.
+@ description - Method-level file range read errors.
 union ReadFileError {
   @ id - 0
   Failed(
@@ -493,7 +565,7 @@ union ReadFileError {
   ),
 }
 
-@ description - Method-level whole-file write errors.
+@ description - Method-level file write errors.
 union WriteFileError {
   @ id - 0
   Failed(

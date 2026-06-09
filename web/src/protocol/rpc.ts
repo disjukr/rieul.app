@@ -8,6 +8,7 @@ import {
   encodePairedSecretCredential,
   encodeReqResMessageSequence,
   PAIRED_SECRET_AUTH_MECHANISM,
+  type ReqResMessage,
   ReqResMessageKind,
   RpcErrorKind,
   SessionAuthErrorCode,
@@ -78,8 +79,38 @@ export type DirectoryTableEvent =
   | { type: "closed"; reason: string; to?: string };
 
 export enum WriteFileMode {
-  CreateNew = 1,
-  CreateOrReplace = 2,
+  Create = 1,
+  Replace = 2,
+  Append = 3,
+  Patch = 4,
+}
+
+export interface ReadFileOptions {
+  offset?: number;
+  length?: number;
+}
+
+export interface ReadFileChunk {
+  offset: number;
+  bytes: Uint8Array;
+}
+
+export interface WriteFileStart {
+  path: string;
+  mode: WriteFileMode;
+  expectedResultSize?: number;
+  modifiedAtMs?: number;
+}
+
+export interface WriteFileChunk {
+  offset?: number;
+  bytes: Uint8Array;
+}
+
+export interface WriteFileResult {
+  bytesWritten: number;
+  resultSize: number;
+  modifiedAtMs?: number;
 }
 
 export enum DeleteMode {
@@ -184,11 +215,24 @@ export async function* subscribeDirectory(
 export async function readFile(
   machine: Machine,
   path: string,
+  options: ReadFileOptions = {},
 ): Promise<Uint8Array> {
-  const payload = encodeCbor(new Map<number, CborValue>([[1, path]]));
-  const response = await callUnaryPayload(machine, PROC_READ_FILE, payload);
-  const map = decodeMap(response);
-  return bytes(map.get(1));
+  const request = new Map<number, CborValue>([[1, path]]);
+  if (options.offset !== undefined) request.set(2, options.offset);
+  if (options.length !== undefined) request.set(3, options.length);
+
+  const chunks: ReadFileChunk[] = [];
+  for await (
+    const chunk of callServerStreamEvents(
+      machine,
+      PROC_READ_FILE,
+      encodeCbor(request),
+      decodeReadFileChunk,
+    )
+  ) {
+    chunks.push(chunk);
+  }
+  return assembleReadFileChunks(chunks, options.offset ?? 0);
 }
 
 export async function writeFile(
@@ -196,15 +240,32 @@ export async function writeFile(
   path: string,
   mode: WriteFileMode,
   fileBytes: Uint8Array,
-): Promise<void> {
-  const payload = encodeCbor(
-    new Map<number, CborValue>([
-      [1, path],
-      [2, mode],
-      [3, fileBytes],
-    ]),
+  options: Omit<WriteFileStart, "path" | "mode"> & { offset?: number } = {},
+): Promise<WriteFileResult> {
+  return await writeFileChunks(
+    machine,
+    {
+      path,
+      mode,
+      expectedResultSize: options.expectedResultSize,
+      modifiedAtMs: options.modifiedAtMs,
+    },
+    [{ offset: options.offset, bytes: fileBytes }],
   );
-  await callUnary(machine, PROC_WRITE_FILE, payload);
+}
+
+export async function writeFileChunks(
+  machine: Machine,
+  start: WriteFileStart,
+  chunks: WriteFileChunk[],
+): Promise<WriteFileResult> {
+  const response = await callClientStreamPayload(
+    machine,
+    PROC_WRITE_FILE,
+    encodeWriteFileStart(start),
+    chunks.map(encodeWriteFileChunk),
+  );
+  return decodeWriteFileResult(response);
 }
 
 export async function createNodes(
@@ -309,6 +370,56 @@ async function callUnary(
   const session = await connect(machine, "/rpc");
   try {
     return await sendUnary(session.transport, procId, payload);
+  } finally {
+    closeRpcSession(session);
+  }
+}
+
+async function callClientStreamPayload(
+  machine: Machine,
+  procId: number,
+  startPayload: Uint8Array,
+  chunkPayloads: Uint8Array[],
+): Promise<Uint8Array> {
+  const response = await callClientStream(
+    machine,
+    procId,
+    startPayload,
+    chunkPayloads,
+  );
+  if (!response) throw new Error("missing response payload");
+  return response;
+}
+
+async function callClientStream(
+  machine: Machine,
+  procId: number,
+  startPayload: Uint8Array,
+  chunkPayloads: Uint8Array[],
+): Promise<Uint8Array | undefined> {
+  if (machine.clientId && machine.clientSecret) {
+    const session = await authenticatedSession(machine);
+    try {
+      return await sendClientStream(
+        session.transport,
+        procId,
+        startPayload,
+        chunkPayloads,
+      );
+    } catch (err) {
+      closeSession(machine);
+      throw err;
+    }
+  }
+
+  const session = await connect(machine, "/rpc");
+  try {
+    return await sendClientStream(
+      session.transport,
+      procId,
+      startPayload,
+      chunkPayloads,
+    );
   } finally {
     closeRpcSession(session);
   }
@@ -627,6 +738,47 @@ async function sendUnary(
 
   const bytes = await readAll(stream.readable);
   const messages = decodeReqResMessageSequence(bytes);
+  return decodeUnaryResponse(procId, messages);
+}
+
+async function sendClientStream(
+  transport: WebTransport,
+  procId: number,
+  startPayload: Uint8Array,
+  chunkPayloads: Uint8Array[],
+): Promise<Uint8Array | undefined> {
+  const stream = await transport.createBidirectionalStream();
+  const writer = stream.writable.getWriter();
+  try {
+    await writer.write(encodeReqResMessageSequence([{
+      kind: ReqResMessageKind.RequestStreamStart,
+      procId,
+      payload: startPayload,
+    }]));
+    for (const payload of chunkPayloads) {
+      await writer.write(encodeReqResMessageSequence([{
+        kind: ReqResMessageKind.RequestStreamChunk,
+        payload,
+      }]));
+    }
+    await writer.close();
+  } finally {
+    try {
+      writer.releaseLock();
+    } catch {
+      // The writer may already be detached by stream shutdown.
+    }
+  }
+
+  const bytes = await readAll(stream.readable);
+  const messages = decodeReqResMessageSequence(bytes);
+  return decodeUnaryResponse(procId, messages);
+}
+
+function decodeUnaryResponse(
+  procId: number,
+  messages: ReqResMessage[],
+): Uint8Array | undefined {
   if (messages.length !== 1) throw new Error("expected one response message");
   const response = messages[0]!;
   if (response.kind === ReqResMessageKind.ResponseUnaryError) {
@@ -763,6 +915,60 @@ function decodeMap(bytes: Uint8Array): Map<number, CborValue> {
   const map = decodeCbor(bytes);
   if (!(map instanceof Map)) throw new Error("expected CBOR map");
   return map;
+}
+
+function encodeWriteFileStart(start: WriteFileStart): Uint8Array {
+  const fields = new Map<number, CborValue>([
+    [1, start.path],
+    [2, start.mode],
+  ]);
+  if (start.expectedResultSize !== undefined) {
+    fields.set(3, start.expectedResultSize);
+  }
+  if (start.modifiedAtMs !== undefined) {
+    fields.set(4, start.modifiedAtMs);
+  }
+  return encodeCbor([1, fields]);
+}
+
+function encodeWriteFileChunk(chunk: WriteFileChunk): Uint8Array {
+  const fields = new Map<number, CborValue>([[2, chunk.bytes]]);
+  if (chunk.offset !== undefined) fields.set(1, chunk.offset);
+  return encodeCbor([2, fields]);
+}
+
+function decodeReadFileChunk(bytes: Uint8Array): ReadFileChunk {
+  const map = decodeMap(bytes);
+  return {
+    offset: integer(map.get(1)),
+    bytes: bytesField(map.get(2)),
+  };
+}
+
+function decodeWriteFileResult(bytes: Uint8Array): WriteFileResult {
+  const map = decodeMap(bytes);
+  return {
+    bytesWritten: integer(map.get(1)),
+    resultSize: integer(map.get(2)),
+    modifiedAtMs: optionalInteger(map.get(3)),
+  };
+}
+
+function assembleReadFileChunks(
+  chunks: ReadFileChunk[],
+  fallbackOffset: number,
+): Uint8Array {
+  if (chunks.length === 0) return new Uint8Array();
+  const baseOffset = chunks[0]?.offset ?? fallbackOffset;
+  const total = chunks.reduce((max, chunk) => {
+    const end = chunk.offset - baseOffset + chunk.bytes.length;
+    return Math.max(max, end);
+  }, 0);
+  const out = new Uint8Array(total);
+  for (const chunk of chunks) {
+    out.set(chunk.bytes, chunk.offset - baseOffset);
+  }
+  return out;
 }
 
 function encodeCreateNodeOp(op: CreateNodeOp): CborValue {
@@ -904,7 +1110,7 @@ function array(value: unknown): CborValue[] {
   return value;
 }
 
-function bytes(value: unknown): Uint8Array {
+function bytesField(value: unknown): Uint8Array {
   if (!(value instanceof Uint8Array)) throw new Error("expected bytes field");
   return value;
 }

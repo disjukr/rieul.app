@@ -5,6 +5,8 @@ use thiserror::Error;
 use crate::cbor::{CborError, Value};
 use crate::traits::ServiceError;
 
+pub const MAX_U53: u64 = 9_007_199_254_740_991;
+
 #[derive(Debug, Error)]
 pub enum RpcCodecError {
     #[error("cbor error: {0}")]
@@ -181,52 +183,43 @@ impl SubscribeDirectoryReq {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReadFileReq {
     pub path: String,
+    pub offset: Option<u64>,
+    pub length: Option<u64>,
 }
 
 impl ReadFileReq {
     pub fn encode(&self) -> Vec<u8> {
-        Value::Map(BTreeMap::from([(1, Value::Text(self.path.clone()))])).encode()
+        let mut map = BTreeMap::from([(1, Value::Text(self.path.clone()))]);
+        if let Some(offset) = self.offset {
+            map.insert(2, Value::U64(offset));
+        }
+        if let Some(length) = self.length {
+            map.insert(3, Value::U64(length));
+        }
+        Value::Map(map).encode()
     }
 
     pub fn decode(bytes: &[u8]) -> Result<Self, RpcCodecError> {
         let map = expect_map(Value::decode(bytes)?)?;
         Ok(Self {
             path: expect_text(&map, 1)?,
+            offset: optional_u53(&map, 2)?,
+            length: optional_u53(&map, 3)?,
         })
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ReadFileRes {
+pub struct ReadFileChunk {
+    pub offset: u64,
     pub bytes: Vec<u8>,
 }
 
-impl ReadFileRes {
-    pub fn encode(&self) -> Vec<u8> {
-        Value::Map(BTreeMap::from([(1, Value::Bytes(self.bytes.clone()))])).encode()
-    }
-
-    pub fn decode(bytes: &[u8]) -> Result<Self, RpcCodecError> {
-        let map = expect_map(Value::decode(bytes)?)?;
-        Ok(Self {
-            bytes: expect_bytes(&map, 1)?,
-        })
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct WriteFileReq {
-    pub path: String,
-    pub mode: WriteFileMode,
-    pub bytes: Vec<u8>,
-}
-
-impl WriteFileReq {
+impl ReadFileChunk {
     pub fn encode(&self) -> Vec<u8> {
         Value::Map(BTreeMap::from([
-            (1, Value::Text(self.path.clone())),
-            (2, Value::U64(self.mode.as_u64())),
-            (3, Value::Bytes(self.bytes.clone())),
+            (1, Value::U64(self.offset)),
+            (2, Value::Bytes(self.bytes.clone())),
         ]))
         .encode()
     }
@@ -234,10 +227,123 @@ impl WriteFileReq {
     pub fn decode(bytes: &[u8]) -> Result<Self, RpcCodecError> {
         let map = expect_map(Value::decode(bytes)?)?;
         Ok(Self {
-            path: expect_text(&map, 1)?,
-            mode: WriteFileMode::from_u64(expect_u64(&map, 2)?)
+            offset: expect_u53(&map, 1)?,
+            bytes: expect_bytes(&map, 2)?,
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WriteFileReq {
+    Start(WriteFileStart),
+    Chunk(WriteFileChunk),
+}
+
+impl WriteFileReq {
+    pub fn encode(&self) -> Vec<u8> {
+        match self {
+            Self::Start(start) => start.to_value().encode(),
+            Self::Chunk(chunk) => chunk.to_value().encode(),
+        }
+    }
+
+    pub fn decode(bytes: &[u8]) -> Result<Self, RpcCodecError> {
+        let value = Value::decode(bytes)?;
+        Self::from_value(&value)
+    }
+
+    pub fn from_value(value: &Value) -> Result<Self, RpcCodecError> {
+        let (variant, fields) = expect_union(value)?;
+        match variant {
+            1 => Ok(Self::Start(WriteFileStart::from_fields(fields)?)),
+            2 => Ok(Self::Chunk(WriteFileChunk::from_fields(fields)?)),
+            _ => Err(RpcCodecError::WrongFieldType(0)),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WriteFileStart {
+    pub path: String,
+    pub mode: WriteFileMode,
+    pub expected_result_size: Option<u64>,
+    pub modified_at_ms: Option<u64>,
+}
+
+impl WriteFileStart {
+    fn to_value(&self) -> Value {
+        let mut fields = BTreeMap::from([
+            (1, Value::Text(self.path.clone())),
+            (2, Value::U64(self.mode.as_u64())),
+        ]);
+        if let Some(expected_result_size) = self.expected_result_size {
+            fields.insert(3, Value::U64(expected_result_size));
+        }
+        if let Some(modified_at_ms) = self.modified_at_ms {
+            fields.insert(4, Value::U64(modified_at_ms));
+        }
+        union_value(1, fields)
+    }
+
+    fn from_fields(fields: &BTreeMap<u64, Value>) -> Result<Self, RpcCodecError> {
+        Ok(Self {
+            path: expect_text(fields, 1)?,
+            mode: WriteFileMode::from_u64(expect_u64(fields, 2)?)
                 .ok_or(RpcCodecError::WrongFieldType(2))?,
-            bytes: expect_bytes(&map, 3)?,
+            expected_result_size: optional_u53(fields, 3)?,
+            modified_at_ms: optional_u53(fields, 4)?,
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WriteFileChunk {
+    pub offset: Option<u64>,
+    pub bytes: Vec<u8>,
+}
+
+impl WriteFileChunk {
+    fn to_value(&self) -> Value {
+        let mut fields = BTreeMap::from([(2, Value::Bytes(self.bytes.clone()))]);
+        if let Some(offset) = self.offset {
+            fields.insert(1, Value::U64(offset));
+        }
+        union_value(2, fields)
+    }
+
+    fn from_fields(fields: &BTreeMap<u64, Value>) -> Result<Self, RpcCodecError> {
+        Ok(Self {
+            offset: optional_u53(fields, 1)?,
+            bytes: expect_bytes(fields, 2)?,
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WriteFileResult {
+    pub bytes_written: u64,
+    pub result_size: u64,
+    pub modified_at_ms: Option<u64>,
+}
+
+impl WriteFileResult {
+    pub fn encode(&self) -> Vec<u8> {
+        let mut fields = BTreeMap::from([
+            (1, Value::U64(self.bytes_written)),
+            (2, Value::U64(self.result_size)),
+        ]);
+        if let Some(modified_at_ms) = self.modified_at_ms {
+            fields.insert(3, Value::U64(modified_at_ms));
+        }
+        Value::Map(fields).encode()
+    }
+
+    pub fn decode(bytes: &[u8]) -> Result<Self, RpcCodecError> {
+        let map = expect_map(Value::decode(bytes)?)?;
+        Ok(Self {
+            bytes_written: expect_u53(&map, 1)?,
+            result_size: expect_u53(&map, 2)?,
+            modified_at_ms: optional_u53(&map, 3)?,
         })
     }
 }
@@ -245,15 +351,19 @@ impl WriteFileReq {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u64)]
 pub enum WriteFileMode {
-    CreateNew = 1,
-    CreateOrReplace = 2,
+    Create = 1,
+    Replace = 2,
+    Append = 3,
+    Patch = 4,
 }
 
 impl WriteFileMode {
     pub fn from_u64(value: u64) -> Option<Self> {
         match value {
-            1 => Some(Self::CreateNew),
-            2 => Some(Self::CreateOrReplace),
+            1 => Some(Self::Create),
+            2 => Some(Self::Replace),
+            3 => Some(Self::Append),
+            4 => Some(Self::Patch),
             _ => None,
         }
     }
@@ -743,12 +853,33 @@ fn expect_u64(map: &BTreeMap<u64, Value>, field: u64) -> Result<u64, RpcCodecErr
     }
 }
 
+fn expect_u53(map: &BTreeMap<u64, Value>, field: u64) -> Result<u64, RpcCodecError> {
+    let value = expect_u64(map, field)?;
+    if value <= MAX_U53 {
+        Ok(value)
+    } else {
+        Err(RpcCodecError::IntegerOutOfRange(field))
+    }
+}
+
 fn optional_u64(map: &BTreeMap<u64, Value>, field: u64) -> Result<Option<u64>, RpcCodecError> {
     match map.get(&field) {
         None => Ok(None),
         Some(Value::U64(value)) => Ok(Some(*value)),
         Some(_) => Err(RpcCodecError::WrongFieldType(field)),
     }
+}
+
+fn optional_u53(map: &BTreeMap<u64, Value>, field: u64) -> Result<Option<u64>, RpcCodecError> {
+    optional_u64(map, field)?
+        .map(|value| {
+            if value <= MAX_U53 {
+                Ok(value)
+            } else {
+                Err(RpcCodecError::IntegerOutOfRange(field))
+            }
+        })
+        .transpose()
 }
 
 fn expect_text(map: &BTreeMap<u64, Value>, field: u64) -> Result<String, RpcCodecError> {
@@ -816,11 +947,29 @@ mod tests {
     }
 
     #[test]
-    fn read_file_response_roundtrip() {
-        let response = ReadFileRes {
+    fn read_file_chunk_roundtrip() {
+        let response = ReadFileChunk {
+            offset: 4,
             bytes: b"hello".to_vec(),
         };
-        assert_eq!(ReadFileRes::decode(&response.encode()).unwrap(), response);
+        assert_eq!(ReadFileChunk::decode(&response.encode()).unwrap(), response);
+    }
+
+    #[test]
+    fn write_file_request_roundtrip() {
+        let start = WriteFileReq::Start(WriteFileStart {
+            path: "C:\\tmp\\foo.txt".to_string(),
+            mode: WriteFileMode::Replace,
+            expected_result_size: Some(5),
+            modified_at_ms: None,
+        });
+        assert_eq!(WriteFileReq::decode(&start.encode()).unwrap(), start);
+
+        let chunk = WriteFileReq::Chunk(WriteFileChunk {
+            offset: Some(1),
+            bytes: b"hello".to_vec(),
+        });
+        assert_eq!(WriteFileReq::decode(&chunk.encode()).unwrap(), chunk);
     }
 
     #[test]

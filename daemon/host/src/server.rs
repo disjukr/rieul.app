@@ -18,7 +18,7 @@ use wgo_daemon_core::pairing::{issue_client_secret, verify_client_secret, verify
 use wgo_daemon_core::rpc::{
     BulkMutationItemResult, BulkMutationRes, CompletePairingRequest, CompletePairingResponse,
     CreateNodesReq, DeletePathsReq, DirectoryEntryKey, DirectorySubscriptionCloseReason,
-    DirectoryTableEvent, FsEntry, ProcId, ReadFileReq, ReadFileRes, RenamePathsReq, RootEntryKey,
+    DirectoryTableEvent, FsEntry, ProcId, ReadFileChunk, ReadFileReq, RenamePathsReq, RootEntryKey,
     RootsSubscriptionCloseReason, RootsTableEvent, RpcErrorCode, RpcErrorPayload,
     StartPairingResponse, WriteFileReq,
 };
@@ -36,6 +36,7 @@ const CERT_RELOAD_DEBOUNCE: Duration = Duration::from_millis(250);
 const SCHEDULED_CERT_REFRESH_INTERVAL: Duration = Duration::from_secs(60 * 60);
 const SUBSCRIPTION_DEBOUNCE: Duration = Duration::from_millis(150);
 const ROOTS_SUBSCRIPTION_POLL_INTERVAL: Duration = Duration::from_secs(2);
+const READ_FILE_CHUNK_SIZE: usize = 64 * 1024;
 
 type SharedSystemConfig = Arc<Mutex<SystemConfig>>;
 type SharedRpcSessionState = Arc<Mutex<RpcSessionState>>;
@@ -537,6 +538,14 @@ fn is_subscription_proc(proc_id: u64) -> bool {
     proc_id == ProcId::SubscribeRoots.as_u64() || proc_id == ProcId::SubscribeDirectory.as_u64()
 }
 
+fn is_server_stream_proc(proc_id: u64) -> bool {
+    is_subscription_proc(proc_id) || proc_id == ProcId::ReadFile.as_u64()
+}
+
+fn is_client_stream_proc(proc_id: u64) -> bool {
+    proc_id == ProcId::WriteFile.as_u64()
+}
+
 async fn read_reqres_message_sequence_from_stream(
     recv: &mut web_transport_quinn::RecvStream,
 ) -> Result<Vec<ReqResMessage>> {
@@ -574,8 +583,8 @@ async fn handle_reqres_stream(
     files: SharedFileService,
 ) -> Result<()> {
     if let Some((proc_id, payload)) = request_unary_parts(&messages) {
-        if is_subscription_proc(proc_id) {
-            return handle_subscription_stream(
+        if is_server_stream_proc(proc_id) {
+            return handle_server_stream(
                 proc_id,
                 payload,
                 send,
@@ -585,6 +594,14 @@ async fn handle_reqres_stream(
             )
             .await;
         }
+    }
+
+    if matches!(
+        messages.first(),
+        Some(ReqResMessage::RequestStreamStart { .. })
+    ) {
+        let responses = handle_client_stream_messages(messages, session_state, files).await?;
+        return write_reqres_messages(send, &responses).await;
     }
 
     let responses =
@@ -602,7 +619,7 @@ fn request_unary_parts(messages: &[ReqResMessage]) -> Option<(u64, Option<Vec<u8
     }
 }
 
-async fn handle_subscription_stream(
+async fn handle_server_stream(
     proc_id: u64,
     payload: Option<Vec<u8>>,
     send: &mut web_transport_quinn::SendStream,
@@ -621,6 +638,10 @@ async fn handle_subscription_stream(
         )
         .await?;
         return Ok(());
+    }
+
+    if proc_id == ProcId::ReadFile.as_u64() {
+        return stream_read_file(send, files, proc_id, payload).await;
     }
 
     if proc_id == ProcId::SubscribeRoots.as_u64() {
@@ -655,6 +676,146 @@ async fn handle_subscription_stream(
         }
     };
     stream_directory_subscription(send, files, proc_id, request.path).await
+}
+
+async fn handle_client_stream_messages(
+    mut messages: Vec<ReqResMessage>,
+    session_state: SharedRpcSessionState,
+    files: SharedFileService,
+) -> Result<Vec<ReqResMessage>> {
+    let (proc_id, payload) = match messages.remove(0) {
+        ReqResMessage::RequestStreamStart { proc_id, payload } => (proc_id, payload),
+        _ => unreachable!("caller checks the first message"),
+    };
+
+    if !is_client_stream_proc(proc_id) {
+        return Ok(vec![generic_error_message(
+            proc_id,
+            RpcErrorCode::BadMessage,
+            "this RPC does not accept a request stream",
+        )]);
+    }
+    if requires_authentication(proc_id) && !is_authenticated(&session_state).await {
+        return Ok(vec![unauthorized_message(proc_id)]);
+    }
+    if proc_id == ProcId::WriteFile.as_u64() {
+        return handle_write_file_stream(proc_id, payload, messages, files).await;
+    }
+    Ok(vec![generic_error_message(
+        proc_id,
+        RpcErrorCode::NotImplemented,
+        "client-streaming RPC is not implemented",
+    )])
+}
+
+async fn handle_write_file_stream(
+    proc_id: u64,
+    payload: Option<Vec<u8>>,
+    messages: Vec<ReqResMessage>,
+    files: SharedFileService,
+) -> Result<Vec<ReqResMessage>> {
+    let Some(payload) = payload else {
+        return Ok(vec![generic_error_message(
+            proc_id,
+            RpcErrorCode::MissingPayload,
+            "WriteFile requires a WriteFileStart payload",
+        )]);
+    };
+    let start = match WriteFileReq::decode(&payload) {
+        Ok(WriteFileReq::Start(start)) => start,
+        Ok(WriteFileReq::Chunk(_)) | Err(_) => {
+            return Ok(vec![generic_error_message(
+                proc_id,
+                RpcErrorCode::MalformedPayload,
+                "WriteFile first payload must be WriteFileStart",
+            )]);
+        }
+    };
+
+    let mut chunks = Vec::new();
+    for message in messages {
+        let ReqResMessage::RequestStreamChunk { payload } = message else {
+            return Ok(vec![generic_error_message(
+                proc_id,
+                RpcErrorCode::BadMessage,
+                "WriteFile request stream may contain only RequestStreamChunk after start",
+            )]);
+        };
+        match WriteFileReq::decode(&payload) {
+            Ok(WriteFileReq::Chunk(chunk)) => chunks.push(chunk),
+            Ok(WriteFileReq::Start(_)) | Err(_) => {
+                return Ok(vec![generic_error_message(
+                    proc_id,
+                    RpcErrorCode::MalformedPayload,
+                    "WriteFile chunk payload must be WriteFileChunk",
+                )]);
+            }
+        }
+    }
+
+    let result = match files.write_file(start, chunks).await {
+        Ok(result) => result,
+        Err(err) => return Ok(vec![service_error_message(proc_id, err)]),
+    };
+    Ok(vec![ok_payload_message(proc_id, result.encode())])
+}
+
+async fn stream_read_file(
+    send: &mut web_transport_quinn::SendStream,
+    files: SharedFileService,
+    proc_id: u64,
+    payload: Option<Vec<u8>>,
+) -> Result<()> {
+    let Some(payload) = payload else {
+        write_reqres_message(
+            send,
+            stream_generic_error_message(
+                proc_id,
+                RpcErrorCode::MissingPayload,
+                "ReadFile requires a payload",
+            ),
+        )
+        .await?;
+        return Ok(());
+    };
+    let request = match ReadFileReq::decode(&payload) {
+        Ok(request) => request,
+        Err(_) => {
+            write_reqres_message(
+                send,
+                stream_generic_error_message(
+                    proc_id,
+                    RpcErrorCode::MalformedPayload,
+                    "ReadFile payload is malformed",
+                ),
+            )
+            .await?;
+            return Ok(());
+        }
+    };
+    let start_offset = request.offset.unwrap_or(0);
+    let bytes = match files.read_file(request).await {
+        Ok(bytes) => bytes,
+        Err(err) => {
+            write_reqres_message(send, stream_service_error_message(proc_id, err)).await?;
+            return Ok(());
+        }
+    };
+    for (index, bytes) in bytes.chunks(READ_FILE_CHUNK_SIZE).enumerate() {
+        let offset = start_offset + (index * READ_FILE_CHUNK_SIZE) as u64;
+        let chunk = ReadFileChunk {
+            offset,
+            bytes: bytes.to_vec(),
+        }
+        .encode();
+        let message = if index == 0 {
+            stream_start_payload_message(chunk)
+        } else {
+            stream_chunk_payload_message(chunk)
+        };
+        write_reqres_message(send, message).await?;
+    }
+    Ok(())
 }
 
 async fn stream_roots_subscription(
@@ -1003,11 +1164,11 @@ async fn handle_rpc_messages(
         }
     };
     let payload = payload.as_deref();
-    if is_subscription_proc(proc_id) {
+    if is_server_stream_proc(proc_id) {
         return Ok(vec![stream_generic_error_message(
             proc_id,
             RpcErrorCode::BadMessage,
-            "subscription RPCs must be handled by the reqres stream handler",
+            "server-streaming RPCs must be handled by the reqres stream handler",
         )]);
     }
     if requires_authentication(proc_id) && !is_authenticated(&session_state).await {
@@ -1101,56 +1262,6 @@ async fn handle_rpc_messages(
                 }
                 .encode(),
             )
-        }
-        id if id == ProcId::ReadFile.as_u64() => {
-            let Some(payload) = payload else {
-                return Ok(vec![error_message(
-                    proc_id,
-                    "missing_payload",
-                    "ReadFile requires a payload",
-                )]);
-            };
-            let request = match ReadFileReq::decode(payload) {
-                Ok(request) => request,
-                Err(_) => {
-                    return Ok(vec![generic_error_message(
-                        proc_id,
-                        RpcErrorCode::MalformedPayload,
-                        "ReadFile payload is malformed",
-                    )]);
-                }
-            };
-            let bytes = match files.read_file(request.path).await {
-                Ok(bytes) => bytes,
-                Err(err) => return Ok(vec![service_error_message(proc_id, err)]),
-            };
-            ok_payload_message(proc_id, ReadFileRes { bytes }.encode())
-        }
-        id if id == ProcId::WriteFile.as_u64() => {
-            let Some(payload) = payload else {
-                return Ok(vec![error_message(
-                    proc_id,
-                    "missing_payload",
-                    "WriteFile requires a payload",
-                )]);
-            };
-            let request = match WriteFileReq::decode(payload) {
-                Ok(request) => request,
-                Err(_) => {
-                    return Ok(vec![generic_error_message(
-                        proc_id,
-                        RpcErrorCode::MalformedPayload,
-                        "WriteFile payload is malformed",
-                    )]);
-                }
-            };
-            if let Err(err) = files
-                .write_file(request.path, request.mode, request.bytes)
-                .await
-            {
-                return Ok(vec![service_error_message(proc_id, err)]);
-            }
-            ok_void_message(proc_id)
         }
         id if id == ProcId::CreateNodes.as_u64() => {
             let Some(payload) = payload else {
@@ -1317,10 +1428,6 @@ fn ok_payload_message(_proc_id: u64, payload: Vec<u8>) -> ReqResMessage {
     ReqResMessage::ResponseUnaryOk {
         payload: Some(payload),
     }
-}
-
-fn ok_void_message(_proc_id: u64) -> ReqResMessage {
-    ReqResMessage::ResponseUnaryOk { payload: None }
 }
 
 fn stream_start_payload_message(payload: Vec<u8>) -> ReqResMessage {
@@ -1505,7 +1612,10 @@ fn method_error_variant(proc_id: u64, code: &str) -> Option<u64> {
 mod tests {
     use super::*;
     use wgo_daemon_core::pairing::create_pairing_code;
-    use wgo_daemon_core::rpc::{CreateNodeOp, DeleteMode, FsEntryKind, WriteFileMode};
+    use wgo_daemon_core::rpc::{
+        CreateNodeOp, DeleteMode, FsEntryKind, ReadFileReq, WriteFileChunk, WriteFileResult,
+        WriteFileStart,
+    };
 
     #[tokio::test]
     async fn complete_pairing_reads_config_written_after_server_start() {
@@ -1556,14 +1666,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn filesystem_unary_rpc_requires_paired_client_credentials() {
+    async fn filesystem_rpc_requires_paired_client_credentials() {
         let dir = tempfile::tempdir().unwrap();
         let config_path = dir.path().join("wgo.yaml");
         save(&config_path, &SystemConfig::default()).unwrap();
         let state = Arc::new(Mutex::new(SystemConfig::default()));
 
         let responses = handle_rpc_messages(
-            vec![request_message(ProcId::ReadFile, None)],
+            vec![request_message(ProcId::CreateNodes, None)],
             &config_path,
             state,
             Arc::new(Mutex::new(RpcSessionState::default())),
@@ -1761,17 +1871,16 @@ mod tests {
 
         fn read_file(
             &self,
-            _path: String,
+            _request: ReadFileReq,
         ) -> wgo_daemon_core::traits::BoxFutureResult<'_, Vec<u8>> {
             Box::pin(async { Err(ServiceError::Unsupported) })
         }
 
         fn write_file(
             &self,
-            _path: String,
-            _mode: WriteFileMode,
-            _bytes: Vec<u8>,
-        ) -> wgo_daemon_core::traits::BoxFutureResult<'_, ()> {
+            _start: WriteFileStart,
+            _chunks: Vec<WriteFileChunk>,
+        ) -> wgo_daemon_core::traits::BoxFutureResult<'_, WriteFileResult> {
             Box::pin(async { Err(ServiceError::Unsupported) })
         }
 
