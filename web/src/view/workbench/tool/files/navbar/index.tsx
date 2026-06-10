@@ -14,10 +14,8 @@ export function FilesNavbar() {
   const actions = requireFilesActions(useContext(FilesActionsContext));
   const currentPath = useAtomValue(explorer.currentPathAtom);
   const displayPath = useAtomValue(explorer.displayPathAtom);
-  const fileOpenPrompt = useAtomValue(explorer.fileOpenPromptAtom);
   const history = useAtomValue(explorer.historyAtom);
-  const path = fileOpenPrompt?.path ?? displayPath;
-  const canGoBack = history.length > 0 || fileOpenPrompt !== undefined;
+  const canGoBack = history.length > 0;
   const canGoUp = currentPath !== undefined;
 
   return (
@@ -42,7 +40,7 @@ export function FilesNavbar() {
       >
         <ArrowUp size={16} />
       </button>
-      <PathCrumbs path={path} onNavigate={actions.navigate} />
+      <PathCrumbs path={displayPath} onNavigate={actions.navigate} />
     </div>
   );
 }

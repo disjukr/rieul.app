@@ -1,6 +1,6 @@
 import { createContext } from "react";
 import type React from "react";
-import type { Atom, PrimitiveAtom } from "jotai";
+import type { Atom } from "jotai";
 import type { FsEntry } from "../../../../protocol/rpc.ts";
 
 export interface FilesExplorerHistoryEntry {
@@ -11,7 +11,6 @@ export interface FilesExplorerHistoryEntry {
 export interface FilesExplorerState {
   currentPathAtom: Atom<string | undefined>;
   displayPathAtom: Atom<string | undefined>;
-  fileOpenPromptAtom: PrimitiveAtom<FsEntry | undefined>;
   historyAtom: Atom<FilesExplorerHistoryEntry[]>;
   openedFileAtom: Atom<FsEntry | undefined>;
   selectedEntryAtom: Atom<FsEntry | undefined>;
@@ -27,8 +26,6 @@ export interface FilesExplorerState {
 }
 
 export interface FilesActions {
-  cancelFileOpen: () => void;
-  confirmFileOpen: () => void;
   goBack: () => void;
   goUp: () => void;
   navigate: (path?: string) => void;

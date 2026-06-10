@@ -5,12 +5,9 @@ import { FilesExplorerContext, requireFilesExplorer } from "../context.tsx";
 
 export function FilesFooter() {
   const explorer = requireFilesExplorer(useContext(FilesExplorerContext));
-  const fileOpenPrompt = useAtomValue(explorer.fileOpenPromptAtom);
   const openedFile = useAtomValue(explorer.openedFileAtom);
   const rows = useAtomValue(explorer.visibleRowsAtom);
-  const label = fileOpenPrompt
-    ? formatSize(fileOpenPrompt.size)
-    : openedFile
+  const label = openedFile
     ? formatSize(openedFile.size)
     : `${rows.length} items`;
 

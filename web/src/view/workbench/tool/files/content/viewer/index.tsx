@@ -1,65 +1,97 @@
-import { useEffect, useState } from "react";
+import { createContext } from "react";
+import { bunja } from "bunja";
+import { createScopeFromContext, useBunja } from "bunja/react";
+import { atom } from "jotai";
+import { useAtomValue } from "jotai";
 import { FileText, Loader2 } from "lucide-react";
 import { FsEntry, readFile } from "../../../../../../protocol/rpc.ts";
 import { displayName, formatSize } from "../../../../../../state/explorer.ts";
-import type { Machine } from "../../../../../../state/machines.ts";
-import { decodeFilePreview } from "./file-preview.ts";
-import { HexViewerContent } from "./hex/index.tsx";
-import { TextViewerContent } from "./text/index.tsx";
-import type { FileLoadState } from "./types.ts";
+import { JotaiStoreScope } from "../../../../../../state/jotai-store.ts";
+import { machineBunja } from "../../../../../../state/machine-store.ts";
+import { detectFileViewerKind } from "./file-preview.ts";
+import { HexFileViewer } from "./hex/index.tsx";
+import { TextFileViewer } from "./text/index.tsx";
+import type { FileSniffState } from "./types.ts";
 
-interface FileViewerProps {
-  machine: Machine;
-  file: FsEntry;
-}
+const sniffByteCount = 4096;
 
-export function FileViewer({ machine, file }: FileViewerProps) {
-  const [state, setState] = useState<FileLoadState>({ phase: "loading" });
+export const FsEntryContext = createContext<FsEntry | undefined>(undefined);
+const FsEntryScope = createScopeFromContext(FsEntryContext);
 
-  useEffect(() => {
+export const fileViewerBunja = bunja(() => {
+  const machine = bunja.use(machineBunja);
+  const fsEntry = requireFsEntry(bunja.use(FsEntryScope));
+  const store = bunja.use(JotaiStoreScope);
+
+  const stateAtom = atom<FileSniffState>({ phase: "sniffing" });
+
+  bunja.effect(() => {
+    const currentMachine = store.get(machine.machineAtom);
+    if (!currentMachine) {
+      store.set(stateAtom, {
+        phase: "error",
+        message: "No machine selected",
+      });
+      return;
+    }
+
     let cancelled = false;
-    setState({ phase: "loading" });
+    store.set(stateAtom, { phase: "sniffing" });
     void (async () => {
       try {
-        const bytes = await readFile(machine, file.path);
+        const bytes = await readFile(currentMachine, fsEntry.path, {
+          offset: 0,
+          length: sniffByteCount,
+        });
         if (cancelled) return;
-        setState({
+        store.set(stateAtom, {
           phase: "ready",
-          byteLength: bytes.byteLength,
-          preview: decodeFilePreview(bytes),
+          initialBytes: bytes,
+          kind: detectFileViewerKind(bytes),
         });
       } catch (err) {
         if (!cancelled) {
-          setState({
+          store.set(stateAtom, {
             phase: "error",
-            message: err instanceof Error ? err.message : String(err),
+            message: errorMessage(err),
           });
         }
       }
     })();
+
     return () => {
       cancelled = true;
     };
-  }, [file.path, machine]);
+  });
+
+  return {
+    fsEntry,
+    machineAtom: machine.machineAtom,
+    stateAtom,
+  };
+});
+
+export function FileViewer() {
+  const viewer = useBunja(fileViewerBunja);
+  const state = useAtomValue(viewer.stateAtom);
+  const fsEntry = viewer.fsEntry;
 
   return (
     <section className="file-viewer">
       <header className="file-viewer-head">
         <div className="file-viewer-title">
           <FileText size={16} />
-          <span>{displayName(file)}</span>
+          <span>{displayName(fsEntry)}</span>
         </div>
         <span className="file-viewer-meta">
-          {state.phase === "ready"
-            ? formatSize(state.byteLength)
-            : formatSize(file.size)}
+          {formatSize(fsEntry.size)}
         </span>
       </header>
-      {state.phase === "loading"
+      {state.phase === "sniffing"
         ? (
           <div className="file-viewer-status">
             <Loader2 size={18} className="spin" />
-            <span>Loading file</span>
+            <span>Inspecting file</span>
           </div>
         )
         : state.phase === "error"
@@ -68,11 +100,18 @@ export function FileViewer({ machine, file }: FileViewerProps) {
             <span>{state.message}</span>
           </div>
         )
-        : (
-          state.preview.kind === "binary"
-            ? <HexViewerContent text={state.preview.text} />
-            : <TextViewerContent text={state.preview.text} />
-        )}
+        : state.kind === "hex"
+        ? <HexFileViewer />
+        : <TextFileViewer />}
     </section>
   );
+}
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+function requireFsEntry(fsEntry: FsEntry | undefined): FsEntry {
+  if (!fsEntry) throw new Error("FsEntry context is not provided.");
+  return fsEntry;
 }

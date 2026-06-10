@@ -2,6 +2,7 @@ import { bunja } from "bunja";
 import { atom } from "jotai";
 import { loadMachines, Machine, saveMachines } from "./machines.ts";
 import { JotaiStoreScope } from "./jotai-store.ts";
+import { MachineIdScope } from "./machine-id.tsx";
 
 const initialMachines = loadMachines();
 
@@ -79,6 +80,22 @@ export const machineStoreBunja = bunja(() => {
     updateMachine,
     setMachineCredentials,
     deleteSelectedMachine,
+  };
+});
+
+export const machineBunja = bunja(() => {
+  const machineId = bunja.use(MachineIdScope);
+  const machines = bunja.use(machineStoreBunja);
+
+  const machineAtom = atom((get) =>
+    getMachine(get(machines.machinesAtom), machineId)
+  );
+  const isPairedAtom = atom((get) => isPaired(get(machineAtom)));
+
+  return {
+    machineId,
+    machineAtom,
+    isPairedAtom,
   };
 });
 

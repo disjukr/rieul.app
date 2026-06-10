@@ -1,19 +1,16 @@
 import { formatSize } from "../../../../../../state/explorer.ts";
-import type { FilePreview } from "./types.ts";
+import type { FileViewerKind } from "./types.ts";
 
-export function decodeFilePreview(bytes: Uint8Array): FilePreview {
-  if (looksBinary(bytes)) {
-    return { kind: "binary", text: hexPreview(bytes) };
-  }
+export function detectFileViewerKind(bytes: Uint8Array): FileViewerKind {
+  return looksBinary(bytes) ? "hex" : "text";
+}
 
-  try {
-    return {
-      kind: "text",
-      text: new TextDecoder("utf-8", { fatal: true }).decode(bytes),
-    };
-  } catch {
-    return { kind: "binary", text: hexPreview(bytes) };
-  }
+export function decodeTextFile(bytes: Uint8Array): string {
+  return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+}
+
+export function decodeHexFilePreview(bytes: Uint8Array): string {
+  return hexPreview(bytes);
 }
 
 function looksBinary(bytes: Uint8Array): boolean {

@@ -1,8 +1,11 @@
-export type FilePreview =
-  | { kind: "text"; text: string }
-  | { kind: "binary"; text: string };
+export type FileViewerKind = "text" | "hex";
 
-export type FileLoadState =
+export type FileSniffState =
+  | { phase: "sniffing" }
+  | { phase: "ready"; initialBytes: Uint8Array; kind: FileViewerKind }
+  | { phase: "error"; message: string };
+
+export type FileReadState =
   | { phase: "loading" }
-  | { phase: "ready"; byteLength: number; preview: FilePreview }
+  | { phase: "ready"; text: string }
   | { phase: "error"; message: string };

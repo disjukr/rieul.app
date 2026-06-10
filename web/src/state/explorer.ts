@@ -11,7 +11,7 @@ import {
 } from "../protocol/rpc.ts";
 import { type JotaiStore, JotaiStoreScope } from "./jotai-store.ts";
 import { MachineIdScope } from "./machine-id.tsx";
-import { isPaired, machineStoreBunja } from "./machine-store.ts";
+import { machineBunja } from "./machine-store.ts";
 import { Machine } from "./machines.ts";
 import { StreamState } from "./types.ts";
 
@@ -29,21 +29,15 @@ interface ExplorerHistoryEntry {
 }
 
 export const explorerMachineBunja = bunja(() => {
-  const machineId = bunja.use(MachineIdScope);
-  const machines = bunja.use(machineStoreBunja);
+  const machine = bunja.use(machineBunja);
 
-  const machineAtom = atom((get) =>
-    get(machines.machinesAtom).find((machine) => machine.id === machineId) ??
-      undefined
-  );
-  const isPairedAtom = atom((get) => isPaired(get(machineAtom)));
   const connectionKeyAtom = atom((get) =>
-    explorerConnectionKey(get(machineAtom))
+    explorerConnectionKey(get(machine.machineAtom))
   );
 
   return {
-    machineAtom,
-    isPairedAtom,
+    machineAtom: machine.machineAtom,
+    isPairedAtom: machine.isPairedAtom,
     connectionKeyAtom,
   };
 });
@@ -367,7 +361,6 @@ export const explorerBunja = bunja(() => {
   const directory = bunja.use(explorerDirectoryBunja);
   const refresh = bunja.use(explorerRefreshBunja);
 
-  const fileOpenPromptAtom = atom<FsEntry | undefined>(undefined);
   const rowsAtom = atom((get) =>
     get(navigation.currentPathAtom)
       ? get(directory.directoryRowsAtom)
@@ -383,7 +376,6 @@ export const explorerBunja = bunja(() => {
   return {
     currentPathAtom: navigation.currentPathAtom,
     displayPathAtom: navigation.displayPathAtom,
-    fileOpenPromptAtom,
     historyAtom: navigation.historyAtom,
     openedFileAtom: navigation.openedFileAtom,
     selectedPathAtom: navigation.selectedPathAtom,

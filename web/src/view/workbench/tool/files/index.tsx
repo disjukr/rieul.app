@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { useAtomValue, useSetAtom } from "jotai";
+import { useAtomValue } from "jotai";
 import { useBunja } from "bunja/react";
 import { HardDrive, Info, KeyRound } from "lucide-react";
 import { FsEntry, FsEntryKind } from "../../../../protocol/rpc.ts";
@@ -21,8 +21,6 @@ import { EntryPropertiesModal } from "./content/directory/index.tsx";
 import { FilesFooter } from "./footer/index.tsx";
 import { FilesNavbar } from "./navbar/index.tsx";
 
-const inlineFileOpenLimitBytes = 1024 * 1024;
-
 interface EntryMenuState {
   entry: FsEntry;
   x: number;
@@ -40,8 +38,6 @@ export function FilesTool() {
   const explorer = useBunja(explorerBunja, [
     ExplorerPaneScope.bind(tabState.tabId),
   ]);
-  const fileOpenPrompt = useAtomValue(explorer.fileOpenPromptAtom);
-  const setFileOpenPrompt = useSetAtom(explorer.fileOpenPromptAtom);
   const openedFile = useAtomValue(explorer.openedFileAtom);
   const lastConnectionEpochRef = useRef(connectionEpoch);
   const [entryMenu, setEntryMenu] = useState<EntryMenuState>();
@@ -93,31 +89,20 @@ export function FilesTool() {
   } = explorer;
 
   function goBackFromToolbar() {
-    if (fileOpenPrompt) {
-      setFileOpenPrompt(undefined);
-      return;
-    }
     goBack();
   }
 
   function goUpFromToolbar() {
-    if (fileOpenPrompt) {
-      setFileOpenPrompt(undefined);
-      return;
-    }
     goUp();
   }
 
   function navigateFromToolbar(path?: string) {
-    if (fileOpenPrompt && path === fileOpenPrompt.path) return;
-    setFileOpenPrompt(undefined);
     if (openedFile && path === openedFile.path) return;
     navigate(path);
   }
 
   function openTableEntry(entry: FsEntry) {
     if (entry.kind === FsEntryKind.Directory) {
-      setFileOpenPrompt(undefined);
       openEntry(entry);
       return;
     }
@@ -127,21 +112,7 @@ export function FilesTool() {
     }
 
     selectEntry(entry);
-    if (
-      entry.size === undefined ||
-      entry.size > inlineFileOpenLimitBytes
-    ) {
-      setFileOpenPrompt(entry);
-      return;
-    }
-    setFileOpenPrompt(undefined);
     openFile(entry);
-  }
-
-  function confirmFileOpen() {
-    if (!fileOpenPrompt) return;
-    openFile(fileOpenPrompt);
-    setFileOpenPrompt(undefined);
   }
 
   function openEntryMenu(
@@ -160,8 +131,6 @@ export function FilesTool() {
   }
 
   const actions: FilesActions = {
-    cancelFileOpen: () => setFileOpenPrompt(undefined),
-    confirmFileOpen,
     goBack: goBackFromToolbar,
     goUp: goUpFromToolbar,
     navigate: navigateFromToolbar,
