@@ -37,6 +37,7 @@ export function WorkbenchPaneView(
   const paneState = useBunja(workbenchPaneBunja);
   const pane = useAtomValue(paneState.paneAtom);
   const paneCount = useAtomValue(paneState.paneCountAtom);
+  const active = useAtomValue(paneState.activeAtom);
   const { removePane: removeLayoutPane, split } = useLayout();
   const [newTabMenuOpen, setNewTabMenuOpen] = useState(false);
   const [draggingTabId, setDraggingTabId] = useState<string>();
@@ -163,7 +164,11 @@ export function WorkbenchPaneView(
   }
 
   return (
-    <section className="workbench-pane">
+    <section
+      className={active ? "workbench-pane active" : "workbench-pane"}
+      onPointerDownCapture={paneState.focusPane}
+      onFocusCapture={paneState.focusPane}
+    >
       <header className="workbench-pane-head">
         <Handle className="pane-handle">
           <GripVertical size={14} />

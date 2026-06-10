@@ -604,6 +604,7 @@ button.rail-machine.active:hover {
 }
 
 .workbench-pane {
+  position: relative;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   width: 100%;
@@ -689,6 +690,14 @@ button.rail-machine.active:hover {
   background: #ffffff;
 }
 
+.workbench-pane.active .workbench-tab.active {
+  z-index: 4;
+  box-shadow:
+    inset 2px 0 0 #7f9abf,
+    inset -2px 0 0 #7f9abf,
+    inset 0 2px 0 #7f9abf;
+}
+
 .workbench-tab > button {
   min-width: 0;
   height: 100%;
@@ -700,6 +709,10 @@ button.rail-machine.active:hover {
   color: #344054;
   font-size: 12px;
   font-weight: 700;
+}
+
+.workbench-tab > button:hover:not(:disabled) {
+  background: transparent;
 }
 
 .workbench-tab > button[role="tab"] {
@@ -723,10 +736,6 @@ button.rail-machine.active:hover {
 .workbench-tab-icon {
   flex: 0 0 auto;
   color: #667085;
-}
-
-.workbench-tab.active .workbench-tab-icon {
-  color: #4f8cff;
 }
 
 .workbench-tab-title {
@@ -799,6 +808,27 @@ button.rail-machine.active:hover {
   min-width: 0;
   min-height: 0;
   overflow: hidden;
+}
+
+.workbench-pane-body {
+  position: relative;
+  overflow: visible;
+}
+
+.workbench-pane-body::after {
+  top: -3px;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  content: "";
+  position: absolute;
+  z-index: 3;
+  border: 2px solid transparent;
+  pointer-events: none;
+}
+
+.workbench-pane.active .workbench-pane-body::after {
+  border-color: #7f9abf;
 }
 
 .workbench-tab-page {

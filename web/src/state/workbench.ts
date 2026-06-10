@@ -24,6 +24,7 @@ export interface WorkbenchPane {
 interface WorkbenchState {
   layout: LayoutState;
   activeTool: WorkbenchTool;
+  activePaneId?: string;
   panes: WorkbenchPane[];
 }
 
@@ -51,6 +52,7 @@ export const workbenchBunja = bunja(() => {
   const initialState: WorkbenchState = {
     layout: initialLayout,
     activeTool: "files",
+    activePaneId: initialPaneId,
     panes: [
       {
         id: initialPaneId,
@@ -67,6 +69,13 @@ export const workbenchBunja = bunja(() => {
   );
   const layoutAtom = atom((get) => get(stateAtom).layout);
   const activeToolAtom = atom((get) => get(stateAtom).activeTool ?? "files");
+  const activePaneIdAtom = atom((get) => {
+    const state = get(stateAtom);
+    const activePane = state.panes.find((pane) =>
+      pane.id === state.activePaneId
+    );
+    return activePane?.id ?? state.panes[0]?.id;
+  });
   const panesAtom = atom((get) => get(stateAtom).panes);
 
   function setLayout(layout: LayoutState) {
@@ -75,6 +84,17 @@ export const workbenchBunja = bunja(() => {
 
   function selectTool(tool: WorkbenchTool) {
     store.set(stateAtom, (current) => ({ ...current, activeTool: tool }));
+  }
+
+  function focusPane(paneId: string) {
+    store.set(
+      stateAtom,
+      (current) => {
+        if (current.activePaneId === paneId) return current;
+        if (!current.panes.some((pane) => pane.id === paneId)) return current;
+        return { ...current, activePaneId: paneId };
+      },
+    );
   }
 
   function addPane(): string {
@@ -86,6 +106,7 @@ export const workbenchBunja = bunja(() => {
     pane.activeTabId = pane.tabs[0].id;
     store.set(stateAtom, (current) => ({
       ...current,
+      activePaneId: pane.id,
       panes: [...current.panes, pane],
     }));
     return pane.id;
@@ -94,12 +115,17 @@ export const workbenchBunja = bunja(() => {
   function removePane(paneId: string) {
     store.set(
       stateAtom,
-      (current) => ({
-        ...current,
-        panes: current.panes.length <= 1
-          ? current.panes
-          : current.panes.filter((pane) => pane.id !== paneId),
-      }),
+      (current) => {
+        if (current.panes.length <= 1) return current;
+        const panes = current.panes.filter((pane) => pane.id !== paneId);
+        return {
+          ...current,
+          panes,
+          activePaneId: current.activePaneId === paneId
+            ? panes[0]?.id
+            : current.activePaneId,
+        };
+      },
     );
   }
 
@@ -126,6 +152,7 @@ export const workbenchBunja = bunja(() => {
           : pane
       )
     );
+    focusPane(paneId);
   }
 
   function selectTab(paneId: string, tabId: string) {
@@ -134,6 +161,7 @@ export const workbenchBunja = bunja(() => {
         pane.id === paneId ? { ...pane, activeTabId: tabId } : pane
       )
     );
+    focusPane(paneId);
   }
 
   function closeTab(paneId: string, tabId: string) {
@@ -187,14 +215,17 @@ export const workbenchBunja = bunja(() => {
         return pane;
       });
     });
+    focusPane(targetPaneId);
   }
 
   return {
     layoutAtom,
     activeToolAtom,
+    activePaneIdAtom,
     panesAtom,
     setLayout,
     selectTool,
+    focusPane,
     addPane,
     removePane,
     addFilesTab,
@@ -215,6 +246,7 @@ export const workbenchPaneBunja = bunja(() => {
     get(workbench.panesAtom).find((pane) => pane.id === paneId) ?? undefined
   );
   const paneCountAtom = atom((get) => get(workbench.panesAtom).length);
+  const activeAtom = atom((get) => get(workbench.activePaneIdAtom) === paneId);
 
   function addFilesTab() {
     workbench.addFilesTab(paneId);
@@ -222,6 +254,10 @@ export const workbenchPaneBunja = bunja(() => {
 
   function removePane() {
     workbench.removePane(paneId);
+  }
+
+  function focusPane() {
+    workbench.focusPane(paneId);
   }
 
   function selectTab(tabId: string) {
@@ -245,9 +281,11 @@ export const workbenchPaneBunja = bunja(() => {
     paneId,
     paneAtom,
     paneCountAtom,
+    activeAtom,
     addPane: workbench.addPane,
     addFilesTab,
     removePane,
+    focusPane,
     selectTab,
     closeTab,
     moveTab,
