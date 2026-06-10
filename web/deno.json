@@ -17,9 +17,10 @@
     "lucide-react": "npm:lucide-react@^0.468.0",
     "panecake": "npm:panecake@^0.0.1",
     "react": "npm:react@^19.0.0",
-    "react/": "npm:react@^19.0.0/",
+    "react/jsx-dev-runtime": "npm:react@^19.0.0/jsx-dev-runtime",
+    "react/jsx-runtime": "npm:react@^19.0.0/jsx-runtime",
     "react-dom": "npm:react-dom@^19.0.0",
-    "react-dom/": "npm:react-dom@^19.0.0/",
+    "react-dom/client": "npm:react-dom@^19.0.0/client",
     "vite": "npm:vite@^6.0.0"
   }
 }
