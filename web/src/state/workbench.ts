@@ -1,11 +1,13 @@
-import { bunja, createScope } from "bunja";
+import { createContext } from "react";
+import { bunja } from "bunja";
+import { createScopeFromContext } from "bunja/react";
 import { atom } from "jotai";
 import { atomWithStorage } from "jotai/utils";
 import { createLayout, type LayoutState } from "panecake";
 import { JotaiStoreScope } from "./jotai-store.ts";
+import { MachineIdScope } from "./machine-id.tsx";
 
-export type WorkbenchFeature = "files" | "processes" | "terminal";
-export type WorkbenchTool = "files";
+export type WorkbenchTool = "files" | "processes" | "terminal";
 
 export interface WorkbenchTab {
   id: string;
@@ -21,23 +23,34 @@ export interface WorkbenchPane {
 
 interface WorkbenchState {
   layout: LayoutState;
-  activeFeature: WorkbenchFeature;
+  activeTool: WorkbenchTool;
   panes: WorkbenchPane[];
 }
 
 export type TabDropPosition = "before" | "after" | "end";
 
-export const WorkbenchMachineScope = createScope<string | undefined>();
+export const WorkbenchPaneIdContext = createContext<string | undefined>(
+  undefined,
+);
+export const WorkbenchTabIdContext = createContext<string | undefined>(
+  undefined,
+);
+export const WorkbenchPaneIdScope = createScopeFromContext(
+  WorkbenchPaneIdContext,
+);
+export const WorkbenchTabIdScope = createScopeFromContext(
+  WorkbenchTabIdContext,
+);
 
 export const workbenchBunja = bunja(() => {
-  const machineId = bunja.use(WorkbenchMachineScope);
+  const machineId = bunja.use(MachineIdScope);
   const store = bunja.use(JotaiStoreScope);
   const initialPaneId = `pane-${crypto.randomUUID()}`;
   const initialTab = createFilesTab();
   const initialLayout = createLayout((builder) => builder.leaf(initialPaneId));
   const initialState: WorkbenchState = {
     layout: initialLayout,
-    activeFeature: "files",
+    activeTool: "files",
     panes: [
       {
         id: initialPaneId,
@@ -53,15 +66,15 @@ export const workbenchBunja = bunja(() => {
     { getOnInit: true },
   );
   const layoutAtom = atom((get) => get(stateAtom).layout);
-  const activeFeatureAtom = atom((get) => get(stateAtom).activeFeature);
+  const activeToolAtom = atom((get) => get(stateAtom).activeTool ?? "files");
   const panesAtom = atom((get) => get(stateAtom).panes);
 
   function setLayout(layout: LayoutState) {
     store.set(stateAtom, (current) => ({ ...current, layout }));
   }
 
-  function selectFeature(feature: WorkbenchFeature) {
-    store.set(stateAtom, (current) => ({ ...current, activeFeature: feature }));
+  function selectTool(tool: WorkbenchTool) {
+    store.set(stateAtom, (current) => ({ ...current, activeTool: tool }));
   }
 
   function addPane(): string {
@@ -178,10 +191,10 @@ export const workbenchBunja = bunja(() => {
 
   return {
     layoutAtom,
-    activeFeatureAtom,
+    activeToolAtom,
     panesAtom,
     setLayout,
-    selectFeature,
+    selectTool,
     addPane,
     removePane,
     addFilesTab,
@@ -191,8 +204,96 @@ export const workbenchBunja = bunja(() => {
   };
 });
 
+export const workbenchPaneBunja = bunja(() => {
+  const paneId = requireScopeValue(
+    bunja.use(WorkbenchPaneIdScope),
+    "Workbench pane id",
+  );
+  const workbench = bunja.use(workbenchBunja);
+
+  const paneAtom = atom((get) =>
+    get(workbench.panesAtom).find((pane) => pane.id === paneId) ?? undefined
+  );
+  const paneCountAtom = atom((get) => get(workbench.panesAtom).length);
+
+  function addFilesTab() {
+    workbench.addFilesTab(paneId);
+  }
+
+  function removePane() {
+    workbench.removePane(paneId);
+  }
+
+  function selectTab(tabId: string) {
+    workbench.selectTab(paneId, tabId);
+  }
+
+  function closeTab(tabId: string) {
+    workbench.closeTab(paneId, tabId);
+  }
+
+  function moveTab(
+    sourcePaneId: string,
+    tabId: string,
+    targetTabId: string | undefined,
+    position: TabDropPosition,
+  ) {
+    workbench.moveTab(sourcePaneId, tabId, paneId, targetTabId, position);
+  }
+
+  return {
+    paneId,
+    paneAtom,
+    paneCountAtom,
+    addPane: workbench.addPane,
+    addFilesTab,
+    removePane,
+    selectTab,
+    closeTab,
+    moveTab,
+  };
+});
+
+export const workbenchTabBunja = bunja(() => {
+  const tabId = requireScopeValue(
+    bunja.use(WorkbenchTabIdScope),
+    "Workbench tab id",
+  );
+  const pane = bunja.use(workbenchPaneBunja);
+
+  const tabAtom = atom((get) =>
+    get(pane.paneAtom)?.tabs.find((tab) => tab.id === tabId) ?? undefined
+  );
+  const activeAtom = atom((get) => get(pane.paneAtom)?.activeTabId === tabId);
+  const showCloseAtom = atom((get) => {
+    const paneValue = get(pane.paneAtom);
+    return (paneValue?.tabs.length ?? 0) > 1 || get(pane.paneCountAtom) > 1;
+  });
+
+  function selectTab() {
+    pane.selectTab(tabId);
+  }
+
+  return {
+    paneId: pane.paneId,
+    tabId,
+    tabAtom,
+    activeAtom,
+    showCloseAtom,
+    selectTab,
+  };
+});
+
 function workbenchStorageKey(machineId: string | undefined): string {
   return `wgo.workbench.${machineId ?? "none"}.v1`;
+}
+
+function requireScopeValue(
+  value: string | undefined,
+  name: string,
+): string {
+  if (!value) throw new Error(`${name} is not provided.`);
+  return value;
 }
 
 function moveTabWithinPane(

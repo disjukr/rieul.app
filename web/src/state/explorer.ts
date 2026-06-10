@@ -10,11 +10,11 @@ import {
   subscribeRoots,
 } from "../protocol/rpc.ts";
 import { type JotaiStore, JotaiStoreScope } from "./jotai-store.ts";
+import { MachineIdScope } from "./machine-id.tsx";
 import { isPaired, machineStoreBunja } from "./machine-store.ts";
 import { Machine } from "./machines.ts";
 import { StreamState } from "./types.ts";
 
-export const ExplorerMachineScope = createScope<string | undefined>();
 export const ExplorerPaneScope = createScope<string>();
 
 interface ExplorerNavigationState {
@@ -29,7 +29,7 @@ interface ExplorerHistoryEntry {
 }
 
 export const explorerMachineBunja = bunja(() => {
-  const machineId = bunja.use(ExplorerMachineScope);
+  const machineId = bunja.use(MachineIdScope);
   const machines = bunja.use(machineStoreBunja);
 
   const machineAtom = atom((get) =>
@@ -49,7 +49,7 @@ export const explorerMachineBunja = bunja(() => {
 });
 
 export const explorerRefreshBunja = bunja(() => {
-  bunja.use(ExplorerMachineScope);
+  bunja.use(MachineIdScope);
   bunja.use(ExplorerPaneScope);
   const store = bunja.use(JotaiStoreScope);
   const refreshAtom = atom(0);
@@ -65,7 +65,7 @@ export const explorerRefreshBunja = bunja(() => {
 });
 
 export const explorerNavigationBunja = bunja(() => {
-  const machineId = bunja.use(ExplorerMachineScope);
+  const machineId = bunja.use(MachineIdScope);
   const paneScopeId = bunja.use(ExplorerPaneScope);
   const store = bunja.use(JotaiStoreScope);
 
@@ -191,7 +191,7 @@ export const explorerNavigationBunja = bunja(() => {
 });
 
 export const explorerRootsBunja = bunja(() => {
-  bunja.use(ExplorerMachineScope);
+  bunja.use(MachineIdScope);
   bunja.use(ExplorerPaneScope);
   const store = bunja.use(JotaiStoreScope);
   const machineState = bunja.use(explorerMachineBunja);
@@ -266,7 +266,7 @@ export const explorerRootsBunja = bunja(() => {
 });
 
 export const explorerDirectoryBunja = bunja(() => {
-  bunja.use(ExplorerMachineScope);
+  bunja.use(MachineIdScope);
   bunja.use(ExplorerPaneScope);
   const store = bunja.use(JotaiStoreScope);
   const machineState = bunja.use(explorerMachineBunja);
@@ -360,7 +360,7 @@ export const explorerDirectoryBunja = bunja(() => {
 });
 
 export const explorerBunja = bunja(() => {
-  bunja.use(ExplorerMachineScope);
+  bunja.use(MachineIdScope);
   bunja.use(ExplorerPaneScope);
   const navigation = bunja.use(explorerNavigationBunja);
   const roots = bunja.use(explorerRootsBunja);

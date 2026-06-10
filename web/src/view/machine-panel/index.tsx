@@ -6,10 +6,7 @@ import { machineMenuBunja } from "../../state/machine-menu.ts";
 import { machineModalBunja } from "../../state/machine-modal.ts";
 import { machineStoreBunja } from "../../state/machine-store.ts";
 import type { Machine } from "../../state/machines.ts";
-import {
-  workbenchBunja,
-  WorkbenchMachineScope,
-} from "../../state/workbench.ts";
+import { workbenchBunja } from "../../state/workbench.ts";
 import { layoutBunja } from "../state.tsx";
 import { AddMachineForm } from "./add-machine-form.tsx";
 import { MachineModal } from "./machine-modal.tsx";
@@ -24,14 +21,11 @@ export function MachinePanelRegion() {
   const machineStore = useBunja(machineStoreBunja);
   const machineMenuState = useBunja(machineMenuBunja);
   const connectionState = useBunja(connectionBunja);
-  const selectedId = useAtomValue(machineStore.selectedIdAtom);
   const selected = useAtomValue(machineStore.selectedAtom);
   const machineMenu = useAtomValue(machineMenuState.machineMenuAtom);
   const connection = useAtomValue(connectionState.connectionAtom);
-  const workbench = useBunja(workbenchBunja, [
-    WorkbenchMachineScope.bind(selectedId),
-  ]);
-  const activeFeature = useAtomValue(workbench.activeFeatureAtom);
+  const workbench = useBunja(workbenchBunja);
+  const activeTool = useAtomValue(workbench.activeToolAtom);
   const machinePanelCollapsed = useAtomValue(
     layout.machinePanelCollapsedAtom,
   );
@@ -53,7 +47,7 @@ export function MachinePanelRegion() {
 
   return (
     <MachinePanel
-      activeFeature={activeFeature}
+      activeTool={activeTool}
       connection={connection}
       machine={selected}
       machinePanelCollapsed={machinePanelCollapsed}
@@ -63,7 +57,7 @@ export function MachinePanelRegion() {
       onOpenMachineMenu={openMachineTitleMenu}
       onResizeKeyDown={layout.resizeMachinePanelWithKeyboard}
       onResizePointerDown={layout.startMachinePanelResize}
-      onSelectFeature={workbench.selectFeature}
+      onSelectTool={workbench.selectTool}
     />
   );
 }

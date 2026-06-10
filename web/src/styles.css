@@ -437,7 +437,7 @@ button.rail-machine.active:hover {
   padding: 14px 12px;
 }
 
-.feature-menu {
+.tool-menu {
   display: grid;
   align-content: start;
   gap: 4px;
@@ -446,7 +446,7 @@ button.rail-machine.active:hover {
   padding: 10px 8px;
 }
 
-.feature-item {
+.tool-item {
   justify-content: flex-start;
   width: 100%;
   min-height: 38px;
@@ -458,17 +458,17 @@ button.rail-machine.active:hover {
   text-align: left;
 }
 
-.feature-item:hover:not(:disabled),
-.feature-item.active {
+.tool-item:hover:not(:disabled),
+.tool-item.active {
   background: #eef3fb;
   color: #20242d;
 }
 
-.feature-item:disabled {
+.tool-item:disabled {
   opacity: 0.56;
 }
 
-.feature-item span {
+.tool-item span {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;

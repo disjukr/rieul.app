@@ -1,8 +1,8 @@
 import { Activity, Folder, Terminal } from "lucide-react";
-import type { WorkbenchFeature } from "../../state/workbench.ts";
+import type { WorkbenchTool } from "../../state/workbench.ts";
 
-const features: {
-  id: WorkbenchFeature;
+const tools: {
+  id: WorkbenchTool;
   label: string;
   disabled?: boolean;
   Icon: typeof Folder;
@@ -26,26 +26,24 @@ const features: {
   },
 ];
 
-interface FeatureMenuProps {
-  activeFeature: WorkbenchFeature;
-  onSelect: (feature: WorkbenchFeature) => void;
+interface ToolMenuProps {
+  activeTool: WorkbenchTool;
+  onSelect: (tool: WorkbenchTool) => void;
 }
 
-export function FeatureMenu(
-  { activeFeature, onSelect }: FeatureMenuProps,
+export function ToolMenu(
+  { activeTool, onSelect }: ToolMenuProps,
 ) {
   return (
-    <nav className="feature-menu" aria-label="Workspace features">
-      {features.map(({ id, label, disabled, Icon }) => (
+    <nav className="tool-menu" aria-label="Workspace tools">
+      {tools.map(({ id, label, disabled, Icon }) => (
         <button
           type="button"
           key={id}
-          className={activeFeature === id
-            ? "feature-item active"
-            : "feature-item"}
+          className={activeTool === id ? "tool-item active" : "tool-item"}
           onClick={() => onSelect(id)}
           disabled={disabled}
-          aria-current={activeFeature === id ? "page" : undefined}
+          aria-current={activeTool === id ? "page" : undefined}
         >
           <Icon size={17} />
           <span>{label}</span>

@@ -1,4 +1,4 @@
-import React from "react";
+import React, { PropsWithChildren } from "react";
 import { useAtomValue } from "jotai";
 import { useBunja } from "bunja/react";
 import {
@@ -6,26 +6,29 @@ import {
   MachinePanelRegion,
 } from "./machine-panel/index.tsx";
 import { MachineRailRegion } from "./machine-rail/index.tsx";
+import { MachineIdContext } from "../state/machine-id.tsx";
+import { machineStoreBunja } from "../state/machine-store.ts";
 import { layoutBunja } from "./state.tsx";
 import { TopBarRegion } from "./top-bar/index.tsx";
 import { WorkbenchRegion } from "./workbench/index.tsx";
-
-interface LayoutProps {
-  children: React.ReactNode;
-}
 
 export default function View() {
   return (
     <Layout>
       <MachineRailRegion />
       <TopBarRegion />
-      <MachinePanelRegion />
-      <WorkbenchRegion />
+      <SelectedMachineIdProvider>
+        <MachinePanelRegion />
+        <WorkbenchRegion />
+      </SelectedMachineIdProvider>
       <MachineModalHost />
     </Layout>
   );
 }
 
+interface LayoutProps {
+  children: React.ReactNode;
+}
 function Layout({ children }: LayoutProps) {
   const layout = useBunja(layoutBunja);
   const machinePanelCollapsed = useAtomValue(
@@ -43,5 +46,17 @@ function Layout({ children }: LayoutProps) {
     >
       {children}
     </main>
+  );
+}
+
+function SelectedMachineIdProvider(
+  { children }: PropsWithChildren,
+) {
+  const machineStore = useBunja(machineStoreBunja);
+  const selectedId = useAtomValue(machineStore.selectedIdAtom);
+  return (
+    <MachineIdContext value={selectedId}>
+      {children}
+    </MachineIdContext>
   );
 }

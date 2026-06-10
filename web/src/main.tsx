@@ -20,10 +20,10 @@ const reactRoot = rootHost.__wgoReactRoot ??= createRoot(
 
 reactRoot.render(
   <JotaiProvider store={jotaiStore}>
-    <JotaiStoreContext.Provider value={jotaiStore}>
+    <JotaiStoreContext value={jotaiStore}>
       <BunjaStoreProvider>
         <View />
       </BunjaStoreProvider>
-    </JotaiStoreContext.Provider>
+    </JotaiStoreContext>
   </JotaiProvider>,
 );

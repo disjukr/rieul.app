@@ -2,11 +2,11 @@ import React from "react";
 import { ChevronDown, WifiOff } from "lucide-react";
 import type { Machine } from "../../state/machines.ts";
 import type { ConnectionState } from "../../state/types.ts";
-import type { WorkbenchFeature } from "../../state/workbench.ts";
-import { FeatureMenu } from "./feature-menu.tsx";
+import type { WorkbenchTool } from "../../state/workbench.ts";
+import { ToolMenu } from "./tool-menu.tsx";
 
 interface MachinePanelProps {
-  activeFeature: WorkbenchFeature;
+  activeTool: WorkbenchTool;
   connection: ConnectionState;
   machine?: Machine;
   machinePanelCollapsed: boolean;
@@ -19,12 +19,12 @@ interface MachinePanelProps {
   ) => void;
   onResizeKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => void;
   onResizePointerDown: (event: React.PointerEvent<HTMLDivElement>) => void;
-  onSelectFeature: (feature: WorkbenchFeature) => void;
+  onSelectTool: (tool: WorkbenchTool) => void;
 }
 
 export function MachinePanel(
   {
-    activeFeature,
+    activeTool,
     connection,
     machine,
     machinePanelCollapsed,
@@ -34,7 +34,7 @@ export function MachinePanel(
     onOpenMachineMenu,
     onResizeKeyDown,
     onResizePointerDown,
-    onSelectFeature,
+    onSelectTool,
   }: MachinePanelProps,
 ) {
   return (
@@ -82,9 +82,9 @@ export function MachinePanel(
               </div>
             </section>
 
-            <FeatureMenu
-              activeFeature={activeFeature}
-              onSelect={onSelectFeature}
+            <ToolMenu
+              activeTool={activeTool}
+              onSelect={onSelectTool}
             />
             <div
               className="machine-panel-resizer"
