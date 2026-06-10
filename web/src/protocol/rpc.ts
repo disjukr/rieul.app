@@ -15,14 +15,15 @@ import {
 } from "./wire.ts";
 import { Machine, normalizeMachineUrl } from "../state/machines.ts";
 
-const PROC_COMPLETE_PAIRING = 2;
-const PROC_SUBSCRIBE_ROOTS = 3;
-const PROC_SUBSCRIBE_DIRECTORY = 4;
-const PROC_READ_FILE = 5;
-const PROC_WRITE_FILE = 6;
-const PROC_CREATE_NODES = 7;
-const PROC_RENAME_PATHS = 8;
-const PROC_DELETE_PATHS = 9;
+const PROC_LIST_CAPABILITIES = 1;
+const PROC_COMPLETE_PAIRING = 3;
+const PROC_SUBSCRIBE_ROOTS = 4;
+const PROC_SUBSCRIBE_DIRECTORY = 5;
+const PROC_READ_FILE = 6;
+const PROC_WRITE_FILE = 7;
+const PROC_CREATE_NODES = 8;
+const PROC_RENAME_PATHS = 9;
+const PROC_DELETE_PATHS = 10;
 const CONNECT_TIMEOUT_MS = 10_000;
 const DATAGRAM_PING_TIMEOUT_MS = 5_000;
 
@@ -50,6 +51,10 @@ const rpcSessions = new Map<string, Promise<RpcSession>>();
 export interface CompletePairingResponse {
   clientId: string;
   clientSecret: string;
+}
+
+export interface CapabilitySet {
+  supportedProcIds: number[];
 }
 
 export enum FsEntryKind {
@@ -185,6 +190,23 @@ export async function completePairing(
   return {
     clientId: text(map.get(1)),
     clientSecret: text(map.get(2)),
+  };
+}
+
+export async function listCapabilities(
+  machine: Machine,
+): Promise<CapabilitySet> {
+  const response = await callUnaryPayload(
+    machine,
+    PROC_LIST_CAPABILITIES,
+    undefined,
+    {
+      includeAuth: false,
+    },
+  );
+  const map = decodeMap(response);
+  return {
+    supportedProcIds: array(map.get(1)).map(integer),
   };
 }
 
@@ -1237,37 +1259,37 @@ const RPC_ERROR_CODES: Record<string, string> = {
   "4": "NotImplemented",
   "6": "PermissionDenied",
   "7": "NotFound",
-  "8": "AlreadyExists",
-  "9": "OperationFailed",
-  "10": "MalformedPayload",
+  "8": "OperationFailed",
+  "9": "MalformedPayload",
 };
 
 const METHOD_ERROR_CODES: Record<string, string> = {
-  "1:1": "PairingNotStarted",
-  "1:2": "PairingExpired",
+  "1:0": "Failed",
   "2:1": "PairingNotStarted",
   "2:2": "PairingExpired",
-  "2:3": "InvalidPairingCode",
-  "3:0": "Failed",
+  "3:1": "PairingNotStarted",
+  "3:2": "PairingExpired",
+  "3:3": "InvalidPairingCode",
   "4:0": "Failed",
-  "4:1": "PermissionDenied",
-  "4:2": "NotFound",
-  "4:3": "NotDirectory",
   "5:0": "Failed",
   "5:1": "PermissionDenied",
   "5:2": "NotFound",
-  "5:3": "NotFile",
-  "5:4": "InvalidPath",
+  "5:3": "NotDirectory",
   "6:0": "Failed",
   "6:1": "PermissionDenied",
   "6:2": "NotFound",
-  "6:3": "AlreadyExists",
-  "6:4": "NotDirectory",
-  "6:5": "NotFile",
-  "6:6": "InvalidPath",
+  "6:3": "NotFile",
+  "6:4": "InvalidPath",
   "7:0": "Failed",
+  "7:1": "PermissionDenied",
+  "7:2": "NotFound",
+  "7:3": "AlreadyExists",
+  "7:4": "NotDirectory",
+  "7:5": "NotFile",
+  "7:6": "InvalidPath",
   "8:0": "Failed",
   "9:0": "Failed",
+  "10:0": "Failed",
 };
 
 const SESSION_AUTH_ERROR_CODES: Record<string, string> = {

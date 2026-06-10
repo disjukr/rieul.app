@@ -635,7 +635,7 @@ mod tests {
         };
         assert_eq!(
             ReqResMessage::encode_sequence(&[message]),
-            vec![0x00, 0xa1, 0x01, 0x01]
+            vec![0x00, 0xa1, 0x01, 0x02]
         );
     }
 

@@ -26,18 +26,32 @@ pub enum RpcCodecError {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u64)]
 pub enum ProcId {
-    StartPairing = 1,
-    CompletePairing = 2,
-    SubscribeRoots = 3,
-    SubscribeDirectory = 4,
-    ReadFile = 5,
-    WriteFile = 6,
-    CreateNodes = 7,
-    RenamePaths = 8,
-    DeletePaths = 9,
+    ListCapabilities = 1,
+    StartPairing = 2,
+    CompletePairing = 3,
+    SubscribeRoots = 4,
+    SubscribeDirectory = 5,
+    ReadFile = 6,
+    WriteFile = 7,
+    CreateNodes = 8,
+    RenamePaths = 9,
+    DeletePaths = 10,
 }
 
 impl ProcId {
+    pub const SUPPORTED: [Self; 10] = [
+        Self::ListCapabilities,
+        Self::StartPairing,
+        Self::CompletePairing,
+        Self::SubscribeRoots,
+        Self::SubscribeDirectory,
+        Self::ReadFile,
+        Self::WriteFile,
+        Self::CreateNodes,
+        Self::RenamePaths,
+        Self::DeletePaths,
+    ];
+
     pub fn as_u64(self) -> u64 {
         self as u64
     }
@@ -58,9 +72,8 @@ pub enum RpcErrorCode {
     NotImplemented = 4,
     PermissionDenied = 6,
     NotFound = 7,
-    AlreadyExists = 8,
-    OperationFailed = 9,
-    MalformedPayload = 10,
+    OperationFailed = 8,
+    MalformedPayload = 9,
 }
 
 impl RpcErrorCode {
@@ -72,9 +85,8 @@ impl RpcErrorCode {
             4 => Some(Self::NotImplemented),
             6 => Some(Self::PermissionDenied),
             7 => Some(Self::NotFound),
-            8 => Some(Self::AlreadyExists),
-            9 => Some(Self::OperationFailed),
-            10 => Some(Self::MalformedPayload),
+            8 => Some(Self::OperationFailed),
+            9 => Some(Self::MalformedPayload),
             _ => None,
         }
     }
@@ -99,6 +111,43 @@ impl RpcErrorPayload {
             code: RpcErrorCode::from_u64(expect_u64(&map, 1)?)
                 .ok_or(RpcCodecError::WrongFieldType(1))?,
             message: expect_text(&map, 2)?,
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CapabilitySet {
+    pub supported_proc_ids: Vec<u64>,
+}
+
+impl CapabilitySet {
+    pub fn supported() -> Self {
+        Self {
+            supported_proc_ids: ProcId::SUPPORTED.into_iter().map(ProcId::as_u64).collect(),
+        }
+    }
+
+    pub fn encode(&self) -> Vec<u8> {
+        Value::Map(BTreeMap::from([(
+            1,
+            Value::Array(
+                self.supported_proc_ids
+                    .iter()
+                    .copied()
+                    .map(Value::U64)
+                    .collect(),
+            ),
+        )]))
+        .encode()
+    }
+
+    pub fn decode(bytes: &[u8]) -> Result<Self, RpcCodecError> {
+        let map = expect_map(Value::decode(bytes)?)?;
+        Ok(Self {
+            supported_proc_ids: expect_array(&map, 1)?
+                .iter()
+                .map(expect_u53_value)
+                .collect::<Result<Vec<_>, _>>()?,
         })
     }
 }
@@ -896,6 +945,17 @@ fn expect_text_value(value: &Value) -> Result<String, RpcCodecError> {
     }
 }
 
+fn expect_u53_value(value: &Value) -> Result<u64, RpcCodecError> {
+    let Value::U64(value) = value else {
+        return Err(RpcCodecError::WrongFieldType(0));
+    };
+    if *value <= MAX_U53 {
+        Ok(*value)
+    } else {
+        Err(RpcCodecError::IntegerOutOfRange(0))
+    }
+}
+
 fn optional_bool(map: &BTreeMap<u64, Value>, field: u64) -> Result<Option<bool>, RpcCodecError> {
     match map.get(&field) {
         None => Ok(None),
@@ -924,6 +984,19 @@ fn expect_array<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn capability_set_roundtrip() {
+        let capabilities = CapabilitySet::supported();
+        assert_eq!(
+            CapabilitySet::decode(&capabilities.encode()).unwrap(),
+            capabilities
+        );
+        assert_eq!(
+            capabilities.supported_proc_ids,
+            vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+        );
+    }
 
     #[test]
     fn complete_pairing_roundtrip() {

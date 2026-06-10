@@ -63,6 +63,12 @@ RPC payload bytes are selected by proc id and by response variant. Method-level
 errors use the proc's declared `throws` union. Failures outside a method
 contract use the generic wire/envelope error payload.
 
+`ListCapabilities` returns the proc ids supported by the current daemon process.
+The value is fixed while that daemon process is running, but a reconnect may
+reach an updated daemon. Clients may cache capabilities for a live connection or
+session and should fetch them again after reconnecting. Protected proc ids may
+still require session authentication before invocation.
+
 A proc's `stream` attribute defines request and response cardinality:
 
 - `unary`: unary request, unary response

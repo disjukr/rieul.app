@@ -16,11 +16,11 @@ use wgo_daemon_core::cbor::Value;
 use wgo_daemon_core::config::{load_or_default, save, SystemConfig};
 use wgo_daemon_core::pairing::{issue_client_secret, verify_client_secret, verify_pairing_code};
 use wgo_daemon_core::rpc::{
-    BulkMutationItemResult, BulkMutationRes, CompletePairingRequest, CompletePairingResponse,
-    CreateNodesReq, DeletePathsReq, DirectoryEntryKey, DirectorySubscriptionCloseReason,
-    DirectoryTableEvent, FsEntry, ProcId, ReadFileChunk, ReadFileReq, RenamePathsReq, RootEntryKey,
-    RootsSubscriptionCloseReason, RootsTableEvent, RpcErrorCode, RpcErrorPayload,
-    StartPairingResponse, WriteFileReq,
+    BulkMutationItemResult, BulkMutationRes, CapabilitySet, CompletePairingRequest,
+    CompletePairingResponse, CreateNodesReq, DeletePathsReq, DirectoryEntryKey,
+    DirectorySubscriptionCloseReason, DirectoryTableEvent, FsEntry, ProcId, ReadFileChunk,
+    ReadFileReq, RenamePathsReq, RootEntryKey, RootsSubscriptionCloseReason, RootsTableEvent,
+    RpcErrorCode, RpcErrorPayload, StartPairingResponse, WriteFileReq,
 };
 use wgo_daemon_core::traits::{FileService, ServiceError};
 use wgo_daemon_core::wire::{
@@ -1176,6 +1176,9 @@ async fn handle_rpc_messages(
     }
 
     let response = match proc_id {
+        id if id == ProcId::ListCapabilities.as_u64() => {
+            ok_payload_message(proc_id, CapabilitySet::supported().encode())
+        }
         id if id == ProcId::StartPairing.as_u64() => {
             let now = now_unix();
             let mut config = load_runtime_config(config_path, &config_state).await?;
@@ -1342,7 +1345,9 @@ async fn handle_rpc_messages(
 }
 
 fn requires_authentication(proc_id: u64) -> bool {
-    proc_id != ProcId::StartPairing.as_u64() && proc_id != ProcId::CompletePairing.as_u64()
+    proc_id != ProcId::ListCapabilities.as_u64()
+        && proc_id != ProcId::StartPairing.as_u64()
+        && proc_id != ProcId::CompletePairing.as_u64()
 }
 
 async fn create_nodes(files: &dyn FileService, request: CreateNodesReq) -> BulkMutationRes {
@@ -1532,7 +1537,6 @@ fn rpc_error_code(code: &str) -> RpcErrorCode {
         "not_implemented" => RpcErrorCode::NotImplemented,
         "permission_denied" => RpcErrorCode::PermissionDenied,
         "not_found" => RpcErrorCode::NotFound,
-        "already_exists" => RpcErrorCode::AlreadyExists,
         "failed" | "operation_failed" => RpcErrorCode::OperationFailed,
         "malformed_payload" => RpcErrorCode::MalformedPayload,
         _ => RpcErrorCode::OperationFailed,
@@ -1555,6 +1559,10 @@ fn method_error_payload(proc_id: u64, code: &str, message: &str) -> Option<Vec<u
 
 fn method_error_variant(proc_id: u64, code: &str) -> Option<u64> {
     match proc_id {
+        id if id == ProcId::ListCapabilities.as_u64() => match code {
+            "failed" => Some(0),
+            _ => None,
+        },
         id if id == ProcId::StartPairing.as_u64() => match code {
             "pairing_not_started" => Some(1),
             "pairing_expired" => Some(2),
