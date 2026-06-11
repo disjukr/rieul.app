@@ -9,6 +9,20 @@ import {
 import { FileTable } from "./file-table.tsx";
 import { Inspector } from "./entry-details.tsx";
 
+const directoryContentClassName = [
+  "grid [grid-template-rows:minmax(0,1fr)_auto]",
+  "w-full h-full min-w-0 min-h-0 overflow-hidden",
+].join(" ");
+const browserLayoutClassName = [
+  "browser-layout grid [grid-template-columns:minmax(0,1fr)_minmax(220px,28%)]",
+  "[@container_workbench-tab-page_(max-width:980px)]:[grid-template-columns:minmax(0,1fr)]",
+  "h-full min-h-0 overflow-hidden",
+].join(" ");
+const explorerFooterClassName = [
+  "flex items-center justify-end min-h-[28px] border-t border-t-[#d8dde7]",
+  "bg-[#fbfcfe] text-[#667085] px-[16px] text-[12px]",
+].join(" ");
+
 export function DirectoryContent() {
   const actions = requireFilesActions(useContext(FilesActionsContext));
   const explorer = requireFilesExplorer(useContext(FilesExplorerContext));
@@ -18,8 +32,8 @@ export function DirectoryContent() {
   const selectedPath = useAtomValue(explorer.selectedPathAtom);
 
   return (
-    <div className="directory-content">
-      <div className="browser-layout">
+    <div className={directoryContentClassName}>
+      <div className={browserLayoutClassName}>
         <FileTable
           rows={rows}
           selectedPath={selectedPath}
@@ -41,7 +55,7 @@ function DirectoryFooter() {
   const rows = useAtomValue(explorer.visibleRowsAtom);
 
   return (
-    <div className="explorer-footer">
+    <div className={explorerFooterClassName}>
       <span>{rows.length} items</span>
     </div>
   );

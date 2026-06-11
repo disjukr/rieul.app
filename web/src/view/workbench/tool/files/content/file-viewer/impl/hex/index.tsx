@@ -13,6 +13,17 @@ import { fileViewerBunja } from "../../state.tsx";
 import type { FileViewerImpl } from "../index.ts";
 
 const inlineOpenLimitBytes = 1024 * 1024;
+const fileViewerStatusClassName = [
+  "flex items-center justify-center gap-[8px] min-w-0 min-h-0",
+  "text-[#667085] text-[13px]",
+  "[&.error]:items-start [&.error]:justify-start [&.error]:overflow-auto",
+  "[&.error]:text-[#b42318] [&.error]:p-[14px]",
+].join(" ");
+const fileContentClassName = [
+  "min-w-0 min-h-0 m-0 overflow-auto bg-white text-[#20242d]",
+  "font-mono text-[12px] leading-[1.55] p-[14px]",
+  "[tab-size:2] whitespace-pre [overflow-wrap:normal]",
+].join(" ");
 
 type FileReadState =
   | { phase: "loading" }
@@ -65,7 +76,7 @@ export function HexFileViewer() {
 
   if (!machine) {
     return (
-      <div className="file-viewer-status error">
+      <div className={`${fileViewerStatusClassName} error`}>
         <span>No machine selected</span>
       </div>
     );
@@ -85,7 +96,7 @@ export function HexFileViewer() {
 
   if (state.phase === "loading") {
     return (
-      <div className="file-viewer-status">
+      <div className={fileViewerStatusClassName}>
         <span>Loading bytes</span>
       </div>
     );
@@ -93,13 +104,13 @@ export function HexFileViewer() {
 
   if (state.phase === "error") {
     return (
-      <div className="file-viewer-status error">
+      <div className={`${fileViewerStatusClassName} error`}>
         <span>{state.message}</span>
       </div>
     );
   }
 
-  return <pre className="file-content binary">{state.text}</pre>;
+  return <pre className={fileContentClassName}>{state.text}</pre>;
 }
 
 function hasCompleteInitialBytes(

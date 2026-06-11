@@ -17,6 +17,12 @@ const MonacoTextViewer = lazy(async () => {
 });
 
 const inlineOpenLimitBytes = 1024 * 1024;
+const fileViewerStatusClassName = [
+  "flex items-center justify-center gap-[8px] min-w-0 min-h-0",
+  "text-[#667085] text-[13px]",
+  "[&.error]:items-start [&.error]:justify-start [&.error]:overflow-auto",
+  "[&.error]:text-[#b42318] [&.error]:p-[14px]",
+].join(" ");
 
 type FileReadState =
   | { phase: "loading" }
@@ -69,7 +75,7 @@ export function TextFileViewer() {
 
   if (!machine) {
     return (
-      <div className="file-viewer-status error">
+      <div className={`${fileViewerStatusClassName} error`}>
         <span>No machine selected</span>
       </div>
     );
@@ -89,7 +95,7 @@ export function TextFileViewer() {
 
   if (state.phase === "loading") {
     return (
-      <div className="file-viewer-status">
+      <div className={fileViewerStatusClassName}>
         <span>Loading text</span>
       </div>
     );
@@ -97,7 +103,7 @@ export function TextFileViewer() {
 
   if (state.phase === "error") {
     return (
-      <div className="file-viewer-status error">
+      <div className={`${fileViewerStatusClassName} error`}>
         <span>{state.message}</span>
       </div>
     );
@@ -106,7 +112,7 @@ export function TextFileViewer() {
   return (
     <Suspense
       fallback={
-        <div className="file-viewer-status">
+        <div className={fileViewerStatusClassName}>
           <span>Loading editor</span>
         </div>
       }

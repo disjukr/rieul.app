@@ -8,17 +8,31 @@ import {
 } from "../impl/index.ts";
 import { fileViewerBunja } from "../state.tsx";
 
+const fileViewerFooterClassName = [
+  "flex items-center justify-between gap-[12px] min-h-[28px]",
+  "border-t border-t-[#d8dde7] bg-[#fbfcfe] text-[#667085]",
+  "px-[16px] text-[12px]",
+].join(" ");
+const fileViewerImplControlClassName =
+  "inline-flex items-center gap-[7px] min-w-0 text-[#667085]";
+const fileViewerImplSelectClassName = [
+  "w-[86px] h-[24px] min-h-[24px] border border-[#cfd7e5] rounded-[5px]",
+  "bg-white text-[#344054] font-inherit leading-[22px] px-[6px]",
+  "disabled:text-[#98a2b3] disabled:bg-[#f4f6fa]",
+].join(" ");
+const fileViewerFooterSizeClassName = "flex-[0_0_auto]";
+
 export function FileViewerFooter() {
   const viewer = useBunja(fileViewerBunja);
   const [impl, setImpl] = useAtom(viewer.implAtom);
   const disabled = impl === undefined;
 
   return (
-    <div className="explorer-footer file-viewer-footer">
-      <label className="file-viewer-impl-control">
+    <div className={fileViewerFooterClassName}>
+      <label className={fileViewerImplControlClassName}>
         <span>View</span>
         <select
-          className="file-viewer-impl-select"
+          className={fileViewerImplSelectClassName}
           value={impl ?? textFileViewerImplId}
           disabled={disabled}
           aria-label="File viewer"
@@ -34,7 +48,7 @@ export function FileViewerFooter() {
           ))}
         </select>
       </label>
-      <span className="file-viewer-footer-size">
+      <span className={fileViewerFooterSizeClassName}>
         {formatSize(viewer.fsEntry.size)}
       </span>
     </div>

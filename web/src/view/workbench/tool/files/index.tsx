@@ -20,6 +20,24 @@ import { FilesContent } from "./content/index.tsx";
 import { EntryPropertiesModal } from "./content/directory/index.tsx";
 import { FilesNavbar } from "./navbar/index.tsx";
 
+const emptyWorkspaceClassName = [
+  "grid content-center justify-items-center w-full h-full gap-[10px]",
+  "min-h-0 text-[#667085]",
+  "[&_h2]:m-0 [&_h2]:text-[#303642] [&_h2]:text-[18px] [&_h2]:tracking-[0]",
+].join(" ");
+const explorerClassName = [
+  "grid [grid-template-rows:auto_minmax(0,1fr)]",
+  "w-full h-full min-h-0 overflow-hidden",
+].join(" ");
+const entryContextMenuClassName = [
+  "fixed z-[30] grid gap-[2px] w-[176px] border border-[#d8dde7]",
+  "rounded-[8px] bg-white [box-shadow:0_18px_48px_rgb(32_36_45_/_24%)] p-[6px]",
+  "[&_button]:justify-start [&_button]:w-full [&_button]:min-h-[34px]",
+  "[&_button]:border-0 [&_button]:rounded-[6px] [&_button]:bg-transparent",
+  "[&_button]:px-[10px] [&_button]:text-[#20242d]",
+  "[&_button:hover]:bg-[#f2f6ff]",
+].join(" ");
+
 interface EntryMenuState {
   entry: FsEntry;
   x: number;
@@ -140,7 +158,7 @@ export function FilesTool() {
 
   if (!machine) {
     return (
-      <section className="empty-workspace">
+      <section className={emptyWorkspaceClassName}>
         <HardDrive size={28} />
         <h2>No machine selected</h2>
       </section>
@@ -149,7 +167,7 @@ export function FilesTool() {
 
   if (!isPaired) {
     return (
-      <section className="empty-workspace">
+      <section className={emptyWorkspaceClassName}>
         <KeyRound size={28} />
         <h2>Pairing required</h2>
         <button
@@ -164,7 +182,7 @@ export function FilesTool() {
   }
 
   return (
-    <section className="explorer">
+    <section className={explorerClassName}>
       <FilesExplorerContext value={explorer}>
         <FilesActionsContext value={actions}>
           <FilesNavbar />
@@ -176,7 +194,7 @@ export function FilesTool() {
       {entryMenu
         ? (
           <div
-            className="entry-context-menu"
+            className={entryContextMenuClassName}
             style={{ left: entryMenu.x, top: entryMenu.y }}
             role="menu"
             onMouseDown={(event) => event.stopPropagation()}

@@ -1,6 +1,14 @@
 import React, { FormEvent } from "react";
 import { Plus } from "lucide-react";
 
+const machineModalFormClassName = [
+  "grid gap-[12px] p-[16px]",
+  "[&_label]:grid [&_label]:gap-[6px] [&_label]:min-w-0",
+  "[&_label_span]:text-[#475467] [&_label_span]:text-[12px] [&_label_span]:font-700",
+].join(" ");
+const fieldErrorClassName = "text-[#b42318] text-[12px]";
+const modalActionsClassName = "flex justify-end gap-[8px]";
+
 interface AddMachineFormProps {
   baseUrl: string;
   error: string;
@@ -27,7 +35,7 @@ export function AddMachineForm(
   }: AddMachineFormProps,
 ) {
   return (
-    <form className="machine-modal-form" onSubmit={onSubmit}>
+    <form className={machineModalFormClassName} onSubmit={onSubmit}>
       <label>
         <span>Name</span>
         <input
@@ -47,8 +55,8 @@ export function AddMachineForm(
           aria-label="Machine URL"
         />
       </label>
-      {error ? <div className="field-error">{error}</div> : null}
-      <div className="modal-actions">
+      {error ? <div className={fieldErrorClassName}>{error}</div> : null}
+      <div className={modalActionsClassName}>
         {showCancel
           ? (
             <button type="button" onClick={onCancel}>

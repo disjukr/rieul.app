@@ -2,8 +2,7 @@ import { createContext } from "react";
 import { createRoot } from "react-dom/client";
 import { createStore, Provider as JotaiProvider } from "jotai";
 import { bindScope, BunjaStoreProvider } from "bunja/react";
-// @ts-ignore css
-import "./styles.css";
+import "virtual:uno.css";
 import { type JotaiStore, JotaiStoreScope } from "./state/jotai-store.ts";
 import View from "./view/index.tsx";
 

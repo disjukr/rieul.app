@@ -4,6 +4,41 @@ import type { Machine } from "../../state/machines.ts";
 import type { ConnectionState, MachineModalMode } from "../../state/types.ts";
 import { AddMachineForm } from "./add-machine-form.tsx";
 
+const modalBackdropClassName =
+  "fixed inset-0 z-[20] grid place-items-center bg-[rgb(32_36_45_/_42%)] p-[24px]";
+const machineModalClassName = [
+  "w-[min(460px,100%)] overflow-hidden border border-[#d8dde7]",
+  "rounded-[8px] bg-white [box-shadow:0_24px_72px_rgb(32_36_45_/_28%)]",
+].join(" ");
+const modalHeadClassName = [
+  "flex items-center justify-between gap-[12px] border-b border-b-[#e4e8ef]",
+  "px-[16px] py-[14px]",
+  "[&_div]:grid [&_div]:gap-[2px] [&_div]:min-w-0",
+  "[&_span]:text-[#667085] [&_span]:text-[12px] [&_span]:font-700",
+  "[&_h2]:m-0 [&_h2]:text-[#20242d] [&_h2]:text-[18px] [&_h2]:tracking-[0]",
+].join(" ");
+const iconButtonClassName = "w-[36px] min-w-[36px] p-0";
+const machineModalFormClassName = [
+  "grid gap-[12px] p-[16px]",
+  "[&_label]:grid [&_label]:gap-[6px] [&_label]:min-w-0",
+  "[&_label_span]:text-[#475467] [&_label_span]:text-[12px] [&_label_span]:font-700",
+].join(" ");
+const modalMachineSummaryClassName = [
+  "grid gap-[2px] min-w-0 border border-[#d8dde7] rounded-[8px]",
+  "bg-[#f7f8fb] p-[10px]",
+  "[&_strong]:min-w-0 [&_strong]:overflow-hidden [&_strong]:text-ellipsis",
+  "[&_strong]:whitespace-nowrap [&_strong]:text-[#20242d] [&_strong]:text-[13px]",
+  "[&_span]:min-w-0 [&_span]:overflow-hidden [&_span]:text-ellipsis",
+  "[&_span]:whitespace-nowrap [&_span]:text-[#667085] [&_span]:text-[12px]",
+].join(" ");
+const fieldErrorClassName = "text-[#b42318] text-[12px]";
+const modalActionsClassName = "flex justify-end gap-[8px]";
+const modalWarningClassName = "m-0 text-[#475467] text-[13px]";
+const dangerActionClassName = [
+  "border-[#f6c2bd] bg-[#fff4f2] text-[#b42318]",
+  "hover:border-[#f04438] hover:bg-[#fff2f0] hover:text-[#912018]",
+].join(" ");
+
 interface MachineModalProps {
   baseUrl: string;
   configNameDraft: string;
@@ -92,7 +127,7 @@ export function MachineModal(
 ) {
   return (
     <div
-      className="modal-backdrop"
+      className={modalBackdropClassName}
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) {
           onClose();
@@ -100,12 +135,12 @@ export function MachineModal(
       }}
     >
       <section
-        className="machine-modal"
+        className={machineModalClassName}
         role="dialog"
         aria-modal="true"
         aria-labelledby="machine-modal-title"
       >
-        <header className="modal-head">
+        <header className={modalHeadClassName}>
           <div>
             <span>Machine</span>
             <h2 id="machine-modal-title">{modalTitle}</h2>
@@ -117,7 +152,7 @@ export function MachineModal(
                 onClick={onClose}
                 title="Close"
                 aria-label="Close machine modal"
-                className="icon-button"
+                className={iconButtonClassName}
               >
                 <X size={16} />
               </button>
@@ -191,8 +226,8 @@ function PairMachineForm(
   }: PairMachineFormProps,
 ) {
   return (
-    <form className="machine-modal-form" onSubmit={onSubmit}>
-      <div className="modal-machine-summary">
+    <form className={machineModalFormClassName} onSubmit={onSubmit}>
+      <div className={modalMachineSummaryClassName}>
         <strong>{selected.name}</strong>
         <span>{selected.baseUrl}</span>
       </div>
@@ -213,9 +248,9 @@ function PairMachineForm(
         />
       </label>
       {connection.phase === "offline"
-        ? <div className="field-error">{connection.message}</div>
+        ? <div className={fieldErrorClassName}>{connection.message}</div>
         : null}
-      <div className="modal-actions">
+      <div className={modalActionsClassName}>
         <button type="button" onClick={onClose}>
           Skip
         </button>
@@ -224,7 +259,7 @@ function PairMachineForm(
           disabled={isPairing || pairingCode.length === 0}
         >
           {isPairing
-            ? <Loader2 size={16} className="spin" />
+            ? <Loader2 size={16} className="animate-spin" />
             : <KeyRound size={16} />}
           Pair
         </button>
@@ -248,10 +283,10 @@ function MachineConfigForm(
 ) {
   return (
     <form
-      className="machine-modal-form"
+      className={machineModalFormClassName}
       onSubmit={onSubmit}
     >
-      <div className="modal-machine-summary">
+      <div className={modalMachineSummaryClassName}>
         <strong>{selected.name}</strong>
         <span>{selected.baseUrl}</span>
       </div>
@@ -274,8 +309,8 @@ function MachineConfigForm(
           aria-label="Machine URL"
         />
       </label>
-      {error ? <div className="field-error">{error}</div> : null}
-      <div className="modal-actions">
+      {error ? <div className={fieldErrorClassName}>{error}</div> : null}
+      <div className={modalActionsClassName}>
         <button type="button" onClick={onClose}>
           Cancel
         </button>
@@ -296,21 +331,21 @@ function DeleteMachineForm(
   }: DeleteMachineFormProps,
 ) {
   return (
-    <div className="machine-modal-form">
-      <div className="modal-machine-summary">
+    <div className={machineModalFormClassName}>
+      <div className={modalMachineSummaryClassName}>
         <strong>{selected.name}</strong>
         <span>{selected.baseUrl}</span>
       </div>
-      <p className="modal-warning">
+      <p className={modalWarningClassName}>
         This removes the machine from this browser.
       </p>
-      <div className="modal-actions">
+      <div className={modalActionsClassName}>
         <button type="button" onClick={onClose}>
           Cancel
         </button>
         <button
           type="button"
-          className="danger-action"
+          className={dangerActionClassName}
           onClick={onDelete}
         >
           <Trash2 size={16} />

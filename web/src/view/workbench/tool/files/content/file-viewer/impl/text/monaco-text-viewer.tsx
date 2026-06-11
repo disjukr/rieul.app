@@ -6,6 +6,9 @@ interface MonacoTextViewerProps {
   text: string;
 }
 
+const monacoTextViewerClassName =
+  "w-full h-full min-w-0 min-h-0 overflow-hidden";
+
 const monacoHost = globalThis as typeof globalThis & {
   MonacoEnvironment?: {
     getWorker: (_moduleId: string, label: string) => Worker;
@@ -99,7 +102,7 @@ export function MonacoTextViewer({ path, text }: MonacoTextViewerProps) {
     monaco.editor.setModelLanguage(model, languageFromPath(path));
   }, [path]);
 
-  return <div ref={hostRef} className="monaco-text-viewer" />;
+  return <div ref={hostRef} className={monacoTextViewerClassName} />;
 }
 
 function languageFromPath(path: string): string {

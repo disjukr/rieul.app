@@ -19,11 +19,13 @@ import {
   type WorkbenchTabDragData,
   workbenchTabDragType,
 } from "./tab-drag.ts";
+import { className } from "../../class-name.ts";
 
 interface WorkbenchTabItemProps {
   dragging: boolean;
   dropPosition?: TabDropPosition;
   nodeId: string;
+  paneActive: boolean;
   onClose: () => void;
   onDragStart: () => void;
   onDragEnd: () => void;
@@ -35,11 +37,54 @@ interface WorkbenchTabItemProps {
   ) => void;
 }
 
+const workbenchTabClassName = [
+  "workbench-tab relative flex items-center min-w-0 max-w-[168px] h-full",
+  "border-r border-r-[#e4e8ef] bg-[#eef1f5]",
+  "before:content-[''] before:absolute before:top-[4px] before:bottom-[4px]",
+  "before:z-[2] before:w-[2px] before:rounded-full before:bg-transparent",
+  "before:pointer-events-none before:left-0",
+  "after:content-[''] after:absolute after:top-[4px] after:bottom-[4px]",
+  "after:z-[2] after:w-[2px] after:rounded-full after:bg-transparent",
+  "after:pointer-events-none after:right-0",
+  "[&.drop-before::before]:bg-[#4f8cff]",
+  "[&.drop-after::after]:bg-[#4f8cff]",
+  "[&.dragging]:opacity-48",
+  "[&.active]:bg-white",
+  "[&>button]:min-w-0 [&>button]:h-full [&>button]:min-h-0",
+  "[&>button]:border-0 [&>button]:rounded-0 [&>button]:bg-transparent",
+  "[&>button]:px-[8px] [&>button]:text-[#344054]",
+  "[&>button]:text-[12px] [&>button]:font-700",
+  "[&>button:hover]:bg-transparent",
+  "[&>button[role='tab']]:justify-start",
+  "[&>button[role='tab']]:flex-[1_1_auto]",
+  "[&>button[role='tab']]:gap-[6px]",
+  "[&>button[role='tab']]:overflow-hidden",
+  "[&>button[role='tab']]:text-ellipsis",
+  "[&>button[role='tab']]:whitespace-nowrap",
+  "[&>button[role='tab']]:cursor-grab",
+  "[&>button[role='tab']:active]:cursor-grabbing",
+  "[&.active>button]:text-[#20242d]",
+  "[&_.tab-close]:flex-[0_0_auto] [&_.tab-close]:w-[22px]",
+  "[&_.tab-close]:min-w-[22px] [&_.tab-close]:p-0 [&_.tab-close]:text-[#667085]",
+].join(" ");
+const workbenchTabIconClassName = "flex-[0_0_auto] text-[#667085]";
+const workbenchTabTitleClassName =
+  "min-w-0 overflow-hidden text-ellipsis whitespace-nowrap";
+const activePaneTabClassName = [
+  "z-[8]",
+  "[box-shadow:inset_2px_0_0_#7f9abf,inset_-2px_0_0_#7f9abf,inset_0_2px_0_#7f9abf]",
+].join(" ");
+const activeTabBottomCoverClassName = [
+  "pointer-events-none absolute left-[2px] right-[2px] bottom-[-2px]",
+  "z-[9] h-[2px] bg-white",
+].join(" ");
+
 export function WorkbenchTabItem(
   {
     dragging,
     dropPosition,
     nodeId,
+    paneActive,
     onClose,
     onDragStart,
     onDragEnd,
@@ -52,13 +97,14 @@ export function WorkbenchTabItem(
   const active = useAtomValue(tabState.activeAtom);
   const showClose = useAtomValue(tabState.showCloseAtom);
   const label = useWorkbenchTabLabel(tabState.tabId, tab);
-  const className = [
-    "workbench-tab",
-    active ? "active" : "",
-    dragging ? "dragging" : "",
-    dropPosition === "before" ? "drop-before" : "",
-    dropPosition === "after" ? "drop-after" : "",
-  ].filter(Boolean).join(" ");
+  const tabClassName = className(
+    workbenchTabClassName,
+    active && "active",
+    active && paneActive && activePaneTabClassName,
+    dragging && "dragging",
+    dropPosition === "before" && "drop-before",
+    dropPosition === "after" && "drop-after",
+  );
 
   if (!tab) return null;
   const currentTabId = tab.id;
@@ -89,7 +135,7 @@ export function WorkbenchTabItem(
 
   return (
     <div
-      className={className}
+      className={tabClassName}
       onDragOver={handleDragOver}
       onDrop={handleDrop}
     >
@@ -115,8 +161,8 @@ export function WorkbenchTabItem(
         onClick={tabState.selectTab}
         title={label}
       >
-        <Folder size={14} className="workbench-tab-icon" />
-        <span className="workbench-tab-title">{label}</span>
+        <Folder size={14} className={workbenchTabIconClassName} />
+        <span className={workbenchTabTitleClassName}>{label}</span>
       </button>
       {showClose
         ? (
@@ -132,6 +178,9 @@ export function WorkbenchTabItem(
             <X size={13} />
           </button>
         )
+        : null}
+      {active && paneActive
+        ? <span className={activeTabBottomCoverClassName} aria-hidden="true" />
         : null}
     </div>
   );

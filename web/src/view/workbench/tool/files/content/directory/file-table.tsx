@@ -7,6 +7,7 @@ import {
   kindLabel,
 } from "../../../../../../state/explorer.ts";
 import { EntryIcon } from "./entry-icon.tsx";
+import { className } from "../../../../../class-name.ts";
 
 interface FileTableProps {
   rows: FsEntry[];
@@ -19,6 +20,39 @@ interface FileTableProps {
   ) => void;
 }
 
+const fileTableClassName = [
+  "file-table grid",
+  "[grid-template-columns:minmax(220px,1fr)_minmax(96px,130px)_minmax(88px,120px)_minmax(140px,190px)]",
+  "[@container_workbench-tab-page_(max-width:680px)]:[grid-template-columns:minmax(200px,1fr)_96px_88px]",
+  "auto-rows-[38px] min-w-0 min-h-0 overflow-auto bg-white",
+].join(" ");
+const hideInNarrowContainerClassName =
+  "[@container_workbench-tab-page_(max-width:680px)]:hidden";
+const fileHeadClassName = [
+  "file-head sticky top-0 z-[1] flex items-center border-b border-b-[#d8dde7]",
+  "bg-[#f6f8fb] text-[#667085] text-[12px] font-700 px-[12px]",
+].join(" ");
+const fileRowClassName = [
+  "grid [grid-column:1/-1] [grid-template-columns:subgrid]",
+  "min-h-[38px] border-0 border-b border-b-[#eef1f5] rounded-0",
+  "bg-white p-0 text-left hover:bg-[#f7faff]",
+  "[&.selected]:bg-[#eaf3ff]",
+].join(" ");
+const fileCellBaseClassName = [
+  "file-cell flex items-center min-w-0 overflow-hidden text-[#303642]",
+  "px-[12px] text-ellipsis whitespace-nowrap",
+].join(" ");
+const fileNameCellClassName = `${fileCellBaseClassName} name gap-[9px]`;
+const fileMetaCellClassName =
+  `${fileCellBaseClassName} text-[#667085] text-[12px]`;
+const fileNameClassName = "min-w-0 overflow-hidden text-ellipsis";
+const readonlyClassName = [
+  "flex-[0_0_auto] border border-[#e4c778] rounded-full bg-[#fff8df]",
+  "text-[#8a6116] px-[6px] py-[1px] text-[11px]",
+].join(" ");
+const tableEmptyClassName =
+  "[grid-column:1/-1] flex items-center text-[#667085] px-[12px]";
+
 export function FileTable(
   {
     rows,
@@ -29,38 +63,59 @@ export function FileTable(
   }: FileTableProps,
 ) {
   return (
-    <div className="file-table" role="grid" aria-label="Files">
-      <div className="file-head name">Name</div>
-      <div className="file-head kind">Kind</div>
-      <div className="file-head size">Size</div>
-      <div className="file-head modified">Modified</div>
-      {rows.length === 0 ? <div className="table-empty">No rows</div> : (
-        rows.map((entry) => (
-          <button
-            type="button"
-            key={entry.path}
-            className={entry.path === selectedPath
-              ? "file-row selected"
-              : "file-row"}
-            onClick={() => onSelect(entry)}
-            onDoubleClick={() => onOpen(entry)}
-            onContextMenu={(event) => onContextMenu(entry, event)}
-          >
-            <span className="file-cell name">
-              <EntryIcon entry={entry} />
-              <span>{displayName(entry)}</span>
-              {entry.readonly
-                ? <span className="readonly">readonly</span>
-                : null}
-            </span>
-            <span className="file-cell kind">{kindLabel(entry.kind)}</span>
-            <span className="file-cell size">{formatSize(entry.size)}</span>
-            <span className="file-cell modified">
-              {formatDate(entry.modifiedAtMs)}
-            </span>
-          </button>
-        ))
-      )}
+    <div className={fileTableClassName} role="grid" aria-label="Files">
+      <div className={`${fileHeadClassName} name`}>Name</div>
+      <div className={`${fileHeadClassName} kind`}>Kind</div>
+      <div className={`${fileHeadClassName} size`}>Size</div>
+      <div
+        className={className(
+          fileHeadClassName,
+          "modified",
+          hideInNarrowContainerClassName,
+        )}
+      >
+        Modified
+      </div>
+      {rows.length === 0
+        ? <div className={tableEmptyClassName}>No rows</div>
+        : (
+          rows.map((entry) => (
+            <button
+              type="button"
+              key={entry.path}
+              className={className(
+                fileRowClassName,
+                entry.path === selectedPath && "selected",
+              )}
+              onClick={() => onSelect(entry)}
+              onDoubleClick={() => onOpen(entry)}
+              onContextMenu={(event) => onContextMenu(entry, event)}
+            >
+              <span className={fileNameCellClassName}>
+                <EntryIcon entry={entry} />
+                <span className={fileNameClassName}>{displayName(entry)}</span>
+                {entry.readonly
+                  ? <span className={readonlyClassName}>readonly</span>
+                  : null}
+              </span>
+              <span className={`${fileMetaCellClassName} kind`}>
+                {kindLabel(entry.kind)}
+              </span>
+              <span className={`${fileMetaCellClassName} size`}>
+                {formatSize(entry.size)}
+              </span>
+              <span
+                className={className(
+                  fileMetaCellClassName,
+                  "modified",
+                  hideInNarrowContainerClassName,
+                )}
+              >
+                {formatDate(entry.modifiedAtMs)}
+              </span>
+            </button>
+          ))
+        )}
     </div>
   );
 }

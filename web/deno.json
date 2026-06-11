@@ -28,6 +28,8 @@
     "react/jsx-runtime": "npm:react@^19.0.0/jsx-runtime",
     "react-dom": "npm:react-dom@^19.0.0",
     "react-dom/client": "npm:react-dom@^19.0.0/client",
+    "unocss": "npm:unocss@66.7.0",
+    "unocss/vite": "npm:unocss@66.7.0/vite",
     "vite": "npm:vite@^6.0.0"
   }
 }

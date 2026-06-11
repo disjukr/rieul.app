@@ -25,10 +25,74 @@ import {
   type WorkbenchTabDropTarget,
 } from "./tab-drag.ts";
 import { WorkbenchTabItem } from "./tab-item.tsx";
+import { className } from "../../class-name.ts";
 
 interface WorkbenchPaneViewProps {
   nodeId: string;
 }
+
+const workbenchPaneClassName = [
+  "workbench-pane relative grid [grid-template-rows:auto_minmax(0,1fr)]",
+  "w-full h-full min-w-0 min-h-0 overflow-hidden bg-white",
+].join(" ");
+const workbenchPaneHeadClassName = [
+  "grid [grid-template-columns:24px_minmax(0,1fr)_auto]",
+  "items-center min-h-[32px] border-b border-b-[#d8dde7] bg-[#f6f8fb]",
+].join(" ");
+const paneHandleClassName =
+  "flex items-center justify-center self-stretch text-[#98a2b3] cursor-grab";
+const workbenchTabsClassName = [
+  "flex items-end min-w-0 h-full overflow-visible",
+  "[&.drop-at-end]:[box-shadow:inset_-2px_0_0_#4f8cff]",
+].join(" ");
+const paneActionsClassName = "flex items-center gap-[3px] px-[5px]";
+const newTabMenuWrapClassName = "relative flex";
+const iconButtonClassName = [
+  "w-[36px] min-w-[36px] p-0",
+  "[&.compact]:w-[24px] [&.compact]:min-w-[24px]",
+  "[&.compact]:h-[24px] [&.compact]:min-h-[24px]",
+].join(" ");
+const newTabTriggerClassName = [
+  "w-[34px] min-w-[34px] h-[24px] min-h-[24px] gap-[1px] p-0",
+].join(" ");
+const compactIconButtonClassName = `${iconButtonClassName} compact`;
+const newTabMenuClassName = [
+  "absolute top-[calc(100%+5px)] right-0 z-[12] w-[148px]",
+  "border border-[#d8dde7] rounded-[7px] bg-white",
+  "[box-shadow:0_14px_36px_rgb(32_36_45_/_20%)] p-[5px]",
+  "[&_button]:justify-start [&_button]:w-full [&_button]:min-h-[30px]",
+  "[&_button]:border-0 [&_button]:rounded-[5px] [&_button]:bg-transparent",
+  "[&_button]:px-[8px] [&_button]:text-[#20242d]",
+  "[&_button]:text-[12px] [&_button]:font-650",
+  "[&_button:hover]:bg-[#eef3fb]",
+].join(" ");
+const workbenchPaneBodyClassName = [
+  "workbench-pane-body relative w-full h-full min-w-0 min-h-0 overflow-visible",
+  "before:content-[''] before:absolute before:z-[4]",
+  "before:border-2 before:border-[#4f8cff]",
+  "before:bg-[rgb(79_140_255_/_16%)] before:opacity-0 before:pointer-events-none",
+  "[&.tab-split-left::before]:top-0 [&.tab-split-left::before]:bottom-0",
+  "[&.tab-split-left::before]:left-0 [&.tab-split-left::before]:w-1/2",
+  "[&.tab-split-left::before]:opacity-100",
+  "[&.tab-split-right::before]:top-0 [&.tab-split-right::before]:right-0",
+  "[&.tab-split-right::before]:bottom-0 [&.tab-split-right::before]:w-1/2",
+  "[&.tab-split-right::before]:opacity-100",
+  "[&.tab-split-top::before]:top-0 [&.tab-split-top::before]:right-0",
+  "[&.tab-split-top::before]:left-0 [&.tab-split-top::before]:h-1/2",
+  "[&.tab-split-top::before]:opacity-100",
+  "[&.tab-split-bottom::before]:right-0 [&.tab-split-bottom::before]:bottom-0",
+  "[&.tab-split-bottom::before]:left-0 [&.tab-split-bottom::before]:h-1/2",
+  "[&.tab-split-bottom::before]:opacity-100",
+].join(" ");
+const workbenchTabPageClassName = [
+  "block w-full h-full min-w-0 min-h-0 overflow-hidden",
+  "[container:workbench-tab-page_/_inline-size]",
+  "[&[hidden]]:hidden",
+].join(" ");
+const activePaneOutlineClassName = [
+  "pointer-events-none absolute top-[-2px] right-0 bottom-0 left-0 z-[6]",
+  "[box-shadow:inset_0_0_0_2px_#7f9abf]",
+].join(" ");
 
 export function WorkbenchPaneView(
   {
@@ -232,25 +296,29 @@ export function WorkbenchPaneView(
     setTabSplitDropSide(undefined);
   }
 
-  const paneBodyClassName = [
-    "workbench-pane-body",
-    tabSplitDropSide ? `tab-split-${tabSplitDropSide}` : "",
-  ].filter(Boolean).join(" ");
+  const paneBodyClassName = className(
+    workbenchPaneBodyClassName,
+    tabSplitDropSide === "left" && "tab-split-left",
+    tabSplitDropSide === "right" && "tab-split-right",
+    tabSplitDropSide === "top" && "tab-split-top",
+    tabSplitDropSide === "bottom" && "tab-split-bottom",
+  );
 
   return (
     <section
-      className={active ? "workbench-pane active" : "workbench-pane"}
+      className={className(workbenchPaneClassName, active && "active")}
       onPointerDownCapture={paneState.focusPane}
       onFocusCapture={paneState.focusPane}
     >
-      <header className="workbench-pane-head">
-        <Handle className="pane-handle">
+      <header className={workbenchPaneHeadClassName}>
+        <Handle className={paneHandleClassName}>
           <GripVertical size={14} />
         </Handle>
         <div
-          className={tabDropTarget?.position === "end"
-            ? "workbench-tabs drop-at-end"
-            : "workbench-tabs"}
+          className={className(
+            workbenchTabsClassName,
+            tabDropTarget?.position === "end" && "drop-at-end",
+          )}
           role="tablist"
           onDragOver={handleTabStripDragOver}
           onDrop={handleTabStripDrop}
@@ -264,6 +332,7 @@ export function WorkbenchPaneView(
                   ? tabDropTarget.position
                   : undefined}
                 nodeId={nodeId}
+                paneActive={active}
                 onClose={() =>
                   closeWorkbenchTab(tab.id)}
                 onDragStart={() =>
@@ -279,11 +348,11 @@ export function WorkbenchPaneView(
             </WorkbenchTabIdContext>
           ))}
         </div>
-        <div className="pane-actions">
-          <div className="new-tab-menu-wrap" ref={newTabMenuRef}>
+        <div className={paneActionsClassName}>
+          <div className={newTabMenuWrapClassName} ref={newTabMenuRef}>
             <button
               type="button"
-              className="icon-button compact new-tab-trigger"
+              className={newTabTriggerClassName}
               onClick={() => setNewTabMenuOpen((open) => !open)}
               title="Open tab"
               aria-label="Open tab"
@@ -295,7 +364,7 @@ export function WorkbenchPaneView(
             </button>
             {newTabMenuOpen
               ? (
-                <div className="new-tab-menu" role="menu">
+                <div className={newTabMenuClassName} role="menu">
                   <button
                     type="button"
                     role="menuitem"
@@ -310,7 +379,7 @@ export function WorkbenchPaneView(
           </div>
           <button
             type="button"
-            className="icon-button compact"
+            className={compactIconButtonClassName}
             onClick={() => splitPane("horizontal")}
             title="Split right"
             aria-label="Split right"
@@ -319,7 +388,7 @@ export function WorkbenchPaneView(
           </button>
           <button
             type="button"
-            className="icon-button compact"
+            className={compactIconButtonClassName}
             onClick={() => splitPane("vertical")}
             title="Split down"
             aria-label="Split down"
@@ -328,7 +397,7 @@ export function WorkbenchPaneView(
           </button>
           <button
             type="button"
-            className="icon-button compact"
+            className={compactIconButtonClassName}
             onClick={closePane}
             disabled={!canClosePane}
             title="Close pane"
@@ -347,13 +416,14 @@ export function WorkbenchPaneView(
         {pane.tabs.map((tab) => (
           <WorkbenchTabIdContext key={tab.id} value={tab.id}>
             <section
-              className="workbench-tab-page"
+              className={workbenchTabPageClassName}
               hidden={tab.id !== pane.activeTabId}
             >
               <WorkbenchToolContent />
             </section>
           </WorkbenchTabIdContext>
         ))}
+        {active ? <div className={activePaneOutlineClassName} /> : null}
       </div>
     </section>
   );
