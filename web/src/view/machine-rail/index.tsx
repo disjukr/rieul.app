@@ -1,6 +1,7 @@
 import React, { useEffect } from "react";
 import { useAtomValue } from "jotai";
 import { useBunja } from "bunja/react";
+import { closeMachineSession } from "../../protocol/rpc.ts";
 import { connectionBunja } from "../../state/connection.ts";
 import { machineMenuBunja } from "../../state/machine-menu.ts";
 import { machineModalBunja } from "../../state/machine-modal.ts";
@@ -83,6 +84,13 @@ export function MachineRailRegion() {
     void connectionState.checkSelected();
   }
 
+  function unpairMachine(machine: Machine) {
+    machineMenuState.closeMachineMenu();
+    closeMachineSession(machine);
+    machineStore.clearMachineCredentials(machine.id);
+    void connectionState.checkSelected();
+  }
+
   return (
     <>
       <MachineRail
@@ -106,6 +114,7 @@ export function MachineRailRegion() {
             onDelete={openDeleteMachineModal}
             onPair={openPairMachineModal}
             onReconnect={reconnectSelectedMachine}
+            onUnpair={unpairMachine}
           />
         )
         : null}

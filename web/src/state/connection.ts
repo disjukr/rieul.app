@@ -1,6 +1,6 @@
 import { bunja } from "bunja";
 import { atom } from "jotai";
-import { checkReachable, isDatagramPingTimeoutError } from "../protocol/rpc.ts";
+import { checkReachable } from "../protocol/rpc.ts";
 import { JotaiStoreScope } from "./jotai-store.ts";
 import { Machine } from "./machines.ts";
 import { machineStoreBunja } from "./machine-store.ts";
@@ -39,11 +39,6 @@ export const connectionBunja = bunja(() => {
     store.set(connectionAtom, { phase: "offline", message });
   }
 
-  function markDatagramPingTimeout() {
-    connectionReachable = false;
-    store.set(connectionAtom, { phase: "offline", message: "No pong" });
-  }
-
   function restartPingLoop() {
     if (timer !== undefined) {
       clearTimeout(timer);
@@ -75,10 +70,6 @@ export const connectionBunja = bunja(() => {
       if (stopped || connectionKey(store.get(machines.selectedAtom)) !== key) {
         return;
       }
-      if (isDatagramPingTimeoutError(err)) {
-        markDatagramPingTimeout();
-        return;
-      }
       markOffline(connectionErrorMessage(err, machine));
     } finally {
       if (!stopped && connectionKey(store.get(machines.selectedAtom)) === key) {
@@ -105,10 +96,6 @@ export const connectionBunja = bunja(() => {
       }
       markReachable(formatLatency(latencyMs), latencyMs);
     } catch (err) {
-      if (isDatagramPingTimeoutError(err)) {
-        markDatagramPingTimeout();
-        return;
-      }
       markOffline(connectionErrorMessage(err, selected));
     }
   }

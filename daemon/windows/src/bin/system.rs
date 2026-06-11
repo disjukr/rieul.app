@@ -1,5 +1,6 @@
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
@@ -12,6 +13,7 @@ use wgo_daemon_core::pairing::create_pairing_code;
 use wgo_daemon_core::DEFAULT_LISTEN_ADDR;
 use wgo_daemon_host::server::run_system_server;
 use wgo_windows_daemon::fs::WindowsFileService;
+use wgo_windows_daemon::ipc::UserTrayPairingNotifier;
 
 #[derive(Debug, Parser)]
 #[command(name = "wgo-windows-system")]
@@ -65,7 +67,8 @@ async fn main() -> Result<()> {
             run_system_server(
                 listen,
                 config.unwrap_or_else(windows_program_data_config_path),
-                std::sync::Arc::new(WindowsFileService::default()),
+                Arc::new(WindowsFileService::default()),
+                Some(Arc::new(UserTrayPairingNotifier)),
                 "Windows system daemon",
             )
             .await

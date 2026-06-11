@@ -1,4 +1,4 @@
-import { KeyRound, RefreshCw, Settings, Trash2 } from "lucide-react";
+import { KeyRound, RefreshCw, Settings, Trash2, Unlink } from "lucide-react";
 import type { Machine } from "../../state/machines.ts";
 
 const machineContextMenuClassName = [
@@ -24,6 +24,7 @@ interface MachineContextMenuProps {
   onDelete: (machine: Machine) => void;
   onPair: (machine: Machine) => void;
   onReconnect: () => void;
+  onUnpair: (machine: Machine) => void;
 }
 
 export function MachineContextMenu(
@@ -34,8 +35,11 @@ export function MachineContextMenu(
     onDelete,
     onPair,
     onReconnect,
+    onUnpair,
   }: MachineContextMenuProps,
 ) {
+  const isPaired = Boolean(machine.clientId && machine.clientSecret);
+
   return (
     <div
       className={machineContextMenuClassName}
@@ -59,7 +63,7 @@ export function MachineContextMenu(
         <Settings size={15} />
         Configure
       </button>
-      {!(machine.clientId && machine.clientSecret)
+      {!isPaired
         ? (
           <button
             type="button"
@@ -70,7 +74,16 @@ export function MachineContextMenu(
             Pair
           </button>
         )
-        : null}
+        : (
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => onUnpair(machine)}
+          >
+            <Unlink size={15} />
+            Unpair
+          </button>
+        )}
       <button
         type="button"
         role="menuitem"

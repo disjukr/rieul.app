@@ -1,6 +1,8 @@
 use std::collections::{BTreeMap, HashSet};
+use std::future::Future;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
+use std::pin::Pin;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
@@ -14,7 +16,9 @@ use tracing::{info, warn};
 use web_transport_quinn::proto::ConnectResponse;
 use wgo_daemon_core::cbor::Value;
 use wgo_daemon_core::config::{load_or_default, save, SystemConfig};
-use wgo_daemon_core::pairing::{issue_client_secret, verify_client_secret, verify_pairing_code};
+use wgo_daemon_core::pairing::{
+    create_pairing_code, issue_client_secret, verify_client_secret, verify_pairing_code,
+};
 use wgo_daemon_core::rpc::{
     BulkMutationItemResult, BulkMutationRes, CapabilitySet, CompletePairingRequest,
     CompletePairingResponse, CreateNodesReq, DeletePathsReq, DirectoryEntryKey,
@@ -41,6 +45,21 @@ const READ_FILE_CHUNK_SIZE: usize = 64 * 1024;
 type SharedSystemConfig = Arc<Mutex<SystemConfig>>;
 type SharedRpcSessionState = Arc<Mutex<RpcSessionState>>;
 type SharedFileService = Arc<dyn FileService>;
+type SharedPairingNotifier = Arc<dyn PairingNotifier>;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PairingCodeNotification {
+    pub daemon_url: String,
+    pub pairing_code: String,
+    pub expires_in_seconds: i64,
+}
+
+pub trait PairingNotifier: Send + Sync {
+    fn notify_pairing_code(
+        &self,
+        notification: PairingCodeNotification,
+    ) -> Pin<Box<dyn Future<Output = Result<()>> + Send + '_>>;
+}
 
 #[derive(Default)]
 struct RpcSessionState {
@@ -51,6 +70,7 @@ pub async fn run_system_server(
     addr: SocketAddr,
     config_path: PathBuf,
     files: SharedFileService,
+    pairing_notifier: Option<SharedPairingNotifier>,
     log_label: &'static str,
 ) -> Result<()> {
     let provider = web_transport_quinn::crypto::default_provider();
@@ -76,8 +96,11 @@ pub async fn run_system_server(
         let config_path = config_path.clone();
         let config_state = config_state.clone();
         let files = files.clone();
+        let pairing_notifier = pairing_notifier.clone();
         tokio::spawn(async move {
-            if let Err(err) = handle_request(request, config_path, config_state, files).await {
+            if let Err(err) =
+                handle_request(request, config_path, config_state, files, pairing_notifier).await
+            {
                 warn!(?err, "WebTransport request failed");
             }
         });
@@ -451,12 +474,13 @@ async fn handle_request(
     config_path: PathBuf,
     config_state: SharedSystemConfig,
     files: SharedFileService,
+    pairing_notifier: Option<SharedPairingNotifier>,
 ) -> Result<()> {
     let path = request.url.path().to_string();
     match path.as_str() {
         "/rpc" => {
             let session = request.respond(ConnectResponse::OK).await?;
-            run_rpc_session(session, config_path, config_state, files).await
+            run_rpc_session(session, config_path, config_state, files, pairing_notifier).await
         }
         "/moqt" => {
             let session = request.respond(ConnectResponse::OK).await?;
@@ -476,6 +500,7 @@ async fn run_rpc_session(
     config_path: PathBuf,
     config_state: SharedSystemConfig,
     files: SharedFileService,
+    pairing_notifier: Option<SharedPairingNotifier>,
 ) -> Result<()> {
     let session_state = Arc::new(Mutex::new(RpcSessionState::default()));
     loop {
@@ -486,6 +511,7 @@ async fn run_rpc_session(
                 let config_state = config_state.clone();
                 let session_state = session_state.clone();
                 let files = files.clone();
+                let pairing_notifier = pairing_notifier.clone();
                 tokio::spawn(async move {
                     let response = async {
                         let messages = read_reqres_message_sequence_from_stream(&mut recv)
@@ -498,6 +524,7 @@ async fn run_rpc_session(
                             config_state,
                             session_state,
                             files,
+                            pairing_notifier,
                         )
                         .await?;
                         send.finish()?;
@@ -559,6 +586,7 @@ async fn handle_reqres_messages(
     config_state: SharedSystemConfig,
     session_state: SharedRpcSessionState,
     files: SharedFileService,
+    pairing_notifier: Option<SharedPairingNotifier>,
 ) -> Result<Vec<ReqResMessage>> {
     let Some(first) = messages.first() else {
         return Ok(vec![generic_error_message(
@@ -570,7 +598,15 @@ async fn handle_reqres_messages(
     if first.is_session_control() {
         handle_session_control_messages(messages, config_state, session_state).await
     } else {
-        handle_rpc_messages(messages, config_path, config_state, session_state, files).await
+        handle_rpc_messages(
+            messages,
+            config_path,
+            config_state,
+            session_state,
+            files,
+            pairing_notifier,
+        )
+        .await
     }
 }
 
@@ -581,6 +617,7 @@ async fn handle_reqres_stream(
     config_state: SharedSystemConfig,
     session_state: SharedRpcSessionState,
     files: SharedFileService,
+    pairing_notifier: Option<SharedPairingNotifier>,
 ) -> Result<()> {
     if let Some((proc_id, payload)) = request_unary_parts(&messages) {
         if is_server_stream_proc(proc_id) {
@@ -604,8 +641,15 @@ async fn handle_reqres_stream(
         return write_reqres_messages(send, &responses).await;
     }
 
-    let responses =
-        handle_reqres_messages(messages, config_path, config_state, session_state, files).await?;
+    let responses = handle_reqres_messages(
+        messages,
+        config_path,
+        config_state,
+        session_state,
+        files,
+        pairing_notifier,
+    )
+    .await?;
     write_reqres_messages(send, &responses).await
 }
 
@@ -1145,6 +1189,7 @@ async fn handle_rpc_messages(
     config_state: SharedSystemConfig,
     session_state: SharedRpcSessionState,
     files: SharedFileService,
+    pairing_notifier: Option<SharedPairingNotifier>,
 ) -> Result<Vec<ReqResMessage>> {
     if messages.len() != 1 {
         return Ok(vec![generic_error_message(
@@ -1182,29 +1227,31 @@ async fn handle_rpc_messages(
         id if id == ProcId::StartPairing.as_u64() => {
             let now = now_unix();
             let mut config = load_runtime_config(config_path, &config_state).await?;
-            let Some(pairing) = config.pairing.clone() else {
-                return Ok(vec![error_message(
-                    proc_id,
-                    "pairing_not_started",
-                    "create a local pairing code before starting remote pairing",
-                )]);
-            };
-            if now >= pairing.expires_at_unix {
-                config.pairing = None;
-                store_runtime_config(config_path, &config_state, config).await?;
-                return Ok(vec![error_message(
-                    proc_id,
-                    "pairing_expired",
-                    "pairing code expired",
-                )]);
-            }
-            ok_payload_message(
-                proc_id,
-                StartPairingResponse {
-                    expires_at_unix: pairing.expires_at_unix,
+            let pairing = create_pairing_code(now);
+            let daemon_url = pairing_daemon_url(&config);
+            let expires_at_unix = pairing.record.expires_at_unix;
+            config.pairing = Some(pairing.record);
+            store_runtime_config(config_path, &config_state, config).await?;
+
+            if let Some(notifier) = pairing_notifier.as_ref() {
+                let notification = PairingCodeNotification {
+                    daemon_url,
+                    pairing_code: pairing.code,
+                    expires_in_seconds: expires_at_unix - now,
+                };
+                if let Err(err) = notifier.notify_pairing_code(notification).await {
+                    warn!(?err, "failed to notify local pairing UI");
+                    let mut config = load_runtime_config(config_path, &config_state).await?;
+                    config.pairing = None;
+                    store_runtime_config(config_path, &config_state, config).await?;
+                    return Ok(vec![error_message(
+                        proc_id,
+                        "pairing_ui_unavailable",
+                        "local pairing UI is not available",
+                    )]);
                 }
-                .encode(),
-            )
+            }
+            ok_payload_message(proc_id, StartPairingResponse { expires_at_unix }.encode())
         }
         id if id == ProcId::CompletePairing.as_u64() => {
             let Some(payload) = payload else {
@@ -1429,6 +1476,26 @@ fn now_unix() -> i64 {
     OffsetDateTime::now_utc().unix_timestamp()
 }
 
+fn pairing_daemon_url(config: &SystemConfig) -> String {
+    let port = config
+        .listen_addr
+        .parse::<SocketAddr>()
+        .map(|addr| addr.port())
+        .unwrap_or(8765);
+    if let Some(domain) = config
+        .domain
+        .as_deref()
+        .map(str::trim)
+        .filter(|domain| !domain.is_empty())
+    {
+        if port == 443 {
+            return format!("https://{domain}");
+        }
+        return format!("https://{domain}:{port}");
+    }
+    format!("https://localhost:{port}")
+}
+
 fn ok_payload_message(_proc_id: u64, payload: Vec<u8>) -> ReqResMessage {
     ReqResMessage::ResponseUnaryOk {
         payload: Some(payload),
@@ -1619,7 +1686,7 @@ fn method_error_variant(proc_id: u64, code: &str) -> Option<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wgo_daemon_core::pairing::create_pairing_code;
+    use wgo_daemon_core::pairing::{create_pairing_code, PAIRING_TTL_SECONDS};
     use wgo_daemon_core::rpc::{
         CreateNodeOp, DeleteMode, FsEntryKind, ReadFileReq, WriteFileChunk, WriteFileResult,
         WriteFileStart,
@@ -1654,6 +1721,7 @@ mod tests {
             state.clone(),
             session_state.clone(),
             test_files(),
+            None,
         )
         .await
         .unwrap();
@@ -1674,6 +1742,77 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn start_pairing_creates_runtime_pairing_code() {
+        let dir = tempfile::tempdir().unwrap();
+        let config_path = dir.path().join("wgo.yaml");
+        save(&config_path, &SystemConfig::default()).unwrap();
+
+        let state = Arc::new(Mutex::new(SystemConfig::default()));
+        let responses = handle_rpc_messages(
+            vec![request_message(ProcId::StartPairing, None)],
+            &config_path,
+            state.clone(),
+            Arc::new(Mutex::new(RpcSessionState::default())),
+            test_files(),
+            None,
+        )
+        .await
+        .unwrap();
+        assert_eq!(responses.len(), 1);
+        let response = &responses[0];
+
+        assert!(matches!(response, ReqResMessage::ResponseUnaryOk { .. }));
+        let Value::Map(response_payload) = Value::decode(payload(response)).unwrap() else {
+            panic!("expected StartPairing response map");
+        };
+        let expires_at_unix = match response_payload.get(&1) {
+            Some(Value::I64(value)) => *value,
+            Some(Value::U64(value)) => *value as i64,
+            _ => panic!("expected StartPairing expires_at_unix"),
+        };
+        let stored = load_or_default(&config_path).unwrap();
+        let pairing = stored.pairing.unwrap();
+        assert_eq!(expires_at_unix, pairing.expires_at_unix);
+        assert_eq!(state.lock().await.pairing, Some(pairing));
+    }
+
+    #[tokio::test]
+    async fn start_pairing_notifies_local_pairing_ui() {
+        let dir = tempfile::tempdir().unwrap();
+        let config_path = dir.path().join("wgo.yaml");
+        save(&config_path, &SystemConfig::default()).unwrap();
+
+        let notifier = RecordingPairingNotifier::default();
+        let responses = handle_rpc_messages(
+            vec![request_message(ProcId::StartPairing, None)],
+            &config_path,
+            Arc::new(Mutex::new(SystemConfig::default())),
+            Arc::new(Mutex::new(RpcSessionState::default())),
+            test_files(),
+            Some(Arc::new(notifier.clone())),
+        )
+        .await
+        .unwrap();
+
+        assert!(matches!(
+            responses.first(),
+            Some(ReqResMessage::ResponseUnaryOk { .. })
+        ));
+        let stored = load_or_default(&config_path).unwrap();
+        let pairing = stored.pairing.unwrap();
+        let notifications = notifier.notifications.lock().unwrap();
+        assert_eq!(notifications.len(), 1);
+        assert_eq!(notifications[0].daemon_url, "https://localhost:8765");
+        assert!(verify_pairing_code(
+            &pairing,
+            &notifications[0].pairing_code,
+            now_unix()
+        ));
+        assert!(notifications[0].expires_in_seconds > 0);
+        assert!(notifications[0].expires_in_seconds <= PAIRING_TTL_SECONDS);
+    }
+
+    #[tokio::test]
     async fn filesystem_rpc_requires_paired_client_credentials() {
         let dir = tempfile::tempdir().unwrap();
         let config_path = dir.path().join("wgo.yaml");
@@ -1686,6 +1825,7 @@ mod tests {
             state,
             Arc::new(Mutex::new(RpcSessionState::default())),
             test_files(),
+            None,
         )
         .await
         .unwrap();
@@ -1819,6 +1959,7 @@ mod tests {
             state,
             session_state.clone(),
             test_files(),
+            None,
         )
         .await
         .unwrap();
@@ -1836,6 +1977,24 @@ mod tests {
         ReqResMessage::RequestUnary {
             proc_id: proc_id.as_u64(),
             payload,
+        }
+    }
+
+    #[derive(Clone, Default)]
+    struct RecordingPairingNotifier {
+        notifications: Arc<std::sync::Mutex<Vec<PairingCodeNotification>>>,
+    }
+
+    impl PairingNotifier for RecordingPairingNotifier {
+        fn notify_pairing_code(
+            &self,
+            notification: PairingCodeNotification,
+        ) -> Pin<Box<dyn Future<Output = Result<()>> + Send + '_>> {
+            let notifications = self.notifications.clone();
+            Box::pin(async move {
+                notifications.lock().unwrap().push(notification);
+                Ok(())
+            })
         }
     }
 

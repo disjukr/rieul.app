@@ -5,7 +5,7 @@ use sha2::{Digest, Sha256};
 use crate::config::{ClientCredentialRecord, PairingRecord};
 
 pub const PAIRING_CODE_DIGITS: usize = 6;
-pub const PAIRING_TTL_SECONDS: i64 = 5 * 60;
+pub const PAIRING_TTL_SECONDS: i64 = 300;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PairingCode {
@@ -94,8 +94,9 @@ mod tests {
     #[test]
     fn pairing_code_expires() {
         let pairing = create_pairing_code(100);
+        assert_eq!(pairing.record.expires_at_unix, 400);
         assert!(verify_pairing_code(&pairing.record, &pairing.code, 101));
-        assert!(!verify_pairing_code(&pairing.record, &pairing.code, 500));
+        assert!(!verify_pairing_code(&pairing.record, &pairing.code, 400));
         assert!(!verify_pairing_code(&pairing.record, "000000", 101));
     }
 

@@ -225,7 +225,7 @@ try {
   Write-Host "Starting wgo Windows user daemon"
   $user = Start-Process `
     -FilePath $UserExe `
-    -ArgumentList @("run") `
+    -ArgumentList @("run", "--config", $ConfigPath) `
     -WorkingDirectory $RepoRoot `
     -PassThru `
     -RedirectStandardOutput $UserOutLog `

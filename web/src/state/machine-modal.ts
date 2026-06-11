@@ -1,6 +1,6 @@
 import { bunja } from "bunja";
 import { atom } from "jotai";
-import { completePairing } from "../protocol/rpc.ts";
+import { completePairing, startPairing } from "../protocol/rpc.ts";
 import { connectionBunja, connectionErrorMessage } from "./connection.ts";
 import { JotaiStoreScope } from "./jotai-store.ts";
 import { machineMenuBunja } from "./machine-menu.ts";
@@ -49,6 +49,7 @@ export const machineModalBunja = bunja(() => {
     store.set(baseUrlAtom, "");
     store.set(pairingCodeAtom, "");
     store.set(machineModalModeAtom, "pair");
+    requestPairingCode(machine);
   }
 
   function closeMachineModal() {
@@ -91,6 +92,7 @@ export const machineModalBunja = bunja(() => {
     store.set(machineFormErrorAtom, "");
     menu.closeMachineMenu();
     store.set(machineModalModeAtom, "pair");
+    requestPairingCode(machine);
   }
 
   function openDeleteMachineModal(machineId: string) {
@@ -151,6 +153,22 @@ export const machineModalBunja = bunja(() => {
     } finally {
       store.set(isPairingAtom, false);
     }
+  }
+
+  function requestPairingCode(machine: Machine) {
+    store.set(machineFormErrorAtom, "");
+    connection.setChecking("Requesting pairing");
+    void (async () => {
+      try {
+        await startPairing(machine);
+        if (!machines.findMachine(machine.id)) return;
+        connection.markReachable("Pairing requested", 0);
+      } catch (err) {
+        if (!machines.findMachine(machine.id)) return;
+        store.set(machineFormErrorAtom, errorMessage(err));
+        connection.markOffline(connectionErrorMessage(err, machine));
+      }
+    })();
   }
 
   function updateMachineNameDraft(value: string) {

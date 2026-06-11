@@ -65,6 +65,7 @@ async fn main() -> Result<()> {
                 listen,
                 config.unwrap_or_else(macos_system_config_path),
                 Arc::new(MacFileService::default()),
+                None,
                 "macOS system daemon",
             )
             .await

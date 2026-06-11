@@ -16,6 +16,7 @@ import {
 import { Machine, normalizeMachineUrl } from "../state/machines.ts";
 
 const PROC_LIST_CAPABILITIES = 1;
+const PROC_START_PAIRING = 2;
 const PROC_COMPLETE_PAIRING = 3;
 const PROC_SUBSCRIBE_ROOTS = 4;
 const PROC_SUBSCRIBE_DIRECTORY = 5;
@@ -51,6 +52,10 @@ const rpcSessions = new Map<string, Promise<RpcSession>>();
 export interface CompletePairingResponse {
   clientId: string;
   clientSecret: string;
+}
+
+export interface StartPairingResponse {
+  expiresAtUnix: number;
 }
 
 export interface CapabilitySet {
@@ -190,6 +195,23 @@ export async function completePairing(
   return {
     clientId: text(map.get(1)),
     clientSecret: text(map.get(2)),
+  };
+}
+
+export async function startPairing(
+  machine: Machine,
+): Promise<StartPairingResponse> {
+  const response = await callUnaryPayload(
+    machine,
+    PROC_START_PAIRING,
+    undefined,
+    {
+      includeAuth: false,
+    },
+  );
+  const map = decodeMap(response);
+  return {
+    expiresAtUnix: integer(map.get(1)),
   };
 }
 
@@ -340,24 +362,13 @@ export async function deletePaths(
 }
 
 export async function checkReachable(machine: Machine): Promise<number> {
-  if (machine.clientId && machine.clientSecret) {
-    const session = await authenticatedSession(machine);
-    try {
-      return await pingDatagram(session.datagrams);
-    } catch (err) {
-      if (session.datagrams.closed) {
-        closeSession(machine);
-      }
-      throw err;
-    }
-  }
+  const startedAt = performance.now();
+  await listCapabilities(machine);
+  return performance.now() - startedAt;
+}
 
-  const session = await connect(machine, "/rpc");
-  try {
-    return await pingDatagram(session.datagrams);
-  } finally {
-    closeRpcSession(session);
-  }
+export function closeMachineSession(machine: Machine): void {
+  closeSession(machine);
 }
 
 async function callUnaryPayload(

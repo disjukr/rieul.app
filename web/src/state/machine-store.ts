@@ -49,6 +49,14 @@ export const machineStoreBunja = bunja(() => {
     updateMachine(machineId, (machine) => ({ ...machine, ...credentials }));
   }
 
+  function clearMachineCredentials(machineId: string) {
+    updateMachine(
+      machineId,
+      ({ clientId: _clientId, clientSecret: _clientSecret, ...machine }) =>
+        machine,
+    );
+  }
+
   function deleteSelectedMachine(): Machine | undefined {
     const selected = store.get(selectedAtom);
     if (!selected) return undefined;
@@ -79,6 +87,7 @@ export const machineStoreBunja = bunja(() => {
     addMachine,
     updateMachine,
     setMachineCredentials,
+    clearMachineCredentials,
     deleteSelectedMachine,
   };
 });
