@@ -3,6 +3,7 @@ import { useAtomValue } from "jotai";
 import { useBunja } from "bunja/react";
 import { Folder, X } from "lucide-react";
 import {
+  displayName,
   explorerNavigationBunja,
   ExplorerPaneScope,
   pathCrumbs,
@@ -144,9 +145,14 @@ function useWorkbenchTabLabel(
     ExplorerPaneScope.bind(tabId),
   ]);
   const currentPath = useAtomValue(navigation.currentPathAtom);
+  const openedFile = useAtomValue(navigation.openedFileAtom);
 
   if (!tab) return "Files";
-  if (tab.tool === "files") return folderNameFromPath(currentPath);
+  if (tab.tool === "files") {
+    return openedFile
+      ? displayName(openedFile)
+      : folderNameFromPath(currentPath);
+  }
   return tab.title;
 }
 

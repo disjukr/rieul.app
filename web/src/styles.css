@@ -1177,53 +1177,13 @@ button.rail-machine.active:hover {
 
 .file-viewer {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-rows: minmax(0, 1fr) auto;
   width: 100%;
   height: 100%;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
   background: #ffffff;
-}
-
-.file-viewer-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  min-width: 0;
-  min-height: 34px;
-  border-bottom: 1px solid #eef1f5;
-  background: #fbfcfe;
-  padding: 0 12px;
-}
-
-.file-viewer-title {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  color: #303642;
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.file-viewer-title span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.file-viewer-title svg {
-  flex: 0 0 auto;
-  color: #4f8cff;
-}
-
-.file-viewer-meta {
-  flex: 0 0 auto;
-  color: #667085;
-  font-size: 12px;
 }
 
 .file-viewer-status {
