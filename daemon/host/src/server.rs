@@ -24,8 +24,8 @@ use wgo_daemon_core::pairing::{
     create_pairing_code, issue_client_secret, verify_client_secret, verify_pairing_code,
 };
 use wgo_daemon_core::rpc::{
-    BulkMutationItemResult, BulkMutationRes, CapabilitySet, CompletePairingRequest,
-    CompletePairingResponse, CreateNodesReq, DeletePathsReq, DirectoryEntryKey,
+    BulkMutationItemResult, BulkMutationRes, CompletePairingRequest, CompletePairingResponse,
+    CreateNodesReq, DaemonInfo, DeletePathsReq, DirectoryEntryKey,
     DirectorySubscriptionCloseReason, DirectoryTableEvent, FsEntry, ProcId, ReadFileChunk,
     ReadFileReq, RenamePathsReq, RootEntryKey, RootsSubscriptionCloseReason, RootsTableEvent,
     RpcErrorCode, RpcErrorPayload, StartPairingResponse, WriteFileReq,
@@ -1410,8 +1410,8 @@ async fn handle_rpc_messages(
     }
 
     let response = match proc_id {
-        id if id == ProcId::ListCapabilities.as_u64() => {
-            ok_payload_message(proc_id, CapabilitySet::supported().encode())
+        id if id == ProcId::GetDaemonInfo.as_u64() => {
+            ok_payload_message(proc_id, DaemonInfo::current().encode())
         }
         id if id == ProcId::StartPairing.as_u64() => {
             let now = now_unix();
@@ -1583,7 +1583,7 @@ async fn handle_rpc_messages(
 }
 
 fn requires_authentication(proc_id: u64) -> bool {
-    proc_id != ProcId::ListCapabilities.as_u64()
+    proc_id != ProcId::GetDaemonInfo.as_u64()
         && proc_id != ProcId::StartPairing.as_u64()
         && proc_id != ProcId::CompletePairing.as_u64()
 }
@@ -1826,7 +1826,7 @@ fn method_error_payload(proc_id: u64, code: &str, message: &str) -> Option<Vec<u
 
 fn method_error_variant(proc_id: u64, code: &str) -> Option<u64> {
     match proc_id {
-        id if id == ProcId::ListCapabilities.as_u64() => match code {
+        id if id == ProcId::GetDaemonInfo.as_u64() => match code {
             "failed" => Some(0),
             _ => None,
         },

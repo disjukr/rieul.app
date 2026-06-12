@@ -15,7 +15,7 @@ import {
 } from "./wire.ts";
 import { Machine, normalizeMachineUrl } from "../state/machines.ts";
 
-const PROC_LIST_CAPABILITIES = 1;
+const PROC_GET_DAEMON_INFO = 1;
 const PROC_START_PAIRING = 2;
 const PROC_COMPLETE_PAIRING = 3;
 const PROC_SUBSCRIBE_ROOTS = 4;
@@ -58,8 +58,10 @@ export interface StartPairingResponse {
   expiresAtUnix: number;
 }
 
-export interface CapabilitySet {
+export interface DaemonInfo {
   supportedProcIds: number[];
+  version: string;
+  os: string;
 }
 
 export enum FsEntryKind {
@@ -219,12 +221,12 @@ export async function startPairing(
   };
 }
 
-export async function listCapabilities(
+export async function getDaemonInfo(
   machine: Machine,
-): Promise<CapabilitySet> {
+): Promise<DaemonInfo> {
   const response = await callUnaryPayload(
     machine,
-    PROC_LIST_CAPABILITIES,
+    PROC_GET_DAEMON_INFO,
     undefined,
     {
       includeAuth: false,
@@ -233,6 +235,8 @@ export async function listCapabilities(
   const map = decodeMap(response);
   return {
     supportedProcIds: array(map.get(1)).map(integer),
+    version: text(map.get(2)),
+    os: text(map.get(3)),
   };
 }
 

@@ -1,0 +1,40 @@
+# standard - wgo-rpc
+# description
+| Daemon RPC methods expose process-level daemon metadata. These values are
+| fixed for the lifetime of one daemon process, but reconnecting may reach an
+| updated daemon. Clients may cache daemon info for a live connection or session
+| and must fetch it again after reconnecting.
+
+@ description
+| Returns process-level daemon info. The supported proc id set includes this
+| GetDaemonInfo proc. Protected procs may still require session authentication
+| before invocation.
+@ id - 1
+@ stream - unary
+proc GetDaemonInfo = void -> DaemonInfo throws GetDaemonInfoError
+
+@ description - Process-level info for the current daemon process.
+struct DaemonInfo {
+  @ id - 1
+  @ description - Proc ids this daemon supports for this process lifetime.
+  supportedProcIds: u53[],
+
+  @ id - 2
+  @ description - Daemon implementation version.
+  version: string,
+
+  @ id - 3
+  @ description
+  | Operating system identifier for the daemon process, such as `windows`,
+  | `macos`, or `linux`.
+  os: string,
+}
+
+@ description - Method-level daemon info query errors.
+union GetDaemonInfoError {
+  @ id - 0
+  Failed(
+    @ id - 1
+    message: string,
+  ),
+}

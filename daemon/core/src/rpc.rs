@@ -26,7 +26,7 @@ pub enum RpcCodecError {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u64)]
 pub enum ProcId {
-    ListCapabilities = 1,
+    GetDaemonInfo = 1,
     StartPairing = 2,
     CompletePairing = 3,
     SubscribeRoots = 4,
@@ -40,7 +40,7 @@ pub enum ProcId {
 
 impl ProcId {
     pub const SUPPORTED: [Self; 10] = [
-        Self::ListCapabilities,
+        Self::GetDaemonInfo,
         Self::StartPairing,
         Self::CompletePairing,
         Self::SubscribeRoots,
@@ -116,28 +116,36 @@ impl RpcErrorPayload {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CapabilitySet {
+pub struct DaemonInfo {
     pub supported_proc_ids: Vec<u64>,
+    pub version: String,
+    pub os: String,
 }
 
-impl CapabilitySet {
-    pub fn supported() -> Self {
+impl DaemonInfo {
+    pub fn current() -> Self {
         Self {
             supported_proc_ids: ProcId::SUPPORTED.into_iter().map(ProcId::as_u64).collect(),
+            version: env!("CARGO_PKG_VERSION").to_string(),
+            os: std::env::consts::OS.to_string(),
         }
     }
 
     pub fn encode(&self) -> Vec<u8> {
-        Value::Map(BTreeMap::from([(
-            1,
-            Value::Array(
-                self.supported_proc_ids
-                    .iter()
-                    .copied()
-                    .map(Value::U64)
-                    .collect(),
+        Value::Map(BTreeMap::from([
+            (
+                1,
+                Value::Array(
+                    self.supported_proc_ids
+                        .iter()
+                        .copied()
+                        .map(Value::U64)
+                        .collect(),
+                ),
             ),
-        )]))
+            (2, Value::Text(self.version.clone())),
+            (3, Value::Text(self.os.clone())),
+        ]))
         .encode()
     }
 
@@ -148,6 +156,8 @@ impl CapabilitySet {
                 .iter()
                 .map(expect_u53_value)
                 .collect::<Result<Vec<_>, _>>()?,
+            version: expect_text(&map, 2)?,
+            os: expect_text(&map, 3)?,
         })
     }
 }
@@ -986,16 +996,18 @@ mod tests {
     use super::*;
 
     #[test]
-    fn capability_set_roundtrip() {
-        let capabilities = CapabilitySet::supported();
+    fn daemon_info_roundtrip() {
+        let daemon_info = DaemonInfo::current();
         assert_eq!(
-            CapabilitySet::decode(&capabilities.encode()).unwrap(),
-            capabilities
+            DaemonInfo::decode(&daemon_info.encode()).unwrap(),
+            daemon_info
         );
         assert_eq!(
-            capabilities.supported_proc_ids,
+            daemon_info.supported_proc_ids,
             vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
         );
+        assert_eq!(daemon_info.version, env!("CARGO_PKG_VERSION"));
+        assert_eq!(daemon_info.os, std::env::consts::OS);
     }
 
     #[test]

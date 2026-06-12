@@ -1,41 +1,41 @@
 import { bunja } from "bunja";
 import { atom } from "jotai";
-import { CapabilitySet, listCapabilities } from "../protocol/rpc.ts";
+import { DaemonInfo, getDaemonInfo } from "../protocol/rpc.ts";
 import { connectionBunja } from "./connection.ts";
 import { JotaiStoreScope } from "./jotai-store.ts";
 import { machineStoreBunja } from "./machine-store.ts";
 
-interface IdleCapabilityState {
+interface IdleDaemonInfoState {
   phase: "idle";
 }
 
-interface LoadingCapabilityState {
+interface LoadingDaemonInfoState {
   phase: "loading";
 }
 
-interface ReadyCapabilityState {
+interface ReadyDaemonInfoState {
   phase: "ready";
-  capabilities: CapabilitySet;
+  daemonInfo: DaemonInfo;
 }
 
-interface ErrorCapabilityState {
+interface ErrorDaemonInfoState {
   phase: "error";
   message: string;
 }
 
-type CapabilityState =
-  | IdleCapabilityState
-  | LoadingCapabilityState
-  | ReadyCapabilityState
-  | ErrorCapabilityState;
+type DaemonInfoState =
+  | IdleDaemonInfoState
+  | LoadingDaemonInfoState
+  | ReadyDaemonInfoState
+  | ErrorDaemonInfoState;
 
-export const capabilityBunja = bunja(() => {
+export const daemonInfoBunja = bunja(() => {
   const store = bunja.use(JotaiStoreScope);
   const connection = bunja.use(connectionBunja);
   const machines = bunja.use(machineStoreBunja);
 
-  const capabilityAtom = atom<CapabilityState>({ phase: "idle" });
-  const capabilityRefreshKeyAtom = atom((get) => {
+  const daemonInfoAtom = atom<DaemonInfoState>({ phase: "idle" });
+  const daemonInfoRefreshKeyAtom = atom((get) => {
     const machine = get(machines.selectedAtom);
     const connectionState = get(connection.connectionAtom);
     if (!machine || connectionState.phase !== "reachable") return "";
@@ -49,24 +49,24 @@ export const capabilityBunja = bunja(() => {
   bunja.effect(() => {
     let runId = 0;
 
-    function refreshCapabilities() {
+    function refreshDaemonInfo() {
       const currentRunId = ++runId;
       const machine = store.get(machines.selectedAtom);
       const connectionState = store.get(connection.connectionAtom);
       if (!machine || connectionState.phase !== "reachable") {
-        store.set(capabilityAtom, { phase: "idle" });
+        store.set(daemonInfoAtom, { phase: "idle" });
         return;
       }
 
-      store.set(capabilityAtom, { phase: "loading" });
+      store.set(daemonInfoAtom, { phase: "loading" });
       void (async () => {
         try {
-          const capabilities = await listCapabilities(machine);
+          const daemonInfo = await getDaemonInfo(machine);
           if (currentRunId !== runId) return;
-          store.set(capabilityAtom, { phase: "ready", capabilities });
+          store.set(daemonInfoAtom, { phase: "ready", daemonInfo });
         } catch (err) {
           if (currentRunId !== runId) return;
-          store.set(capabilityAtom, {
+          store.set(daemonInfoAtom, {
             phase: "error",
             message: err instanceof Error ? err.message : String(err),
           });
@@ -75,10 +75,10 @@ export const capabilityBunja = bunja(() => {
     }
 
     const unsubscribe = store.sub(
-      capabilityRefreshKeyAtom,
-      refreshCapabilities,
+      daemonInfoRefreshKeyAtom,
+      refreshDaemonInfo,
     );
-    refreshCapabilities();
+    refreshDaemonInfo();
     return () => {
       runId++;
       unsubscribe();
@@ -86,6 +86,6 @@ export const capabilityBunja = bunja(() => {
   });
 
   return {
-    capabilityAtom,
+    daemonInfoAtom,
   };
 });
