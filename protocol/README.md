@@ -64,11 +64,13 @@ errors use the proc's declared `throws` union. Failures outside a method
 contract use the generic wire/envelope error payload.
 
 `GetDaemonInfo` returns process-level daemon metadata: supported proc ids,
-daemon version, and the OS identifier for the running daemon process. The value
-is fixed while that daemon process is running, but a reconnect may reach an
-updated daemon. Clients may cache daemon info for a live connection or session
-and should fetch it again after reconnecting. Protected proc ids may still
-require session authentication before invocation.
+daemon version, and a human-readable OS name for the daemon host. The OS string
+should include useful platform-specific details when available, such as Windows
+edition, bitness, display version, build, and service pack. The value is fixed
+while that daemon process is running, but a reconnect may reach an updated
+daemon. Clients may cache daemon info for a live connection or session and
+should fetch it again after reconnecting. Protected proc ids may still require
+session authentication before invocation.
 
 A proc's `stream` attribute defines request and response cardinality:
 

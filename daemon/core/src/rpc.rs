@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::sync::OnceLock;
 
 use thiserror::Error;
 
@@ -124,11 +125,15 @@ pub struct DaemonInfo {
 
 impl DaemonInfo {
     pub fn current() -> Self {
-        Self {
-            supported_proc_ids: ProcId::SUPPORTED.into_iter().map(ProcId::as_u64).collect(),
-            version: env!("CARGO_PKG_VERSION").to_string(),
-            os: std::env::consts::OS.to_string(),
-        }
+        static CURRENT: OnceLock<DaemonInfo> = OnceLock::new();
+
+        CURRENT
+            .get_or_init(|| Self {
+                supported_proc_ids: ProcId::SUPPORTED.into_iter().map(ProcId::as_u64).collect(),
+                version: env!("CARGO_PKG_VERSION").to_string(),
+                os: current_os_name(),
+            })
+            .clone()
     }
 
     pub fn encode(&self) -> Vec<u8> {
@@ -160,6 +165,133 @@ impl DaemonInfo {
             os: expect_text(&map, 3)?,
         })
     }
+}
+
+fn current_os_name() -> String {
+    platform_os_name()
+}
+
+#[cfg(windows)]
+fn platform_os_name() -> String {
+    use winreg::enums::{HKEY_LOCAL_MACHINE, KEY_READ, KEY_WOW64_64KEY};
+    use winreg::RegKey;
+
+    let current_version = RegKey::predef(HKEY_LOCAL_MACHINE)
+        .open_subkey_with_flags(
+            r"SOFTWARE\Microsoft\Windows NT\CurrentVersion",
+            KEY_READ | KEY_WOW64_64KEY,
+        )
+        .ok();
+
+    let product_name = current_version
+        .as_ref()
+        .and_then(|key| registry_string(key, "ProductName"));
+    let build_number = current_version.as_ref().and_then(|key| {
+        registry_string(key, "CurrentBuildNumber").or_else(|| registry_string(key, "CurrentBuild"))
+    });
+    let ubr = current_version
+        .as_ref()
+        .and_then(|key| registry_u32(key, "UBR"));
+    let display_version = current_version.as_ref().and_then(|key| {
+        registry_string(key, "DisplayVersion").or_else(|| registry_string(key, "ReleaseId"))
+    });
+    let service_pack = current_version.as_ref().and_then(|key| {
+        registry_string(key, "CSDVersion").or_else(|| registry_string(key, "CSDBuildNumber"))
+    });
+
+    let name = normalize_windows_product_name(
+        product_name.unwrap_or_else(|| "Windows".to_string()),
+        build_number.as_deref(),
+    );
+
+    let mut parts = vec![name, machine_bitness()];
+    if let Some(display_version) = display_version {
+        parts.push(display_version);
+    }
+    if let Some(build) = windows_build_label(build_number.as_deref(), ubr) {
+        parts.push(format!("build {build}"));
+    }
+    if let Some(service_pack) = service_pack {
+        parts.push(service_pack_label(&service_pack));
+    }
+    parts.join(" ")
+}
+
+#[cfg(not(windows))]
+fn platform_os_name() -> String {
+    format!("{} {}", std::env::consts::OS, machine_bitness())
+}
+
+#[cfg(not(windows))]
+fn machine_bitness() -> String {
+    format!("{}bit", usize::BITS)
+}
+
+#[cfg(windows)]
+fn machine_bitness() -> String {
+    let arch = std::env::var("PROCESSOR_ARCHITEW6432")
+        .or_else(|_| std::env::var("PROCESSOR_ARCHITECTURE"))
+        .unwrap_or_else(|_| std::env::consts::ARCH.to_string());
+    let arch = arch.to_ascii_uppercase();
+    if arch.contains("64") {
+        "64bit".to_string()
+    } else if arch == "X86" {
+        "32bit".to_string()
+    } else {
+        format!("{}bit", usize::BITS)
+    }
+}
+
+#[cfg(windows)]
+fn registry_string(key: &winreg::RegKey, name: &str) -> Option<String> {
+    key.get_value::<String, _>(name)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+#[cfg(windows)]
+fn registry_u32(key: &winreg::RegKey, name: &str) -> Option<u32> {
+    key.get_value::<u32, _>(name).ok()
+}
+
+#[cfg(windows)]
+fn normalize_windows_product_name(product_name: String, build_number: Option<&str>) -> String {
+    let Some(build_number) = build_number.and_then(parse_u32) else {
+        return product_name;
+    };
+    if build_number < 22_000 || !product_name.starts_with("Windows 10") {
+        return product_name;
+    }
+    product_name.replacen("Windows 10", "Windows 11", 1)
+}
+
+#[cfg(windows)]
+fn windows_build_label(build_number: Option<&str>, ubr: Option<u32>) -> Option<String> {
+    let build_number = build_number?.trim();
+    if build_number.is_empty() {
+        return None;
+    }
+    Some(match ubr {
+        Some(ubr) => format!("{build_number}.{ubr}"),
+        None => build_number.to_string(),
+    })
+}
+
+#[cfg(windows)]
+fn service_pack_label(service_pack: &str) -> String {
+    let service_pack = service_pack.trim();
+    let lower = service_pack.to_ascii_lowercase();
+    if lower.starts_with("service pack") || lower.starts_with("sp") {
+        service_pack.to_string()
+    } else {
+        format!("service pack {service_pack}")
+    }
+}
+
+#[cfg(windows)]
+fn parse_u32(value: &str) -> Option<u32> {
+    value.trim().parse().ok()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1007,7 +1139,44 @@ mod tests {
             vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
         );
         assert_eq!(daemon_info.version, env!("CARGO_PKG_VERSION"));
-        assert_eq!(daemon_info.os, std::env::consts::OS);
+        assert!(!daemon_info.os.is_empty());
+        assert!(daemon_info.os.contains(&machine_bitness()));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_product_name_uses_windows_11_for_new_builds() {
+        assert_eq!(
+            normalize_windows_product_name("Windows 10 Pro".to_string(), Some("26200")),
+            "Windows 11 Pro"
+        );
+        assert_eq!(
+            normalize_windows_product_name("Windows 10 Pro".to_string(), Some("19045")),
+            "Windows 10 Pro"
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_build_label_includes_ubr_when_available() {
+        assert_eq!(
+            windows_build_label(Some("26200"), Some(8655)).as_deref(),
+            Some("26200.8655")
+        );
+        assert_eq!(
+            windows_build_label(Some("26200"), None).as_deref(),
+            Some("26200")
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn service_pack_label_does_not_duplicate_named_service_pack() {
+        assert_eq!(service_pack_label("Service Pack 1"), "Service Pack 1");
+        assert_eq!(
+            service_pack_label("1000.26100.315.0"),
+            "service pack 1000.26100.315.0"
+        );
     }
 
     #[test]

@@ -25,8 +25,9 @@ struct DaemonInfo {
 
   @ id - 3
   @ description
-  | Operating system identifier for the daemon process, such as `windows`,
-  | `macos`, or `linux`.
+  | Human-readable operating system name for the daemon host. Implementations
+  | should include the most useful platform-specific details they can determine,
+  | such as Windows edition, bitness, display version, build, and service pack.
   os: string,
 }
 
