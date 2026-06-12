@@ -1,7 +1,7 @@
 import React from "react";
 import { useAtomValue } from "jotai";
 import { useBunja } from "bunja/react";
-import { Folder, X } from "lucide-react";
+import { Folder, Info, X } from "lucide-react";
 import {
   displayName,
   explorerNavigationBunja,
@@ -161,7 +161,10 @@ export function WorkbenchTabItem(
         onClick={tabState.selectTab}
         title={label}
       >
-        <Folder size={14} className={workbenchTabIconClassName} />
+        <WorkbenchTabIcon
+          tool={tab.tool}
+          className={workbenchTabIconClassName}
+        />
         <span className={workbenchTabTitleClassName}>{label}</span>
       </button>
       {showClose
@@ -184,6 +187,20 @@ export function WorkbenchTabItem(
         : null}
     </div>
   );
+}
+
+interface WorkbenchTabIconProps {
+  className: string;
+  tool: WorkbenchTab["tool"];
+}
+
+function WorkbenchTabIcon(
+  { className, tool }: WorkbenchTabIconProps,
+) {
+  if (tool === "daemon") {
+    return <Info size={14} className={className} />;
+  }
+  return <Folder size={14} className={className} />;
 }
 
 function useWorkbenchTabLabel(

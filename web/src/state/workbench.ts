@@ -8,7 +8,7 @@ import { copyExplorerNavigationState } from "./explorer.ts";
 import { JotaiStoreScope } from "./jotai-store.ts";
 import { MachineIdScope } from "./machine-id.tsx";
 
-export type WorkbenchTool = "files" | "processes" | "terminal";
+export type WorkbenchTool = "daemon" | "files" | "processes" | "terminal";
 
 export interface WorkbenchTab {
   id: string;
@@ -89,7 +89,7 @@ export const workbenchBunja = bunja(() => {
   }
 
   function selectTool(tool: WorkbenchTool) {
-    store.set(stateAtom, (current) => ({ ...current, activeTool: tool }));
+    store.set(stateAtom, (current) => openToolTabInActivePane(current, tool));
   }
 
   function focusPane(paneId: string) {
@@ -155,7 +155,15 @@ export const workbenchBunja = bunja(() => {
   }
 
   function addFilesTab(paneId: string) {
-    const tab = createFilesTab();
+    addToolTab(paneId, "files");
+  }
+
+  function addDaemonTab(paneId: string) {
+    addToolTab(paneId, "daemon");
+  }
+
+  function addToolTab(paneId: string, tool: WorkbenchTool) {
+    const tab = createWorkbenchTab(tool);
     updatePanes((current) =>
       current.map((pane) =>
         pane.id === paneId
@@ -167,6 +175,7 @@ export const workbenchBunja = bunja(() => {
           : pane
       )
     );
+    store.set(stateAtom, (current) => ({ ...current, activeTool: tool }));
     focusPane(paneId);
   }
 
@@ -176,6 +185,13 @@ export const workbenchBunja = bunja(() => {
         pane.id === paneId ? { ...pane, activeTabId: tabId } : pane
       )
     );
+    const tab = store
+      .get(stateAtom)
+      .panes.find((pane) => pane.id === paneId)
+      ?.tabs.find((item) => item.id === tabId);
+    if (tab) {
+      store.set(stateAtom, (current) => ({ ...current, activeTool: tab.tool }));
+    }
     focusPane(paneId);
   }
 
@@ -313,6 +329,7 @@ export const workbenchBunja = bunja(() => {
     focusPane,
     addPane,
     removePane,
+    addDaemonTab,
     addFilesTab,
     selectTab,
     closeTab,
@@ -340,6 +357,10 @@ export const workbenchPaneBunja = bunja(() => {
 
   function addFilesTab() {
     workbench.addFilesTab(paneId);
+  }
+
+  function addDaemonTab() {
+    workbench.addDaemonTab(paneId);
   }
 
   function removePane() {
@@ -386,6 +407,7 @@ export const workbenchPaneBunja = bunja(() => {
     paneCountAtom,
     activeAtom,
     addPane,
+    addDaemonTab,
     addFilesTab,
     removePane,
     focusPane,
@@ -474,10 +496,62 @@ function insertTab(
 }
 
 function createFilesTab(): WorkbenchTab {
+  return createWorkbenchTab("files");
+}
+
+function createWorkbenchTab(tool: WorkbenchTool): WorkbenchTab {
   return {
-    id: `files-${crypto.randomUUID()}`,
-    title: "Files",
-    tool: "files",
+    id: `${tool}-${crypto.randomUUID()}`,
+    title: titleForTool(tool),
+    tool,
+  };
+}
+
+function titleForTool(tool: WorkbenchTool): string {
+  switch (tool) {
+    case "daemon":
+      return "Daemon";
+    case "files":
+      return "Files";
+    case "processes":
+      return "Processes";
+    case "terminal":
+      return "Terminal";
+  }
+}
+
+function openToolTabInActivePane(
+  state: WorkbenchState,
+  tool: WorkbenchTool,
+): WorkbenchState {
+  const activePaneId = state.activePaneId ?? state.panes[0]?.id;
+  if (!activePaneId) return { ...state, activeTool: tool };
+
+  let opened = false;
+  const panes = state.panes.map((pane) => {
+    if (pane.id !== activePaneId) return pane;
+
+    const existingTab = pane.tabs.find((tab) => tab.tool === tool);
+    if (existingTab) {
+      opened = true;
+      return { ...pane, activeTabId: existingTab.id };
+    }
+
+    const tab = createWorkbenchTab(tool);
+    opened = true;
+    return {
+      ...pane,
+      tabs: [...pane.tabs, tab],
+      activeTabId: tab.id,
+    };
+  });
+
+  if (!opened) return { ...state, activeTool: tool };
+  return {
+    ...state,
+    activePaneId,
+    activeTool: tool,
+    panes,
   };
 }
 

@@ -7,6 +7,7 @@ import {
   Columns2,
   Folder,
   GripVertical,
+  Info,
   Plus,
   Rows2,
   X,
@@ -178,6 +179,11 @@ export function WorkbenchPaneView(
 
   function openFilesTab() {
     paneState.addFilesTab();
+    setNewTabMenuOpen(false);
+  }
+
+  function openDaemonTab() {
+    paneState.addDaemonTab();
     setNewTabMenuOpen(false);
   }
 
@@ -365,6 +371,14 @@ export function WorkbenchPaneView(
             {newTabMenuOpen
               ? (
                 <div className={newTabMenuClassName} role="menu">
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={openDaemonTab}
+                  >
+                    <Info size={14} />
+                    Daemon
+                  </button>
                   <button
                     type="button"
                     role="menuitem"

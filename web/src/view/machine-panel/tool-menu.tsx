@@ -1,4 +1,4 @@
-import { Activity, Folder, Terminal } from "lucide-react";
+import { Activity, Folder, Info, Terminal } from "lucide-react";
 import type { WorkbenchTool } from "../../state/workbench.ts";
 import { className } from "../class-name.ts";
 
@@ -8,6 +8,11 @@ const tools: {
   disabled?: boolean;
   Icon: typeof Folder;
 }[] = [
+  {
+    id: "daemon",
+    label: "Daemon",
+    Icon: Info,
+  },
   {
     id: "files",
     label: "Files",
