@@ -10,7 +10,6 @@ import {
 } from "../../../../context.tsx";
 import { BigFileWarning } from "../../big-file-warning.tsx";
 import { fileViewerBunja } from "../../state.tsx";
-import type { FileViewerImpl } from "../index.ts";
 
 const inlineOpenLimitBytes = 1024 * 1024;
 const fileViewerStatusClassName = [
@@ -30,7 +29,9 @@ type FileReadState =
   | { phase: "ready"; text: string }
   | { phase: "error"; message: string };
 
-export function HexFileViewer() {
+const hexViewerName = "hex viewer";
+
+export default function HexFileViewer() {
   const actions = requireFilesActions(useContext(FilesActionsContext));
   const viewer = useBunja(fileViewerBunja);
   const fsEntry = viewer.fsEntry;
@@ -89,7 +90,7 @@ export function HexFileViewer() {
       <BigFileWarning
         onCancel={actions.goBack}
         onConfirm={() => setConfirmedFsEntryPath(fsEntry.path)}
-        viewerName={hexFileViewerImpl.viewerName}
+        viewerName={hexViewerName}
       />
     );
   }
@@ -141,10 +142,3 @@ function decodeHexFilePreview(bytes: Uint8Array): string {
   }
   return lines.join("\n");
 }
-
-export const hexFileViewerImpl = {
-  id: "hex",
-  label: "Hex",
-  viewerName: "hex viewer",
-  Component: HexFileViewer,
-} as const satisfies FileViewerImpl;

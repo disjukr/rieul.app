@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { useBunja } from "bunja/react";
 import { useAtomValue } from "jotai";
 import { Loader2 } from "lucide-react";
@@ -33,7 +34,18 @@ export function FileViewer() {
           </div>
         )
         : Impl
-        ? <Impl />
+        ? (
+          <Suspense
+            fallback={
+              <div className={fileViewerStatusClassName}>
+                <Loader2 size={18} className="animate-spin" />
+                <span>Loading viewer</span>
+              </div>
+            }
+          >
+            <Impl />
+          </Suspense>
+        )
         : null}
       <FileViewerFooter />
     </section>

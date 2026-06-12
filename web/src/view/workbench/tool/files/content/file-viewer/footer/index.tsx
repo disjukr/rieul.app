@@ -4,7 +4,6 @@ import { formatSize } from "../../../../../../../state/explorer.ts";
 import {
   fileViewerImpls,
   isFileViewerImpl,
-  textFileViewerImplId,
 } from "../impl/index.ts";
 import { fileViewerBunja } from "../state.tsx";
 
@@ -33,7 +32,7 @@ export function FileViewerFooter() {
         <span>View</span>
         <select
           className={fileViewerImplSelectClassName}
-          value={impl ?? textFileViewerImplId}
+          value={impl ?? "text"}
           disabled={disabled}
           aria-label="File viewer"
           onChange={(event) => {
@@ -41,8 +40,8 @@ export function FileViewerFooter() {
             if (isFileViewerImpl(value)) setImpl(value);
           }}
         >
-          {fileViewerImpls.map((viewerImpl) => (
-            <option key={viewerImpl.id} value={viewerImpl.id}>
+          {Object.entries(fileViewerImpls).map(([id, viewerImpl]) => (
+            <option key={id} value={id}>
               {viewerImpl.label}
             </option>
           ))}

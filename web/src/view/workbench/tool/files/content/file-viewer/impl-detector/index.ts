@@ -1,8 +1,4 @@
-import {
-  type FileViewerImplId,
-  hexFileViewerImplId,
-  textFileViewerImplId,
-} from "../impl/index.ts";
+import type { FileViewerImplId } from "../impl/index.ts";
 import { type FsEntry, readFile } from "../../../../../../../protocol/rpc.ts";
 import type { Machine } from "../../../../../../../state/machines.ts";
 
@@ -67,7 +63,6 @@ const textExtensions = new Set([
   "kt",
   "lock",
   "log",
-  "md",
   "mjs",
   "ps1",
   "py",
@@ -84,6 +79,18 @@ const textExtensions = new Set([
   "yml",
 ]);
 
+const markdownExtensions = new Set([
+  "markdown",
+  "md",
+  "mdown",
+  "mkd",
+  "mkdn",
+]);
+
+const markdownFilenames = new Set([
+  "readme",
+]);
+
 const textFilenames = new Set([
   ".editorconfig",
   ".env",
@@ -92,7 +99,6 @@ const textFilenames = new Set([
   "dockerfile",
   "license",
   "makefile",
-  "readme",
 ]);
 
 export async function detectFileViewerImpl(
@@ -103,7 +109,7 @@ export async function detectFileViewerImpl(
   if (!machine) {
     return {
       initialBytes: new Uint8Array(),
-      impl: nameHint ?? textFileViewerImplId,
+      impl: nameHint ?? "text",
     };
   }
 
@@ -119,7 +125,7 @@ export async function detectFileViewerImpl(
   } catch {
     return {
       initialBytes: new Uint8Array(),
-      impl: nameHint ?? textFileViewerImplId,
+      impl: nameHint ?? "text",
     };
   }
 }
@@ -129,7 +135,7 @@ function detectFileViewerImplFromBytes(
   nameHint: FileViewerImplId | undefined,
 ): FileViewerImplId {
   const sample = bytes.subarray(0, Math.min(bytes.length, sampleByteCount));
-  if (sample.includes(0)) return hexFileViewerImplId;
+  if (sample.includes(0)) return "hex";
 
   let controls = 0;
   for (const byte of sample) {
@@ -138,20 +144,22 @@ function detectFileViewerImplFromBytes(
   }
   return sample.length > 0 &&
       controls / sample.length > binaryControlRatioThreshold
-    ? hexFileViewerImplId
-    : nameHint ?? textFileViewerImplId;
+    ? "hex"
+    : nameHint ?? "text";
 }
 
 function detectFileViewerImplFromName(
   fsEntry: FsEntry,
 ): FileViewerImplId | undefined {
   const basename = fileBasename(fsEntry.name || fsEntry.path).toLowerCase();
-  if (textFilenames.has(basename)) return textFileViewerImplId;
+  if (markdownFilenames.has(basename)) return "markdown";
+  if (textFilenames.has(basename)) return "text";
 
   const extension = fileExtension(basename);
   if (!extension) return undefined;
-  if (binaryExtensions.has(extension)) return hexFileViewerImplId;
-  if (textExtensions.has(extension)) return textFileViewerImplId;
+  if (binaryExtensions.has(extension)) return "hex";
+  if (markdownExtensions.has(extension)) return "markdown";
+  if (textExtensions.has(extension)) return "text";
   return undefined;
 }
 

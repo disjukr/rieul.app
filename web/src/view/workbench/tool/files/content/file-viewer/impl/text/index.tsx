@@ -9,7 +9,6 @@ import {
 } from "../../../../context.tsx";
 import { BigFileWarning } from "../../big-file-warning.tsx";
 import { fileViewerBunja } from "../../state.tsx";
-import type { FileViewerImpl } from "../index.ts";
 
 const MonacoTextViewer = lazy(async () => {
   const module = await import("./monaco-text-viewer.tsx");
@@ -29,7 +28,9 @@ type FileReadState =
   | { phase: "ready"; text: string }
   | { phase: "error"; message: string };
 
-export function TextFileViewer() {
+const textViewerName = "text viewer";
+
+export default function TextFileViewer() {
   const actions = requireFilesActions(useContext(FilesActionsContext));
   const viewer = useBunja(fileViewerBunja);
   const fsEntry = viewer.fsEntry;
@@ -88,7 +89,7 @@ export function TextFileViewer() {
       <BigFileWarning
         onCancel={actions.goBack}
         onConfirm={() => setConfirmedFsEntryPath(fsEntry.path)}
-        viewerName={textFileViewerImpl.viewerName}
+        viewerName={textViewerName}
       />
     );
   }
@@ -132,10 +133,3 @@ function hasCompleteInitialBytes(
 function decodeTextFile(bytes: Uint8Array): string {
   return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
 }
-
-export const textFileViewerImpl = {
-  id: "text",
-  label: "Text",
-  viewerName: "text viewer",
-  Component: TextFileViewer,
-} as const satisfies FileViewerImpl;

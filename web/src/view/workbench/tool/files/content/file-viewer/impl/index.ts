@@ -1,36 +1,37 @@
-import type { ComponentType } from "react";
-import { hexFileViewerImpl } from "./hex/index.tsx";
-import { textFileViewerImpl } from "./text/index.tsx";
+import { lazy, type ComponentType, type LazyExoticComponent } from "react";
 
 export interface FileViewerImpl {
-  id: string;
   label: string;
   viewerName: string;
-  Component: ComponentType;
+  Component: LazyExoticComponent<ComponentType>;
 }
 
-export const fileViewerImpls = [
-  textFileViewerImpl,
-  hexFileViewerImpl,
-] as const satisfies readonly FileViewerImpl[];
+export const fileViewerImpls = {
+  markdown: {
+    label: "Markdown",
+    viewerName: "markdown viewer",
+    Component: lazy(() => import("./markdown/index.tsx")),
+  },
+  text: {
+    label: "Text",
+    viewerName: "text viewer",
+    Component: lazy(() => import("./text/index.tsx")),
+  },
+  hex: {
+    label: "Hex",
+    viewerName: "hex viewer",
+    Component: lazy(() => import("./hex/index.tsx")),
+  },
+} as const satisfies Record<string, FileViewerImpl>;
 
-export type FileViewerImplId = (typeof fileViewerImpls)[number]["id"];
-
-export const textFileViewerImplId = fileViewerImpls[0].id;
-export const hexFileViewerImplId = fileViewerImpls[1].id;
-
-const fileViewerImplById = new Map<string, FileViewerImpl>(
-  fileViewerImpls.map((impl) => [impl.id, impl]),
-);
+export type FileViewerImplId = keyof typeof fileViewerImpls;
 
 export function getFileViewerImpl(
   impl: FileViewerImplId,
 ): FileViewerImpl {
-  const definition = fileViewerImplById.get(impl);
-  if (!definition) throw new Error(`Unknown file viewer impl: ${impl}`);
-  return definition;
+  return fileViewerImpls[impl];
 }
 
 export function isFileViewerImpl(value: string): value is FileViewerImplId {
-  return fileViewerImplById.has(value);
+  return Object.hasOwn(fileViewerImpls, value);
 }

@@ -5,6 +5,7 @@ import { atom } from "jotai";
 import { atomWithStorage } from "jotai/utils";
 import { createLayout, type LayoutState } from "panecake";
 import { copyExplorerNavigationState } from "./explorer.ts";
+import { copyFileViewerState } from "./file-viewer.ts";
 import { JotaiStoreScope } from "./jotai-store.ts";
 import { MachineIdScope } from "./machine-id.tsx";
 
@@ -580,5 +581,6 @@ function copyTabState(
 ) {
   if (sourceTab.tool === "files" && targetTab.tool === "files") {
     copyExplorerNavigationState(machineId, sourceTab.id, targetTab.id);
+    copyFileViewerState(machineId, sourceTab.id, targetTab.id);
   }
 }
