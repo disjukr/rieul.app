@@ -2,7 +2,10 @@ use anyhow::Result;
 use std::net::SocketAddr;
 use std::path::Path;
 use time::OffsetDateTime;
-use wgo_daemon_core::config::{load_or_default, save, SystemConfig};
+use wgo_daemon_core::config::{
+    load_or_default, load_pairing_state_or_default, pairing_state_path, save_pairing_state,
+    SystemConfig,
+};
 use wgo_daemon_core::pairing::create_pairing_code;
 
 #[cfg(windows)]
@@ -106,12 +109,13 @@ fn default_daemon_url(config: &SystemConfig) -> String {
 }
 
 fn create_and_save_pairing_code(config_path: &Path) -> Result<ActivePairingCode> {
-    let mut config = load_or_default(config_path)?;
+    let pairing_path = pairing_state_path(config_path);
+    let mut state = load_pairing_state_or_default(&pairing_path)?;
     let now = now_unix();
     let pairing = create_pairing_code(now);
     let expires_at_unix = pairing.record.expires_at_unix;
-    config.pairing = Some(pairing.record);
-    save(config_path, &config)?;
+    state.pairing = Some(pairing.record);
+    save_pairing_state(&pairing_path, &state)?;
     Ok(ActivePairingCode {
         code: pairing.code,
         expires_at_unix,

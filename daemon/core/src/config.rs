@@ -24,10 +24,6 @@ pub struct SystemConfig {
     pub domain: Option<String>,
     #[serde(default)]
     pub tls: Option<TlsConfig>,
-    #[serde(default)]
-    pub clients: Vec<ClientCredentialRecord>,
-    #[serde(default)]
-    pub pairing: Option<PairingRecord>,
 }
 
 impl Default for SystemConfig {
@@ -36,10 +32,17 @@ impl Default for SystemConfig {
             listen_addr: default_listen_addr(),
             domain: None,
             tls: None,
-            clients: Vec::new(),
-            pairing: None,
         }
     }
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PairingState {
+    #[serde(default)]
+    pub clients: Vec<ClientCredentialRecord>,
+    #[serde(default)]
+    pub pairing: Option<PairingRecord>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -88,6 +91,32 @@ pub fn save(path: impl AsRef<Path>, config: &SystemConfig) -> Result<(), ConfigE
     Ok(())
 }
 
+pub fn pairing_state_path(config_path: impl AsRef<Path>) -> PathBuf {
+    config_path.as_ref().with_file_name("pairing.yaml")
+}
+
+pub fn load_pairing_state_or_default(path: impl AsRef<Path>) -> Result<PairingState, ConfigError> {
+    let path = path.as_ref();
+    if !path.exists() {
+        return Ok(PairingState::default());
+    }
+    let yaml = fs::read_to_string(path)?;
+    Ok(serde_yaml::from_str(&yaml)?)
+}
+
+pub fn save_pairing_state(
+    path: impl AsRef<Path>,
+    pairing_state: &PairingState,
+) -> Result<(), ConfigError> {
+    let path = path.as_ref();
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let yaml = serde_yaml::to_string(pairing_state)?;
+    fs::write(path, yaml)?;
+    Ok(())
+}
+
 pub fn windows_program_data_config_path() -> PathBuf {
     let root = std::env::var_os("ProgramData")
         .map(PathBuf::from)
@@ -127,10 +156,31 @@ mod tests {
                 cert_file: r"C:\wgo\cert.pem".to_string(),
                 key_file: r"C:\wgo\key.pem".to_string(),
             }),
-            clients: Vec::new(),
-            pairing: None,
         };
         save(&path, &config).unwrap();
         assert_eq!(load_or_default(&path).unwrap(), config);
+    }
+
+    #[test]
+    fn pairing_state_roundtrip_yaml() {
+        let dir = tempfile::tempdir().unwrap();
+        let config_path = dir.path().join("wgo.yaml");
+        let path = pairing_state_path(&config_path);
+        let state = PairingState {
+            clients: vec![ClientCredentialRecord {
+                client_id: "client".to_string(),
+                label: "browser".to_string(),
+                secret_sha256_base64url: "hash".to_string(),
+                created_at_unix: 100,
+            }],
+            pairing: Some(PairingRecord {
+                code_sha256_base64url: "code".to_string(),
+                expires_at_unix: 400,
+            }),
+        };
+
+        save_pairing_state(&path, &state).unwrap();
+
+        assert_eq!(load_pairing_state_or_default(&path).unwrap(), state);
     }
 }

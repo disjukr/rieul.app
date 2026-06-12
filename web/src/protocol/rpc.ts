@@ -172,6 +172,10 @@ export function isDatagramPingTimeoutError(
   return err instanceof DatagramPingTimeoutError;
 }
 
+export function isInvalidCredentialsError(err: unknown): boolean {
+  return err instanceof RpcError && err.code === "InvalidCredentials";
+}
+
 export async function completePairing(
   machine: Machine,
   code: string,
@@ -363,8 +367,12 @@ export async function deletePaths(
 
 export async function checkReachable(machine: Machine): Promise<number> {
   const startedAt = performance.now();
-  await listCapabilities(machine);
-  return performance.now() - startedAt;
+  const session = await connect(machine, "/rpc");
+  try {
+    return performance.now() - startedAt;
+  } finally {
+    closeRpcSession(session);
+  }
 }
 
 export function closeMachineSession(machine: Machine): void {

@@ -2,16 +2,18 @@ import { bunja, createScope } from "bunja";
 import { atom, type PrimitiveAtom, type SetStateAction } from "jotai";
 import { atomWithStorage } from "jotai/utils";
 import {
+  closeMachineSession,
   DirectoryTableEvent,
   FsEntry,
   FsEntryKind,
+  isInvalidCredentialsError,
   RootsTableEvent,
   subscribeDirectory,
   subscribeRoots,
 } from "../protocol/rpc.ts";
 import { type JotaiStore, JotaiStoreScope } from "./jotai-store.ts";
 import { MachineIdScope } from "./machine-id.tsx";
-import { machineBunja } from "./machine-store.ts";
+import { machineBunja, machineStoreBunja } from "./machine-store.ts";
 import { Machine } from "./machines.ts";
 import { StreamState } from "./types.ts";
 
@@ -189,6 +191,7 @@ export const explorerRootsBunja = bunja(() => {
   bunja.use(ExplorerPaneScope);
   const store = bunja.use(JotaiStoreScope);
   const machineState = bunja.use(explorerMachineBunja);
+  const machines = bunja.use(machineStoreBunja);
   const refresh = bunja.use(explorerRefreshBunja);
 
   const rootsAtom = atom<FsEntry[]>([]);
@@ -236,6 +239,19 @@ export const explorerRootsBunja = bunja(() => {
           }
         } catch (err) {
           if (!cancelled) {
+            if (
+              handleInvalidCredentials(
+                machine,
+                err,
+                machines.clearMachineCredentials,
+              )
+            ) {
+              store.set(rootsStateAtom, {
+                phase: "error",
+                message: "Pairing is no longer valid. Pair this machine again.",
+              });
+              return;
+            }
             store.set(rootsStateAtom, {
               phase: "error",
               message: errorMessage(err),
@@ -264,6 +280,7 @@ export const explorerDirectoryBunja = bunja(() => {
   bunja.use(ExplorerPaneScope);
   const store = bunja.use(JotaiStoreScope);
   const machineState = bunja.use(explorerMachineBunja);
+  const machines = bunja.use(machineStoreBunja);
   const refresh = bunja.use(explorerRefreshBunja);
   const navigation = bunja.use(explorerNavigationBunja);
 
@@ -330,6 +347,19 @@ export const explorerDirectoryBunja = bunja(() => {
           }
         } catch (err) {
           if (!cancelled) {
+            if (
+              handleInvalidCredentials(
+                machine,
+                err,
+                machines.clearMachineCredentials,
+              )
+            ) {
+              store.set(directoryStateAtom, {
+                phase: "error",
+                message: "Pairing is no longer valid. Pair this machine again.",
+              });
+              return;
+            }
             store.set(directoryStateAtom, {
               phase: "error",
               message: errorMessage(err),
@@ -399,6 +429,17 @@ function explorerConnectionKey(machine?: Machine): string {
     machine.clientId ?? "",
     machine.clientSecret ?? "",
   ].join("\n");
+}
+
+function handleInvalidCredentials(
+  machine: Machine,
+  err: unknown,
+  clearMachineCredentials: (machineId: string) => void,
+): boolean {
+  if (!isInvalidCredentialsError(err)) return false;
+  closeMachineSession(machine);
+  clearMachineCredentials(machine.id);
+  return true;
 }
 
 function explorerNavigationStorageKey(

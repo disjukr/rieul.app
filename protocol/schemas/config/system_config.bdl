@@ -15,21 +15,10 @@ struct SystemConfig {
   | Explicit TLS certificate files.
   | If omitted for a `.ts.net` domain, the daemon uses `tailscale cert`.
   tls?: TlsConfig,
-
-  @ description - Stored paired-client credential records.
-  clients: ClientCredentialRecord[],
 }
 
 @ description - PEM certificate and key file paths used by the WebTransport TLS listener.
 struct TlsConfig {
   certFile: string,
   keyFile: string,
-}
-
-@ description - Persistent paired-client credential record. The plaintext secret is never stored.
-struct ClientCredentialRecord {
-  clientId: string,
-  label: string,
-  secretSha256Base64url: string,
-  createdAtUnix: int64,
 }

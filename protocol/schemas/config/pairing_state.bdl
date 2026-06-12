@@ -1,0 +1,27 @@
+# standard - conventional
+# description
+| Local daemon pairing state persisted beside the system daemon configuration.
+| On Windows dev runs this maps to pairing.yaml under tmp/dev.
+
+@ description - Complete local pairing state document.
+struct PairingState {
+  @ description - Stored paired-client credential records.
+  clients: ClientCredentialRecord[],
+
+  @ description - Active short-lived local pairing code, if one is pending.
+  pairing?: PairingRecord,
+}
+
+@ description - Persistent paired-client credential record. The plaintext secret is never stored.
+struct ClientCredentialRecord {
+  clientId: string,
+  label: string,
+  secretSha256Base64url: string,
+  createdAtUnix: int64,
+}
+
+@ description - Short-lived local pairing code record. The plaintext code is never stored.
+struct PairingRecord {
+  codeSha256Base64url: string,
+  expiresAtUnix: int64,
+}

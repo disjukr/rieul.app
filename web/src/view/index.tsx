@@ -6,6 +6,7 @@ import {
   MachinePanelRegion,
 } from "./machine-panel/index.tsx";
 import { MachineRailRegion } from "./machine-rail/index.tsx";
+import { capabilityBunja } from "../state/capability.ts";
 import { MachineIdContext } from "../state/machine-id.tsx";
 import { machineStoreBunja } from "../state/machine-store.ts";
 import { layoutBunja } from "./state.tsx";
@@ -28,6 +29,8 @@ const appShellClassName = [
 ].join(" ");
 
 export default function View() {
+  useBunja(capabilityBunja);
+
   return (
     <Layout>
       <MachineRailRegion />
