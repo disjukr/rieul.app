@@ -219,9 +219,82 @@ fn platform_os_name() -> String {
     parts.join(" ")
 }
 
-#[cfg(not(windows))]
+#[cfg(target_os = "macos")]
+fn platform_os_name() -> String {
+    let Some(product_version) = macos_sw_vers("-productVersion") else {
+        return format!("macOS {}", machine_bitness());
+    };
+
+    let display_name = macos_license_product_name()
+        .map(|name| macos_product_name_with_version(&name, &product_version))
+        .unwrap_or_else(|| format!("macOS {product_version}"));
+
+    format!("{} {}", display_name, machine_bitness())
+}
+
+#[cfg(all(not(windows), not(target_os = "macos")))]
 fn platform_os_name() -> String {
     format!("{} {}", std::env::consts::OS, machine_bitness())
+}
+
+#[cfg(target_os = "macos")]
+fn macos_sw_vers(argument: &str) -> Option<String> {
+    let output = std::process::Command::new("/usr/bin/sw_vers")
+        .arg(argument)
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+
+    String::from_utf8(output.stdout)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+#[cfg(target_os = "macos")]
+fn macos_license_product_name() -> Option<String> {
+    std::fs::read_to_string(
+        "/System/Library/CoreServices/Setup Assistant.app/Contents/Resources/en.lproj/OSXSoftwareLicense.rtf",
+    )
+    .ok()
+    .and_then(|text| macos_license_product_name_from_text(&text))
+}
+
+fn macos_license_product_name_from_text(text: &str) -> Option<String> {
+    const PREFIX: &str = "SOFTWARE LICENSE AGREEMENT FOR macOS ";
+
+    let rest = text.split_once(PREFIX)?.1;
+    let label = rest
+        .split(['\\', '\r', '\n', '<'])
+        .next()
+        .unwrap_or(rest)
+        .trim()
+        .trim_end_matches('.')
+        .trim();
+    if label.is_empty() {
+        None
+    } else {
+        Some(format!("macOS {label}"))
+    }
+}
+
+fn macos_product_name_with_version(product_name: &str, product_version: &str) -> String {
+    let Some(major_version) = product_version
+        .split('.')
+        .next()
+        .filter(|value| !value.is_empty())
+    else {
+        return product_name.to_string();
+    };
+
+    let suffix = format!(" {major_version}");
+    if let Some(name) = product_name.strip_suffix(&suffix) {
+        format!("{name} {product_version}")
+    } else {
+        format!("{product_name} {product_version}")
+    }
 }
 
 #[cfg(not(windows))]
@@ -1212,6 +1285,27 @@ mod tests {
         assert_eq!(daemon_info.version, env!("CARGO_PKG_VERSION"));
         assert!(!daemon_info.os.is_empty());
         assert!(daemon_info.os.contains(&machine_bitness()));
+    }
+
+    #[test]
+    fn macos_license_product_name_parses_rtf_heading() {
+        let text = r"{\rtf1 SOFTWARE LICENSE AGREEMENT FOR macOS Tahoe 26\par}";
+        assert_eq!(
+            macos_license_product_name_from_text(text).as_deref(),
+            Some("macOS Tahoe 26")
+        );
+    }
+
+    #[test]
+    fn macos_product_name_replaces_major_with_full_version() {
+        assert_eq!(
+            macos_product_name_with_version("macOS Tahoe 26", "26.5.1"),
+            "macOS Tahoe 26.5.1"
+        );
+        assert_eq!(
+            macos_product_name_with_version("macOS", "26.5.1"),
+            "macOS 26.5.1"
+        );
     }
 
     #[cfg(windows)]
