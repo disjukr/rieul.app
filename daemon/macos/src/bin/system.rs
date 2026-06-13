@@ -12,6 +12,7 @@ use wgo_daemon_core::config::{
 use wgo_daemon_core::DEFAULT_LISTEN_ADDR;
 use wgo_daemon_host::server::run_system_server;
 use wgo_macos_daemon::fs::MacFileService;
+use wgo_macos_daemon::ipc::MacUserPairingNotifier;
 
 #[derive(Debug, Parser)]
 #[command(name = "wgo-macos-system")]
@@ -66,7 +67,7 @@ async fn main() -> Result<()> {
                 listen,
                 config.unwrap_or_else(macos_system_config_path),
                 Arc::new(MacFileService::default()),
-                None,
+                Some(Arc::new(MacUserPairingNotifier)),
                 "macOS system daemon",
             )
             .await

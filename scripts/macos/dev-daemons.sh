@@ -84,7 +84,7 @@ SYSTEM_PID="$!"
 echo "$SYSTEM_PID" >"$SYSTEM_PID_FILE"
 
 echo "Starting wgo macOS user daemon"
-RUST_LOG="$RUST_LOG" "$USER_EXE" run >"$USER_OUT_LOG" 2>"$USER_ERR_LOG" &
+RUST_LOG="$RUST_LOG" "$USER_EXE" run --config "$CONFIG_PATH" >"$USER_OUT_LOG" 2>"$USER_ERR_LOG" &
 USER_PID="$!"
 echo "$USER_PID" >"$USER_PID_FILE"
 

@@ -2,9 +2,9 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 use std::net::SocketAddr;
 use std::path::PathBuf;
-use std::time::Duration;
 use wgo_daemon_core::config::{load_or_default, macos_system_config_path, SystemConfig};
 use wgo_macos_daemon::pairing_ui::{show_pairing_window, PairingWindowModel};
+use wgo_macos_daemon::tray::run_pairing_tray;
 
 #[derive(Debug, Parser)]
 #[command(name = "wgo-macos-user")]
@@ -16,7 +16,10 @@ struct Args {
 
 #[derive(Debug, Subcommand)]
 enum Command {
-    Run,
+    Run {
+        #[arg(long)]
+        config: Option<PathBuf>,
+    },
     PairingWindow {
         #[arg(long)]
         daemon_url: Option<String>,
@@ -32,11 +35,8 @@ fn main() -> Result<()> {
         .init();
 
     match Args::parse().command {
-        Command::Run => {
-            println!("wgo macOS user daemon scaffold running. Press Ctrl+C in the parent dev script to stop it.");
-            loop {
-                std::thread::sleep(Duration::from_secs(60));
-            }
+        Command::Run { config } => {
+            run_pairing_tray(config.unwrap_or_else(macos_system_config_path))
         }
         Command::PairingWindow { daemon_url, config } => {
             let config_path = config.unwrap_or_else(macos_system_config_path);
