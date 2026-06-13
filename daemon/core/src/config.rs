@@ -42,11 +42,9 @@ impl Default for SystemConfig {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
-pub struct PairingState {
+pub struct ClientCredentials {
     #[serde(default)]
     pub clients: Vec<ClientCredentialRecord>,
-    #[serde(default)]
-    pub pairing: Option<PairingRecord>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -63,12 +61,6 @@ pub struct ClientCredentialRecord {
     pub label: String,
     pub secret_sha256_base64url: String,
     pub created_at_unix: i64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct PairingRecord {
-    pub code_sha256_base64url: String,
     pub expires_at_unix: i64,
 }
 
@@ -151,32 +143,36 @@ fn insert_domain_example_comment(yaml: String) -> String {
     output
 }
 
-pub fn pairing_state_path(config_path: impl AsRef<Path>) -> PathBuf {
-    config_path.as_ref().with_file_name("pairing.yaml")
+pub fn client_credentials_path(config_path: impl AsRef<Path>) -> PathBuf {
+    config_path
+        .as_ref()
+        .with_file_name("client-credentials.yaml")
 }
 
 pub fn daemon_status_path(config_path: impl AsRef<Path>) -> PathBuf {
     config_path.as_ref().with_file_name("daemon.status")
 }
 
-pub fn load_pairing_state_or_default(path: impl AsRef<Path>) -> Result<PairingState, ConfigError> {
+pub fn load_client_credentials_or_default(
+    path: impl AsRef<Path>,
+) -> Result<ClientCredentials, ConfigError> {
     let path = path.as_ref();
     if !path.exists() {
-        return Ok(PairingState::default());
+        return Ok(ClientCredentials::default());
     }
     let yaml = fs::read_to_string(path)?;
     Ok(serde_yaml::from_str(&yaml)?)
 }
 
-pub fn save_pairing_state(
+pub fn save_client_credentials(
     path: impl AsRef<Path>,
-    pairing_state: &PairingState,
+    credentials: &ClientCredentials,
 ) -> Result<(), ConfigError> {
     let path = path.as_ref();
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
-    let yaml = serde_yaml::to_string(pairing_state)?;
+    let yaml = serde_yaml::to_string(credentials)?;
     fs::write(path, yaml)?;
     Ok(())
 }
@@ -315,26 +311,26 @@ mod tests {
     }
 
     #[test]
-    fn pairing_state_roundtrip_yaml() {
+    fn client_credentials_roundtrip_yaml() {
         let dir = tempfile::tempdir().unwrap();
         let config_path = dir.path().join("wgo.yaml");
-        let path = pairing_state_path(&config_path);
-        let state = PairingState {
+        let path = client_credentials_path(&config_path);
+        let credentials = ClientCredentials {
             clients: vec![ClientCredentialRecord {
                 client_id: "client".to_string(),
                 label: "browser".to_string(),
                 secret_sha256_base64url: "hash".to_string(),
                 created_at_unix: 100,
+                expires_at_unix: 200,
             }],
-            pairing: Some(PairingRecord {
-                code_sha256_base64url: "code".to_string(),
-                expires_at_unix: 400,
-            }),
         };
 
-        save_pairing_state(&path, &state).unwrap();
+        save_client_credentials(&path, &credentials).unwrap();
 
-        assert_eq!(load_pairing_state_or_default(&path).unwrap(), state);
+        assert_eq!(
+            load_client_credentials_or_default(&path).unwrap(),
+            credentials
+        );
     }
 
     #[test]

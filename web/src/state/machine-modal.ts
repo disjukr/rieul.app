@@ -22,10 +22,13 @@ export const machineModalBunja = bunja(() => {
   const machineModalModeAtom = atom<MachineModalMode | undefined>(undefined);
   const machineFormErrorAtom = atom("");
   const pairingCodeAtom = atom("");
+  const pairingCodeExpiresAtUnixAtom = atom<number | undefined>(undefined);
+  const isRequestingPairingCodeAtom = atom(false);
   const isPairingAtom = atom(false);
   const modalTitleAtom = atom((get) =>
     machineModalTitle(get(machineModalModeAtom))
   );
+  let pairingRequestSerial = 0;
 
   function addMachine() {
     store.set(machineFormErrorAtom, "");
@@ -47,7 +50,7 @@ export const machineModalBunja = bunja(() => {
     store.set(machineNameAtom, "");
     store.set(machineNameEditedAtom, false);
     store.set(baseUrlAtom, "");
-    store.set(pairingCodeAtom, "");
+    resetPairingCode();
     store.set(machineModalModeAtom, "pair");
     requestPairingCode(machine);
   }
@@ -56,7 +59,8 @@ export const machineModalBunja = bunja(() => {
     if (store.get(machines.machinesAtom).length === 0) return;
     store.set(machineModalModeAtom, undefined);
     store.set(machineFormErrorAtom, "");
-    store.set(pairingCodeAtom, "");
+    cancelPairingRequest();
+    resetPairingCode();
   }
 
   function openAddMachineModal() {
@@ -65,7 +69,8 @@ export const machineModalBunja = bunja(() => {
     store.set(machineNameEditedAtom, false);
     store.set(baseUrlAtom, "");
     store.set(machineFormErrorAtom, "");
-    store.set(pairingCodeAtom, "");
+    cancelPairingRequest();
+    resetPairingCode();
     if (store.get(machines.machinesAtom).length === 0) {
       store.set(machineModalModeAtom, undefined);
       return;
@@ -88,7 +93,8 @@ export const machineModalBunja = bunja(() => {
     const machine = machines.findMachine(machineId);
     if (!machine) return;
     machines.selectMachine(machine.id);
-    store.set(pairingCodeAtom, "");
+    cancelPairingRequest();
+    resetPairingCode();
     store.set(machineFormErrorAtom, "");
     menu.closeMachineMenu();
     store.set(machineModalModeAtom, "pair");
@@ -131,7 +137,8 @@ export const machineModalBunja = bunja(() => {
   function deleteSelectedMachine() {
     if (!machines.deleteSelectedMachine()) return;
     store.set(machineFormErrorAtom, "");
-    store.set(pairingCodeAtom, "");
+    cancelPairingRequest();
+    resetPairingCode();
     store.set(machineModalModeAtom, undefined);
   }
 
@@ -145,7 +152,7 @@ export const machineModalBunja = bunja(() => {
     try {
       const credentials = await completePairing(selected, code, clientLabel);
       machines.setMachineCredentials(selected.id, credentials);
-      store.set(pairingCodeAtom, "");
+      resetPairingCode();
       connection.markReachable("Paired", 0);
       store.set(machineModalModeAtom, undefined);
     } catch (err) {
@@ -156,19 +163,51 @@ export const machineModalBunja = bunja(() => {
   }
 
   function requestPairingCode(machine: Machine) {
+    if (store.get(isRequestingPairingCodeAtom)) return;
+    const serial = ++pairingRequestSerial;
     store.set(machineFormErrorAtom, "");
+    resetPairingCode();
+    store.set(isRequestingPairingCodeAtom, true);
     connection.setChecking("Requesting pairing");
     void (async () => {
       try {
-        await startPairing(machine);
-        if (!machines.findMachine(machine.id)) return;
+        const { pairingCodeExpiresAtUnix } = await startPairing(machine);
+        if (!isCurrentPairingRequest(machine, serial)) return;
+        store.set(pairingCodeExpiresAtUnixAtom, pairingCodeExpiresAtUnix);
         connection.markReachable("Pairing requested", 0);
       } catch (err) {
-        if (!machines.findMachine(machine.id)) return;
+        if (!isCurrentPairingRequest(machine, serial)) return;
         store.set(machineFormErrorAtom, errorMessage(err));
         connection.markOffline(connectionErrorMessage(err, machine));
+      } finally {
+        if (serial === pairingRequestSerial) {
+          store.set(isRequestingPairingCodeAtom, false);
+        }
       }
     })();
+  }
+
+  function requestSelectedPairingCode() {
+    const selected = store.get(machines.selectedAtom);
+    if (!selected) return;
+    requestPairingCode(selected);
+  }
+
+  function cancelPairingRequest() {
+    pairingRequestSerial++;
+    store.set(isRequestingPairingCodeAtom, false);
+  }
+
+  function resetPairingCode() {
+    store.set(pairingCodeAtom, "");
+    store.set(pairingCodeExpiresAtUnixAtom, undefined);
+  }
+
+  function isCurrentPairingRequest(machine: Machine, serial: number) {
+    return serial === pairingRequestSerial &&
+      store.get(machineModalModeAtom) === "pair" &&
+      store.get(machines.selectedAtom)?.id === machine.id &&
+      !!machines.findMachine(machine.id);
   }
 
   function updateMachineNameDraft(value: string) {
@@ -191,6 +230,8 @@ export const machineModalBunja = bunja(() => {
     machineModalModeAtom,
     machineFormErrorAtom,
     pairingCodeAtom,
+    pairingCodeExpiresAtUnixAtom,
+    isRequestingPairingCodeAtom,
     isPairingAtom,
     modalTitleAtom,
     addMachine,
@@ -202,6 +243,7 @@ export const machineModalBunja = bunja(() => {
     saveMachineConfig,
     deleteSelectedMachine,
     pairSelected,
+    requestSelectedPairingCode,
     updateMachineNameDraft,
     updateBaseUrlDraft,
   };

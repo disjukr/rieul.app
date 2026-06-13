@@ -17,18 +17,21 @@ use tracing::{info, warn};
 use web_transport_quinn::proto::ConnectResponse;
 use wgo_daemon_core::cbor::Value;
 use wgo_daemon_core::config::{
-    daemon_status_path, load_or_default, load_or_generated_default, load_pairing_state_or_default,
-    pairing_state_path, save, save_pairing_state, PairingState, SystemConfig,
+    client_credentials_path, daemon_status_path, load_client_credentials_or_default,
+    load_or_default, load_or_generated_default, save, save_client_credentials, ClientCredentials,
+    SystemConfig,
 };
 use wgo_daemon_core::pairing::{
-    create_pairing_code, issue_client_secret, verify_client_secret, verify_pairing_code,
+    create_pairing_code, issue_client_secret, reissue_client_secret, renew_client_credential,
+    verify_client_credential, verify_pairing_code, PairingRecord,
 };
 use wgo_daemon_core::rpc::{
     BulkMutationItemResult, BulkMutationRes, CompletePairingRequest, CompletePairingResponse,
     CreateNodesReq, DaemonInfo, DeletePathsReq, DirectoryEntryKey,
     DirectorySubscriptionCloseReason, DirectoryTableEvent, FsEntry, ProcId, ReadFileChunk,
-    ReadFileReq, RenamePathsReq, RootEntryKey, RootsSubscriptionCloseReason, RootsTableEvent,
-    RpcErrorCode, RpcErrorPayload, StartPairingResponse, WriteFileReq,
+    ReadFileReq, RenamePathsReq, RenewClientCredentialResponse, RootEntryKey,
+    RootsSubscriptionCloseReason, RootsTableEvent, RpcErrorCode, RpcErrorPayload,
+    StartPairingResponse, WriteFileReq,
 };
 use wgo_daemon_core::traits::{FileService, ServiceError};
 use wgo_daemon_core::wire::{
@@ -48,7 +51,8 @@ const ROOTS_SUBSCRIPTION_POLL_INTERVAL: Duration = Duration::from_secs(2);
 const READ_FILE_CHUNK_SIZE: usize = 64 * 1024;
 
 type SharedSystemConfig = Arc<Mutex<SystemConfig>>;
-type SharedPairingState = Arc<Mutex<PairingState>>;
+type SharedClientCredentials = Arc<Mutex<ClientCredentials>>;
+type SharedPairingChallenge = Arc<Mutex<Option<PairingRecord>>>;
 type SharedRpcSessionState = Arc<Mutex<RpcSessionState>>;
 type SharedFileService = Arc<dyn FileService>;
 type SharedPairingNotifier = Arc<dyn PairingNotifier>;
@@ -116,8 +120,11 @@ async fn run_system_server_once(
     let certificate = prepare_server_certificate(&mut config, addr, &config_path, &provider)?;
     save(&config_path, &config)?;
     let config_state = Arc::new(Mutex::new(config));
-    let pairing_path = pairing_state_path(&config_path);
-    let pairing_state = Arc::new(Mutex::new(load_pairing_state_or_default(&pairing_path)?));
+    let credentials_path = client_credentials_path(&config_path);
+    let client_credentials = Arc::new(Mutex::new(load_client_credentials_or_default(
+        &credentials_path,
+    )?));
+    let pairing_challenge = Arc::new(Mutex::new(None));
 
     let resolver = Arc::new(ReloadingCertResolver::new(certificate.certified_key));
     let mut server = build_reloadable_server(addr, provider.clone(), resolver.clone())?;
@@ -134,18 +141,20 @@ async fn run_system_server_once(
 
     while let Some(request) = server.accept().await {
         let config_path = config_path.clone();
-        let pairing_path = pairing_path.clone();
+        let credentials_path = credentials_path.clone();
         let config_state = config_state.clone();
-        let pairing_state = pairing_state.clone();
+        let client_credentials = client_credentials.clone();
+        let pairing_challenge = pairing_challenge.clone();
         let files = files.clone();
         let pairing_notifier = pairing_notifier.clone();
         tokio::spawn(async move {
             if let Err(err) = handle_request(
                 request,
                 config_path,
-                pairing_path,
+                credentials_path,
                 config_state,
-                pairing_state,
+                client_credentials,
+                pairing_challenge,
                 files,
                 pairing_notifier,
             )
@@ -634,9 +643,10 @@ fn certificate_reload_key(config: &SystemConfig) -> String {
 async fn handle_request(
     request: web_transport_quinn::Request,
     config_path: PathBuf,
-    pairing_path: PathBuf,
+    credentials_path: PathBuf,
     config_state: SharedSystemConfig,
-    pairing_state: SharedPairingState,
+    client_credentials: SharedClientCredentials,
+    pairing_challenge: SharedPairingChallenge,
     files: SharedFileService,
     pairing_notifier: Option<SharedPairingNotifier>,
 ) -> Result<()> {
@@ -647,9 +657,10 @@ async fn handle_request(
             run_rpc_session(
                 session,
                 config_path,
-                pairing_path,
+                credentials_path,
                 config_state,
-                pairing_state,
+                client_credentials,
+                pairing_challenge,
                 files,
                 pairing_notifier,
             )
@@ -671,9 +682,10 @@ async fn handle_request(
 async fn run_rpc_session(
     session: web_transport_quinn::Session,
     config_path: PathBuf,
-    pairing_path: PathBuf,
+    credentials_path: PathBuf,
     config_state: SharedSystemConfig,
-    pairing_state: SharedPairingState,
+    client_credentials: SharedClientCredentials,
+    pairing_challenge: SharedPairingChallenge,
     files: SharedFileService,
     pairing_notifier: Option<SharedPairingNotifier>,
 ) -> Result<()> {
@@ -683,9 +695,10 @@ async fn run_rpc_session(
             stream = session.accept_bi() => {
                 let (mut send, mut recv) = stream?;
                 let config_path = config_path.clone();
-                let pairing_path = pairing_path.clone();
+                let credentials_path = credentials_path.clone();
                 let config_state = config_state.clone();
-                let pairing_state = pairing_state.clone();
+                let client_credentials = client_credentials.clone();
+                let pairing_challenge = pairing_challenge.clone();
                 let session_state = session_state.clone();
                 let files = files.clone();
                 let pairing_notifier = pairing_notifier.clone();
@@ -698,9 +711,10 @@ async fn run_rpc_session(
                             messages,
                             &mut send,
                             &config_path,
-                            &pairing_path,
+                            &credentials_path,
                             config_state,
-                            pairing_state,
+                            client_credentials,
+                            pairing_challenge,
                             session_state,
                             files,
                             pairing_notifier,
@@ -762,9 +776,10 @@ async fn read_reqres_message_sequence_from_stream(
 async fn handle_reqres_messages(
     messages: Vec<ReqResMessage>,
     config_path: &Path,
-    pairing_path: &Path,
+    credentials_path: &Path,
     config_state: SharedSystemConfig,
-    pairing_state: SharedPairingState,
+    client_credentials: SharedClientCredentials,
+    pairing_challenge: SharedPairingChallenge,
     session_state: SharedRpcSessionState,
     files: SharedFileService,
     pairing_notifier: Option<SharedPairingNotifier>,
@@ -777,14 +792,15 @@ async fn handle_reqres_messages(
         )]);
     };
     if first.is_session_control() {
-        handle_session_control_messages(messages, pairing_state, session_state).await
+        handle_session_control_messages(messages, client_credentials, session_state).await
     } else {
         handle_rpc_messages(
             messages,
             config_path,
-            pairing_path,
+            credentials_path,
             config_state,
-            pairing_state,
+            client_credentials,
+            pairing_challenge,
             session_state,
             files,
             pairing_notifier,
@@ -797,9 +813,10 @@ async fn handle_reqres_stream(
     messages: Vec<ReqResMessage>,
     send: &mut web_transport_quinn::SendStream,
     config_path: &Path,
-    pairing_path: &Path,
+    credentials_path: &Path,
     config_state: SharedSystemConfig,
-    pairing_state: SharedPairingState,
+    client_credentials: SharedClientCredentials,
+    pairing_challenge: SharedPairingChallenge,
     session_state: SharedRpcSessionState,
     files: SharedFileService,
     pairing_notifier: Option<SharedPairingNotifier>,
@@ -829,9 +846,10 @@ async fn handle_reqres_stream(
     let responses = handle_reqres_messages(
         messages,
         config_path,
-        pairing_path,
+        credentials_path,
         config_state,
-        pairing_state,
+        client_credentials,
+        pairing_challenge,
         session_state,
         files,
         pairing_notifier,
@@ -1312,7 +1330,7 @@ async fn write_reqres_message(
 
 async fn handle_session_control_messages(
     mut messages: Vec<ReqResMessage>,
-    pairing_state: SharedPairingState,
+    client_credentials: SharedClientCredentials,
     session_state: SharedRpcSessionState,
 ) -> Result<Vec<ReqResMessage>> {
     if messages.len() != 1 {
@@ -1324,7 +1342,8 @@ async fn handle_session_control_messages(
 
     match messages.remove(0) {
         ReqResMessage::SessionAuthenticate { mechanism, payload } => Ok(vec![
-            authenticate_session_control(pairing_state, session_state, mechanism, payload).await?,
+            authenticate_session_control(client_credentials, session_state, mechanism, payload)
+                .await?,
         ]),
         _ => Ok(vec![session_auth_error_message(
             SessionAuthErrorCode::MalformedPayload,
@@ -1334,7 +1353,7 @@ async fn handle_session_control_messages(
 }
 
 async fn authenticate_session_control(
-    pairing_state: SharedPairingState,
+    client_credentials: SharedClientCredentials,
     session_state: SharedRpcSessionState,
     mechanism: String,
     payload: Vec<u8>,
@@ -1360,7 +1379,7 @@ async fn authenticate_session_control(
             ));
         }
     };
-    if !verify_session_credentials(&credential, &pairing_state).await {
+    if !verify_session_credentials(&credential, &client_credentials).await {
         return Ok(session_auth_error_message(
             SessionAuthErrorCode::InvalidCredentials,
             "paired credential verification failed",
@@ -1373,9 +1392,10 @@ async fn authenticate_session_control(
 async fn handle_rpc_messages(
     mut messages: Vec<ReqResMessage>,
     config_path: &Path,
-    pairing_path: &Path,
+    credentials_path: &Path,
     config_state: SharedSystemConfig,
-    pairing_state: SharedPairingState,
+    client_credentials: SharedClientCredentials,
+    pairing_challenge: SharedPairingChallenge,
     session_state: SharedRpcSessionState,
     files: SharedFileService,
     pairing_notifier: Option<SharedPairingNotifier>,
@@ -1414,35 +1434,41 @@ async fn handle_rpc_messages(
             ok_payload_message(proc_id, DaemonInfo::current().encode())
         }
         id if id == ProcId::StartPairing.as_u64() => {
+            let Some(notifier) = pairing_notifier.as_ref() else {
+                return Ok(vec![error_message(
+                    proc_id,
+                    "failed",
+                    "daemon failed to start pairing",
+                )]);
+            };
             let now = now_unix();
             let config = load_runtime_config(config_path, &config_state).await?;
-            let mut state = load_runtime_pairing_state(pairing_path, &pairing_state).await?;
             let pairing = create_pairing_code(now);
             let daemon_url = pairing_daemon_url(&config);
-            let expires_at_unix = pairing.record.expires_at_unix;
-            state.pairing = Some(pairing.record);
-            store_runtime_pairing_state(pairing_path, &pairing_state, state).await?;
+            let pairing_code_expires_at_unix = pairing.record.expires_at_unix;
+            *pairing_challenge.lock().await = Some(pairing.record);
 
-            if let Some(notifier) = pairing_notifier.as_ref() {
-                let notification = PairingCodeNotification {
-                    daemon_url,
-                    pairing_code: pairing.code,
-                    expires_in_seconds: expires_at_unix - now,
-                };
-                if let Err(err) = notifier.notify_pairing_code(notification).await {
-                    warn!(?err, "failed to notify local pairing UI");
-                    let mut state =
-                        load_runtime_pairing_state(pairing_path, &pairing_state).await?;
-                    state.pairing = None;
-                    store_runtime_pairing_state(pairing_path, &pairing_state, state).await?;
-                    return Ok(vec![error_message(
-                        proc_id,
-                        "pairing_ui_unavailable",
-                        "local pairing UI is not available",
-                    )]);
-                }
+            let notification = PairingCodeNotification {
+                daemon_url,
+                pairing_code: pairing.code,
+                expires_in_seconds: pairing_code_expires_at_unix - now,
+            };
+            if let Err(err) = notifier.notify_pairing_code(notification).await {
+                warn!(?err, "failed to notify local pairing UI");
+                *pairing_challenge.lock().await = None;
+                return Ok(vec![error_message(
+                    proc_id,
+                    "failed",
+                    "daemon failed to start pairing",
+                )]);
             }
-            ok_payload_message(proc_id, StartPairingResponse { expires_at_unix }.encode())
+            ok_payload_message(
+                proc_id,
+                StartPairingResponse {
+                    pairing_code_expires_at_unix,
+                }
+                .encode(),
+            )
         }
         id if id == ProcId::CompletePairing.as_u64() => {
             let Some(payload) = payload else {
@@ -1463,8 +1489,7 @@ async fn handle_rpc_messages(
                 }
             };
             let now = now_unix();
-            let mut state = load_runtime_pairing_state(pairing_path, &pairing_state).await?;
-            let Some(pairing) = state.pairing.clone() else {
+            let Some(pairing) = pairing_challenge.lock().await.clone() else {
                 return Ok(vec![error_message(
                     proc_id,
                     "pairing_not_started",
@@ -1472,8 +1497,7 @@ async fn handle_rpc_messages(
                 )]);
             };
             if now >= pairing.expires_at_unix {
-                state.pairing = None;
-                store_runtime_pairing_state(pairing_path, &pairing_state, state).await?;
+                *pairing_challenge.lock().await = None;
                 return Ok(vec![error_message(
                     proc_id,
                     "pairing_expired",
@@ -1488,18 +1512,64 @@ async fn handle_rpc_messages(
                 )]);
             }
 
+            let mut state =
+                load_runtime_client_credentials(credentials_path, &client_credentials).await?;
             let label = request.client_label.trim();
-            let issued = issue_client_secret(if label.is_empty() { "browser" } else { label }, now);
+            let label = if label.is_empty() { "browser" } else { label };
+            let requested_client_id = request
+                .client_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|client_id| !client_id.is_empty());
+            let existing_record = requested_client_id.and_then(|client_id| {
+                state
+                    .clients
+                    .iter()
+                    .find(|record| record.client_id == client_id)
+                    .cloned()
+            });
+            let issued = match existing_record {
+                Some(record) => reissue_client_secret(&record, label, now),
+                None => issue_client_secret(label, now),
+            };
             let client_id = issued.client_id.clone();
+            let client_credential_expires_at_unix = issued.record.expires_at_unix;
+            state.clients.retain(|record| record.client_id != client_id);
             state.clients.push(issued.record);
-            state.pairing = None;
-            store_runtime_pairing_state(pairing_path, &pairing_state, state).await?;
+            store_runtime_client_credentials(credentials_path, &client_credentials, state).await?;
+            *pairing_challenge.lock().await = None;
 
             ok_payload_message(
                 proc_id,
                 CompletePairingResponse {
                     client_id,
                     client_secret: issued.client_secret,
+                    client_credential_expires_at_unix,
+                }
+                .encode(),
+            )
+        }
+        id if id == ProcId::RenewClientCredential.as_u64() => {
+            let Some(client_id) = authenticated_client_id(&session_state).await else {
+                return Ok(vec![unauthorized_message(proc_id)]);
+            };
+            let now = now_unix();
+            let mut state =
+                load_runtime_client_credentials(credentials_path, &client_credentials).await?;
+            let Some(record) = state
+                .clients
+                .iter_mut()
+                .find(|record| record.client_id == client_id)
+            else {
+                return Ok(vec![unauthorized_message(proc_id)]);
+            };
+            renew_client_credential(record, now);
+            let client_credential_expires_at_unix = record.expires_at_unix;
+            store_runtime_client_credentials(credentials_path, &client_credentials, state).await?;
+            ok_payload_message(
+                proc_id,
+                RenewClientCredentialResponse {
+                    client_credential_expires_at_unix,
                 }
                 .encode(),
             )
@@ -1625,14 +1695,19 @@ async fn is_authenticated(session_state: &SharedRpcSessionState) -> bool {
     session_state.lock().await.authenticated_client_id.is_some()
 }
 
+async fn authenticated_client_id(session_state: &SharedRpcSessionState) -> Option<String> {
+    session_state.lock().await.authenticated_client_id.clone()
+}
+
 async fn verify_session_credentials(
     credential: &PairedSecretCredential,
-    pairing_state: &SharedPairingState,
+    client_credentials: &SharedClientCredentials,
 ) -> bool {
-    let state = pairing_state.lock().await;
+    let now = now_unix();
+    let state = client_credentials.lock().await;
     state.clients.iter().any(|record| {
         record.client_id == credential.credential_id
-            && verify_client_secret(record, &credential.credential_secret)
+            && verify_client_credential(record, &credential.credential_secret, now)
     })
 }
 
@@ -1645,22 +1720,22 @@ async fn load_runtime_config(
     Ok(config)
 }
 
-async fn load_runtime_pairing_state(
-    pairing_path: &Path,
-    pairing_state: &SharedPairingState,
-) -> Result<PairingState> {
-    let state = load_pairing_state_or_default(pairing_path)?;
-    *pairing_state.lock().await = state.clone();
+async fn load_runtime_client_credentials(
+    credentials_path: &Path,
+    client_credentials: &SharedClientCredentials,
+) -> Result<ClientCredentials> {
+    let state = load_client_credentials_or_default(credentials_path)?;
+    *client_credentials.lock().await = state.clone();
     Ok(state)
 }
 
-async fn store_runtime_pairing_state(
-    pairing_path: &Path,
-    pairing_state: &SharedPairingState,
-    state: PairingState,
+async fn store_runtime_client_credentials(
+    credentials_path: &Path,
+    client_credentials: &SharedClientCredentials,
+    state: ClientCredentials,
 ) -> Result<()> {
-    save_pairing_state(pairing_path, &state)?;
-    *pairing_state.lock().await = state;
+    save_client_credentials(credentials_path, &state)?;
+    *client_credentials.lock().await = state;
     Ok(())
 }
 
@@ -1831,14 +1906,17 @@ fn method_error_variant(proc_id: u64, code: &str) -> Option<u64> {
             _ => None,
         },
         id if id == ProcId::StartPairing.as_u64() => match code {
-            "pairing_not_started" => Some(1),
-            "pairing_expired" => Some(2),
+            "failed" => Some(0),
             _ => None,
         },
         id if id == ProcId::CompletePairing.as_u64() => match code {
             "pairing_not_started" => Some(1),
             "pairing_expired" => Some(2),
             "invalid_pairing_code" => Some(3),
+            _ => None,
+        },
+        id if id == ProcId::RenewClientCredential.as_u64() => match code {
+            "failed" => Some(0),
             _ => None,
         },
         id if id == ProcId::SubscribeRoots.as_u64() => match code {
@@ -1886,7 +1964,10 @@ fn method_error_variant(proc_id: u64, code: &str) -> Option<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wgo_daemon_core::pairing::{create_pairing_code, PAIRING_TTL_SECONDS};
+    use wgo_daemon_core::pairing::{
+        create_pairing_code, issue_client_secret, verify_client_secret,
+        CLIENT_CREDENTIAL_TTL_SECONDS, PAIRING_TTL_SECONDS,
+    };
     use wgo_daemon_core::rpc::{
         CreateNodeOp, DeleteMode, FsEntryKind, ReadFileReq, WriteFileChunk, WriteFileResult,
         WriteFileStart,
@@ -1908,26 +1989,20 @@ mod tests {
     async fn complete_pairing_reads_config_written_after_server_start() {
         let dir = tempfile::tempdir().unwrap();
         let config_path = dir.path().join("wgo.yaml");
-        let pairing_path = pairing_state_path(&config_path);
+        let credentials_path = client_credentials_path(&config_path);
         let pairing = create_pairing_code(now_unix());
         save(&config_path, &SystemConfig::default()).unwrap();
-        save_pairing_state(
-            &pairing_path,
-            &PairingState {
-                pairing: Some(pairing.record.clone()),
-                ..PairingState::default()
-            },
-        )
-        .unwrap();
 
         let config_state = Arc::new(Mutex::new(SystemConfig::default()));
-        let pairing_state = Arc::new(Mutex::new(PairingState::default()));
+        let client_credentials = Arc::new(Mutex::new(ClientCredentials::default()));
+        let pairing_challenge = test_pairing_challenge_with(pairing.record.clone());
         let request = request_message(
             ProcId::CompletePairing,
             Some(
                 CompletePairingRequest {
                     code: pairing.code,
                     client_label: "test-browser".to_string(),
+                    client_id: None,
                 }
                 .encode(),
             ),
@@ -1936,9 +2011,10 @@ mod tests {
         let responses = handle_rpc_messages(
             vec![request],
             &config_path,
-            &pairing_path,
+            &credentials_path,
             config_state,
-            pairing_state.clone(),
+            client_credentials.clone(),
+            pairing_challenge.clone(),
             session_state.clone(),
             test_files(),
             None,
@@ -1950,35 +2026,175 @@ mod tests {
 
         assert!(matches!(response, ReqResMessage::ResponseUnaryOk { .. }));
         let credentials = CompletePairingResponse::decode(payload(response)).unwrap();
-        let stored = load_pairing_state_or_default(&pairing_path).unwrap();
-        assert_eq!(stored.pairing, None);
+        let stored = load_client_credentials_or_default(&credentials_path).unwrap();
+        assert_eq!(*pairing_challenge.lock().await, None);
         assert_eq!(stored.clients.len(), 1);
+        assert_eq!(
+            stored.clients[0].expires_at_unix,
+            credentials.client_credential_expires_at_unix
+        );
         assert!(verify_client_secret(
             &stored.clients[0],
             &credentials.client_secret
         ));
-        assert_eq!(pairing_state.lock().await.clients.len(), 1);
+        assert_eq!(client_credentials.lock().await.clients.len(), 1);
         assert_eq!(session_state.lock().await.authenticated_client_id, None);
+    }
+
+    #[tokio::test]
+    async fn complete_pairing_reuses_requested_existing_client_id() {
+        let dir = tempfile::tempdir().unwrap();
+        let config_path = dir.path().join("wgo.yaml");
+        let credentials_path = client_credentials_path(&config_path);
+        let pairing = create_pairing_code(now_unix());
+        let existing = issue_client_secret("test-browser", now_unix() - 10);
+        let existing_client_id = existing.client_id.clone();
+        let existing_created_at_unix = existing.record.created_at_unix;
+        let old_secret = existing.client_secret.clone();
+        save(&config_path, &SystemConfig::default()).unwrap();
+        save_client_credentials(
+            &credentials_path,
+            &ClientCredentials {
+                clients: vec![existing.record],
+            },
+        )
+        .unwrap();
+
+        let config_state = Arc::new(Mutex::new(SystemConfig::default()));
+        let client_credentials = Arc::new(Mutex::new(ClientCredentials::default()));
+        let pairing_challenge = test_pairing_challenge_with(pairing.record.clone());
+        let request = request_message(
+            ProcId::CompletePairing,
+            Some(
+                CompletePairingRequest {
+                    code: pairing.code,
+                    client_label: "test-browser".to_string(),
+                    client_id: Some(existing_client_id.clone()),
+                }
+                .encode(),
+            ),
+        );
+        let responses = handle_rpc_messages(
+            vec![request],
+            &config_path,
+            &credentials_path,
+            config_state,
+            client_credentials,
+            pairing_challenge.clone(),
+            Arc::new(Mutex::new(RpcSessionState::default())),
+            test_files(),
+            None,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(responses.len(), 1);
+        let response = &responses[0];
+        assert!(matches!(response, ReqResMessage::ResponseUnaryOk { .. }));
+        let credentials = CompletePairingResponse::decode(payload(response)).unwrap();
+        let stored = load_client_credentials_or_default(&credentials_path).unwrap();
+        assert_eq!(credentials.client_id, existing_client_id);
+        assert_eq!(*pairing_challenge.lock().await, None);
+        assert_eq!(stored.clients.len(), 1);
+        assert_eq!(stored.clients[0].client_id, existing_client_id);
+        assert_eq!(stored.clients[0].created_at_unix, existing_created_at_unix);
+        assert_eq!(
+            stored.clients[0].expires_at_unix,
+            credentials.client_credential_expires_at_unix
+        );
+        assert!(verify_client_secret(
+            &stored.clients[0],
+            &credentials.client_secret
+        ));
+        assert!(!verify_client_secret(&stored.clients[0], &old_secret));
+    }
+
+    #[tokio::test]
+    async fn complete_pairing_does_not_reuse_client_id_by_label() {
+        let dir = tempfile::tempdir().unwrap();
+        let config_path = dir.path().join("wgo.yaml");
+        let credentials_path = client_credentials_path(&config_path);
+        let pairing = create_pairing_code(now_unix());
+        let existing = issue_client_secret("test-browser", now_unix() - 10);
+        let existing_client_id = existing.client_id.clone();
+        save(&config_path, &SystemConfig::default()).unwrap();
+        save_client_credentials(
+            &credentials_path,
+            &ClientCredentials {
+                clients: vec![existing.record],
+            },
+        )
+        .unwrap();
+        let pairing_challenge = test_pairing_challenge_with(pairing.record.clone());
+
+        let request = request_message(
+            ProcId::CompletePairing,
+            Some(
+                CompletePairingRequest {
+                    code: pairing.code,
+                    client_label: "test-browser".to_string(),
+                    client_id: None,
+                }
+                .encode(),
+            ),
+        );
+        let responses = handle_rpc_messages(
+            vec![request],
+            &config_path,
+            &credentials_path,
+            Arc::new(Mutex::new(SystemConfig::default())),
+            Arc::new(Mutex::new(ClientCredentials::default())),
+            pairing_challenge.clone(),
+            Arc::new(Mutex::new(RpcSessionState::default())),
+            test_files(),
+            None,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(responses.len(), 1);
+        let response = &responses[0];
+        assert!(matches!(response, ReqResMessage::ResponseUnaryOk { .. }));
+        let credentials = CompletePairingResponse::decode(payload(response)).unwrap();
+        let stored = load_client_credentials_or_default(&credentials_path).unwrap();
+        assert_eq!(*pairing_challenge.lock().await, None);
+        assert_ne!(credentials.client_id, existing_client_id);
+        assert_eq!(stored.clients.len(), 2);
+        assert!(stored
+            .clients
+            .iter()
+            .any(|record| record.client_id == existing_client_id));
+        assert!(stored
+            .clients
+            .iter()
+            .any(|record| record.client_id == credentials.client_id));
+        assert!(stored.clients.iter().any(|record| {
+            record.client_id == credentials.client_id
+                && record.expires_at_unix == credentials.client_credential_expires_at_unix
+        }));
     }
 
     #[tokio::test]
     async fn start_pairing_creates_runtime_pairing_code() {
         let dir = tempfile::tempdir().unwrap();
         let config_path = dir.path().join("wgo.yaml");
-        let pairing_path = pairing_state_path(&config_path);
+        let credentials_path = client_credentials_path(&config_path);
         save(&config_path, &SystemConfig::default()).unwrap();
 
         let config_state = Arc::new(Mutex::new(SystemConfig::default()));
-        let pairing_state = Arc::new(Mutex::new(PairingState::default()));
+        let client_credentials = Arc::new(Mutex::new(ClientCredentials::default()));
+        let pairing_challenge = test_pairing_challenge();
+        let notifier = RecordingPairingNotifier::default();
         let responses = handle_rpc_messages(
             vec![request_message(ProcId::StartPairing, None)],
             &config_path,
-            &pairing_path,
+            &credentials_path,
             config_state,
-            pairing_state.clone(),
+            client_credentials.clone(),
+            pairing_challenge.clone(),
             Arc::new(Mutex::new(RpcSessionState::default())),
             test_files(),
-            None,
+            Some(Arc::new(notifier.clone())),
         )
         .await
         .unwrap();
@@ -1989,31 +2205,34 @@ mod tests {
         let Value::Map(response_payload) = Value::decode(payload(response)).unwrap() else {
             panic!("expected StartPairing response map");
         };
-        let expires_at_unix = match response_payload.get(&1) {
+        let pairing_code_expires_at_unix = match response_payload.get(&1) {
             Some(Value::I64(value)) => *value,
             Some(Value::U64(value)) => *value as i64,
-            _ => panic!("expected StartPairing expires_at_unix"),
+            _ => panic!("expected StartPairing pairing_code_expires_at_unix"),
         };
-        let stored = load_pairing_state_or_default(&pairing_path).unwrap();
-        let pairing = stored.pairing.unwrap();
-        assert_eq!(expires_at_unix, pairing.expires_at_unix);
-        assert_eq!(pairing_state.lock().await.pairing, Some(pairing));
+        let stored = load_client_credentials_or_default(&credentials_path).unwrap();
+        assert_eq!(stored.clients.len(), 0);
+        let pairing = pairing_challenge.lock().await.clone().unwrap();
+        assert_eq!(pairing_code_expires_at_unix, pairing.expires_at_unix);
+        assert_eq!(client_credentials.lock().await.clients.len(), 0);
     }
 
     #[tokio::test]
     async fn start_pairing_notifies_local_pairing_ui() {
         let dir = tempfile::tempdir().unwrap();
         let config_path = dir.path().join("wgo.yaml");
-        let pairing_path = pairing_state_path(&config_path);
+        let credentials_path = client_credentials_path(&config_path);
         save(&config_path, &SystemConfig::default()).unwrap();
 
         let notifier = RecordingPairingNotifier::default();
+        let pairing_challenge = test_pairing_challenge();
         let responses = handle_rpc_messages(
             vec![request_message(ProcId::StartPairing, None)],
             &config_path,
-            &pairing_path,
+            &credentials_path,
             Arc::new(Mutex::new(SystemConfig::default())),
-            Arc::new(Mutex::new(PairingState::default())),
+            Arc::new(Mutex::new(ClientCredentials::default())),
+            pairing_challenge.clone(),
             Arc::new(Mutex::new(RpcSessionState::default())),
             test_files(),
             Some(Arc::new(notifier.clone())),
@@ -2025,8 +2244,9 @@ mod tests {
             responses.first(),
             Some(ReqResMessage::ResponseUnaryOk { .. })
         ));
-        let stored = load_pairing_state_or_default(&pairing_path).unwrap();
-        let pairing = stored.pairing.unwrap();
+        let stored = load_client_credentials_or_default(&credentials_path).unwrap();
+        assert_eq!(stored.clients.len(), 0);
+        let pairing = pairing_challenge.lock().await.clone().unwrap();
         let notifications = notifier.notifications.lock().unwrap();
         assert_eq!(notifications.len(), 1);
         assert_eq!(notifications[0].daemon_url, "https://localhost:9012");
@@ -2040,18 +2260,57 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn start_pairing_fails_when_daemon_cannot_show_pairing_code() {
+        let dir = tempfile::tempdir().unwrap();
+        let config_path = dir.path().join("wgo.yaml");
+        let credentials_path = client_credentials_path(&config_path);
+        save(&config_path, &SystemConfig::default()).unwrap();
+        let pairing_challenge = test_pairing_challenge();
+
+        let responses = handle_rpc_messages(
+            vec![request_message(ProcId::StartPairing, None)],
+            &config_path,
+            &credentials_path,
+            Arc::new(Mutex::new(SystemConfig::default())),
+            Arc::new(Mutex::new(ClientCredentials::default())),
+            pairing_challenge.clone(),
+            Arc::new(Mutex::new(RpcSessionState::default())),
+            test_files(),
+            None,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(responses.len(), 1);
+        let response = &responses[0];
+        assert!(matches!(
+            response,
+            ReqResMessage::ResponseUnaryError {
+                error_kind: RpcErrorKind::Method,
+                ..
+            }
+        ));
+        let Value::Array(error_items) = Value::decode(error(response)).unwrap() else {
+            panic!("expected method error union");
+        };
+        assert_eq!(error_items.first(), Some(&Value::U64(0)));
+        assert_eq!(*pairing_challenge.lock().await, None);
+    }
+
+    #[tokio::test]
     async fn filesystem_rpc_requires_paired_client_credentials() {
         let dir = tempfile::tempdir().unwrap();
         let config_path = dir.path().join("wgo.yaml");
-        let pairing_path = pairing_state_path(&config_path);
+        let credentials_path = client_credentials_path(&config_path);
         save(&config_path, &SystemConfig::default()).unwrap();
 
         let responses = handle_rpc_messages(
             vec![request_message(ProcId::CreateNodes, None)],
             &config_path,
-            &pairing_path,
+            &credentials_path,
             Arc::new(Mutex::new(SystemConfig::default())),
-            Arc::new(Mutex::new(PairingState::default())),
+            Arc::new(Mutex::new(ClientCredentials::default())),
+            test_pairing_challenge(),
             Arc::new(Mutex::new(RpcSessionState::default())),
             test_files(),
             None,
@@ -2163,20 +2422,20 @@ mod tests {
     async fn session_authenticate_marks_session_authenticated() {
         let dir = tempfile::tempdir().unwrap();
         let config_path = dir.path().join("wgo.yaml");
-        let pairing_path = pairing_state_path(&config_path);
+        let credentials_path = client_credentials_path(&config_path);
         let issued = issue_client_secret("test-browser", now_unix());
         save(&config_path, &SystemConfig::default()).unwrap();
-        save_pairing_state(
-            &pairing_path,
-            &PairingState {
+        save_client_credentials(
+            &credentials_path,
+            &ClientCredentials {
                 clients: vec![issued.record],
-                ..PairingState::default()
+                ..ClientCredentials::default()
             },
         )
         .unwrap();
         let config_state = Arc::new(Mutex::new(load_or_default(&config_path).unwrap()));
-        let pairing_state = Arc::new(Mutex::new(
-            load_pairing_state_or_default(&pairing_path).unwrap(),
+        let client_credentials = Arc::new(Mutex::new(
+            load_client_credentials_or_default(&credentials_path).unwrap(),
         ));
         let session_state = Arc::new(Mutex::new(RpcSessionState::default()));
 
@@ -2190,9 +2449,10 @@ mod tests {
                 .encode(),
             }],
             &config_path,
-            &pairing_path,
+            &credentials_path,
             config_state,
-            pairing_state,
+            client_credentials,
+            test_pairing_challenge(),
             session_state.clone(),
             test_files(),
             None,
@@ -2209,11 +2469,130 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn session_authenticate_rejects_expired_client_credential() {
+        let dir = tempfile::tempdir().unwrap();
+        let config_path = dir.path().join("wgo.yaml");
+        let credentials_path = client_credentials_path(&config_path);
+        let mut issued = issue_client_secret("test-browser", now_unix());
+        issued.record.expires_at_unix = now_unix() - 1;
+        save(&config_path, &SystemConfig::default()).unwrap();
+        save_client_credentials(
+            &credentials_path,
+            &ClientCredentials {
+                clients: vec![issued.record],
+                ..ClientCredentials::default()
+            },
+        )
+        .unwrap();
+        let session_state = Arc::new(Mutex::new(RpcSessionState::default()));
+
+        let responses = handle_reqres_messages(
+            vec![ReqResMessage::SessionAuthenticate {
+                mechanism: PAIRED_SECRET_AUTH_MECHANISM.to_string(),
+                payload: PairedSecretCredential {
+                    credential_id: issued.client_id,
+                    credential_secret: issued.client_secret,
+                }
+                .encode(),
+            }],
+            &config_path,
+            &credentials_path,
+            Arc::new(Mutex::new(load_or_default(&config_path).unwrap())),
+            Arc::new(Mutex::new(
+                load_client_credentials_or_default(&credentials_path).unwrap(),
+            )),
+            test_pairing_challenge(),
+            session_state.clone(),
+            test_files(),
+            None,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(responses.len(), 1);
+        assert!(matches!(
+            responses[0],
+            ReqResMessage::SessionAuthError {
+                code: SessionAuthErrorCode::InvalidCredentials,
+                ..
+            }
+        ));
+        assert_eq!(session_state.lock().await.authenticated_client_id, None);
+    }
+
+    #[tokio::test]
+    async fn renew_client_credential_extends_authenticated_client_expiry() {
+        let dir = tempfile::tempdir().unwrap();
+        let config_path = dir.path().join("wgo.yaml");
+        let credentials_path = client_credentials_path(&config_path);
+        let mut issued = issue_client_secret("test-browser", now_unix() - 10);
+        let client_id = issued.client_id.clone();
+        issued.record.expires_at_unix = now_unix() + 10;
+        let previous_expires_at_unix = issued.record.expires_at_unix;
+        save(&config_path, &SystemConfig::default()).unwrap();
+        save_client_credentials(
+            &credentials_path,
+            &ClientCredentials {
+                clients: vec![issued.record],
+                ..ClientCredentials::default()
+            },
+        )
+        .unwrap();
+        let session_state = Arc::new(Mutex::new(RpcSessionState {
+            authenticated_client_id: Some(client_id.clone()),
+        }));
+
+        let responses = handle_rpc_messages(
+            vec![request_message(ProcId::RenewClientCredential, None)],
+            &config_path,
+            &credentials_path,
+            Arc::new(Mutex::new(SystemConfig::default())),
+            Arc::new(Mutex::new(ClientCredentials::default())),
+            test_pairing_challenge(),
+            session_state,
+            test_files(),
+            None,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(responses.len(), 1);
+        assert!(matches!(
+            responses[0],
+            ReqResMessage::ResponseUnaryOk { .. }
+        ));
+        let renewal = RenewClientCredentialResponse::decode(payload(&responses[0])).unwrap();
+        let stored = load_client_credentials_or_default(&credentials_path).unwrap();
+        let record = stored
+            .clients
+            .iter()
+            .find(|record| record.client_id == client_id)
+            .unwrap();
+        assert!(renewal.client_credential_expires_at_unix > previous_expires_at_unix);
+        assert_eq!(
+            renewal.client_credential_expires_at_unix,
+            record.expires_at_unix
+        );
+        assert!(
+            renewal.client_credential_expires_at_unix
+                >= now_unix() + CLIENT_CREDENTIAL_TTL_SECONDS - 1
+        );
+    }
+
     fn request_message(proc_id: ProcId, payload: Option<Vec<u8>>) -> ReqResMessage {
         ReqResMessage::RequestUnary {
             proc_id: proc_id.as_u64(),
             payload,
         }
+    }
+
+    fn test_pairing_challenge() -> SharedPairingChallenge {
+        Arc::new(Mutex::new(None))
+    }
+
+    fn test_pairing_challenge_with(record: PairingRecord) -> SharedPairingChallenge {
+        Arc::new(Mutex::new(Some(record)))
     }
 
     #[derive(Clone, Default)]

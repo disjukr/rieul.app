@@ -17,7 +17,7 @@ mod windows_tray {
     use std::mem::size_of;
     use std::os::windows::ffi::OsStrExt;
     use std::path::{Path, PathBuf};
-    use std::sync::OnceLock;
+    use std::sync::{Mutex, OnceLock};
 
     use anyhow::{anyhow, Result};
     use wgo_daemon_core::config::{generated_default_system_config, save};
@@ -25,8 +25,8 @@ mod windows_tray {
     use windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, POINT, WPARAM};
     use windows::Win32::System::LibraryLoader::GetModuleHandleW;
     use windows::Win32::UI::Shell::{
-        ShellExecuteW, Shell_NotifyIconW, NIF_ICON, NIF_INFO, NIF_MESSAGE, NIF_TIP, NIIF_INFO,
-        NIM_ADD, NIM_DELETE, NIM_MODIFY, NIM_SETVERSION, NIN_SELECT, NOTIFYICONDATAW,
+        ShellExecuteW, Shell_NotifyIconW, NIF_ICON, NIF_INFO, NIF_MESSAGE, NIF_REALTIME, NIF_TIP,
+        NIIF_INFO, NIM_ADD, NIM_DELETE, NIM_MODIFY, NIM_SETVERSION, NIN_SELECT, NOTIFYICONDATAW,
         NOTIFYICON_VERSION_4,
     };
     use windows::Win32::UI::WindowsAndMessaging::{
@@ -40,8 +40,8 @@ mod windows_tray {
 
     use crate::ipc::{spawn_pairing_notification_server, PairingNotification};
     use crate::pairing_ui::{
-        create_and_show_pairing_window_owned, is_pairing_ui_available, show_error_window,
-        show_machine_info_window_owned, show_pairing_window, PairingWindowModel,
+        is_pairing_ui_available, show_error_window, show_machine_info_window_owned,
+        show_pairing_window, PairingWindowModel,
     };
 
     const CLASS_NAME: PCWSTR = w!("WgoWindowsUserTrayWindow");
@@ -50,9 +50,8 @@ mod windows_tray {
     const PAIRING_NOTIFICATION_MESSAGE: u32 = WM_APP + 2;
     const TRAY_ICON_ID: u32 = 1;
     const CMD_SHOW_MACHINE_INFO: usize = 1001;
-    const CMD_SHOW_PAIRING: usize = 1002;
-    const CMD_OPEN_SETTINGS: usize = 1003;
-    const CMD_QUIT: usize = 1004;
+    const CMD_OPEN_SETTINGS: usize = 1002;
+    const CMD_QUIT: usize = 1003;
     const NIN_KEYSELECT: u32 = 1025;
     const TRAY_ICON_BYTES: &[u8] = include_bytes!("../assets/tray.ico");
     const TRAY_ICON_SIZE: i32 = 32;
@@ -64,7 +63,15 @@ mod windows_tray {
         config_path: PathBuf,
     }
 
+    #[derive(Default)]
+    struct PendingPairingNotification {
+        notification: Option<PairingNotification>,
+        message_posted: bool,
+    }
+
     static TRAY_RUNTIME: OnceLock<TrayRuntime> = OnceLock::new();
+    static PENDING_PAIRING_NOTIFICATION: OnceLock<Mutex<PendingPairingNotification>> =
+        OnceLock::new();
 
     pub fn run(config_path: PathBuf) -> Result<()> {
         TRAY_RUNTIME
@@ -274,10 +281,12 @@ mod windows_tray {
                 LRESULT(0)
             }
             PAIRING_NOTIFICATION_MESSAGE => {
-                if wparam.0 == 0 {
+                if wparam.0 != 0 {
                     return LRESULT(0);
                 }
-                let notification = unsafe { Box::from_raw(wparam.0 as *mut PairingNotification) };
+                let Some(notification) = take_pending_pairing_notification() else {
+                    return LRESULT(0);
+                };
                 if let Err(err) = show_pairing_notification(hwnd, &notification) {
                     let _ = show_pairing_window(&PairingWindowModel {
                         daemon_url: notification.daemon_url.clone(),
@@ -293,7 +302,6 @@ mod windows_tray {
             WM_COMMAND => {
                 match low_word(wparam.0) as usize {
                     CMD_SHOW_MACHINE_INFO => show_machine_info(hwnd),
-                    CMD_SHOW_PAIRING => show_pairing_code(hwnd),
                     CMD_OPEN_SETTINGS => open_settings(hwnd),
                     CMD_QUIT => {
                         let _ = unsafe { DestroyWindow(hwnd) };
@@ -312,20 +320,61 @@ mod windows_tray {
     }
 
     fn post_pairing_notification(hwnd_value: usize, notification: PairingNotification) {
-        let raw = Box::into_raw(Box::new(notification));
+        let should_post = match queue_pairing_notification(notification) {
+            Ok(should_post) => should_post,
+            Err(err) => {
+                let _ =
+                    show_error_window(&format!("Failed to queue pairing notification:\n\n{err}"));
+                return;
+            }
+        };
+        if !should_post {
+            return;
+        }
+
         let hwnd = HWND(hwnd_value as *mut c_void);
         if let Err(err) = unsafe {
             PostMessageW(
                 Some(hwnd),
                 PAIRING_NOTIFICATION_MESSAGE,
-                WPARAM(raw as usize),
+                WPARAM(0),
                 LPARAM(0),
             )
         } {
-            unsafe {
-                drop(Box::from_raw(raw));
-            }
+            clear_pending_pairing_notification();
             let _ = show_error_window(&format!("Failed to queue pairing notification:\n\n{err}"));
+        }
+    }
+
+    fn pending_pairing_notification() -> &'static Mutex<PendingPairingNotification> {
+        PENDING_PAIRING_NOTIFICATION
+            .get_or_init(|| Mutex::new(PendingPairingNotification::default()))
+    }
+
+    fn queue_pairing_notification(notification: PairingNotification) -> Result<bool> {
+        let mut pending = pending_pairing_notification()
+            .lock()
+            .map_err(|_| anyhow!("pending pairing notification mutex was poisoned"))?;
+        pending.notification = Some(notification);
+        if pending.message_posted {
+            return Ok(false);
+        }
+        pending.message_posted = true;
+        Ok(true)
+    }
+
+    fn take_pending_pairing_notification() -> Option<PairingNotification> {
+        let Ok(mut pending) = pending_pairing_notification().lock() else {
+            return None;
+        };
+        pending.message_posted = false;
+        pending.notification.take()
+    }
+
+    fn clear_pending_pairing_notification() {
+        if let Ok(mut pending) = pending_pairing_notification().lock() {
+            pending.message_posted = false;
+            pending.notification = None;
         }
     }
 
@@ -351,12 +400,6 @@ mod windows_tray {
                 guarded_item_flags,
                 CMD_SHOW_MACHINE_INFO,
                 w!("Machine info"),
-            )?;
-            AppendMenuW(
-                menu,
-                guarded_item_flags,
-                CMD_SHOW_PAIRING,
-                w!("Show pairing code"),
             )?;
             AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null())?;
             AppendMenuW(menu, MF_STRING, CMD_OPEN_SETTINGS, w!("Settings"))?;
@@ -408,20 +451,6 @@ mod windows_tray {
         }
     }
 
-    fn show_pairing_code(hwnd: HWND) {
-        let Some(runtime) = TRAY_RUNTIME.get() else {
-            let _ = show_error_window("Tray runtime is not initialized.");
-            return;
-        };
-        if !is_pairing_ui_available(&runtime.config_path) {
-            let _ = show_error_window(CONFIG_NOT_READY_MESSAGE);
-            return;
-        }
-        if let Err(err) = create_and_show_pairing_window_owned(&runtime.config_path, None, hwnd) {
-            let _ = show_error_window(&format!("Failed to create pairing code:\n\n{err}"));
-        }
-    }
-
     fn open_settings(hwnd: HWND) {
         let Some(runtime) = TRAY_RUNTIME.get() else {
             let _ = show_error_window("Tray runtime is not initialized.");
@@ -469,8 +498,9 @@ mod windows_tray {
     }
 
     fn show_pairing_notification(hwnd: HWND, notification: &PairingNotification) -> Result<()> {
+        let _ = clear_pairing_notification(hwnd);
         let mut data = notify_icon_data(hwnd);
-        data.uFlags = NIF_INFO;
+        data.uFlags = NIF_INFO | NIF_REALTIME;
         data.dwInfoFlags = NIIF_INFO;
         data.Anonymous.uTimeout = 10_000;
         write_wide(&mut data.szInfoTitle, "Pairing requested");
@@ -482,6 +512,15 @@ mod windows_tray {
             ),
         );
 
+        if !unsafe { Shell_NotifyIconW(NIM_MODIFY, &data) }.as_bool() {
+            return Err(windows::core::Error::from_thread().into());
+        }
+        Ok(())
+    }
+
+    fn clear_pairing_notification(hwnd: HWND) -> Result<()> {
+        let mut data = notify_icon_data(hwnd);
+        data.uFlags = NIF_INFO;
         if !unsafe { Shell_NotifyIconW(NIM_MODIFY, &data) }.as_bool() {
             return Err(windows::core::Error::from_thread().into());
         }

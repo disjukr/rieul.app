@@ -37,10 +37,11 @@ pub enum ProcId {
     CreateNodes = 8,
     RenamePaths = 9,
     DeletePaths = 10,
+    RenewClientCredential = 11,
 }
 
 impl ProcId {
-    pub const SUPPORTED: [Self; 10] = [
+    pub const SUPPORTED: [Self; 11] = [
         Self::GetDaemonInfo,
         Self::StartPairing,
         Self::CompletePairing,
@@ -51,6 +52,7 @@ impl ProcId {
         Self::CreateNodes,
         Self::RenamePaths,
         Self::DeletePaths,
+        Self::RenewClientCredential,
     ];
 
     pub fn as_u64(self) -> u64 {
@@ -296,12 +298,16 @@ fn parse_u32(value: &str) -> Option<u32> {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StartPairingResponse {
-    pub expires_at_unix: i64,
+    pub pairing_code_expires_at_unix: i64,
 }
 
 impl StartPairingResponse {
     pub fn encode(&self) -> Vec<u8> {
-        Value::Map(BTreeMap::from([(1, Value::I64(self.expires_at_unix))])).encode()
+        Value::Map(BTreeMap::from([(
+            1,
+            Value::I64(self.pairing_code_expires_at_unix),
+        )]))
+        .encode()
     }
 }
 
@@ -309,15 +315,19 @@ impl StartPairingResponse {
 pub struct CompletePairingRequest {
     pub code: String,
     pub client_label: String,
+    pub client_id: Option<String>,
 }
 
 impl CompletePairingRequest {
     pub fn encode(&self) -> Vec<u8> {
-        Value::Map(BTreeMap::from([
+        let mut fields = BTreeMap::from([
             (1, Value::Text(self.code.clone())),
             (2, Value::Text(self.client_label.clone())),
-        ]))
-        .encode()
+        ]);
+        if let Some(client_id) = &self.client_id {
+            fields.insert(3, Value::Text(client_id.clone()));
+        }
+        Value::Map(fields).encode()
     }
 
     pub fn decode(bytes: &[u8]) -> Result<Self, RpcCodecError> {
@@ -325,6 +335,7 @@ impl CompletePairingRequest {
         Ok(Self {
             code: expect_text(&map, 1)?,
             client_label: expect_text(&map, 2)?,
+            client_id: optional_text(&map, 3)?,
         })
     }
 }
@@ -333,6 +344,7 @@ impl CompletePairingRequest {
 pub struct CompletePairingResponse {
     pub client_id: String,
     pub client_secret: String,
+    pub client_credential_expires_at_unix: i64,
 }
 
 impl CompletePairingResponse {
@@ -340,6 +352,7 @@ impl CompletePairingResponse {
         Value::Map(BTreeMap::from([
             (1, Value::Text(self.client_id.clone())),
             (2, Value::Text(self.client_secret.clone())),
+            (3, Value::I64(self.client_credential_expires_at_unix)),
         ]))
         .encode()
     }
@@ -349,6 +362,29 @@ impl CompletePairingResponse {
         Ok(Self {
             client_id: expect_text(&map, 1)?,
             client_secret: expect_text(&map, 2)?,
+            client_credential_expires_at_unix: expect_i53(&map, 3)?,
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RenewClientCredentialResponse {
+    pub client_credential_expires_at_unix: i64,
+}
+
+impl RenewClientCredentialResponse {
+    pub fn encode(&self) -> Vec<u8> {
+        Value::Map(BTreeMap::from([(
+            1,
+            Value::I64(self.client_credential_expires_at_unix),
+        )]))
+        .encode()
+    }
+
+    pub fn decode(bytes: &[u8]) -> Result<Self, RpcCodecError> {
+        let map = expect_map(Value::decode(bytes)?)?;
+        Ok(Self {
+            client_credential_expires_at_unix: expect_i53(&map, 1)?,
         })
     }
 }
@@ -1053,6 +1089,15 @@ fn expect_u53(map: &BTreeMap<u64, Value>, field: u64) -> Result<u64, RpcCodecErr
     }
 }
 
+fn expect_i53(map: &BTreeMap<u64, Value>, field: u64) -> Result<i64, RpcCodecError> {
+    match map.get(&field).ok_or(RpcCodecError::MissingField(field))? {
+        Value::I64(value) if value.unsigned_abs() <= MAX_U53 => Ok(*value),
+        Value::U64(value) if *value <= MAX_U53 => Ok(*value as i64),
+        Value::I64(_) | Value::U64(_) => Err(RpcCodecError::IntegerOutOfRange(field)),
+        _ => Err(RpcCodecError::WrongFieldType(field)),
+    }
+}
+
 fn optional_u64(map: &BTreeMap<u64, Value>, field: u64) -> Result<Option<u64>, RpcCodecError> {
     match map.get(&field) {
         None => Ok(None),
@@ -1077,6 +1122,14 @@ fn expect_text(map: &BTreeMap<u64, Value>, field: u64) -> Result<String, RpcCode
     match map.get(&field).ok_or(RpcCodecError::MissingField(field))? {
         Value::Text(value) => Ok(value.clone()),
         _ => Err(RpcCodecError::WrongFieldType(field)),
+    }
+}
+
+fn optional_text(map: &BTreeMap<u64, Value>, field: u64) -> Result<Option<String>, RpcCodecError> {
+    match map.get(&field) {
+        None => Ok(None),
+        Some(Value::Text(value)) => Ok(Some(value.clone())),
+        Some(_) => Err(RpcCodecError::WrongFieldType(field)),
     }
 }
 
@@ -1136,7 +1189,7 @@ mod tests {
         );
         assert_eq!(
             daemon_info.supported_proc_ids,
-            vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+            vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
         );
         assert_eq!(daemon_info.version, env!("CARGO_PKG_VERSION"));
         assert!(!daemon_info.os.is_empty());
@@ -1184,6 +1237,7 @@ mod tests {
         let request = CompletePairingRequest {
             code: "123456".to_string(),
             client_label: "browser".to_string(),
+            client_id: Some("client".to_string()),
         };
         assert_eq!(
             CompletePairingRequest::decode(&request.encode()).unwrap(),
@@ -1193,9 +1247,18 @@ mod tests {
         let response = CompletePairingResponse {
             client_id: "client".to_string(),
             client_secret: "secret".to_string(),
+            client_credential_expires_at_unix: 400,
         };
         assert_eq!(
             CompletePairingResponse::decode(&response.encode()).unwrap(),
+            response
+        );
+
+        let response = RenewClientCredentialResponse {
+            client_credential_expires_at_unix: 500,
+        };
+        assert_eq!(
+            RenewClientCredentialResponse::decode(&response.encode()).unwrap(),
             response
         );
     }

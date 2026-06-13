@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useRef } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { useAtomValue, useSetAtom } from "jotai";
 import { useBunja } from "bunja/react";
 import { connectionBunja } from "../../state/connection.ts";
@@ -113,6 +113,12 @@ export function MachineModalHost() {
   const machineModalMode = useAtomValue(machineModal.machineModalModeAtom);
   const machineFormError = useAtomValue(machineModal.machineFormErrorAtom);
   const pairingCode = useAtomValue(machineModal.pairingCodeAtom);
+  const pairingCodeExpiresAtUnix = useAtomValue(
+    machineModal.pairingCodeExpiresAtUnixAtom,
+  );
+  const isRequestingPairingCode = useAtomValue(
+    machineModal.isRequestingPairingCodeAtom,
+  );
   const isPairing = useAtomValue(machineModal.isPairingAtom);
   const connection = useAtomValue(connectionState.connectionAtom);
   const modalTitle = useAtomValue(machineModal.modalTitleAtom);
@@ -122,6 +128,7 @@ export function MachineModalHost() {
   const machineNameInputRef = useRef<HTMLInputElement>(null);
   const configNameInputRef = useRef<HTMLInputElement>(null);
   const pairingCodeInputRef = useRef<HTMLInputElement>(null);
+  const [nowMs, setNowMs] = useState(() => Date.now());
 
   useEffect(() => {
     if (machineModalMode === "add") {
@@ -151,6 +158,36 @@ export function MachineModalHost() {
     return () => globalThis.removeEventListener("keydown", closeOnEscape);
   }, [machineModal, machineModalMode, machines.length]);
 
+  useEffect(() => {
+    if (machineModalMode !== "pair") return;
+    setNowMs(Date.now());
+    const interval = globalThis.setInterval(() => {
+      setNowMs(Date.now());
+    }, 1_000);
+    return () => globalThis.clearInterval(interval);
+  }, [machineModalMode]);
+
+  useEffect(() => {
+    if (
+      machineModalMode !== "pair" || !selected || isPairing ||
+      !pairingCodeExpiresAtUnix
+    ) {
+      return;
+    }
+    const expiresAtMs = pairingCodeExpiresAtUnix * 1_000;
+    const delayMs = Math.max(0, expiresAtMs - Date.now() + 250);
+    const timeout = globalThis.setTimeout(() => {
+      machineModal.requestSelectedPairingCode();
+    }, delayMs);
+    return () => globalThis.clearTimeout(timeout);
+  }, [
+    isPairing,
+    machineModal,
+    machineModalMode,
+    pairingCodeExpiresAtUnix,
+    selected?.id,
+  ]);
+
   if (!machineModalMode) return null;
 
   function addMachine(event: FormEvent<HTMLFormElement>) {
@@ -165,10 +202,15 @@ export function MachineModalHost() {
 
   async function pairSelected(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    await machineModal.pairSelected(
-      `web:${globalThis.location.host || "local"}`,
-    );
+    await machineModal.pairSelected(browserClientLabel());
   }
+
+  const pairingCodeExpiresInSeconds = pairingCodeExpiresAtUnix === undefined
+    ? undefined
+    : Math.max(
+      0,
+      Math.ceil((pairingCodeExpiresAtUnix * 1_000 - nowMs) / 1_000),
+    );
 
   return (
     <MachineModal
@@ -177,6 +219,7 @@ export function MachineModalHost() {
       configNameInputRef={configNameInputRef}
       configUrlDraft={configUrlDraft}
       connection={connection}
+      isRequestingPairingCode={isRequestingPairingCode}
       isPairing={isPairing}
       machineCount={machines.length}
       machineFormError={machineFormError}
@@ -185,6 +228,7 @@ export function MachineModalHost() {
       mode={machineModalMode}
       modalTitle={modalTitle}
       pairingCode={pairingCode}
+      pairingCodeExpiresInSeconds={pairingCodeExpiresInSeconds}
       pairingCodeInputRef={pairingCodeInputRef}
       selected={selected}
       onAddMachine={addMachine}
@@ -196,7 +240,12 @@ export function MachineModalHost() {
       onMachineNameChange={machineModal.updateMachineNameDraft}
       onPairingCodeChange={setPairingCode}
       onPairSelected={pairSelected}
+      onRequestPairingCode={machineModal.requestSelectedPairingCode}
       onSaveMachineConfig={saveMachineConfig}
     />
   );
+}
+
+function browserClientLabel(): string {
+  return globalThis.navigator?.userAgent.trim() || "web";
 }

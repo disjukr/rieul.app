@@ -23,6 +23,7 @@ const procNames = new Map<number, string>([
   [8, "CreateNodes"],
   [9, "RenamePaths"],
   [10, "DeletePaths"],
+  [11, "RenewClientCredential"],
 ]);
 
 const daemonToolClassName = [

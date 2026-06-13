@@ -4,6 +4,7 @@ export interface Machine {
   baseUrl: string;
   clientId?: string;
   clientSecret?: string;
+  clientCredentialExpiresAtUnix?: number;
 }
 
 const STORAGE_KEY = "wgo.machines.v1";
@@ -62,6 +63,12 @@ function normalizeMachine(item: unknown): Machine | undefined {
       clientSecret: typeof record.clientSecret === "string"
         ? record.clientSecret
         : undefined,
+      clientCredentialExpiresAtUnix:
+        typeof record.clientCredentialExpiresAtUnix ===
+            "number" &&
+          Number.isSafeInteger(record.clientCredentialExpiresAtUnix)
+          ? record.clientCredentialExpiresAtUnix
+          : undefined,
     };
   } catch {
     return undefined;

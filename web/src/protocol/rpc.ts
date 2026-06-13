@@ -25,6 +25,7 @@ const PROC_WRITE_FILE = 7;
 const PROC_CREATE_NODES = 8;
 const PROC_RENAME_PATHS = 9;
 const PROC_DELETE_PATHS = 10;
+const PROC_RENEW_CLIENT_CREDENTIAL = 11;
 const CONNECT_TIMEOUT_MS = 10_000;
 const DATAGRAM_PING_TIMEOUT_MS = 5_000;
 
@@ -52,10 +53,15 @@ const rpcSessions = new Map<string, Promise<RpcSession>>();
 export interface CompletePairingResponse {
   clientId: string;
   clientSecret: string;
+  clientCredentialExpiresAtUnix: number;
 }
 
 export interface StartPairingResponse {
-  expiresAtUnix: number;
+  pairingCodeExpiresAtUnix: number;
+}
+
+export interface RenewClientCredentialResponse {
+  clientCredentialExpiresAtUnix: number;
 }
 
 export interface DaemonInfo {
@@ -183,11 +189,15 @@ export async function completePairing(
   code: string,
   clientLabel: string,
 ): Promise<CompletePairingResponse> {
+  const fields: [number, CborValue][] = [
+    [1, code],
+    [2, clientLabel],
+  ];
+  if (machine.clientId) {
+    fields.push([3, machine.clientId]);
+  }
   const payload = encodeCbor(
-    new Map<number, CborValue>([
-      [1, code],
-      [2, clientLabel],
-    ]),
+    new Map<number, CborValue>(fields),
   );
   const response = await callUnaryPayload(
     machine,
@@ -201,6 +211,20 @@ export async function completePairing(
   return {
     clientId: text(map.get(1)),
     clientSecret: text(map.get(2)),
+    clientCredentialExpiresAtUnix: integer(map.get(3)),
+  };
+}
+
+export async function renewClientCredential(
+  machine: Machine,
+): Promise<RenewClientCredentialResponse> {
+  const response = await callUnaryPayload(
+    machine,
+    PROC_RENEW_CLIENT_CREDENTIAL,
+  );
+  const map = decodeMap(response);
+  return {
+    clientCredentialExpiresAtUnix: integer(map.get(1)),
   };
 }
 
@@ -217,7 +241,7 @@ export async function startPairing(
   );
   const map = decodeMap(response);
   return {
-    expiresAtUnix: integer(map.get(1)),
+    pairingCodeExpiresAtUnix: integer(map.get(1)),
   };
 }
 
@@ -1288,8 +1312,7 @@ const RPC_ERROR_CODES: Record<string, string> = {
 
 const METHOD_ERROR_CODES: Record<string, string> = {
   "1:0": "Failed",
-  "2:1": "PairingNotStarted",
-  "2:2": "PairingExpired",
+  "2:0": "Failed",
   "3:1": "PairingNotStarted",
   "3:2": "PairingExpired",
   "3:3": "InvalidPairingCode",
@@ -1313,6 +1336,7 @@ const METHOD_ERROR_CODES: Record<string, string> = {
   "8:0": "Failed",
   "9:0": "Failed",
   "10:0": "Failed",
+  "11:0": "Failed",
 };
 
 const SESSION_AUTH_ERROR_CODES: Record<string, string> = {

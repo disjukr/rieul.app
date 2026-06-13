@@ -1,5 +1,12 @@
 import React, { FormEvent } from "react";
-import { KeyRound, Loader2, Settings, Trash2, X } from "lucide-react";
+import {
+  KeyRound,
+  Loader2,
+  RefreshCw,
+  Settings,
+  Trash2,
+  X,
+} from "lucide-react";
 import type { Machine } from "../../state/machines.ts";
 import type { ConnectionState, MachineModalMode } from "../../state/types.ts";
 import { AddMachineForm } from "./add-machine-form.tsx";
@@ -45,6 +52,7 @@ interface MachineModalProps {
   configNameInputRef: React.RefObject<HTMLInputElement | null>;
   configUrlDraft: string;
   connection: ConnectionState;
+  isRequestingPairingCode: boolean;
   isPairing: boolean;
   machineCount: number;
   machineFormError: string;
@@ -53,6 +61,7 @@ interface MachineModalProps {
   mode: MachineModalMode;
   modalTitle: string;
   pairingCode: string;
+  pairingCodeExpiresInSeconds?: number;
   pairingCodeInputRef: React.RefObject<HTMLInputElement | null>;
   selected?: Machine;
   onAddMachine: (event: FormEvent<HTMLFormElement>) => void;
@@ -64,17 +73,21 @@ interface MachineModalProps {
   onMachineNameChange: (value: string) => void;
   onPairingCodeChange: (value: string) => void;
   onPairSelected: (event: FormEvent<HTMLFormElement>) => void;
+  onRequestPairingCode: () => void;
   onSaveMachineConfig: (event: FormEvent<HTMLFormElement>) => void;
 }
 
 interface PairMachineFormProps {
   connection: ConnectionState;
+  isRequestingPairingCode: boolean;
   isPairing: boolean;
   pairingCode: string;
+  pairingCodeExpiresInSeconds?: number;
   pairingCodeInputRef: React.RefObject<HTMLInputElement | null>;
   selected: Machine;
   onClose: () => void;
   onPairingCodeChange: (value: string) => void;
+  onRequestPairingCode: () => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }
 
@@ -103,6 +116,7 @@ export function MachineModal(
     configNameInputRef,
     configUrlDraft,
     connection,
+    isRequestingPairingCode,
     isPairing,
     machineCount,
     machineFormError,
@@ -111,6 +125,7 @@ export function MachineModal(
     mode,
     modalTitle,
     pairingCode,
+    pairingCodeExpiresInSeconds,
     pairingCodeInputRef,
     selected,
     onAddMachine,
@@ -122,6 +137,7 @@ export function MachineModal(
     onMachineNameChange,
     onPairingCodeChange,
     onPairSelected,
+    onRequestPairingCode,
     onSaveMachineConfig,
   }: MachineModalProps,
 ) {
@@ -164,12 +180,15 @@ export function MachineModal(
           ? (
             <PairMachineForm
               connection={connection}
+              isRequestingPairingCode={isRequestingPairingCode}
               isPairing={isPairing}
               pairingCode={pairingCode}
+              pairingCodeExpiresInSeconds={pairingCodeExpiresInSeconds}
               pairingCodeInputRef={pairingCodeInputRef}
               selected={selected}
               onClose={onClose}
               onPairingCodeChange={onPairingCodeChange}
+              onRequestPairingCode={onRequestPairingCode}
               onSubmit={onPairSelected}
             />
           )
@@ -216,20 +235,44 @@ export function MachineModal(
 function PairMachineForm(
   {
     connection,
+    isRequestingPairingCode,
     isPairing,
     pairingCode,
+    pairingCodeExpiresInSeconds,
     pairingCodeInputRef,
     selected,
     onClose,
     onPairingCodeChange,
+    onRequestPairingCode,
     onSubmit,
   }: PairMachineFormProps,
 ) {
+  const pairingStatus = pairingStatusText(
+    isRequestingPairingCode,
+    pairingCodeExpiresInSeconds,
+  );
   return (
     <form className={machineModalFormClassName} onSubmit={onSubmit}>
       <div className={modalMachineSummaryClassName}>
         <strong>{selected.name}</strong>
         <span>{selected.baseUrl}</span>
+      </div>
+      <div className="flex items-center justify-between gap-[12px] rounded-[8px] border border-[#d8dde7] bg-[#f7f8fb] px-[10px] py-[8px]">
+        <span className="min-w-0 text-[#475467] text-[12px]">
+          {pairingStatus}
+        </span>
+        <button
+          type="button"
+          className="min-w-[36px] px-[10px]"
+          disabled={isPairing || isRequestingPairingCode}
+          onClick={onRequestPairingCode}
+          title="Reissue pairing code"
+        >
+          {isRequestingPairingCode
+            ? <Loader2 size={16} className="animate-spin" />
+            : <RefreshCw size={16} />}
+          Reissue
+        </button>
       </div>
       <label>
         <span>Pairing code</span>
@@ -256,7 +299,8 @@ function PairMachineForm(
         </button>
         <button
           type="submit"
-          disabled={isPairing || pairingCode.length === 0}
+          disabled={isPairing || isRequestingPairingCode ||
+            pairingCode.length === 0}
         >
           {isPairing
             ? <Loader2 size={16} className="animate-spin" />
@@ -266,6 +310,29 @@ function PairMachineForm(
       </div>
     </form>
   );
+}
+
+function pairingStatusText(
+  isRequestingPairingCode: boolean,
+  expiresInSeconds?: number,
+): string {
+  if (isRequestingPairingCode) {
+    return "Requesting a pairing code...";
+  }
+  if (expiresInSeconds === undefined) {
+    return "Waiting for pairing code request...";
+  }
+  if (expiresInSeconds <= 0) {
+    return "Pairing code expired. Requesting a new code...";
+  }
+  return `Pairing code expires in ${formatRemainingTime(expiresInSeconds)}`;
+}
+
+function formatRemainingTime(totalSeconds: number): string {
+  const seconds = Math.max(0, Math.ceil(totalSeconds));
+  const minutesPart = Math.floor(seconds / 60).toString().padStart(2, "0");
+  const secondsPart = (seconds % 60).toString().padStart(2, "0");
+  return `${minutesPart}:${secondsPart}`;
 }
 
 function MachineConfigForm(
