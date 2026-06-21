@@ -8,6 +8,7 @@ export interface Machine {
 }
 
 const STORAGE_KEY = "wgo.machines.v1";
+const DEFAULT_MACHINE_PORT = "9012";
 
 export function loadMachines(): Machine[] {
   const raw = localStorage.getItem(STORAGE_KEY);
@@ -31,17 +32,30 @@ export function saveMachines(machines: Machine[]) {
 }
 
 export function normalizeMachineUrl(raw: string): string {
-  const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(raw)
-    ? raw
-    : `https://${raw}`;
+  const trimmed = raw.trim();
+  const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed)
+    ? trimmed
+    : `https://${trimmed}`;
+  const hasPort = hasExplicitPort(withScheme);
   const url = new URL(withScheme);
   if (url.protocol !== "https:") {
     throw new Error("Machine URL must use https");
   }
+  if (!hasPort) url.port = DEFAULT_MACHINE_PORT;
   url.pathname = url.pathname.replace(/\/+$/, "");
   url.search = "";
   url.hash = "";
   return url.toString().replace(/\/$/, "");
+}
+
+function hasExplicitPort(rawUrl: string): boolean {
+  const authority =
+    rawUrl.slice(rawUrl.indexOf("://") + 3).split(/[/?#]/, 1)[0] ??
+      "";
+  if (authority.startsWith("[")) {
+    return /^\[[^\]]+\]:\d+$/.test(authority);
+  }
+  return /:\d+$/.test(authority);
 }
 
 function normalizeMachine(item: unknown): Machine | undefined {
