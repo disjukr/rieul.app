@@ -7,7 +7,6 @@ use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Result};
 use wgo_daemon_core::config::windows_program_data_config_path;
-use wgo_daemon_core::DEFAULT_LISTEN_ADDR;
 use windows_service::define_windows_service;
 use windows_service::service::{
     ServiceAccess, ServiceAction, ServiceActionType, ServiceControl, ServiceControlAccept,
@@ -32,12 +31,12 @@ static SERVICE_OPTIONS: OnceLock<ServiceRunOptions> = OnceLock::new();
 
 #[derive(Debug, Clone)]
 pub struct ServiceRunOptions {
-    pub listen: SocketAddr,
+    pub listen: Option<SocketAddr>,
     pub config_path: PathBuf,
 }
 
 impl ServiceRunOptions {
-    pub fn new(listen: SocketAddr, config_path: PathBuf) -> Self {
+    pub fn new(listen: Option<SocketAddr>, config_path: PathBuf) -> Self {
         Self {
             listen,
             config_path,
@@ -55,11 +54,19 @@ pub fn run_dispatcher(options: ServiceRunOptions) -> Result<()> {
 
 pub fn install_service(
     service_binary_path: PathBuf,
-    listen: SocketAddr,
+    listen: Option<SocketAddr>,
     config_path: PathBuf,
 ) -> Result<()> {
     let manager_access = ServiceManagerAccess::CONNECT | ServiceManagerAccess::CREATE_SERVICE;
     let service_manager = ServiceManager::local_computer(None::<&str>, manager_access)?;
+    let mut launch_arguments = vec![OsString::from("service"), OsString::from("run")];
+    if let Some(listen) = listen {
+        launch_arguments.push(OsString::from("--listen"));
+        launch_arguments.push(OsString::from(listen.to_string()));
+    }
+    launch_arguments.push(OsString::from("--config"));
+    launch_arguments.push(config_path.into_os_string());
+
     let service_info = ServiceInfo {
         name: OsString::from(SERVICE_NAME),
         display_name: OsString::from(SERVICE_DISPLAY_NAME),
@@ -67,14 +74,7 @@ pub fn install_service(
         start_type: ServiceStartType::AutoStart,
         error_control: ServiceErrorControl::Normal,
         executable_path: service_binary_path,
-        launch_arguments: vec![
-            OsString::from("service"),
-            OsString::from("run"),
-            OsString::from("--listen"),
-            OsString::from(listen.to_string()),
-            OsString::from("--config"),
-            config_path.into_os_string(),
-        ],
+        launch_arguments,
         dependencies: vec![],
         account_name: None,
         account_password: None,
@@ -278,9 +278,7 @@ fn service_status(
 
 fn default_service_options() -> ServiceRunOptions {
     ServiceRunOptions {
-        listen: DEFAULT_LISTEN_ADDR
-            .parse()
-            .expect("default listen address is valid"),
+        listen: None,
         config_path: windows_program_data_config_path(),
     }
 }

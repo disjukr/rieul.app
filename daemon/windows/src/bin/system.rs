@@ -8,7 +8,6 @@ use wgo_daemon_core::config::{
     client_credentials_path, load_or_generated_default, save, windows_program_data_config_path,
     SystemConfig,
 };
-use wgo_daemon_core::DEFAULT_LISTEN_ADDR;
 use wgo_daemon_host::server::run_system_server;
 use wgo_windows_daemon::fs::WindowsFileService;
 use wgo_windows_daemon::ipc::UserTrayPairingNotifier;
@@ -24,15 +23,15 @@ struct Args {
 #[derive(Debug, Subcommand)]
 enum Command {
     Run {
-        #[arg(long, default_value = DEFAULT_LISTEN_ADDR)]
-        listen: SocketAddr,
+        #[arg(long)]
+        listen: Option<SocketAddr>,
 
         #[arg(long)]
         config: Option<PathBuf>,
     },
     Pair {
-        #[arg(long, default_value = DEFAULT_LISTEN_ADDR)]
-        listen: SocketAddr,
+        #[arg(long)]
+        listen: Option<SocketAddr>,
 
         #[arg(long)]
         config: Option<PathBuf>,
@@ -49,15 +48,15 @@ enum Command {
 #[derive(Debug, Subcommand)]
 enum ServiceCommand {
     Run {
-        #[arg(long, default_value = DEFAULT_LISTEN_ADDR)]
-        listen: SocketAddr,
+        #[arg(long)]
+        listen: Option<SocketAddr>,
 
         #[arg(long)]
         config: Option<PathBuf>,
     },
     Install {
-        #[arg(long, default_value = DEFAULT_LISTEN_ADDR)]
-        listen: SocketAddr,
+        #[arg(long)]
+        listen: Option<SocketAddr>,
 
         #[arg(long)]
         config: Option<PathBuf>,
@@ -87,7 +86,13 @@ fn main() -> Result<()> {
         } => {
             let config_path = config.unwrap_or_else(windows_program_data_config_path);
             let mut config = load_or_generated_default(&config_path)?;
-            config.listen_addr = listen.to_string();
+            let listen = match listen {
+                Some(listen) => {
+                    config.listen_addr = listen.to_string();
+                    listen
+                }
+                None => config.listen_addr.parse()?,
+            };
             save(&config_path, &config)?;
             let credentials_path = client_credentials_path(&config_path);
             let daemon_url = url.unwrap_or_else(|| default_pairing_url(&config, listen));
@@ -103,7 +108,7 @@ fn main() -> Result<()> {
     }
 }
 
-fn run_system_server_blocking(listen: SocketAddr, config_path: PathBuf) -> Result<()> {
+fn run_system_server_blocking(listen: Option<SocketAddr>, config_path: PathBuf) -> Result<()> {
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?;

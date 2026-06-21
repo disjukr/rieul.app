@@ -118,7 +118,7 @@ struct RpcSessionState {
 }
 
 pub async fn run_system_server(
-    addr: SocketAddr,
+    listen_override: Option<SocketAddr>,
     config_path: PathBuf,
     files: SharedFileService,
     pairing_notifier: Option<SharedPairingNotifier>,
@@ -127,7 +127,7 @@ pub async fn run_system_server(
     loop {
         write_daemon_status(&config_path, DaemonStatus::NotReady("starting"));
         match run_system_server_once(
-            addr,
+            listen_override,
             config_path.clone(),
             files.clone(),
             pairing_notifier.clone(),
@@ -150,16 +150,17 @@ pub async fn run_system_server(
 }
 
 async fn run_system_server_once(
-    addr: SocketAddr,
+    listen_override: Option<SocketAddr>,
     config_path: PathBuf,
     files: SharedFileService,
     pairing_notifier: Option<SharedPairingNotifier>,
     log_label: &'static str,
 ) -> Result<()> {
     let provider = web_transport_quinn::crypto::default_provider();
-    let mut config = load_startup_config(&config_path, addr)?;
+    let startup_config = load_startup_config(&config_path, listen_override)?;
+    let mut config = startup_config.config;
+    let addr = startup_config.listen_addr;
     let certificate = prepare_server_certificate(&mut config, addr, &config_path, &provider)?;
-    save(&config_path, &config)?;
     let config_state = Arc::new(Mutex::new(config));
     let credentials_path = client_credentials_path(&config_path);
     let client_credentials = Arc::new(Mutex::new(load_client_credentials_or_default(
@@ -273,14 +274,38 @@ async fn wait_for_startup_config_change(config_path: &Path) -> Result<()> {
     }
 }
 
-fn load_startup_config(config_path: &Path, addr: SocketAddr) -> Result<SystemConfig> {
+struct StartupConfig {
+    config: SystemConfig,
+    listen_addr: SocketAddr,
+}
+
+fn load_startup_config(
+    config_path: &Path,
+    listen_override: Option<SocketAddr>,
+) -> Result<StartupConfig> {
     let should_create = !config_path.exists();
     let mut config = load_or_generated_default(config_path)?;
-    config.listen_addr = addr.to_string();
-    if should_create {
+    let listen_addr = match listen_override {
+        Some(addr) => {
+            config.listen_addr = addr.to_string();
+            addr
+        }
+        None => parse_listen_addr(&config)?,
+    };
+    if should_create || listen_override.is_some() {
         save(config_path, &config)?;
     }
-    Ok(config)
+    Ok(StartupConfig {
+        config,
+        listen_addr,
+    })
+}
+
+fn parse_listen_addr(config: &SystemConfig) -> Result<SocketAddr> {
+    config
+        .listen_addr
+        .parse()
+        .with_context(|| format!("invalid listenAddr `{}`", config.listen_addr))
 }
 
 enum DaemonStatus<'a> {
@@ -458,7 +483,6 @@ async fn reload_certificates(
         }
 
         let response = (|| -> Result<()> {
-            config.listen_addr = addr.to_string();
             let certificate =
                 prepare_server_certificate(&mut config, addr, &config_path, &provider)?;
             save(&config_path, &config)?;
@@ -506,7 +530,6 @@ async fn scheduled_reload_loop(
             if !uses_scheduled_certificate_refresh(&config) {
                 return Ok(());
             }
-            config.listen_addr = addr.to_string();
             let certificate =
                 prepare_server_certificate(&mut config, addr, &config_path, &provider)?;
             save(&config_path, &config)?;
@@ -2194,10 +2217,52 @@ mod tests {
         let config_path = dir.path().join("nested").join("wgo.yaml");
         let addr: SocketAddr = "127.0.0.1:9012".parse().unwrap();
 
-        let config = load_startup_config(&config_path, addr).unwrap();
+        let startup = load_startup_config(&config_path, Some(addr)).unwrap();
 
-        assert_eq!(config.listen_addr, "127.0.0.1:9012");
-        assert_eq!(load_or_default(&config_path).unwrap(), config);
+        assert_eq!(startup.listen_addr, addr);
+        assert_eq!(startup.config.listen_addr, "127.0.0.1:9012");
+        assert_eq!(load_or_default(&config_path).unwrap(), startup.config);
+    }
+
+    #[test]
+    fn startup_config_preserves_existing_listen_without_override() {
+        let dir = tempfile::tempdir().unwrap();
+        let config_path = dir.path().join("wgo.yaml");
+        let config = SystemConfig {
+            listen_addr: "127.0.0.1:7777".to_string(),
+            ..SystemConfig::default()
+        };
+        save(&config_path, &config).unwrap();
+
+        let startup = load_startup_config(&config_path, None).unwrap();
+
+        assert_eq!(startup.listen_addr, "127.0.0.1:7777".parse().unwrap());
+        assert_eq!(startup.config.listen_addr, "127.0.0.1:7777");
+        assert_eq!(
+            load_or_default(&config_path).unwrap().listen_addr,
+            "127.0.0.1:7777"
+        );
+    }
+
+    #[test]
+    fn startup_config_uses_explicit_listen_override() {
+        let dir = tempfile::tempdir().unwrap();
+        let config_path = dir.path().join("wgo.yaml");
+        let config = SystemConfig {
+            listen_addr: "127.0.0.1:7777".to_string(),
+            ..SystemConfig::default()
+        };
+        save(&config_path, &config).unwrap();
+        let override_addr: SocketAddr = "127.0.0.1:8888".parse().unwrap();
+
+        let startup = load_startup_config(&config_path, Some(override_addr)).unwrap();
+
+        assert_eq!(startup.listen_addr, override_addr);
+        assert_eq!(startup.config.listen_addr, "127.0.0.1:8888");
+        assert_eq!(
+            load_or_default(&config_path).unwrap().listen_addr,
+            "127.0.0.1:8888"
+        );
     }
 
     #[tokio::test]

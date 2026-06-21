@@ -9,7 +9,8 @@ and uses a system service plus a per-user tray daemon.
 ## Layout
 
 - `daemon/core`: shared Rust protocol, config, pairing, and service traits.
-- `daemon/host`: shared daemon runtime for WebTransport, RPC, auth, filesystem subscriptions, and TLS.
+- `daemon/host`: shared daemon runtime for WebTransport, RPC, auth, filesystem
+  subscriptions, and TLS.
 - `daemon/windows`: Windows-specific system/user daemon binaries.
 - `daemon/macos`: macOS-specific system/user daemon binaries.
 - `protocol`: BDL schemas, RPC/wire standards, and protocol docs.
@@ -27,6 +28,9 @@ Run the currently implemented daemon pair:
 ```sh
 deno task windows:dev:daemons
 ```
+
+Dev daemon scripts listen on `0.0.0.0:9019` by default so they can run next to a
+release daemon using the product default port `9012`.
 
 If `tmp/dev/system-wgo.yaml` does not exist, the system daemon creates it. When
 Tailscale is installed, the generated config uses `tailscale status --json` to

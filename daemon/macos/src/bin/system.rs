@@ -9,7 +9,6 @@ use wgo_daemon_core::config::{
     client_credentials_path, load_or_generated_default, macos_system_config_path, save,
     SystemConfig,
 };
-use wgo_daemon_core::DEFAULT_LISTEN_ADDR;
 use wgo_daemon_host::server::run_system_server;
 use wgo_macos_daemon::fs::MacFileService;
 use wgo_macos_daemon::ipc::MacUserPairingNotifier;
@@ -25,15 +24,15 @@ struct Args {
 #[derive(Debug, Subcommand)]
 enum Command {
     Run {
-        #[arg(long, default_value = DEFAULT_LISTEN_ADDR)]
-        listen: SocketAddr,
+        #[arg(long)]
+        listen: Option<SocketAddr>,
 
         #[arg(long)]
         config: Option<PathBuf>,
     },
     Pair {
-        #[arg(long, default_value = DEFAULT_LISTEN_ADDR)]
-        listen: SocketAddr,
+        #[arg(long)]
+        listen: Option<SocketAddr>,
 
         #[arg(long)]
         config: Option<PathBuf>,
@@ -79,7 +78,13 @@ async fn main() -> Result<()> {
         } => {
             let config_path = config.unwrap_or_else(macos_system_config_path);
             let mut config = load_or_generated_default(&config_path)?;
-            config.listen_addr = listen.to_string();
+            let listen = match listen {
+                Some(listen) => {
+                    config.listen_addr = listen.to_string();
+                    listen
+                }
+                None => config.listen_addr.parse()?,
+            };
             save(&config_path, &config)?;
             let credentials_path = client_credentials_path(&config_path);
             let daemon_url = url.unwrap_or_else(|| default_pairing_url(&config, listen));

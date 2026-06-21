@@ -17,7 +17,7 @@ if (!configTls.trustedTls) {
     `${args.config} must configure tls or a .ts.net domain; self-signed hash pinning is not supported`,
   );
 }
-const baseUrl = args.url ?? configTls.defaultUrl ?? "https://localhost:9012";
+const baseUrl = args.url ?? configTls.defaultUrl;
 
 const rpcUrl = rpcEndpoint(baseUrl);
 
@@ -56,7 +56,7 @@ function parseArgs(argv: string[]): Args {
 function printHelp() {
   console.log(`Usage:
   deno task check:daemon
-  deno run --unstable-net --allow-net --allow-read=.. src/tools/check-daemon.ts [--url https://localhost:9012] [--config ../tmp/dev/system-wgo.yaml]
+  deno run --unstable-net --allow-net --allow-read=.. src/tools/check-daemon.ts [--url https://localhost:9019] [--config ../tmp/dev/system-wgo.yaml]
 `);
 }
 
@@ -68,17 +68,32 @@ function requireValue(argv: string[], index: number, flag: string): string {
 
 async function readConfigTls(
   configPath: string,
-): Promise<{ trustedTls: boolean; defaultUrl?: string }> {
+): Promise<{ trustedTls: boolean; defaultUrl: string }> {
   const yaml = await Deno.readTextFile(configPath);
   const domain = yaml.match(/^\s*domain:\s*["']?([^"'\s#]+)["']?/m)?.[1]
     ?.trim()
     .toLowerCase();
+  const port = configListenPort(yaml);
   const trustedTls = /^\s*tls:\s*$/m.test(yaml) ||
     !!domain?.endsWith(".ts.net");
   return {
     trustedTls,
-    defaultUrl: domain ? `https://${domain}:9012` : undefined,
+    defaultUrl: domain ? daemonUrl(domain, port) : `https://localhost:${port}`,
   };
+}
+
+function configListenPort(yaml: string): number {
+  const rawListenAddr = yaml.match(/^\s*listenAddr:\s*["']?([^"'\s#]+)["']?/m)
+    ?.[1]?.trim();
+  if (!rawListenAddr) return 9012;
+  const port = Number(rawListenAddr.split(":").at(-1));
+  if (Number.isSafeInteger(port) && port > 0 && port <= 65535) return port;
+  return 9012;
+}
+
+function daemonUrl(host: string, port: number): string {
+  if (port === 443) return `https://${host}`;
+  return `https://${host}:${port}`;
 }
 
 function rpcEndpoint(raw: string): string {

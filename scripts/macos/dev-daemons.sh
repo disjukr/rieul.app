@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-LISTEN="${LISTEN:-0.0.0.0:9012}"
+LISTEN="${LISTEN:-0.0.0.0:9019}"
 SKIP_BUILD="${SKIP_BUILD:-0}"
 RUST_LOG="${RUST_LOG:-info}"
 
