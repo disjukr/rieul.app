@@ -4,9 +4,9 @@ import { createScopeFromContext } from "bunja/react";
 import { atom } from "jotai";
 import { atomWithStorage } from "jotai/utils";
 import { createLayout, type LayoutState } from "panecake";
+import { JotaiStoreScope } from "unsaturated/store";
 import { copyExplorerNavigationState } from "./explorer.ts";
 import { copyFileViewerState } from "./file-viewer.ts";
-import { JotaiStoreScope } from "./jotai-store.ts";
 import { MachineIdScope } from "./machine-id.tsx";
 
 export type WorkbenchTool = "daemon" | "files" | "processes" | "terminal";

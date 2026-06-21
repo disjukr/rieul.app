@@ -4,7 +4,7 @@ import type {
 } from "react";
 import { bunja } from "bunja";
 import { atom } from "jotai";
-import { JotaiStoreScope } from "../state/jotai-store.ts";
+import { JotaiStoreScope } from "unsaturated/store";
 
 const machinePanelMinWidth = 212;
 const machinePanelMaxWidth = 420;

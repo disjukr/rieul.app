@@ -40,9 +40,8 @@ const statusPillClassName = [
 ].join(" ");
 const daemonStatusRowClassName = "mb-[14px] flex justify-end min-w-0";
 const summaryGridClassName = [
-  "grid grid-cols-[repeat(3,minmax(0,1fr))] gap-[1px] overflow-hidden",
+  "grid grid-cols-[repeat(auto-fit,minmax(180px,1fr))] gap-[1px] overflow-hidden",
   "border border-[#d8dde7] rounded-[8px] bg-[#d8dde7]",
-  "[@container_workbench-tab-page_(max-width:760px)]:grid-cols-1",
 ].join(" ");
 const summaryItemClassName = [
   "grid min-w-0 gap-[6px] bg-[#fbfcfe] px-[14px] py-[12px]",
@@ -77,6 +76,12 @@ export function DaemonTool() {
   const connectionState = useBunja(connectionBunja);
   const machines = useBunja(machineStoreBunja);
   const daemonInfo = useAtomValue(daemonInfoState.daemonInfoAtom);
+  const daemonServerTimeMs = useAtomValue(
+    daemonInfoState.daemonServerTimeMsAtom,
+  );
+  const daemonUptimeSeconds = useAtomValue(
+    daemonInfoState.daemonUptimeSecondsAtom,
+  );
   const connection = useAtomValue(connectionState.connectionAtom);
   const machine = useAtomValue(machines.selectedAtom);
   const connectionLabel = formatDaemonConnectionLabel(connection);
@@ -99,8 +104,12 @@ export function DaemonTool() {
         ? (
           <DaemonInfoView
             endpoint={machine?.baseUrl}
+            instanceId={daemonInfo.daemonInfo.instanceId}
             os={daemonInfo.daemonInfo.os}
+            serverTimeMs={daemonServerTimeMs}
+            startedAtMs={daemonInfo.daemonInfo.startedAtMs}
             supportedProcIds={daemonInfo.daemonInfo.supportedProcIds}
+            uptimeSeconds={daemonUptimeSeconds}
             version={daemonInfo.daemonInfo.version}
           />
         )
@@ -130,13 +139,26 @@ function formatDaemonConnectionLabel(connection: ConnectionState): string {
 
 interface DaemonInfoViewProps {
   endpoint?: string;
+  instanceId: string;
   os: string;
+  serverTimeMs?: number;
+  startedAtMs: number;
   supportedProcIds: number[];
+  uptimeSeconds?: number;
   version: string;
 }
 
 function DaemonInfoView(
-  { endpoint, os, supportedProcIds, version }: DaemonInfoViewProps,
+  {
+    endpoint,
+    instanceId,
+    os,
+    serverTimeMs,
+    startedAtMs,
+    supportedProcIds,
+    uptimeSeconds,
+    version,
+  }: DaemonInfoViewProps,
 ) {
   return (
     <>
@@ -153,6 +175,22 @@ function DaemonInfoView(
           <dt>Machine OS</dt>
           <dd>{os}</dd>
         </div>
+        <div className={summaryItemClassName}>
+          <dt>Daemon instance</dt>
+          <dd>{instanceId}</dd>
+        </div>
+        <div className={summaryItemClassName}>
+          <dt>Daemon time</dt>
+          <dd>{formatDaemonTimestamp(serverTimeMs)}</dd>
+        </div>
+        <div className={summaryItemClassName}>
+          <dt>Daemon started</dt>
+          <dd>{formatDaemonTimestamp(startedAtMs)}</dd>
+        </div>
+        <div className={summaryItemClassName}>
+          <dt>Daemon uptime</dt>
+          <dd>{formatDaemonUptime(uptimeSeconds)}</dd>
+        </div>
       </dl>
 
       <section className={procSectionClassName}>
@@ -168,6 +206,26 @@ function DaemonInfoView(
       </section>
     </>
   );
+}
+
+function formatDaemonTimestamp(timeMs?: number): string {
+  if (timeMs === undefined || timeMs === 0) return "Unknown";
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+    timeStyle: "medium",
+  }).format(new Date(timeMs));
+}
+
+function formatDaemonUptime(uptimeSeconds?: number): string {
+  if (uptimeSeconds === undefined) return "Unknown";
+  const days = Math.floor(uptimeSeconds / 86400);
+  const hours = Math.floor((uptimeSeconds % 86400) / 3600);
+  const minutes = Math.floor((uptimeSeconds % 3600) / 60);
+  const seconds = uptimeSeconds % 60;
+  if (days > 0) return `${days}d ${hours}h ${minutes}m ${seconds}s`;
+  if (hours > 0) return `${hours}h ${minutes}m ${seconds}s`;
+  if (minutes > 0) return `${minutes}m ${seconds}s`;
+  return `${seconds}s`;
 }
 
 interface DaemonInfoStateViewProps {

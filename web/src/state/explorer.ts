@@ -1,6 +1,7 @@
 import { bunja, createScope } from "bunja";
 import { atom, type PrimitiveAtom, type SetStateAction } from "jotai";
 import { atomWithStorage } from "jotai/utils";
+import { type JotaiStore, JotaiStoreScope } from "unsaturated/store";
 import {
   closeMachineSession,
   DirectoryTableEvent,
@@ -11,7 +12,6 @@ import {
   subscribeDirectory,
   subscribeRoots,
 } from "../protocol/rpc.ts";
-import { type JotaiStore, JotaiStoreScope } from "./jotai-store.ts";
 import { MachineIdScope } from "./machine-id.tsx";
 import { machineBunja, machineStoreBunja } from "./machine-store.ts";
 import { Machine } from "./machines.ts";

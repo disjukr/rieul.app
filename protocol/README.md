@@ -79,14 +79,17 @@ Current proc id registry:
 | 10 | `RenamePaths`           |
 | 11 | `DeletePaths`           |
 
-`GetDaemonInfo` returns process-level daemon metadata: supported proc ids,
-daemon version, and a human-readable OS name for the daemon host. The OS string
-should include useful platform-specific details when available, such as Windows
-edition, bitness, display version, build, and service pack. The value is fixed
-while that daemon process is running, but a reconnect may reach an updated
-daemon. Clients may cache daemon info for a live connection or session and
-should fetch it again after reconnecting. Protected proc ids may still require
-session authentication before invocation.
+`GetDaemonInfo` returns daemon metadata: supported proc ids, daemon version, a
+human-readable OS name for the daemon host, daemon instance lifecycle fields,
+and the daemon's current server time. The OS string should include useful
+platform-specific details when available, such as Windows edition, bitness,
+display version, build, and service pack. `instanceId` and `startedAtMs` are
+fixed while that daemon process is running and change when the daemon process
+restarts. `serverTimeMs` is sampled while producing each response. Clients
+should fetch daemon info again after reconnecting and compare `instanceId` with
+the previous value to detect process-local state loss, such as terminal
+sessions. Protected proc ids may still require session authentication before
+invocation.
 
 A proc's `stream` attribute defines request and response cardinality:
 

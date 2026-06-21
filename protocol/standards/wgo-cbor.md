@@ -86,6 +86,14 @@ optional fields without breaking older peers. A method may define stricter
 handling for a specific request type when accepting unknown fields would change
 security or filesystem behavior.
 
+Encoders MUST include required struct fields. Schema-aware decoders SHOULD
+treat absent required fields as the field type's default value when doing so is
+safe for that method: `false` for `bool`, `0` for integers and floats, `""` for
+`string`, empty bytes for `bytes`, and empty collections for arrays and maps.
+Present fields with the wrong CBOR type MUST still be rejected. Domain types
+such as enums and unions should use the schema's empty, failed, or unknown
+variant when one exists; otherwise the decoder may reject the missing field.
+
 ## Primitive Mapping
 
 - `bool` maps to CBOR `false` or `true`.

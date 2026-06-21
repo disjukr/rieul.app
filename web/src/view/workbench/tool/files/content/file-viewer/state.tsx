@@ -3,9 +3,9 @@ import { bunja } from "bunja";
 import { createScopeFromContext } from "bunja/react";
 import { atom } from "jotai";
 import { atomWithStorage } from "jotai/utils";
+import { JotaiStoreScope } from "unsaturated/store";
 import { FsEntry } from "../../../../../../protocol/rpc.ts";
 import { fileViewerSelectedImplStorageKey } from "../../../../../../state/file-viewer.ts";
-import { JotaiStoreScope } from "../../../../../../state/jotai-store.ts";
 import {
   machineBunja,
   machineStoreBunja,

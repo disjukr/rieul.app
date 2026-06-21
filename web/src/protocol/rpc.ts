@@ -80,6 +80,9 @@ export interface DaemonInfo {
   supportedProcIds: number[];
   version: string;
   os: string;
+  instanceId: string;
+  startedAtMs: number;
+  serverTimeMs: number;
 }
 
 export enum FsEntryKind {
@@ -259,6 +262,9 @@ export async function getDaemonInfo(
     supportedProcIds: array(map.get(1)).map(integer),
     version: text(map.get(2)),
     os: text(map.get(3)),
+    instanceId: text(map.get(4)),
+    startedAtMs: integer(map.get(5)),
+    serverTimeMs: integer(map.get(6)),
   };
 }
 
@@ -1273,26 +1279,31 @@ function decodeUnion(value: CborValue): [number, Map<number, CborValue>] {
 function decodeUnionValue(
   value: unknown,
 ): [number, Map<number, CborValue>] {
+  if (value === undefined) return [0, new Map()];
   if (!isCborValue(value)) throw new Error("expected union value");
   return decodeUnion(value);
 }
 
 function mapValue(value: unknown): Map<number, CborValue> {
+  if (value === undefined) return new Map();
   if (!(value instanceof Map)) throw new Error("expected CBOR map");
   return value;
 }
 
 function array(value: unknown): CborValue[] {
+  if (value === undefined) return [];
   if (!Array.isArray(value)) throw new Error("expected CBOR array");
   return value;
 }
 
 function bytesField(value: unknown): Uint8Array {
+  if (value === undefined) return new Uint8Array();
   if (!(value instanceof Uint8Array)) throw new Error("expected bytes field");
   return value;
 }
 
 function fsEntryKind(value: unknown): FsEntryKind {
+  if (value === undefined) return FsEntryKind.Other;
   const kind = integer(value);
   switch (kind) {
     case FsEntryKind.File:
@@ -1459,27 +1470,29 @@ const SESSION_AUTH_ERROR_CODES: Record<string, string> = {
 };
 
 function integer(value: unknown): number {
+  if (value === undefined) return 0;
   if (typeof value === "number" && Number.isSafeInteger(value)) return value;
   throw new Error("expected integer field");
 }
 
 function optionalInteger(value: unknown): number | undefined {
-  if (value == null) return undefined;
+  if (value === undefined) return undefined;
   return integer(value);
 }
 
 function text(value: unknown): string {
+  if (value === undefined) return "";
   if (typeof value !== "string") throw new Error("expected string field");
   return value;
 }
 
 function optionalText(value: unknown): string | undefined {
-  if (value == null) return undefined;
+  if (value === undefined) return undefined;
   return text(value);
 }
 
 function optionalBoolean(value: unknown): boolean | undefined {
-  if (value == null) return undefined;
+  if (value === undefined) return undefined;
   if (typeof value !== "boolean") throw new Error("expected boolean field");
   return value;
 }

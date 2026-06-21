@@ -1,9 +1,8 @@
 # standard - wgo-rpc
 # description
-| Daemon RPC methods expose process-level daemon metadata. These values are
-| fixed for the lifetime of one daemon process, but reconnecting may reach an
-| updated daemon. Clients may cache daemon info for a live connection or session
-| and must fetch it again after reconnecting.
+| Daemon RPC methods expose daemon metadata. Process identity fields are fixed
+| for the lifetime of one daemon process, while time fields are sampled when the
+| response is produced. Clients must fetch daemon info again after reconnecting.
 
 @ description
 | Returns process-level daemon info. The supported proc id set includes this
@@ -13,7 +12,7 @@
 @ stream - unary
 proc GetDaemonInfo = void -> DaemonInfo throws GetDaemonInfoError
 
-@ description - Process-level info for the current daemon process.
+@ description - Info for the current daemon process and response timestamp.
 struct DaemonInfo {
   @ id - 1
   @ description - Proc ids this daemon supports for this process lifetime.
@@ -29,6 +28,23 @@ struct DaemonInfo {
   | should include the most useful platform-specific details they can determine,
   | such as Windows edition, bitness, display version, build, and service pack.
   os: string,
+
+  @ id - 4
+  @ description
+  | Opaque daemon process lifetime id. It changes when the daemon process
+  | restarts and is used only to correlate client state with one daemon
+  | instance, not as a security token.
+  instanceId: string,
+
+  @ id - 5
+  @ description - Epoch millisecond timestamp when this daemon process started.
+  startedAtMs: u53,
+
+  @ id - 6
+  @ description
+  | Epoch millisecond timestamp sampled by the daemon while producing this
+  | response.
+  serverTimeMs: u53,
 }
 
 @ description - Method-level daemon info query errors.

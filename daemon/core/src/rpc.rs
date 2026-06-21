@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 use std::sync::OnceLock;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use thiserror::Error;
 
@@ -123,19 +124,46 @@ pub struct DaemonInfo {
     pub supported_proc_ids: Vec<u64>,
     pub version: String,
     pub os: String,
+    pub instance_id: String,
+    pub started_at_ms: u64,
+    pub server_time_ms: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct DaemonProcessInfo {
+    supported_proc_ids: Vec<u64>,
+    version: String,
+    os: String,
+    instance_id: String,
+    started_at_ms: u64,
+}
+
+impl DaemonProcessInfo {
+    fn current() -> Self {
+        let started_at_ms = current_unix_ms();
+        Self {
+            supported_proc_ids: ProcId::SUPPORTED.into_iter().map(ProcId::as_u64).collect(),
+            version: env!("CARGO_PKG_VERSION").to_string(),
+            os: current_os_name(),
+            instance_id: format!("{started_at_ms}-{}", std::process::id()),
+            started_at_ms,
+        }
+    }
 }
 
 impl DaemonInfo {
     pub fn current() -> Self {
-        static CURRENT: OnceLock<DaemonInfo> = OnceLock::new();
+        static PROCESS_INFO: OnceLock<DaemonProcessInfo> = OnceLock::new();
 
-        CURRENT
-            .get_or_init(|| Self {
-                supported_proc_ids: ProcId::SUPPORTED.into_iter().map(ProcId::as_u64).collect(),
-                version: env!("CARGO_PKG_VERSION").to_string(),
-                os: current_os_name(),
-            })
-            .clone()
+        let process_info = PROCESS_INFO.get_or_init(DaemonProcessInfo::current);
+        Self {
+            supported_proc_ids: process_info.supported_proc_ids.clone(),
+            version: process_info.version.clone(),
+            os: process_info.os.clone(),
+            instance_id: process_info.instance_id.clone(),
+            started_at_ms: process_info.started_at_ms,
+            server_time_ms: current_unix_ms(),
+        }
     }
 
     pub fn encode(&self) -> Vec<u8> {
@@ -152,6 +180,9 @@ impl DaemonInfo {
             ),
             (2, Value::Text(self.version.clone())),
             (3, Value::Text(self.os.clone())),
+            (4, Value::Text(self.instance_id.clone())),
+            (5, Value::U64(self.started_at_ms)),
+            (6, Value::U64(self.server_time_ms)),
         ]))
         .encode()
     }
@@ -165,7 +196,22 @@ impl DaemonInfo {
                 .collect::<Result<Vec<_>, _>>()?,
             version: expect_text(&map, 2)?,
             os: expect_text(&map, 3)?,
+            instance_id: expect_text(&map, 4)?,
+            started_at_ms: expect_u53(&map, 5)?,
+            server_time_ms: expect_u53(&map, 6)?,
         })
+    }
+}
+
+fn current_unix_ms() -> u64 {
+    let Ok(duration) = SystemTime::now().duration_since(UNIX_EPOCH) else {
+        return 0;
+    };
+    let millis = duration.as_millis();
+    if millis > u128::from(MAX_U53) {
+        MAX_U53
+    } else {
+        millis as u64
     }
 }
 
@@ -1285,6 +1331,12 @@ mod tests {
         assert_eq!(daemon_info.version, env!("CARGO_PKG_VERSION"));
         assert!(!daemon_info.os.is_empty());
         assert!(daemon_info.os.contains(&machine_bitness()));
+        assert!(daemon_info.started_at_ms > 0);
+        assert!(daemon_info.server_time_ms >= daemon_info.started_at_ms);
+        assert_eq!(
+            daemon_info.instance_id,
+            format!("{}-{}", daemon_info.started_at_ms, std::process::id())
+        );
     }
 
     #[test]

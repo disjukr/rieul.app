@@ -15,6 +15,7 @@
     "npm:react@19": "19.2.6",
     "npm:typescript@^5.9.0": "5.9.3",
     "npm:unocss@66.7.0": "66.7.0_vite@6.4.2",
+    "npm:unsaturated@^0.0.0": "0.0.0_bunja@3.0.0__@types+react@19.2.14__react@19.2.6_jotai@2.20.0__@types+react@19.2.14__react@19.2.6_react@19.2.6",
     "npm:vite@6": "6.4.2"
   },
   "npm": {
@@ -1334,6 +1335,14 @@
         "webpack-virtual-modules"
       ]
     },
+    "unsaturated@0.0.0_bunja@3.0.0__@types+react@19.2.14__react@19.2.6_jotai@2.20.0__@types+react@19.2.14__react@19.2.6_react@19.2.6": {
+      "integrity": "sha512-osVvKethRMqHweNr9RdZQx2RgMZTDsoCWheXBeLGk1jmFG1wJGGCqG9RSxUp7ekHc05sww1RAbRU22vmg9fNMQ==",
+      "dependencies": [
+        "bunja@3.0.0_@types+react@19.2.14_react@19.2.6",
+        "jotai",
+        "react"
+      ]
+    },
     "update-browserslist-db@1.2.3_browserslist@4.28.2": {
       "integrity": "sha512-Js0m9cx+qOgDxo0eMiFGEueWztz+d4+M3rGlmKPT+T4IS/jP4ylw3Nwpu6cpTTP8R1MAC1kF4VbdLt3ARf209w==",
       "dependencies": [
@@ -1377,6 +1386,7 @@
       "npm:react-dom@19",
       "npm:react@19",
       "npm:unocss@66.7.0",
+      "npm:unsaturated@^0.0.0",
       "npm:vite@6"
     ]
   }

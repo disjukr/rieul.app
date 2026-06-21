@@ -1,8 +1,9 @@
 import { bunja } from "bunja";
 import { atom } from "jotai";
+import { nowBunja } from "unsaturated/now";
+import { JotaiStoreScope } from "unsaturated/store";
 import { DaemonInfo, getDaemonInfo } from "../protocol/rpc.ts";
 import { connectionBunja } from "./connection.ts";
-import { JotaiStoreScope } from "./jotai-store.ts";
 import { machineStoreBunja } from "./machine-store.ts";
 
 interface IdleDaemonInfoState {
@@ -16,6 +17,7 @@ interface LoadingDaemonInfoState {
 interface ReadyDaemonInfoState {
   phase: "ready";
   daemonInfo: DaemonInfo;
+  receivedAtMs: number;
 }
 
 interface ErrorDaemonInfoState {
@@ -33,8 +35,32 @@ export const daemonInfoBunja = bunja(() => {
   const store = bunja.use(JotaiStoreScope);
   const connection = bunja.use(connectionBunja);
   const machines = bunja.use(machineStoreBunja);
+  const now = bunja.use(nowBunja);
 
   const daemonInfoAtom = atom<DaemonInfoState>({ phase: "idle" });
+  const daemonServerTimeMsAtom = atom((get) => {
+    const daemonInfo = get(daemonInfoAtom);
+    if (daemonInfo.phase !== "ready") return undefined;
+    const { serverTimeMs } = daemonInfo.daemonInfo;
+    if (serverTimeMs <= 0) return undefined;
+    const elapsedMs = Math.max(
+      0,
+      get(now.nowEverySecondAtom) - daemonInfo.receivedAtMs,
+    );
+    return serverTimeMs + elapsedMs;
+  });
+  const daemonUptimeSecondsAtom = atom((get) => {
+    const daemonInfo = get(daemonInfoAtom);
+    if (daemonInfo.phase !== "ready") return undefined;
+    const { startedAtMs } = daemonInfo.daemonInfo;
+    if (startedAtMs <= 0) return undefined;
+    const daemonServerTimeMs = get(daemonServerTimeMsAtom);
+    if (daemonServerTimeMs === undefined) return undefined;
+    const uptimeSeconds = Math.floor(
+      (daemonServerTimeMs - startedAtMs) / 1000,
+    );
+    return Math.max(0, uptimeSeconds);
+  });
   const daemonInfoRefreshKeyAtom = atom((get) => {
     const machine = get(machines.selectedAtom);
     const connectionState = get(connection.connectionAtom);
@@ -63,7 +89,11 @@ export const daemonInfoBunja = bunja(() => {
         try {
           const daemonInfo = await getDaemonInfo(machine);
           if (currentRunId !== runId) return;
-          store.set(daemonInfoAtom, { phase: "ready", daemonInfo });
+          store.set(daemonInfoAtom, {
+            phase: "ready",
+            daemonInfo,
+            receivedAtMs: Date.now(),
+          });
         } catch (err) {
           if (currentRunId !== runId) return;
           store.set(daemonInfoAtom, {
@@ -87,5 +117,7 @@ export const daemonInfoBunja = bunja(() => {
 
   return {
     daemonInfoAtom,
+    daemonServerTimeMsAtom,
+    daemonUptimeSecondsAtom,
   };
 });

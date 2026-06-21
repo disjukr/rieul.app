@@ -1,7 +1,7 @@
 import { bunja } from "bunja";
 import { atom } from "jotai";
+import { JotaiStoreScope } from "unsaturated/store";
 import { checkReachable } from "../protocol/rpc.ts";
-import { JotaiStoreScope } from "./jotai-store.ts";
 import { Machine } from "./machines.ts";
 import { machineStoreBunja } from "./machine-store.ts";
 import { ConnectionState } from "./types.ts";

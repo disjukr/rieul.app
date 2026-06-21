@@ -1,6 +1,6 @@
 import { bunja } from "bunja";
 import { atom } from "jotai";
-import { JotaiStoreScope } from "./jotai-store.ts";
+import { JotaiStoreScope } from "unsaturated/store";
 import { machineStoreBunja } from "./machine-store.ts";
 import { MachineMenuState, RailTooltipState } from "./types.ts";
 

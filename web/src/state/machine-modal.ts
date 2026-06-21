@@ -1,5 +1,6 @@
 import { bunja } from "bunja";
 import { atom } from "jotai";
+import { JotaiStoreScope } from "unsaturated/store";
 import {
   closeRpcSession,
   completePairing,
@@ -9,7 +10,6 @@ import {
   startPairing,
 } from "../protocol/rpc.ts";
 import { connectionBunja, connectionErrorMessage } from "./connection.ts";
-import { JotaiStoreScope } from "./jotai-store.ts";
 import { machineMenuBunja } from "./machine-menu.ts";
 import { machineStoreBunja } from "./machine-store.ts";
 import { Machine, normalizeMachineUrl } from "./machines.ts";

@@ -1,8 +1,8 @@
 import { bunja } from "bunja";
 import { atom } from "jotai";
+import { JotaiStoreScope } from "unsaturated/store";
 import type { RpcCallOptions } from "../protocol/rpc.ts";
 import { loadMachines, Machine, saveMachines } from "./machines.ts";
-import { JotaiStoreScope } from "./jotai-store.ts";
 import { MachineIdScope } from "./machine-id.tsx";
 
 const initialMachines = loadMachines();

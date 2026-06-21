@@ -1,14 +1,8 @@
-import { createContext } from "react";
 import { createRoot } from "react-dom/client";
-import { createStore, Provider as JotaiProvider } from "jotai";
-import { bindScope, BunjaStoreProvider } from "bunja/react";
+import { BunjaStoreProvider } from "bunja/react";
+import { JotaiProvider } from "unsaturated/store";
 import "virtual:uno.css";
-import { type JotaiStore, JotaiStoreScope } from "./state/jotai-store.ts";
 import View from "./view/index.tsx";
-
-const jotaiStore = createStore();
-const JotaiStoreContext = createContext<JotaiStore>(jotaiStore);
-bindScope(JotaiStoreScope, JotaiStoreContext);
 
 const rootHost = globalThis as typeof globalThis & {
   __wgoReactRoot?: ReturnType<typeof createRoot>;
@@ -18,11 +12,9 @@ const reactRoot = rootHost.__wgoReactRoot ??= createRoot(
 );
 
 reactRoot.render(
-  <JotaiProvider store={jotaiStore}>
-    <JotaiStoreContext value={jotaiStore}>
-      <BunjaStoreProvider>
-        <View />
-      </BunjaStoreProvider>
-    </JotaiStoreContext>
+  <JotaiProvider>
+    <BunjaStoreProvider>
+      <View />
+    </BunjaStoreProvider>
   </JotaiProvider>,
 );
