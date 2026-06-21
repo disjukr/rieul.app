@@ -223,3 +223,8 @@ For Developer ID signing, pass a signing identity to the script:
 ```sh
 scripts/macos/package-daemon-dmg.sh --sign "Developer ID Application: Example"
 ```
+
+## License
+
+Licensed under either of Apache License, Version 2.0 or MIT license at your
+option.
