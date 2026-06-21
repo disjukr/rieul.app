@@ -104,6 +104,18 @@ cd web
 deno task dev
 ```
 
+## GitHub Releases
+
+Publishing a GitHub release runs the `Release installers` workflow. It builds
+the unsigned Windows MSI on a Windows runner and the unsigned macOS DMG on a
+macOS runner, then attaches both installers to the release. Installer versions
+come from release tags in the `daemon-x.y.z` or `daemon-x.y.z-rc.n` format; for
+example, `daemon-1.2.3` builds installers with package version `1.2.3`, and
+`daemon-1.2.3-rc.1` builds installer files containing `1.2.3-rc.1`. MSI
+`ProductVersion` still uses the numeric `x.y.z` part because Windows Installer
+does not accept prerelease suffixes there. The Windows release job accepts the
+WiX 7 EULA before building the MSI.
+
 ## Windows Packaging
 
 Build an unsigned Windows daemon MSI package:

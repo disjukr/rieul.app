@@ -258,12 +258,13 @@ $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 if (-not $Version) {
   $Version = Get-CargoPackageVersion (Join-Path $RepoRoot "daemon\windows\Cargo.toml")
 }
-$MsiVersion = ConvertTo-MsiVersion $Version
+$PackageVersion = $Version
+$MsiVersion = ConvertTo-MsiVersion $PackageVersion
 if (-not $OutDir) {
   $OutDir = Join-Path $RepoRoot "dist\windows"
 }
 
-$PackageBaseName = "wgo-windows-daemon-$Version"
+$PackageBaseName = "wgo-windows-daemon-$PackageVersion"
 $StagingDir = Join-Path $OutDir "$PackageBaseName-msi"
 $MsiSourcePath = Join-Path $StagingDir "Package.wxs"
 $MsiPath = Join-Path $OutDir "$PackageBaseName.msi"
