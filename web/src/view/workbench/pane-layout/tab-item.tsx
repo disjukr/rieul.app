@@ -1,7 +1,7 @@
 import React from "react";
 import { useAtomValue } from "jotai";
 import { useBunja } from "bunja/react";
-import { Folder, Info, X } from "lucide-react";
+import { Folder, Info, Terminal, X } from "lucide-react";
 import {
   displayName,
   explorerNavigationBunja,
@@ -50,8 +50,10 @@ const workbenchTabClassName = [
   "[&.drop-after::after]:bg-[#4f8cff]",
   "[&.dragging]:opacity-48",
   "[&.active]:bg-white",
+  "[&>button]:inline-flex [&>button]:appearance-none [&>button]:items-center",
+  "[&>button]:justify-center [&>button]:[font-family:inherit]",
   "[&>button]:min-w-0 [&>button]:h-full [&>button]:min-h-0",
-  "[&>button]:border-0 [&>button]:rounded-0 [&>button]:bg-transparent",
+  "[&>button]:cursor-pointer [&>button]:border-0 [&>button]:rounded-0 [&>button]:bg-transparent",
   "[&>button]:px-[8px] [&>button]:text-[#344054]",
   "[&>button]:text-[12px] [&>button]:font-700",
   "[&>button:hover]:bg-transparent",
@@ -67,7 +69,7 @@ const workbenchTabClassName = [
   "[&_.tab-close]:flex-[0_0_auto] [&_.tab-close]:w-[22px]",
   "[&_.tab-close]:min-w-[22px] [&_.tab-close]:p-0 [&_.tab-close]:text-[#667085]",
 ].join(" ");
-const workbenchTabIconClassName = "flex-[0_0_auto] text-[#667085]";
+const workbenchTabIconClassName = "mr-[6px] flex-[0_0_auto] text-[#667085]";
 const workbenchTabTitleClassName =
   "min-w-0 overflow-hidden text-ellipsis whitespace-nowrap";
 const activePaneTabClassName = [
@@ -75,8 +77,8 @@ const activePaneTabClassName = [
   "[box-shadow:inset_2px_0_0_#7f9abf,inset_-2px_0_0_#7f9abf,inset_0_2px_0_#7f9abf]",
 ].join(" ");
 const activeTabBottomCoverClassName = [
-  "pointer-events-none absolute left-[2px] right-[2px] bottom-[-2px]",
-  "z-[9] h-[2px] bg-white",
+  "pointer-events-none absolute left-[2px] right-[2px] bottom-[-1px]",
+  "z-[9] h-[1px] bg-white",
 ].join(" ");
 
 export function WorkbenchTabItem(
@@ -199,6 +201,9 @@ function WorkbenchTabIcon(
 ) {
   if (tool === "daemon") {
     return <Info size={14} className={className} />;
+  }
+  if (tool === "terminal") {
+    return <Terminal size={14} className={className} />;
   }
   return <Folder size={14} className={className} />;
 }

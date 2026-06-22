@@ -10,11 +10,16 @@ import {
   Info,
   Plus,
   Rows2,
+  Terminal,
   X,
 } from "lucide-react";
+import { closeTerminalSession } from "../../../protocol/rpc.ts";
+import { machineStoreBunja } from "../../../state/machine-store.ts";
 import {
   type TabDropPosition,
+  workbenchBunja,
   workbenchPaneBunja,
+  type WorkbenchTab,
   WorkbenchTabIdContext,
 } from "../../../state/workbench.ts";
 import { WorkbenchToolContent } from "../tool/index.tsx";
@@ -27,6 +32,7 @@ import {
 } from "./tab-drag.ts";
 import { WorkbenchTabItem } from "./tab-item.tsx";
 import { className } from "../../class-name.ts";
+import { Button } from "../../ui/button.tsx";
 
 interface WorkbenchPaneViewProps {
   nodeId: string;
@@ -49,20 +55,21 @@ const workbenchTabsClassName = [
 const paneActionsClassName = "flex items-center gap-[3px] px-[5px]";
 const newTabMenuWrapClassName = "relative flex";
 const iconButtonClassName = [
-  "w-[36px] min-w-[36px] p-0",
-  "[&.compact]:w-[24px] [&.compact]:min-w-[24px]",
-  "[&.compact]:h-[24px] [&.compact]:min-h-[24px]",
+  "!w-[36px] !min-w-[36px] !p-0",
 ].join(" ");
 const newTabTriggerClassName = [
-  "w-[34px] min-w-[34px] h-[24px] min-h-[24px] gap-[1px] p-0",
+  "!w-[34px] !min-w-[34px] !h-[24px] !min-h-[24px] !gap-[1px] !p-0",
 ].join(" ");
-const compactIconButtonClassName = `${iconButtonClassName} compact`;
+const compactIconButtonClassName =
+  "!w-[24px] !min-w-[24px] !h-[24px] !min-h-[24px] !p-0";
 const newTabMenuClassName = [
   "absolute top-[calc(100%+5px)] right-0 z-[12] w-[148px]",
   "border border-[#d8dde7] rounded-[7px] bg-white",
   "[box-shadow:0_14px_36px_rgb(32_36_45_/_20%)] p-[5px]",
-  "[&_button]:justify-start [&_button]:w-full [&_button]:min-h-[30px]",
-  "[&_button]:border-0 [&_button]:rounded-[5px] [&_button]:bg-transparent",
+  "[&_button]:inline-flex [&_button]:appearance-none [&_button]:items-center",
+  "[&_button]:justify-start [&_button]:gap-[7px] [&_button]:[font-family:inherit]",
+  "[&_button]:w-full [&_button]:min-h-[30px]",
+  "[&_button]:cursor-pointer [&_button]:border-0 [&_button]:rounded-[5px] [&_button]:bg-transparent",
   "[&_button]:px-[8px] [&_button]:text-[#20242d]",
   "[&_button]:text-[12px] [&_button]:font-650",
   "[&_button:hover]:bg-[#eef3fb]",
@@ -100,7 +107,11 @@ export function WorkbenchPaneView(
     nodeId,
   }: WorkbenchPaneViewProps,
 ) {
+  const machineStore = useBunja(machineStoreBunja);
+  const workbench = useBunja(workbenchBunja);
   const paneState = useBunja(workbenchPaneBunja);
+  const machine = useAtomValue(machineStore.selectedAtom);
+  const panes = useAtomValue(workbench.panesAtom);
   const pane = useAtomValue(paneState.paneAtom);
   const paneCount = useAtomValue(paneState.paneCountAtom);
   const active = useAtomValue(paneState.activeAtom);
@@ -164,17 +175,51 @@ export function WorkbenchPaneView(
 
   function closePane() {
     if (!canClosePane) return;
+    if (pane) closeTerminalSessions(pane.tabs);
     removeLayoutPane(nodeId);
     paneState.removePane();
   }
 
   function closeWorkbenchTab(tabId: string) {
     if (!pane) return;
+    const closingTab = pane.tabs.find((tab) => tab.id === tabId);
     if (pane.tabs.length > 1) {
+      if (closingTab) closeTerminalSessions([closingTab]);
       paneState.closeTab(tabId);
       return;
     }
     closePane();
+  }
+
+  function closeTerminalSessions(tabs: WorkbenchTab[]) {
+    if (!machine) return;
+    const closingTabIds = new Set(tabs.map((tab) => tab.id));
+    const remainingTerminalSessionIds = new Set(
+      panes.flatMap((pane) => pane.tabs)
+        .filter((tab) => !closingTabIds.has(tab.id))
+        .flatMap((tab) =>
+          tab.tool === "terminal" && tab.terminalSessionId
+            ? [tab.terminalSessionId]
+            : []
+        ),
+    );
+    const closingTerminalSessionIds = new Set<string>();
+
+    for (const tab of tabs) {
+      if (tab.tool !== "terminal" || !tab.terminalSessionId) continue;
+      if (remainingTerminalSessionIds.has(tab.terminalSessionId)) continue;
+      closingTerminalSessionIds.add(tab.terminalSessionId);
+    }
+
+    for (const terminalSessionId of closingTerminalSessionIds) {
+      void closeTerminalSession(
+        machine,
+        terminalSessionId,
+        machineStore.rpcCallOptions(),
+      ).catch(() => {
+        // Closing a tab should not be blocked by a stale connection or session.
+      });
+    }
   }
 
   function openFilesTab() {
@@ -184,6 +229,11 @@ export function WorkbenchPaneView(
 
   function openDaemonTab() {
     paneState.addDaemonTab();
+    setNewTabMenuOpen(false);
+  }
+
+  function openTerminalTab() {
+    paneState.addTerminalTab();
     setNewTabMenuOpen(false);
   }
 
@@ -356,8 +406,7 @@ export function WorkbenchPaneView(
         </div>
         <div className={paneActionsClassName}>
           <div className={newTabMenuWrapClassName} ref={newTabMenuRef}>
-            <button
-              type="button"
+            <Button
               className={newTabTriggerClassName}
               onClick={() => setNewTabMenuOpen((open) => !open)}
               title="Open tab"
@@ -367,7 +416,7 @@ export function WorkbenchPaneView(
             >
               <Plus size={13} />
               <ChevronDown size={11} />
-            </button>
+            </Button>
             {newTabMenuOpen
               ? (
                 <div className={newTabMenuClassName} role="menu">
@@ -387,30 +436,35 @@ export function WorkbenchPaneView(
                     <Folder size={14} />
                     Files
                   </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={openTerminalTab}
+                  >
+                    <Terminal size={14} />
+                    Terminal
+                  </button>
                 </div>
               )
               : null}
           </div>
-          <button
-            type="button"
+          <Button
             className={compactIconButtonClassName}
             onClick={() => splitPane("horizontal")}
             title="Split right"
             aria-label="Split right"
           >
             <Columns2 size={14} />
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
             className={compactIconButtonClassName}
             onClick={() => splitPane("vertical")}
             title="Split down"
             aria-label="Split down"
           >
             <Rows2 size={14} />
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
             className={compactIconButtonClassName}
             onClick={closePane}
             disabled={!canClosePane}
@@ -418,7 +472,7 @@ export function WorkbenchPaneView(
             aria-label="Close pane"
           >
             <X size={14} />
-          </button>
+          </Button>
         </div>
       </header>
       <div

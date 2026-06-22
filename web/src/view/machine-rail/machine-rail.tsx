@@ -37,8 +37,9 @@ const railListClassName = [
   "w-full min-h-0 overflow-auto",
 ].join(" ");
 const railMachineClassName = [
-  "relative w-[44px] min-w-[44px] h-[44px] min-h-[44px]",
-  "border-0 rounded-full bg-[#343946] text-[#d8dde7] p-0",
+  "relative inline-flex appearance-none items-center justify-center w-[44px] min-w-[44px] h-[44px] min-h-[44px]",
+  "cursor-pointer border-0 rounded-full bg-[#343946] text-[#d8dde7] p-0",
+  "[font-family:inherit]",
   "[transition:border-radius_140ms_ease,background_140ms_ease,color_140ms_ease]",
   "hover:rounded-[16px] hover:bg-[#343946] hover:text-[#d8dde7]",
   "[&.active]:rounded-[16px] [&.active]:bg-[#4f8cff] [&.active]:text-white",
@@ -51,8 +52,9 @@ const railIndicatorClassName = [
 ].join(" ");
 const machineAvatarClassName = "text-[14px] font-750 tracking-[0]";
 const railActionClassName = [
-  "relative w-[44px] min-w-[44px] h-[44px] min-h-[44px]",
-  "border-0 rounded-full bg-[#343946] text-[#38b86f] p-0",
+  "relative inline-flex appearance-none items-center justify-center w-[44px] min-w-[44px] h-[44px] min-h-[44px]",
+  "cursor-pointer border-0 rounded-full bg-[#343946] text-[#38b86f] p-0",
+  "[font-family:inherit]",
   "[transition:border-radius_140ms_ease,background_140ms_ease,color_140ms_ease]",
   "hover:rounded-[16px] hover:bg-[#4f8cff] hover:text-white",
 ].join(" ");

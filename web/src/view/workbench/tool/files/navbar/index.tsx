@@ -7,6 +7,7 @@ import {
   requireFilesActions,
   requireFilesExplorer,
 } from "../context.tsx";
+import { Button } from "../../../../ui/button.tsx";
 import { PathCrumbs } from "./path-crumbs.tsx";
 
 const pathToolbarClassName = [
@@ -14,7 +15,7 @@ const pathToolbarClassName = [
   "items-center border-b border-b-[#d8dde7] bg-white px-[10px] py-[5px]",
 ].join(" ");
 const pathToolbarButtonClassName = [
-  "w-[28px] min-w-[28px] h-[26px] min-h-[26px] p-0",
+  "!w-[28px] !min-w-[28px] !h-[26px] !min-h-[26px] !p-0",
 ].join(" ");
 
 export function FilesNavbar() {
@@ -28,8 +29,7 @@ export function FilesNavbar() {
 
   return (
     <div className={pathToolbarClassName}>
-      <button
-        type="button"
+      <Button
         onClick={actions.goBack}
         disabled={!canGoBack}
         title="Back"
@@ -37,9 +37,8 @@ export function FilesNavbar() {
         className={pathToolbarButtonClassName}
       >
         <ArrowLeft size={16} />
-      </button>
-      <button
-        type="button"
+      </Button>
+      <Button
         onClick={actions.goUp}
         disabled={!canGoUp}
         title="Up"
@@ -47,7 +46,7 @@ export function FilesNavbar() {
         className={pathToolbarButtonClassName}
       >
         <ArrowUp size={16} />
-      </button>
+      </Button>
       <PathCrumbs path={displayPath} onNavigate={actions.navigate} />
     </div>
   );

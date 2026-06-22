@@ -1,6 +1,7 @@
 import { useBunja } from "bunja/react";
 import { FileText } from "lucide-react";
 import { displayName, formatSize } from "../../../../../../state/explorer.ts";
+import { Button } from "../../../../../ui/button.tsx";
 import { fileViewerBunja } from "./state.tsx";
 
 interface BigFileWarningProps {
@@ -59,13 +60,13 @@ export function BigFileWarning(
           <p>{fsEntry.path}</p>
         </div>
         <div className={bigFileWarningActionsClassName}>
-          <button type="button" onClick={onCancel}>
+          <Button onClick={onCancel}>
             Cancel
-          </button>
-          <button type="button" onClick={onConfirm}>
+          </Button>
+          <Button onClick={onConfirm}>
             <FileText size={16} />
             Open
-          </button>
+          </Button>
         </div>
       </div>
     </section>

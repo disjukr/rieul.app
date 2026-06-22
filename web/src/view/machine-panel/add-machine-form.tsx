@@ -1,5 +1,6 @@
 import React, { FormEvent } from "react";
 import { Plus } from "lucide-react";
+import { Button } from "../ui/button.tsx";
 
 const machineModalFormClassName = [
   "grid gap-[12px] p-[16px]",
@@ -59,15 +60,15 @@ export function AddMachineForm(
       <div className={modalActionsClassName}>
         {showCancel
           ? (
-            <button type="button" onClick={onCancel}>
+            <Button onClick={onCancel}>
               Cancel
-            </button>
+            </Button>
           )
           : null}
-        <button type="submit">
+        <Button type="submit">
           <Plus size={16} />
           Continue
-        </button>
+        </Button>
       </div>
     </form>
   );

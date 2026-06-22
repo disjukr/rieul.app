@@ -4,8 +4,10 @@ import type { Machine } from "../../state/machines.ts";
 const machineContextMenuClassName = [
   "fixed z-[30] grid gap-[2px] w-[176px] border border-[#d8dde7]",
   "rounded-[8px] bg-white [box-shadow:0_18px_48px_rgb(32_36_45_/_24%)] p-[6px]",
-  "[&_button]:justify-start [&_button]:w-full [&_button]:min-h-[34px]",
-  "[&_button]:border-0 [&_button]:rounded-[6px] [&_button]:bg-transparent",
+  "[&_button]:inline-flex [&_button]:appearance-none [&_button]:items-center",
+  "[&_button]:justify-start [&_button]:gap-[7px] [&_button]:[font-family:inherit]",
+  "[&_button]:w-full [&_button]:min-h-[34px]",
+  "[&_button]:cursor-pointer [&_button]:border-0 [&_button]:rounded-[6px] [&_button]:bg-transparent",
   "[&_button]:px-[10px] [&_button]:text-[#20242d]",
   "[&_button:hover]:bg-[#f2f6ff]",
   "[&_button.danger]:text-[#b42318]",

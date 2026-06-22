@@ -1,6 +1,11 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { useAtomValue, useSetAtom } from "jotai";
 import { useBunja } from "bunja/react";
+import {
+  type AvailableShellInfo,
+  type AvailableShellsTableEvent,
+  subscribeAvailableShells,
+} from "../../protocol/rpc.ts";
 import { connectionBunja } from "../../state/connection.ts";
 import { machineMenuBunja } from "../../state/machine-menu.ts";
 import { machineModalBunja } from "../../state/machine-modal.ts";
@@ -16,12 +21,15 @@ interface MachineAddFormContainerProps {
   showCancel: boolean;
 }
 
+const machineMenuWidth = 176;
+
 export function MachinePanelRegion() {
   const layout = useBunja(layoutBunja);
   const machineStore = useBunja(machineStoreBunja);
   const machineMenuState = useBunja(machineMenuBunja);
   const connectionState = useBunja(connectionBunja);
   const selected = useAtomValue(machineStore.selectedAtom);
+  const selectedIsPaired = useAtomValue(machineStore.selectedIsPairedAtom);
   const machineMenu = useAtomValue(machineMenuState.machineMenuAtom);
   const connection = useAtomValue(connectionState.connectionAtom);
   const workbench = useBunja(workbenchBunja);
@@ -30,6 +38,41 @@ export function MachinePanelRegion() {
     layout.machinePanelCollapsedAtom,
   );
   const machinePanelWidth = useAtomValue(layout.machinePanelWidthAtom);
+  const [terminalShells, setTerminalShells] = useState<AvailableShellInfo[]>(
+    [],
+  );
+
+  useEffect(() => {
+    if (!selected || !selectedIsPaired) {
+      setTerminalShells([]);
+      return;
+    }
+
+    let cancelled = false;
+    const iterator = subscribeAvailableShells(
+      selected,
+      machineStore.rpcCallOptions(),
+    );
+    void (async () => {
+      try {
+        for await (const event of iterator) {
+          if (cancelled) return;
+          if (event.type === "snapshot") {
+            setTerminalShells(event.rows);
+          } else {
+            setTerminalShells((current) => applyShellPatch(current, event));
+          }
+        }
+      } catch {
+        if (!cancelled) setTerminalShells([]);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      void iterator.return(undefined);
+    };
+  }, [machineStore, selected, selectedIsPaired]);
 
   function openMachineTitleMenu(
     event: React.MouseEvent<HTMLButtonElement>,
@@ -42,7 +85,27 @@ export function MachinePanelRegion() {
       return;
     }
     const rect = event.currentTarget.getBoundingClientRect();
-    machineMenuState.openMachineMenu(machine.id, rect.left, rect.bottom + 8);
+    machineMenuState.openMachineMenu(
+      machine.id,
+      rect.right - machineMenuWidth,
+      rect.bottom + 8,
+    );
+  }
+
+  function openTerminalShell(shell?: AvailableShellInfo) {
+    const selectedShell = shell ??
+      terminalShells.find((item) => item.isDefault) ??
+      terminalShells[0];
+    if (!selectedShell) return;
+    workbench.openTerminalTab(
+      {
+        launch: {
+          command: selectedShell.command,
+          args: selectedShell.args,
+        },
+        title: selectedShell.name,
+      },
+    );
   }
 
   return (
@@ -57,9 +120,24 @@ export function MachinePanelRegion() {
       onOpenMachineMenu={openMachineTitleMenu}
       onResizeKeyDown={layout.resizeMachinePanelWithKeyboard}
       onResizePointerDown={layout.startMachinePanelResize}
+      onOpenTerminalShell={openTerminalShell}
       onSelectTool={workbench.selectTool}
+      terminalShells={terminalShells}
     />
   );
+}
+
+function applyShellPatch(
+  current: AvailableShellInfo[],
+  event: Extract<AvailableShellsTableEvent, { type: "patch" }>,
+): AvailableShellInfo[] {
+  const removeIds = new Set(event.removes.map((item) => item.shellId));
+  const retained = current.filter((shell) => !removeIds.has(shell.shellId));
+  const upserts = new Map(event.upserts.map((shell) => [shell.shellId, shell]));
+  return [
+    ...retained.filter((shell) => !upserts.has(shell.shellId)),
+    ...event.upserts,
+  ];
 }
 
 export function MachineAddFormContainer(

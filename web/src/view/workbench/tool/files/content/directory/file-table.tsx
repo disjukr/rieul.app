@@ -35,7 +35,7 @@ const fileHeadClassName = [
 const fileRowClassName = [
   "grid [grid-column:1/-1] [grid-template-columns:subgrid]",
   "min-h-[38px] border-0 border-b border-b-[#eef1f5] rounded-0",
-  "bg-white p-0 text-left hover:bg-[#f7faff]",
+  "appearance-none cursor-pointer bg-white p-0 text-left [font-family:inherit] hover:bg-[#f7faff]",
   "[&.selected]:bg-[#eaf3ff]",
 ].join(" ");
 const fileCellBaseClassName = [

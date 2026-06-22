@@ -11,8 +11,9 @@ const globalTopbarClassName = [
 ].join(" ");
 const globalTopbarLeftClassName = "flex items-center ml-[-8px] min-w-0";
 const globalIconButtonClassName = [
-  "w-[26px] min-w-[26px] h-[24px] min-h-[24px]",
-  "border-0 rounded-[5px] bg-transparent text-[#cbd3df] p-0",
+  "inline-flex appearance-none items-center justify-center w-[26px] min-w-[26px] h-[24px] min-h-[24px]",
+  "cursor-pointer border-0 rounded-[5px] bg-transparent text-[#cbd3df] p-0",
+  "[font-family:inherit]",
   "hover:bg-[#343946] hover:text-white",
 ].join(" ");
 const globalMachineTitleClassName = [

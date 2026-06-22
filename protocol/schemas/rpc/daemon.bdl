@@ -12,6 +12,15 @@
 @ stream - unary
 proc GetDaemonInfo = void -> DaemonInfo throws GetDaemonInfoError
 
+@ description
+| Subscribes to paired clients known to the daemon. The first response event is
+| ClientsTableEvent.Snapshot. Later Snapshot events replace the whole clients
+| table view; Patch events apply incremental table membership updates. Events
+| intentionally omit credential secrets and secret hashes.
+@ id - 19
+@ stream - server
+proc SubscribeClients = void -> ClientsTableEvent throws SubscribeClientsError
+
 @ description - Info for the current daemon process and response timestamp.
 struct DaemonInfo {
   @ id - 1
@@ -47,10 +56,68 @@ struct DaemonInfo {
   serverTimeMs: u53,
 }
 
+@ description - Public paired client metadata.
+struct ClientInfo {
+  @ id - 1
+  clientId: string,
+
+  @ id - 2
+  label: string,
+
+  @ id - 3
+  @ description - Epoch second timestamp when this client credential was created.
+  createdAtUnix: i53,
+
+  @ id - 4
+  @ description - Epoch second timestamp when this client credential expires.
+  expiresAtUnix: i53,
+}
+
+@ description
+| Reactive paired clients table event. Snapshot replaces the whole subscribed
+| clients table view. Patch applies membership changes to the current view.
+union ClientsTableEvent {
+  @ id - 1
+  Snapshot(
+    @ id - 1
+    rows: ClientInfo[],
+  ),
+
+  @ id - 2
+  Patch(
+    @ id - 1
+    removes: ClientKey[],
+
+    @ id - 2
+    upserts: ClientInfo[],
+  ),
+}
+
+@ description - Paired client table row key.
+struct ClientKey {
+  @ id - 1
+  clientId: string,
+}
+
 @ description - Method-level daemon info query errors.
 union GetDaemonInfoError {
   @ id - 0
   Failed(
+    @ id - 1
+    message: string,
+  ),
+}
+
+@ description - Method-level client subscription start errors.
+union SubscribeClientsError {
+  @ id - 0
+  Failed(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 1
+  PermissionDenied(
     @ id - 1
     message: string,
   ),

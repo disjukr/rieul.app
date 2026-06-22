@@ -4,9 +4,9 @@ import type { ConnectionState } from "../../state/types.ts";
 import { className } from "../class-name.ts";
 
 const connectionPillClassName = [
-  "inline-flex justify-self-end items-center gap-[6px] min-h-[22px]",
+  "inline-flex appearance-none justify-self-end items-center gap-[6px] min-h-[22px]",
   "border border-[#444b5c] rounded-full bg-transparent text-[#cbd3df]",
-  "px-[8px] text-[11px] font-700 whitespace-nowrap",
+  "cursor-pointer px-[8px] text-[11px] font-700 whitespace-nowrap [font-family:inherit]",
   "hover:border-[#566074] hover:bg-[#343946] hover:text-white",
   "focus-visible:border-[#566074] focus-visible:bg-[#343946] focus-visible:text-white",
   "active:translate-y-[1px]",

@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import type { Machine } from "../../state/machines.ts";
 import type { ConnectionState, MachineModalMode } from "../../state/types.ts";
+import { Button } from "../ui/button.tsx";
 import { AddMachineForm } from "./add-machine-form.tsx";
 
 const modalBackdropClassName =
@@ -24,7 +25,7 @@ const modalHeadClassName = [
   "[&_span]:text-[#667085] [&_span]:text-[12px] [&_span]:font-700",
   "[&_h2]:m-0 [&_h2]:text-[#20242d] [&_h2]:text-[18px] [&_h2]:tracking-[0]",
 ].join(" ");
-const iconButtonClassName = "w-[36px] min-w-[36px] p-0";
+const iconButtonClassName = "!w-[36px] !min-w-[36px] !p-0";
 const machineModalFormClassName = [
   "grid gap-[12px] p-[16px]",
   "[&_label]:grid [&_label]:gap-[6px] [&_label]:min-w-0",
@@ -197,15 +198,14 @@ export function MachineModal(
           </div>
           {machineCount > 0
             ? (
-              <button
-                type="button"
+              <Button
                 onClick={onClose}
                 title="Close"
                 aria-label="Close machine modal"
                 className={iconButtonClassName}
               >
                 <X size={16} />
-              </button>
+              </Button>
             )
             : null}
         </header>
@@ -310,12 +310,12 @@ function PairMachineForm(
         ? <div className={fieldErrorClassName}>{connection.message}</div>
         : null}
       <div className={modalActionsClassName}>
-        <button type="button" onClick={onClose}>
+        <Button onClick={onClose}>
           Skip
-        </button>
+        </Button>
         {hasPairingCode
           ? (
-            <button
+            <Button
               type="submit"
               disabled={isPairing || isRequestingPairingCode ||
                 pairingCode.length === 0}
@@ -324,7 +324,7 @@ function PairMachineForm(
                 ? <Loader2 size={16} className="animate-spin" />
                 : <KeyRound size={16} />}
               Pair
-            </button>
+            </Button>
           )
           : null}
       </div>
@@ -347,8 +347,7 @@ function PairingRestartControl(
           {machineName}
         </strong>
       </span>
-      <button
-        type="button"
+      <Button
         className="min-w-[36px] px-[10px]"
         disabled={disabled}
         onClick={onRequestPairingCode}
@@ -356,7 +355,7 @@ function PairingRestartControl(
       >
         <RefreshCw size={16} />
         Restart pairing
-      </button>
+      </Button>
     </div>
   );
 }
@@ -483,13 +482,13 @@ function MachineConfigForm(
       </label>
       {error ? <div className={fieldErrorClassName}>{error}</div> : null}
       <div className={modalActionsClassName}>
-        <button type="button" onClick={onClose}>
+        <Button onClick={onClose}>
           Cancel
-        </button>
-        <button type="submit">
+        </Button>
+        <Button type="submit">
           <Settings size={16} />
           Save
-        </button>
+        </Button>
       </div>
     </form>
   );
@@ -512,17 +511,16 @@ function DeleteMachineForm(
         This removes the machine from this browser.
       </p>
       <div className={modalActionsClassName}>
-        <button type="button" onClick={onClose}>
+        <Button onClick={onClose}>
           Cancel
-        </button>
-        <button
-          type="button"
+        </Button>
+        <Button
           className={dangerActionClassName}
           onClick={onDelete}
         >
           <Trash2 size={16} />
           Delete
-        </button>
+        </Button>
       </div>
     </div>
   );

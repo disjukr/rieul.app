@@ -5,6 +5,7 @@ import { atom } from "jotai";
 import { atomWithStorage } from "jotai/utils";
 import { createLayout, type LayoutState } from "panecake";
 import { JotaiStoreScope } from "unsaturated/store";
+import type { TerminalLaunchSpec } from "../protocol/rpc.ts";
 import { copyExplorerNavigationState } from "./explorer.ts";
 import { copyFileViewerState } from "./file-viewer.ts";
 import { MachineIdScope } from "./machine-id.tsx";
@@ -12,9 +13,29 @@ import { MachineIdScope } from "./machine-id.tsx";
 export type WorkbenchTool = "daemon" | "files" | "processes" | "terminal";
 
 export interface WorkbenchTab {
+  daemonClientDetailId?: string;
+  daemonClientsPageOpen?: boolean;
   id: string;
   title: string;
   tool: WorkbenchTool;
+  terminalLaunch?: TerminalLaunchSpec;
+  terminalLastKnownCwd?: string;
+  terminalLastKnownTitle?: string;
+  terminalLatestOutputSeq?: number;
+  terminalSessionId?: string;
+}
+
+export interface WorkbenchTerminalTabConfig {
+  cwd?: string;
+  launch?: TerminalLaunchSpec;
+  terminalTitle?: string;
+  title?: string;
+}
+
+export interface WorkbenchTerminalSessionSnapshot {
+  lastKnownCwd?: string;
+  lastKnownTitle?: string;
+  launch?: TerminalLaunchSpec;
 }
 
 export interface WorkbenchPane {
@@ -159,6 +180,152 @@ export const workbenchBunja = bunja(() => {
 
   function addDaemonTab(paneId: string) {
     addToolTab(paneId, "daemon");
+  }
+
+  function addTerminalTab(paneId: string) {
+    addToolTab(paneId, "terminal");
+  }
+
+  function openTerminalTab(config: WorkbenchTerminalTabConfig = {}) {
+    const tab = createTerminalTab(config);
+    store.set(stateAtom, (current) => openTabInActivePane(current, tab));
+  }
+
+  function setTerminalSessionId(
+    paneId: string,
+    tabId: string,
+    terminalSessionId: string | undefined,
+  ) {
+    store.set(
+      stateAtom,
+      (current) => ({
+        ...current,
+        panes: current.panes.map((pane) =>
+          pane.id === paneId
+            ? {
+              ...pane,
+              tabs: pane.tabs.map((tab) =>
+                tab.id === tabId && tab.tool === "terminal"
+                  ? { ...tab, terminalSessionId }
+                  : tab
+              ),
+            }
+            : pane
+        ),
+      }),
+    );
+  }
+
+  function setTerminalLatestOutputSeq(
+    paneId: string,
+    tabId: string,
+    terminalLatestOutputSeq: number | undefined,
+  ) {
+    store.set(
+      stateAtom,
+      (current) => ({
+        ...current,
+        panes: current.panes.map((pane) =>
+          pane.id === paneId
+            ? {
+              ...pane,
+              tabs: pane.tabs.map((tab) =>
+                tab.id === tabId && tab.tool === "terminal"
+                  ? { ...tab, terminalLatestOutputSeq }
+                  : tab
+              ),
+            }
+            : pane
+        ),
+      }),
+    );
+  }
+
+  function setTerminalSessionSnapshot(
+    paneId: string,
+    tabId: string,
+    snapshot: WorkbenchTerminalSessionSnapshot,
+  ) {
+    store.set(
+      stateAtom,
+      (current) => {
+        let changed = false;
+        const panes = current.panes.map((pane) => {
+          if (pane.id !== paneId) return pane;
+          let paneChanged = false;
+          const tabs = pane.tabs.map((tab) => {
+            if (tab.id !== tabId || tab.tool !== "terminal") return tab;
+            if (
+              terminalLaunchEquals(tab.terminalLaunch, snapshot.launch) &&
+              tab.terminalLastKnownCwd === snapshot.lastKnownCwd &&
+              tab.terminalLastKnownTitle === snapshot.lastKnownTitle
+            ) {
+              return tab;
+            }
+            changed = true;
+            paneChanged = true;
+            return {
+              ...tab,
+              terminalLastKnownCwd: snapshot.lastKnownCwd,
+              terminalLastKnownTitle: snapshot.lastKnownTitle,
+              terminalLaunch: snapshot.launch,
+            };
+          });
+          return paneChanged ? { ...pane, tabs } : pane;
+        });
+        return changed ? { ...current, panes } : current;
+      },
+    );
+  }
+
+  function setDaemonClientDetailId(
+    paneId: string,
+    tabId: string,
+    daemonClientDetailId: string | undefined,
+  ) {
+    store.set(
+      stateAtom,
+      (current) => ({
+        ...current,
+        panes: current.panes.map((pane) =>
+          pane.id === paneId
+            ? {
+              ...pane,
+              tabs: pane.tabs.map((tab) =>
+                tab.id === tabId && tab.tool === "daemon"
+                  ? { ...tab, daemonClientDetailId }
+                  : tab
+              ),
+            }
+            : pane
+        ),
+      }),
+    );
+  }
+
+  function setDaemonClientsPageOpen(
+    paneId: string,
+    tabId: string,
+    daemonClientsPageOpen: boolean,
+  ) {
+    store.set(
+      stateAtom,
+      (current) => ({
+        ...current,
+        panes: current.panes.map((pane) =>
+          pane.id === paneId
+            ? {
+              ...pane,
+              tabs: pane.tabs.map((tab) =>
+                tab.id === tabId && tab.tool === "daemon"
+                  ? { ...tab, daemonClientsPageOpen }
+                  : tab
+              ),
+            }
+            : pane
+        ),
+      }),
+    );
   }
 
   function addToolTab(paneId: string, tool: WorkbenchTool) {
@@ -330,10 +497,17 @@ export const workbenchBunja = bunja(() => {
     removePane,
     addDaemonTab,
     addFilesTab,
+    addTerminalTab,
+    openTerminalTab,
     selectTab,
     closeTab,
     moveTab,
     moveTabToNewPane,
+    setDaemonClientDetailId,
+    setDaemonClientsPageOpen,
+    setTerminalLatestOutputSeq,
+    setTerminalSessionSnapshot,
+    setTerminalSessionId,
   };
 });
 
@@ -360,6 +534,10 @@ export const workbenchPaneBunja = bunja(() => {
 
   function addDaemonTab() {
     workbench.addDaemonTab(paneId);
+  }
+
+  function addTerminalTab() {
+    workbench.addTerminalTab(paneId);
   }
 
   function removePane() {
@@ -400,6 +578,49 @@ export const workbenchPaneBunja = bunja(() => {
     return workbench.moveTabToNewPane(sourcePaneId, tabId, paneId);
   }
 
+  function setTerminalSessionId(
+    tabId: string,
+    terminalSessionId: string | undefined,
+  ) {
+    workbench.setTerminalSessionId(paneId, tabId, terminalSessionId);
+  }
+
+  function setTerminalLatestOutputSeq(
+    tabId: string,
+    terminalLatestOutputSeq: number | undefined,
+  ) {
+    workbench.setTerminalLatestOutputSeq(
+      paneId,
+      tabId,
+      terminalLatestOutputSeq,
+    );
+  }
+
+  function setTerminalSessionSnapshot(
+    tabId: string,
+    snapshot: WorkbenchTerminalSessionSnapshot,
+  ) {
+    workbench.setTerminalSessionSnapshot(paneId, tabId, snapshot);
+  }
+
+  function setDaemonClientDetailId(
+    tabId: string,
+    daemonClientDetailId: string | undefined,
+  ) {
+    workbench.setDaemonClientDetailId(paneId, tabId, daemonClientDetailId);
+  }
+
+  function setDaemonClientsPageOpen(
+    tabId: string,
+    daemonClientsPageOpen: boolean,
+  ) {
+    workbench.setDaemonClientsPageOpen(
+      paneId,
+      tabId,
+      daemonClientsPageOpen,
+    );
+  }
+
   return {
     paneId,
     paneAtom,
@@ -408,12 +629,18 @@ export const workbenchPaneBunja = bunja(() => {
     addPane,
     addDaemonTab,
     addFilesTab,
+    addTerminalTab,
     removePane,
     focusPane,
     selectTab,
     closeTab,
     moveTab,
     moveTabToNewPane,
+    setDaemonClientDetailId,
+    setDaemonClientsPageOpen,
+    setTerminalLatestOutputSeq,
+    setTerminalSessionSnapshot,
+    setTerminalSessionId,
   };
 });
 
@@ -437,6 +664,30 @@ export const workbenchTabBunja = bunja(() => {
     pane.selectTab(tabId);
   }
 
+  function setTerminalSessionId(terminalSessionId: string | undefined) {
+    pane.setTerminalSessionId(tabId, terminalSessionId);
+  }
+
+  function setTerminalLatestOutputSeq(
+    terminalLatestOutputSeq: number | undefined,
+  ) {
+    pane.setTerminalLatestOutputSeq(tabId, terminalLatestOutputSeq);
+  }
+
+  function setTerminalSessionSnapshot(
+    snapshot: WorkbenchTerminalSessionSnapshot,
+  ) {
+    pane.setTerminalSessionSnapshot(tabId, snapshot);
+  }
+
+  function setDaemonClientDetailId(daemonClientDetailId: string | undefined) {
+    pane.setDaemonClientDetailId(tabId, daemonClientDetailId);
+  }
+
+  function setDaemonClientsPageOpen(daemonClientsPageOpen: boolean) {
+    pane.setDaemonClientsPageOpen(tabId, daemonClientsPageOpen);
+  }
+
   return {
     paneId: pane.paneId,
     tabId,
@@ -444,6 +695,11 @@ export const workbenchTabBunja = bunja(() => {
     activeAtom,
     showCloseAtom,
     selectTab,
+    setDaemonClientDetailId,
+    setDaemonClientsPageOpen,
+    setTerminalLatestOutputSeq,
+    setTerminalSessionSnapshot,
+    setTerminalSessionId,
   };
 });
 
@@ -496,6 +752,17 @@ function insertTab(
 
 function createFilesTab(): WorkbenchTab {
   return createWorkbenchTab("files");
+}
+
+function createTerminalTab(config: WorkbenchTerminalTabConfig): WorkbenchTab {
+  return {
+    id: `terminal-${crypto.randomUUID()}`,
+    title: config.title ?? "Terminal",
+    tool: "terminal",
+    terminalLastKnownCwd: config.cwd,
+    terminalLastKnownTitle: config.terminalTitle ?? config.title,
+    terminalLaunch: config.launch,
+  };
 }
 
 function createWorkbenchTab(tool: WorkbenchTool): WorkbenchTab {
@@ -553,6 +820,28 @@ function openToolTabInActivePane(
   };
 }
 
+function openTabInActivePane(
+  state: WorkbenchState,
+  tab: WorkbenchTab,
+): WorkbenchState {
+  const activePaneId = activePaneFromState(state)?.id;
+  if (!activePaneId) return state;
+
+  return {
+    ...state,
+    activePaneId,
+    panes: state.panes.map((pane) =>
+      pane.id === activePaneId
+        ? {
+          ...pane,
+          tabs: [...pane.tabs, tab],
+          activeTabId: tab.id,
+        }
+        : pane
+    ),
+  };
+}
+
 function activePaneFromState(
   state: WorkbenchState,
 ): WorkbenchPane | undefined {
@@ -568,6 +857,14 @@ function activeTabFromPane(
 }
 
 function cloneWorkbenchTab(tab: WorkbenchTab): WorkbenchTab {
+  if (tab.tool === "terminal") {
+    return createTerminalTab({
+      cwd: tab.terminalLastKnownCwd,
+      launch: cloneTerminalLaunch(tab.terminalLaunch),
+      terminalTitle: tab.terminalLastKnownTitle,
+      title: tab.title,
+    });
+  }
   return {
     ...tab,
     id: `${tab.tool}-${crypto.randomUUID()}`,
@@ -583,4 +880,25 @@ function copyTabState(
     copyExplorerNavigationState(machineId, sourceTab.id, targetTab.id);
     copyFileViewerState(machineId, sourceTab.id, targetTab.id);
   }
+}
+
+function cloneTerminalLaunch(
+  launch: TerminalLaunchSpec | undefined,
+): TerminalLaunchSpec | undefined {
+  if (!launch) return undefined;
+  return {
+    command: launch.command,
+    args: [...launch.args],
+  };
+}
+
+function terminalLaunchEquals(
+  left: TerminalLaunchSpec | undefined,
+  right: TerminalLaunchSpec | undefined,
+): boolean {
+  if (left === right) return true;
+  if (!left || !right) return false;
+  if (left.command !== right.command) return false;
+  if (left.args.length !== right.args.length) return false;
+  return left.args.every((arg, index) => arg === right.args[index]);
 }

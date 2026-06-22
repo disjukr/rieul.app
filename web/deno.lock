@@ -2,6 +2,8 @@
   "version": "5",
   "specifiers": {
     "npm:@vitejs/plugin-react@^4.3.4": "4.7.0_vite@6.4.2",
+    "npm:@xterm/addon-fit@0.10": "0.10.0_@xterm+xterm@5.5.0",
+    "npm:@xterm/xterm@^5.5.0": "5.5.0",
     "npm:bunja@*": "3.0.0_@types+react@19.2.14_react@19.2.6",
     "npm:bunja@3": "3.0.0_@types+react@19.2.14_react@19.2.6",
     "npm:jotai@^2.15.0": "2.20.0_@types+react@19.2.14_react@19.2.6",
@@ -832,6 +834,15 @@
         "vite"
       ]
     },
+    "@xterm/addon-fit@0.10.0_@xterm+xterm@5.5.0": {
+      "integrity": "sha512-UFYkDm4HUahf2lnEyHvio51TNGiLK66mqP2JoATy7hRZeXaGMRDr00JiSF7m63vR5WKATF605yEggJKsw0JpMQ==",
+      "dependencies": [
+        "@xterm/xterm"
+      ]
+    },
+    "@xterm/xterm@5.5.0": {
+      "integrity": "sha512-hqJHYaQb5OptNunnyAnkHyM8aCjZ1MEIDTQu1iIbbTD/xops91NB5yq1ZK/dC2JDbVWtF23zUtl9JE2NqwT87A=="
+    },
     "acorn@8.16.0": {
       "integrity": "sha512-UVJyE9MttOsBQIDKw1skb9nAwQuR5wuGD3+82K6JgJlm/Y+KI92oNsMNGZCYdDsVtRHSak0pcV5Dno5+4jh9sw==",
       "bin": true
@@ -1377,6 +1388,8 @@
   "workspace": {
     "dependencies": [
       "npm:@vitejs/plugin-react@^4.3.4",
+      "npm:@xterm/addon-fit@0.10",
+      "npm:@xterm/xterm@^5.5.0",
       "npm:bunja@3",
       "npm:jotai@^2.15.0",
       "npm:lucide-react@0.468",

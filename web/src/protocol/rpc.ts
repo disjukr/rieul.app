@@ -26,6 +26,14 @@ const PROC_WRITE_FILE = 8;
 const PROC_CREATE_NODES = 9;
 const PROC_RENAME_PATHS = 10;
 const PROC_DELETE_PATHS = 11;
+const PROC_CREATE_TERMINAL_SESSION = 12;
+const PROC_SUBSCRIBE_TERMINAL_SESSIONS = 13;
+const PROC_SUBSCRIBE_AVAILABLE_SHELLS = 14;
+const PROC_ATTACH_TERMINAL_SESSION = 15;
+const PROC_TAKE_TERMINAL_CONTROL = 16;
+const PROC_WRITE_TERMINAL_INPUT = 17;
+const PROC_CLOSE_TERMINAL_SESSION = 18;
+const PROC_SUBSCRIBE_CLIENTS = 19;
 const CONNECT_TIMEOUT_MS = 10_000;
 const DATAGRAM_PING_TIMEOUT_MS = 5_000;
 const CLIENT_CREDENTIAL_RENEWAL_INTERVAL_MS = 24 * 60 * 60 * 1000;
@@ -84,6 +92,21 @@ export interface DaemonInfo {
   startedAtMs: number;
   serverTimeMs: number;
 }
+
+export interface ClientInfo {
+  clientId: string;
+  label: string;
+  createdAtUnix: number;
+  expiresAtUnix: number;
+}
+
+export type ClientsTableEvent =
+  | { type: "snapshot"; rows: ClientInfo[] }
+  | {
+    type: "patch";
+    removes: { clientId: string }[];
+    upserts: ClientInfo[];
+  };
 
 export enum FsEntryKind {
   File = 1,
@@ -175,6 +198,86 @@ export interface BulkMutationResponse {
   results: BulkMutationItemResult[];
 }
 
+export interface TerminalLaunchSpec {
+  command: string;
+  args: string[];
+}
+
+export interface CreateTerminalSessionRequest {
+  cols: number;
+  rows: number;
+  cwd?: string;
+  launch: TerminalLaunchSpec;
+  title?: string;
+}
+
+export interface TerminalExit {
+  code?: number;
+  signal?: string;
+  exitedAtMs: number;
+}
+
+export interface TerminalSessionInfo {
+  terminalSessionId: string;
+  creatorClientId: string;
+  createdAtMs: number;
+  lastAttachedAtMs?: number;
+  lastDetachedAtMs?: number;
+  lastOutputAtMs?: number;
+  cols: number;
+  rows: number;
+  primaryAttachId?: string;
+  latestOutputSeq: number;
+  lastKnownTitle?: string;
+  exit?: TerminalExit;
+  lastKnownCwd?: string;
+  launch: TerminalLaunchSpec;
+}
+
+export interface AvailableShellInfo {
+  shellId: string;
+  name: string;
+  command: string;
+  args: string[];
+  isDefault: boolean;
+}
+
+export type TerminalSessionsTableEvent =
+  | { type: "snapshot"; rows: TerminalSessionInfo[] }
+  | {
+    type: "patch";
+    removes: { terminalSessionId: string }[];
+    upserts: TerminalSessionInfo[];
+  };
+
+export type AvailableShellsTableEvent =
+  | { type: "snapshot"; rows: AvailableShellInfo[] }
+  | {
+    type: "patch";
+    removes: { shellId: string }[];
+    upserts: AvailableShellInfo[];
+  };
+
+export type TerminalEvent =
+  | {
+    type: "attached";
+    attachId: string;
+    primaryAttachId?: string;
+    session: TerminalSessionInfo;
+  }
+  | { type: "outputChunk"; seq: number; bytes: Uint8Array }
+  | { type: "historyGap"; nextSeq: number }
+  | { type: "controlChanged"; primaryAttachId: string }
+  | { type: "pseudoTerminalResized"; cols: number; rows: number }
+  | { type: "sessionExited"; exit: TerminalExit }
+  | { type: "sessionClosed"; reason: string }
+  | { type: "workingDirectoryChanged"; cwd: string }
+  | { type: "titleChanged"; title: string };
+
+export interface TakeTerminalControlResponse {
+  primaryAttachId: string;
+}
+
 export class RpcError extends Error {
   constructor(readonly code: string, message: string) {
     super(message);
@@ -246,6 +349,29 @@ export async function startPairing(
   };
 }
 
+export async function renewClientCredential(
+  machine: Machine,
+  options: RpcCallOptions = {},
+): Promise<RenewClientCredentialResponse> {
+  if (!machine.clientId || !machine.clientSecret) {
+    throw new Error("missing paired client credentials");
+  }
+  const session = await authenticatedSession(machine, {
+    ...options,
+    renewOnConnect: false,
+  });
+  try {
+    const renewal = await renewAuthenticatedSessionCredential(
+      session.transport,
+    );
+    emitClientCredentialRenewal(machine, options, renewal);
+    return renewal;
+  } catch (err) {
+    closeSession(machine);
+    throw err;
+  }
+}
+
 export async function getDaemonInfo(
   machine: Machine,
 ): Promise<DaemonInfo> {
@@ -266,6 +392,19 @@ export async function getDaemonInfo(
     startedAtMs: integer(map.get(5)),
     serverTimeMs: integer(map.get(6)),
   };
+}
+
+export async function* subscribeClients(
+  machine: Machine,
+  options: RpcCallOptions = {},
+): AsyncGenerator<ClientsTableEvent> {
+  yield* callServerStreamEvents(
+    machine,
+    PROC_SUBSCRIBE_CLIENTS,
+    undefined,
+    decodeClientsTableEvent,
+    options,
+  );
 }
 
 export async function* subscribeRoots(
@@ -425,6 +564,136 @@ export async function deletePaths(
   return decodeBulkMutationResponse(response);
 }
 
+export async function createTerminalSession(
+  machine: Machine,
+  request: CreateTerminalSessionRequest,
+  options: RpcCallOptions = {},
+): Promise<TerminalSessionInfo> {
+  const response = await callUnaryPayload(
+    machine,
+    PROC_CREATE_TERMINAL_SESSION,
+    encodeCreateTerminalSessionRequest(request),
+    options,
+  );
+  return decodeTerminalSessionInfoValue(decodeCbor(response));
+}
+
+export async function* subscribeTerminalSessions(
+  machine: Machine,
+  options: RpcCallOptions = {},
+): AsyncGenerator<TerminalSessionsTableEvent> {
+  yield* callServerStreamEvents(
+    machine,
+    PROC_SUBSCRIBE_TERMINAL_SESSIONS,
+    undefined,
+    decodeTerminalSessionsTableEvent,
+    options,
+  );
+}
+
+export async function* subscribeAvailableShells(
+  machine: Machine,
+  options: RpcCallOptions = {},
+): AsyncGenerator<AvailableShellsTableEvent> {
+  yield* callServerStreamEvents(
+    machine,
+    PROC_SUBSCRIBE_AVAILABLE_SHELLS,
+    undefined,
+    decodeAvailableShellsTableEvent,
+    options,
+  );
+}
+
+export async function* attachTerminalSession(
+  machine: Machine,
+  request: {
+    terminalSessionId: string;
+    afterSeq?: number;
+    viewportCols: number;
+    viewportRows: number;
+  },
+  options: RpcCallOptions = {},
+): AsyncGenerator<TerminalEvent> {
+  yield* callServerStreamEvents(
+    machine,
+    PROC_ATTACH_TERMINAL_SESSION,
+    encodeCbor(
+      new Map<number, CborValue>([
+        [1, request.terminalSessionId],
+        ...(request.afterSeq === undefined
+          ? []
+          : [[2, request.afterSeq] as [number, CborValue]]),
+        [3, request.viewportCols],
+        [4, request.viewportRows],
+      ]),
+    ),
+    decodeTerminalEvent,
+    options,
+  );
+}
+
+export async function takeTerminalControl(
+  machine: Machine,
+  request: {
+    terminalSessionId: string;
+    attachId: string;
+    viewportCols: number;
+    viewportRows: number;
+  },
+  options: RpcCallOptions = {},
+): Promise<TakeTerminalControlResponse> {
+  const response = await callUnaryPayload(
+    machine,
+    PROC_TAKE_TERMINAL_CONTROL,
+    encodeCbor(
+      new Map<number, CborValue>([
+        [1, request.terminalSessionId],
+        [2, request.attachId],
+        [3, request.viewportCols],
+        [4, request.viewportRows],
+      ]),
+    ),
+    options,
+  );
+  const map = decodeMap(response);
+  return { primaryAttachId: text(map.get(1)) };
+}
+
+export async function writeTerminalInput(
+  machine: Machine,
+  terminalSessionId: string,
+  attachId: string,
+  bytes: Uint8Array,
+  options: RpcCallOptions = {},
+): Promise<void> {
+  await callClientStream(
+    machine,
+    PROC_WRITE_TERMINAL_INPUT,
+    encodeCbor([
+      1,
+      new Map<number, CborValue>([
+        [1, terminalSessionId],
+        [2, attachId],
+      ]),
+    ]),
+    [encodeCbor([2, new Map<number, CborValue>([[1, bytes]])])],
+    options,
+  );
+}
+
+export async function closeTerminalSession(
+  machine: Machine,
+  terminalSessionId: string,
+  options: RpcCallOptions = {},
+): Promise<void> {
+  await callUnary(
+    machine,
+    PROC_CLOSE_TERMINAL_SESSION,
+    encodeCbor(new Map<number, CborValue>([[1, terminalSessionId]])),
+    options,
+  );
+}
+
 export async function checkReachable(machine: Machine): Promise<number> {
   const startedAt = performance.now();
   const session = await openRpcSession(machine, "/rpc");
@@ -556,7 +825,9 @@ async function* callServerStreamEvents<T>(
         decodePayload,
       );
     } catch (err) {
-      closeSession(machine);
+      if (!shouldKeepAuthenticatedSessionAfterStreamError(procId, err)) {
+        closeSession(machine);
+      }
       throw err;
     }
     return;
@@ -573,6 +844,15 @@ async function* callServerStreamEvents<T>(
   } finally {
     closeRpcSession(session);
   }
+}
+
+function shouldKeepAuthenticatedSessionAfterStreamError(
+  procId: number,
+  err: unknown,
+): boolean {
+  return procId === PROC_ATTACH_TERMINAL_SESSION &&
+    err instanceof RpcError &&
+    err.code === "NotFound";
 }
 
 export async function openRpcSession(
@@ -1174,6 +1454,26 @@ function encodeCreateNodeSpec(spec: CreateNodeSpec): CborValue {
   }
 }
 
+function encodeCreateTerminalSessionRequest(
+  request: CreateTerminalSessionRequest,
+): Uint8Array {
+  const fields = new Map<number, CborValue>([
+    [1, request.cols],
+    [2, request.rows],
+  ]);
+  if (request.cwd !== undefined) fields.set(3, request.cwd);
+  fields.set(4, encodeTerminalLaunchSpec(request.launch));
+  if (request.title !== undefined) fields.set(5, request.title);
+  return encodeCbor(fields);
+}
+
+function encodeTerminalLaunchSpec(launch: TerminalLaunchSpec): CborValue {
+  return new Map<number, CborValue>([
+    [1, launch.command],
+    [2, launch.args],
+  ]);
+}
+
 function decodeRootsTableEvent(bytes: Uint8Array): RootsTableEvent {
   const [variantId, fields] = decodeUnion(decodeCbor(bytes));
   switch (variantId) {
@@ -1225,6 +1525,128 @@ function decodeDirectoryTableEvent(bytes: Uint8Array): DirectoryTableEvent {
   }
 }
 
+function decodeTerminalSessionsTableEvent(
+  bytes: Uint8Array,
+): TerminalSessionsTableEvent {
+  const [variantId, fields] = decodeUnion(decodeCbor(bytes));
+  switch (variantId) {
+    case 1:
+      return {
+        type: "snapshot",
+        rows: array(fields.get(1)).map(decodeTerminalSessionInfoValue),
+      };
+    case 2:
+      return {
+        type: "patch",
+        removes: array(fields.get(1)).map((value) => {
+          const row = mapValue(value);
+          return { terminalSessionId: text(row.get(1)) };
+        }),
+        upserts: array(fields.get(2)).map(decodeTerminalSessionInfoValue),
+      };
+    default:
+      throw new Error(
+        `unknown TerminalSessionsTableEvent variant ${variantId}`,
+      );
+  }
+}
+
+function decodeAvailableShellsTableEvent(
+  bytes: Uint8Array,
+): AvailableShellsTableEvent {
+  const [variantId, fields] = decodeUnion(decodeCbor(bytes));
+  switch (variantId) {
+    case 1:
+      return {
+        type: "snapshot",
+        rows: array(fields.get(1)).map(decodeAvailableShellInfoValue),
+      };
+    case 2:
+      return {
+        type: "patch",
+        removes: array(fields.get(1)).map((value) => {
+          const row = mapValue(value);
+          return { shellId: text(row.get(1)) };
+        }),
+        upserts: array(fields.get(2)).map(decodeAvailableShellInfoValue),
+      };
+    default:
+      throw new Error(`unknown AvailableShellsTableEvent variant ${variantId}`);
+  }
+}
+
+function decodeClientsTableEvent(
+  bytes: Uint8Array,
+): ClientsTableEvent {
+  const [variantId, fields] = decodeUnion(decodeCbor(bytes));
+  switch (variantId) {
+    case 1:
+      return {
+        type: "snapshot",
+        rows: array(fields.get(1)).map(decodeClientInfoValue),
+      };
+    case 2:
+      return {
+        type: "patch",
+        removes: array(fields.get(1)).map((value) => {
+          const row = mapValue(value);
+          return { clientId: text(row.get(1)) };
+        }),
+        upserts: array(fields.get(2)).map(decodeClientInfoValue),
+      };
+    default:
+      throw new Error(`unknown ClientsTableEvent variant ${variantId}`);
+  }
+}
+
+function decodeTerminalEvent(bytes: Uint8Array): TerminalEvent {
+  const [variantId, fields] = decodeUnion(decodeCbor(bytes));
+  switch (variantId) {
+    case 1:
+      return {
+        type: "attached",
+        attachId: text(fields.get(1)),
+        primaryAttachId: optionalText(fields.get(2)),
+        session: decodeTerminalSessionInfoValue(fields.get(3)),
+      };
+    case 2:
+      return {
+        type: "outputChunk",
+        seq: integer(fields.get(1)),
+        bytes: bytesField(fields.get(2)),
+      };
+    case 3:
+      return { type: "historyGap", nextSeq: integer(fields.get(1)) };
+    case 4:
+      return {
+        type: "controlChanged",
+        primaryAttachId: text(fields.get(1)),
+      };
+    case 5:
+      return {
+        type: "pseudoTerminalResized",
+        cols: integer(fields.get(1)),
+        rows: integer(fields.get(2)),
+      };
+    case 6:
+      return {
+        type: "sessionExited",
+        exit: decodeTerminalExitValue(fields.get(1)),
+      };
+    case 7:
+      return {
+        type: "sessionClosed",
+        reason: terminalCloseReason(fields.get(1)),
+      };
+    case 8:
+      return { type: "workingDirectoryChanged", cwd: text(fields.get(1)) };
+    case 9:
+      return { type: "titleChanged", title: text(fields.get(1)) };
+    default:
+      throw new Error(`unknown TerminalEvent variant ${variantId}`);
+  }
+}
+
 function decodeBulkMutationResponse(bytes: Uint8Array): BulkMutationResponse {
   const map = decodeMap(bytes);
   return {
@@ -1251,6 +1673,67 @@ function decodeBulkMutationItemResult(
     default:
       throw new Error(`unknown BulkMutationItemResult variant ${variantId}`);
   }
+}
+
+function decodeTerminalSessionInfoValue(value: unknown): TerminalSessionInfo {
+  const map = mapValue(value);
+  const exitValue = map.get(12);
+  return {
+    terminalSessionId: text(map.get(1)),
+    creatorClientId: text(map.get(2)),
+    createdAtMs: integer(map.get(3)),
+    lastAttachedAtMs: optionalInteger(map.get(4)),
+    lastDetachedAtMs: optionalInteger(map.get(5)),
+    lastOutputAtMs: optionalInteger(map.get(6)),
+    cols: integer(map.get(7)),
+    rows: integer(map.get(8)),
+    primaryAttachId: optionalText(map.get(9)),
+    latestOutputSeq: integer(map.get(10)),
+    lastKnownTitle: optionalText(map.get(11)),
+    exit: exitValue === undefined
+      ? undefined
+      : decodeTerminalExitValue(exitValue),
+    lastKnownCwd: optionalText(map.get(13)),
+    launch: decodeTerminalLaunchSpecValue(map.get(14)),
+  };
+}
+
+function decodeTerminalLaunchSpecValue(value: unknown): TerminalLaunchSpec {
+  const map = mapValue(value);
+  return {
+    command: text(map.get(1)),
+    args: array(map.get(2)).map(text),
+  };
+}
+
+function decodeTerminalExitValue(value: unknown): TerminalExit {
+  const map = mapValue(value);
+  return {
+    code: optionalInteger(map.get(1)),
+    signal: optionalText(map.get(2)),
+    exitedAtMs: integer(map.get(3)),
+  };
+}
+
+function decodeAvailableShellInfoValue(value: unknown): AvailableShellInfo {
+  const map = mapValue(value);
+  return {
+    shellId: text(map.get(1)),
+    name: text(map.get(2)),
+    command: text(map.get(3)),
+    args: array(map.get(4)).map(text),
+    isDefault: optionalBoolean(map.get(5)) ?? false,
+  };
+}
+
+function decodeClientInfoValue(value: unknown): ClientInfo {
+  const map = mapValue(value);
+  return {
+    clientId: text(map.get(1)),
+    label: text(map.get(2)),
+    createdAtUnix: integer(map.get(3)),
+    expiresAtUnix: integer(map.get(4)),
+  };
 }
 
 function decodeFsEntries(value: unknown): FsEntry[] {
@@ -1344,6 +1827,22 @@ function directoryCloseReason(variantId: number): string {
       return "Unknown";
     default:
       return `DirectorySubscriptionCloseReason${variantId}`;
+  }
+}
+
+function terminalCloseReason(value: unknown): string {
+  const [variantId] = decodeUnionValue(value);
+  switch (variantId) {
+    case 0:
+      return "Failed";
+    case 1:
+      return "ClosedByClient";
+    case 2:
+      return "DaemonShuttingDown";
+    case 3:
+      return "Unknown";
+    default:
+      return `TerminalSessionCloseReason${variantId}`;
   }
 }
 
@@ -1460,6 +1959,34 @@ const METHOD_ERROR_CODES: Record<string, string> = {
   [methodErrorKey(PROC_CREATE_NODES, 0)]: "Failed",
   [methodErrorKey(PROC_RENAME_PATHS, 0)]: "Failed",
   [methodErrorKey(PROC_DELETE_PATHS, 0)]: "Failed",
+  [methodErrorKey(PROC_CREATE_TERMINAL_SESSION, 0)]: "Failed",
+  [methodErrorKey(PROC_CREATE_TERMINAL_SESSION, 1)]: "PermissionDenied",
+  [methodErrorKey(PROC_CREATE_TERMINAL_SESSION, 2)]: "InvalidSize",
+  [methodErrorKey(PROC_CREATE_TERMINAL_SESSION, 3)]: "ShellNotFound",
+  [methodErrorKey(PROC_CREATE_TERMINAL_SESSION, 4)]: "InvalidLaunch",
+  [methodErrorKey(PROC_SUBSCRIBE_TERMINAL_SESSIONS, 0)]: "Failed",
+  [methodErrorKey(PROC_SUBSCRIBE_TERMINAL_SESSIONS, 1)]: "PermissionDenied",
+  [methodErrorKey(PROC_SUBSCRIBE_AVAILABLE_SHELLS, 0)]: "Failed",
+  [methodErrorKey(PROC_SUBSCRIBE_AVAILABLE_SHELLS, 1)]: "PermissionDenied",
+  [methodErrorKey(PROC_ATTACH_TERMINAL_SESSION, 0)]: "Failed",
+  [methodErrorKey(PROC_ATTACH_TERMINAL_SESSION, 1)]: "NotFound",
+  [methodErrorKey(PROC_ATTACH_TERMINAL_SESSION, 2)]: "PermissionDenied",
+  [methodErrorKey(PROC_ATTACH_TERMINAL_SESSION, 3)]: "InvalidSize",
+  [methodErrorKey(PROC_TAKE_TERMINAL_CONTROL, 0)]: "Failed",
+  [methodErrorKey(PROC_TAKE_TERMINAL_CONTROL, 1)]: "NotFound",
+  [methodErrorKey(PROC_TAKE_TERMINAL_CONTROL, 2)]: "PermissionDenied",
+  [methodErrorKey(PROC_TAKE_TERMINAL_CONTROL, 3)]: "AttachNotFound",
+  [methodErrorKey(PROC_TAKE_TERMINAL_CONTROL, 4)]: "InvalidSize",
+  [methodErrorKey(PROC_WRITE_TERMINAL_INPUT, 0)]: "Failed",
+  [methodErrorKey(PROC_WRITE_TERMINAL_INPUT, 1)]: "NotFound",
+  [methodErrorKey(PROC_WRITE_TERMINAL_INPUT, 2)]: "PermissionDenied",
+  [methodErrorKey(PROC_WRITE_TERMINAL_INPUT, 3)]: "AttachNotFound",
+  [methodErrorKey(PROC_WRITE_TERMINAL_INPUT, 4)]: "NotPrimaryAttach",
+  [methodErrorKey(PROC_CLOSE_TERMINAL_SESSION, 0)]: "Failed",
+  [methodErrorKey(PROC_CLOSE_TERMINAL_SESSION, 1)]: "NotFound",
+  [methodErrorKey(PROC_CLOSE_TERMINAL_SESSION, 2)]: "PermissionDenied",
+  [methodErrorKey(PROC_SUBSCRIBE_CLIENTS, 0)]: "Failed",
+  [methodErrorKey(PROC_SUBSCRIBE_CLIENTS, 1)]: "PermissionDenied",
 };
 
 const SESSION_AUTH_ERROR_CODES: Record<string, string> = {

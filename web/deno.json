@@ -10,6 +10,9 @@
   },
   "imports": {
     "@vitejs/plugin-react": "npm:@vitejs/plugin-react@^4.3.4",
+    "@xterm/addon-fit": "npm:@xterm/addon-fit@^0.10.0",
+    "@xterm/xterm": "npm:@xterm/xterm@^5.5.0",
+    "@xterm/xterm/css/xterm.css": "npm:@xterm/xterm@^5.5.0/css/xterm.css",
     "bunja": "npm:bunja@^3.0.0",
     "bunja/react": "npm:bunja@^3.0.0/react",
     "jotai": "npm:jotai@^2.15.0",

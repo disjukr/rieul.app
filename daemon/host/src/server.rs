@@ -13,26 +13,28 @@ use notify::{Event, RecursiveMode, Watcher};
 use rustls::server::{ClientHello, ResolvesServerCert};
 use rustls::sign::CertifiedKey;
 use time::OffsetDateTime;
-use tokio::sync::Mutex;
+use tokio::sync::{watch, Mutex};
 use tracing::{info, warn};
 use web_transport_quinn::proto::ConnectResponse;
 use wgo_daemon_core::cbor::Value;
 use wgo_daemon_core::config::{
     client_credentials_path, daemon_status_path, load_client_credentials_or_default,
-    load_or_default, load_or_generated_default, save, save_client_credentials, ClientCredentials,
-    SystemConfig,
+    load_or_default, load_or_generated_default, save, save_client_credentials,
+    ClientCredentialRecord, ClientCredentials, SystemConfig,
 };
 use wgo_daemon_core::pairing::{
     create_pairing_code, issue_client_secret, reissue_client_secret, renew_client_credential,
     verify_client_credential, verify_pairing_code, PairingRecord,
 };
 use wgo_daemon_core::rpc::{
-    BulkMutationItemResult, BulkMutationRes, CompletePairingRequest, CompletePairingResponse,
-    CreateNodesReq, DaemonInfo, DeletePathsReq, DirectoryEntryKey,
-    DirectorySubscriptionCloseReason, DirectoryTableEvent, FsEntry, ProcId, ReadFileChunk,
-    ReadFileReq, RenamePathsReq, RenewClientCredentialResponse, RootEntryKey,
+    AttachTerminalSessionReq, AvailableShellsTableEvent, BulkMutationItemResult, BulkMutationRes,
+    ClientInfo, ClientKey, ClientsTableEvent, CloseTerminalSessionReq, CompletePairingRequest,
+    CompletePairingResponse, CreateNodesReq, CreateTerminalSessionReq, DaemonInfo, DeletePathsReq,
+    DirectoryEntryKey, DirectorySubscriptionCloseReason, DirectoryTableEvent, FsEntry, ProcId,
+    ReadFileChunk, ReadFileReq, RenamePathsReq, RenewClientCredentialResponse, RootEntryKey,
     RootsSubscriptionCloseReason, RootsTableEvent, RpcErrorCode, RpcErrorPayload,
-    StartPairingRequest, StartPairingResponse, WriteFileReq,
+    StartPairingRequest, StartPairingResponse, TakeTerminalControlReq, TerminalEvent,
+    TerminalSessionsTableEvent, WriteFileReq, WriteTerminalInputReq,
 };
 use wgo_daemon_core::traits::{FileService, ServiceError};
 use wgo_daemon_core::wire::{
@@ -43,6 +45,7 @@ use wgo_daemon_core::wire::{
 use crate::cert::{
     configured_certificate_paths, prepare_server_certificate, uses_scheduled_certificate_refresh,
 };
+use crate::terminal::{AttachedTerminal, TerminalManager};
 
 const CERT_RELOAD_DEBOUNCE: Duration = Duration::from_millis(250);
 const CONFIG_STARTUP_RETRY_INTERVAL: Duration = Duration::from_secs(5);
@@ -53,12 +56,14 @@ const READ_FILE_CHUNK_SIZE: usize = 64 * 1024;
 
 type SharedSystemConfig = Arc<Mutex<SystemConfig>>;
 type SharedClientCredentials = Arc<Mutex<ClientCredentials>>;
+type SharedClientCredentialsEvents = watch::Sender<ClientCredentials>;
 type RpcSessionId = u64;
 type PairingAttemptId = u64;
 type SharedPairingChallenge = Arc<Mutex<PairingState>>;
 type SharedRpcSessionState = Arc<Mutex<RpcSessionState>>;
 type SharedFileService = Arc<dyn FileService>;
 type SharedPairingNotifier = Arc<dyn PairingNotifier>;
+type SharedTerminalManager = Arc<TerminalManager>;
 
 static NEXT_RPC_SESSION_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -163,10 +168,11 @@ async fn run_system_server_once(
     let certificate = prepare_server_certificate(&mut config, addr, &config_path, &provider)?;
     let config_state = Arc::new(Mutex::new(config));
     let credentials_path = client_credentials_path(&config_path);
-    let client_credentials = Arc::new(Mutex::new(load_client_credentials_or_default(
-        &credentials_path,
-    )?));
+    let initial_client_credentials = load_client_credentials_or_default(&credentials_path)?;
+    let client_credentials = Arc::new(Mutex::new(initial_client_credentials.clone()));
+    let (client_credentials_events, _) = watch::channel(initial_client_credentials);
     let pairing_challenge = Arc::new(Mutex::new(PairingState::default()));
+    let terminals = Arc::new(TerminalManager::new());
 
     let resolver = Arc::new(ReloadingCertResolver::new(certificate.certified_key));
     let mut server = build_reloadable_server(addr, provider.clone(), resolver.clone())?;
@@ -186,8 +192,10 @@ async fn run_system_server_once(
         let credentials_path = credentials_path.clone();
         let config_state = config_state.clone();
         let client_credentials = client_credentials.clone();
+        let client_credentials_events = client_credentials_events.clone();
         let pairing_challenge = pairing_challenge.clone();
         let files = files.clone();
+        let terminals = terminals.clone();
         let pairing_notifier = pairing_notifier.clone();
         tokio::spawn(async move {
             if let Err(err) = handle_request(
@@ -196,8 +204,10 @@ async fn run_system_server_once(
                 credentials_path,
                 config_state,
                 client_credentials,
+                client_credentials_events,
                 pairing_challenge,
                 files,
+                terminals,
                 pairing_notifier,
             )
             .await
@@ -710,8 +720,10 @@ async fn handle_request(
     credentials_path: PathBuf,
     config_state: SharedSystemConfig,
     client_credentials: SharedClientCredentials,
+    client_credentials_events: SharedClientCredentialsEvents,
     pairing_challenge: SharedPairingChallenge,
     files: SharedFileService,
+    terminals: SharedTerminalManager,
     pairing_notifier: Option<SharedPairingNotifier>,
 ) -> Result<()> {
     let path = request.url.path().to_string();
@@ -724,8 +736,10 @@ async fn handle_request(
                 credentials_path,
                 config_state,
                 client_credentials,
+                client_credentials_events,
                 pairing_challenge,
                 files,
+                terminals,
                 pairing_notifier,
             )
             .await
@@ -749,8 +763,10 @@ async fn run_rpc_session(
     credentials_path: PathBuf,
     config_state: SharedSystemConfig,
     client_credentials: SharedClientCredentials,
+    client_credentials_events: SharedClientCredentialsEvents,
     pairing_challenge: SharedPairingChallenge,
     files: SharedFileService,
+    terminals: SharedTerminalManager,
     pairing_notifier: Option<SharedPairingNotifier>,
 ) -> Result<()> {
     let session_state = Arc::new(Mutex::new(RpcSessionState {
@@ -765,9 +781,11 @@ async fn run_rpc_session(
                 let credentials_path = credentials_path.clone();
                 let config_state = config_state.clone();
                 let client_credentials = client_credentials.clone();
+                let client_credentials_events = client_credentials_events.clone();
                 let pairing_challenge = pairing_challenge.clone();
                 let session_state = session_state.clone();
                 let files = files.clone();
+                let terminals = terminals.clone();
                 let pairing_notifier = pairing_notifier.clone();
                 tokio::spawn(async move {
                     let response = async {
@@ -781,9 +799,11 @@ async fn run_rpc_session(
                             &credentials_path,
                             config_state,
                             client_credentials,
+                            client_credentials_events,
                             pairing_challenge,
                             session_state,
                             files,
+                            terminals,
                             pairing_notifier,
                         )
                         .await?;
@@ -822,15 +842,21 @@ fn handle_wire_datagram(bytes: &[u8]) -> Option<Vec<u8>> {
 }
 
 fn is_subscription_proc(proc_id: u64) -> bool {
-    proc_id == ProcId::SubscribeRoots.as_u64() || proc_id == ProcId::SubscribeDirectory.as_u64()
+    proc_id == ProcId::SubscribeRoots.as_u64()
+        || proc_id == ProcId::SubscribeDirectory.as_u64()
+        || proc_id == ProcId::SubscribeTerminalSessions.as_u64()
+        || proc_id == ProcId::SubscribeAvailableShells.as_u64()
+        || proc_id == ProcId::SubscribeClients.as_u64()
 }
 
 fn is_server_stream_proc(proc_id: u64) -> bool {
-    is_subscription_proc(proc_id) || proc_id == ProcId::ReadFile.as_u64()
+    is_subscription_proc(proc_id)
+        || proc_id == ProcId::ReadFile.as_u64()
+        || proc_id == ProcId::AttachTerminalSession.as_u64()
 }
 
 fn is_client_stream_proc(proc_id: u64) -> bool {
-    proc_id == ProcId::WriteFile.as_u64()
+    proc_id == ProcId::WriteFile.as_u64() || proc_id == ProcId::WriteTerminalInput.as_u64()
 }
 
 async fn read_reqres_message_sequence_from_stream(
@@ -840,6 +866,7 @@ async fn read_reqres_message_sequence_from_stream(
     ReqResMessage::decode_sequence(&bytes).map_err(Into::into)
 }
 
+#[cfg(test)]
 async fn handle_reqres_messages(
     messages: Vec<ReqResMessage>,
     config_path: &Path,
@@ -849,6 +876,37 @@ async fn handle_reqres_messages(
     pairing_challenge: SharedPairingChallenge,
     session_state: SharedRpcSessionState,
     files: SharedFileService,
+    terminals: SharedTerminalManager,
+    pairing_notifier: Option<SharedPairingNotifier>,
+) -> Result<Vec<ReqResMessage>> {
+    let client_credentials_events = temporary_client_credentials_events(&client_credentials).await;
+    handle_reqres_messages_with_events(
+        messages,
+        config_path,
+        credentials_path,
+        config_state,
+        client_credentials,
+        client_credentials_events,
+        pairing_challenge,
+        session_state,
+        files,
+        terminals,
+        pairing_notifier,
+    )
+    .await
+}
+
+async fn handle_reqres_messages_with_events(
+    messages: Vec<ReqResMessage>,
+    config_path: &Path,
+    credentials_path: &Path,
+    config_state: SharedSystemConfig,
+    client_credentials: SharedClientCredentials,
+    client_credentials_events: SharedClientCredentialsEvents,
+    pairing_challenge: SharedPairingChallenge,
+    session_state: SharedRpcSessionState,
+    files: SharedFileService,
+    terminals: SharedTerminalManager,
     pairing_notifier: Option<SharedPairingNotifier>,
 ) -> Result<Vec<ReqResMessage>> {
     let Some(first) = messages.first() else {
@@ -861,15 +919,17 @@ async fn handle_reqres_messages(
     if first.is_session_control() {
         handle_session_control_messages(messages, client_credentials, session_state).await
     } else {
-        handle_rpc_messages(
+        handle_rpc_messages_with_events(
             messages,
             config_path,
             credentials_path,
             config_state,
             client_credentials,
+            client_credentials_events,
             pairing_challenge,
             session_state,
             files,
+            terminals,
             pairing_notifier,
         )
         .await
@@ -883,9 +943,11 @@ async fn handle_reqres_stream(
     credentials_path: &Path,
     config_state: SharedSystemConfig,
     client_credentials: SharedClientCredentials,
+    client_credentials_events: SharedClientCredentialsEvents,
     pairing_challenge: SharedPairingChallenge,
     session_state: SharedRpcSessionState,
     files: SharedFileService,
+    terminals: SharedTerminalManager,
     pairing_notifier: Option<SharedPairingNotifier>,
 ) -> Result<()> {
     if let Some((proc_id, payload)) = request_unary_parts(&messages) {
@@ -895,8 +957,10 @@ async fn handle_reqres_stream(
                 payload,
                 send,
                 config_state,
+                client_credentials_events,
                 session_state,
                 files,
+                terminals,
             )
             .await;
         }
@@ -906,19 +970,22 @@ async fn handle_reqres_stream(
         messages.first(),
         Some(ReqResMessage::RequestStreamStart { .. })
     ) {
-        let responses = handle_client_stream_messages(messages, session_state, files).await?;
+        let responses =
+            handle_client_stream_messages(messages, session_state, files, terminals).await?;
         return write_reqres_messages(send, &responses).await;
     }
 
-    let responses = handle_reqres_messages(
+    let responses = handle_reqres_messages_with_events(
         messages,
         config_path,
         credentials_path,
         config_state,
         client_credentials,
+        client_credentials_events,
         pairing_challenge,
         session_state,
         files,
+        terminals,
         pairing_notifier,
     )
     .await?;
@@ -940,8 +1007,10 @@ async fn handle_server_stream(
     payload: Option<Vec<u8>>,
     send: &mut web_transport_quinn::SendStream,
     _config_state: SharedSystemConfig,
+    client_credentials_events: SharedClientCredentialsEvents,
     session_state: SharedRpcSessionState,
     files: SharedFileService,
+    terminals: SharedTerminalManager,
 ) -> Result<()> {
     if requires_authentication(proc_id) && !is_authenticated(&session_state).await {
         write_reqres_message(
@@ -962,6 +1031,23 @@ async fn handle_server_stream(
 
     if proc_id == ProcId::SubscribeRoots.as_u64() {
         return stream_roots_subscription(send, files.clone(), proc_id).await;
+    }
+
+    if proc_id == ProcId::SubscribeTerminalSessions.as_u64() {
+        return stream_terminal_sessions_subscription(send, terminals, proc_id).await;
+    }
+
+    if proc_id == ProcId::SubscribeAvailableShells.as_u64() {
+        return stream_available_shells_subscription(send, terminals, proc_id).await;
+    }
+
+    if proc_id == ProcId::SubscribeClients.as_u64() {
+        return stream_clients_subscription(send, client_credentials_events).await;
+    }
+
+    if proc_id == ProcId::AttachTerminalSession.as_u64() {
+        return stream_attach_terminal_session(send, terminals, session_state, proc_id, payload)
+            .await;
     }
 
     let Some(payload) = payload else {
@@ -998,6 +1084,7 @@ async fn handle_client_stream_messages(
     mut messages: Vec<ReqResMessage>,
     session_state: SharedRpcSessionState,
     files: SharedFileService,
+    terminals: SharedTerminalManager,
 ) -> Result<Vec<ReqResMessage>> {
     let (proc_id, payload) = match messages.remove(0) {
         ReqResMessage::RequestStreamStart { proc_id, payload } => (proc_id, payload),
@@ -1016,6 +1103,16 @@ async fn handle_client_stream_messages(
     }
     if proc_id == ProcId::WriteFile.as_u64() {
         return handle_write_file_stream(proc_id, payload, messages, files).await;
+    }
+    if proc_id == ProcId::WriteTerminalInput.as_u64() {
+        return handle_write_terminal_input_stream(
+            proc_id,
+            payload,
+            messages,
+            terminals,
+            session_state,
+        )
+        .await;
     }
     Ok(vec![generic_error_message(
         proc_id,
@@ -1076,6 +1173,63 @@ async fn handle_write_file_stream(
     Ok(vec![ok_payload_message(proc_id, result.encode())])
 }
 
+async fn handle_write_terminal_input_stream(
+    proc_id: u64,
+    payload: Option<Vec<u8>>,
+    messages: Vec<ReqResMessage>,
+    terminals: SharedTerminalManager,
+    session_state: SharedRpcSessionState,
+) -> Result<Vec<ReqResMessage>> {
+    let Some(payload) = payload else {
+        return Ok(vec![generic_error_message(
+            proc_id,
+            RpcErrorCode::MissingPayload,
+            "WriteTerminalInput requires a WriteTerminalInputStart payload",
+        )]);
+    };
+    let (terminal_session_id, attach_id) = match WriteTerminalInputReq::decode(&payload) {
+        Ok(WriteTerminalInputReq::Start {
+            terminal_session_id,
+            attach_id,
+        }) => (terminal_session_id, attach_id),
+        Ok(WriteTerminalInputReq::Chunk { .. }) | Err(_) => {
+            return Ok(vec![generic_error_message(
+                proc_id,
+                RpcErrorCode::MalformedPayload,
+                "WriteTerminalInput first payload must be WriteTerminalInputStart",
+            )]);
+        }
+    };
+    let rpc_session_id = rpc_session_id(&session_state).await;
+
+    for message in messages {
+        let ReqResMessage::RequestStreamChunk { payload } = message else {
+            return Ok(vec![generic_error_message(
+                proc_id,
+                RpcErrorCode::BadMessage,
+                "WriteTerminalInput request stream may contain only RequestStreamChunk after start",
+            )]);
+        };
+        let bytes = match WriteTerminalInputReq::decode(&payload) {
+            Ok(WriteTerminalInputReq::Chunk { bytes }) => bytes,
+            Ok(WriteTerminalInputReq::Start { .. }) | Err(_) => {
+                return Ok(vec![generic_error_message(
+                    proc_id,
+                    RpcErrorCode::MalformedPayload,
+                    "WriteTerminalInput chunk payload must be WriteTerminalInputChunk",
+                )]);
+            }
+        };
+        if let Err(err) =
+            terminals.write_input(&terminal_session_id, &attach_id, &bytes, rpc_session_id)
+        {
+            return Ok(vec![terminal_service_error_message(proc_id, err)]);
+        }
+    }
+
+    Ok(vec![ok_void_message(proc_id)])
+}
+
 async fn stream_read_file(
     send: &mut web_transport_quinn::SendStream,
     files: SharedFileService,
@@ -1132,6 +1286,206 @@ async fn stream_read_file(
         write_reqres_message(send, message).await?;
     }
     Ok(())
+}
+
+async fn stream_terminal_sessions_subscription(
+    send: &mut web_transport_quinn::SendStream,
+    terminals: SharedTerminalManager,
+    _proc_id: u64,
+) -> Result<()> {
+    write_reqres_message(
+        send,
+        stream_start_payload_message(
+            TerminalSessionsTableEvent::Snapshot {
+                rows: terminals.sessions_snapshot(),
+            }
+            .encode(),
+        ),
+    )
+    .await?;
+
+    let mut receiver = terminals.subscribe_sessions();
+    loop {
+        match receiver.recv().await {
+            Ok(event) => {
+                write_reqres_message(send, stream_chunk_payload_message(event.encode())).await?;
+            }
+            Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                write_reqres_message(
+                    send,
+                    stream_chunk_payload_message(
+                        TerminalSessionsTableEvent::Snapshot {
+                            rows: terminals.sessions_snapshot(),
+                        }
+                        .encode(),
+                    ),
+                )
+                .await?;
+            }
+            Err(tokio::sync::broadcast::error::RecvError::Closed) => return Ok(()),
+        }
+    }
+}
+
+async fn stream_clients_subscription(
+    send: &mut web_transport_quinn::SendStream,
+    client_credentials_events: SharedClientCredentialsEvents,
+) -> Result<()> {
+    let mut receiver = client_credentials_events.subscribe();
+    let mut rows = client_infos_from_credentials(&receiver.borrow().clone());
+    write_reqres_message(
+        send,
+        stream_start_payload_message(ClientsTableEvent::Snapshot { rows: rows.clone() }.encode()),
+    )
+    .await?;
+
+    loop {
+        if receiver.changed().await.is_err() {
+            return Ok(());
+        }
+        let next_rows = client_infos_from_credentials(&receiver.borrow().clone());
+        if let Some(event) = clients_patch(&rows, &next_rows) {
+            write_reqres_message(send, stream_chunk_payload_message(event.encode())).await?;
+            rows = next_rows;
+        }
+    }
+}
+
+async fn stream_available_shells_subscription(
+    send: &mut web_transport_quinn::SendStream,
+    terminals: SharedTerminalManager,
+    _proc_id: u64,
+) -> Result<()> {
+    let mut rows = terminals.available_shells_snapshot();
+    write_reqres_message(
+        send,
+        stream_start_payload_message(
+            AvailableShellsTableEvent::Snapshot { rows: rows.clone() }.encode(),
+        ),
+    )
+    .await?;
+
+    loop {
+        tokio::time::sleep(Duration::from_secs(5)).await;
+        let next_rows = terminals.available_shells_snapshot();
+        if next_rows == rows {
+            continue;
+        }
+        rows = next_rows;
+        write_reqres_message(
+            send,
+            stream_chunk_payload_message(
+                AvailableShellsTableEvent::Snapshot { rows: rows.clone() }.encode(),
+            ),
+        )
+        .await?;
+    }
+}
+
+async fn stream_attach_terminal_session(
+    send: &mut web_transport_quinn::SendStream,
+    terminals: SharedTerminalManager,
+    session_state: SharedRpcSessionState,
+    proc_id: u64,
+    payload: Option<Vec<u8>>,
+) -> Result<()> {
+    let Some(payload) = payload else {
+        write_reqres_message(
+            send,
+            stream_generic_error_message(
+                proc_id,
+                RpcErrorCode::MissingPayload,
+                "AttachTerminalSession requires a payload",
+            ),
+        )
+        .await?;
+        return Ok(());
+    };
+    let request = match AttachTerminalSessionReq::decode(&payload) {
+        Ok(request) => request,
+        Err(_) => {
+            write_reqres_message(
+                send,
+                stream_generic_error_message(
+                    proc_id,
+                    RpcErrorCode::MalformedPayload,
+                    "AttachTerminalSession payload is malformed",
+                ),
+            )
+            .await?;
+            return Ok(());
+        }
+    };
+    let rpc_session_id = rpc_session_id(&session_state).await;
+    let mut attached = match terminals.attach(request, rpc_session_id) {
+        Ok(attached) => attached,
+        Err(err) => {
+            write_reqres_message(send, terminal_stream_service_error_message(proc_id, err)).await?;
+            return Ok(());
+        }
+    };
+
+    let terminal_session_id = attached.terminal_session_id.clone();
+    let attach_id = attached.attach_id.clone();
+    let result = stream_attached_terminal(send, proc_id, &mut attached).await;
+    terminals.detach(&terminal_session_id, &attach_id);
+    result
+}
+
+async fn stream_attached_terminal(
+    send: &mut web_transport_quinn::SendStream,
+    _proc_id: u64,
+    attached: &mut AttachedTerminal,
+) -> Result<()> {
+    write_reqres_message(
+        send,
+        stream_start_payload_message(
+            TerminalEvent::Attached {
+                attach_id: attached.attach_id.clone(),
+                primary_attach_id: attached.primary_attach_id.clone(),
+                session: attached.session.clone(),
+            }
+            .encode(),
+        ),
+    )
+    .await?;
+
+    for event in attached.replay.drain(..) {
+        write_reqres_message(send, stream_chunk_payload_message(event.encode())).await?;
+    }
+
+    if let Some(exit) = attached.session.exit.clone() {
+        write_reqres_message(
+            send,
+            stream_chunk_payload_message(TerminalEvent::SessionExited { exit }.encode()),
+        )
+        .await?;
+        return Ok(());
+    }
+
+    loop {
+        match attached.receiver.recv().await {
+            Ok(event) => {
+                let terminal_done = matches!(
+                    event,
+                    TerminalEvent::SessionExited { .. } | TerminalEvent::SessionClosed { .. }
+                );
+                write_reqres_message(send, stream_chunk_payload_message(event.encode())).await?;
+                if terminal_done {
+                    return Ok(());
+                }
+            }
+            Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                let next_seq = attached.session.latest_output_seq.saturating_add(1);
+                write_reqres_message(
+                    send,
+                    stream_chunk_payload_message(TerminalEvent::HistoryGap { next_seq }.encode()),
+                )
+                .await?;
+            }
+            Err(tokio::sync::broadcast::error::RecvError::Closed) => return Ok(()),
+        }
+    }
 }
 
 async fn stream_roots_subscription(
@@ -1456,8 +1810,9 @@ async fn authenticate_session_control(
     Ok(ReqResMessage::SessionAuthenticated)
 }
 
+#[cfg(test)]
 async fn handle_rpc_messages(
-    mut messages: Vec<ReqResMessage>,
+    messages: Vec<ReqResMessage>,
     config_path: &Path,
     credentials_path: &Path,
     config_state: SharedSystemConfig,
@@ -1465,6 +1820,37 @@ async fn handle_rpc_messages(
     pairing_challenge: SharedPairingChallenge,
     session_state: SharedRpcSessionState,
     files: SharedFileService,
+    terminals: SharedTerminalManager,
+    pairing_notifier: Option<SharedPairingNotifier>,
+) -> Result<Vec<ReqResMessage>> {
+    let client_credentials_events = temporary_client_credentials_events(&client_credentials).await;
+    handle_rpc_messages_with_events(
+        messages,
+        config_path,
+        credentials_path,
+        config_state,
+        client_credentials,
+        client_credentials_events,
+        pairing_challenge,
+        session_state,
+        files,
+        terminals,
+        pairing_notifier,
+    )
+    .await
+}
+
+async fn handle_rpc_messages_with_events(
+    mut messages: Vec<ReqResMessage>,
+    config_path: &Path,
+    credentials_path: &Path,
+    config_state: SharedSystemConfig,
+    client_credentials: SharedClientCredentials,
+    client_credentials_events: SharedClientCredentialsEvents,
+    pairing_challenge: SharedPairingChallenge,
+    session_state: SharedRpcSessionState,
+    files: SharedFileService,
+    terminals: SharedTerminalManager,
     pairing_notifier: Option<SharedPairingNotifier>,
 ) -> Result<Vec<ReqResMessage>> {
     if messages.len() != 1 {
@@ -1703,7 +2089,13 @@ async fn handle_rpc_messages(
             let client_credential_expires_at_unix = issued.record.expires_at_unix;
             state.clients.retain(|record| record.client_id != client_id);
             state.clients.push(issued.record);
-            store_runtime_client_credentials(credentials_path, &client_credentials, state).await?;
+            store_runtime_client_credentials(
+                credentials_path,
+                &client_credentials,
+                &client_credentials_events,
+                state,
+            )
+            .await?;
 
             ok_payload_message(
                 proc_id,
@@ -1731,7 +2123,13 @@ async fn handle_rpc_messages(
             };
             renew_client_credential(record, now);
             let client_credential_expires_at_unix = record.expires_at_unix;
-            store_runtime_client_credentials(credentials_path, &client_credentials, state).await?;
+            store_runtime_client_credentials(
+                credentials_path,
+                &client_credentials,
+                &client_credentials_events,
+                state,
+            )
+            .await?;
             ok_payload_message(
                 proc_id,
                 RenewClientCredentialResponse {
@@ -1808,6 +2206,78 @@ async fn handle_rpc_messages(
                 proc_id,
                 delete_paths(files.as_ref(), request).await.encode(),
             )
+        }
+        id if id == ProcId::CreateTerminalSession.as_u64() => {
+            let Some(client_id) = authenticated_client_id(&session_state).await else {
+                return Ok(vec![unauthorized_message(proc_id)]);
+            };
+            let Some(payload) = payload else {
+                return Ok(vec![generic_error_message(
+                    proc_id,
+                    RpcErrorCode::MissingPayload,
+                    "CreateTerminalSession requires a payload",
+                )]);
+            };
+            let request = match CreateTerminalSessionReq::decode(payload) {
+                Ok(request) => request,
+                Err(_) => {
+                    return Ok(vec![generic_error_message(
+                        proc_id,
+                        RpcErrorCode::MalformedPayload,
+                        "CreateTerminalSession payload is malformed",
+                    )]);
+                }
+            };
+            match terminals.create_session(request, client_id) {
+                Ok(session) => ok_payload_message(proc_id, session.encode()),
+                Err(err) => terminal_service_error_message(proc_id, err),
+            }
+        }
+        id if id == ProcId::TakeTerminalControl.as_u64() => {
+            let Some(payload) = payload else {
+                return Ok(vec![generic_error_message(
+                    proc_id,
+                    RpcErrorCode::MissingPayload,
+                    "TakeTerminalControl requires a payload",
+                )]);
+            };
+            let request = match TakeTerminalControlReq::decode(payload) {
+                Ok(request) => request,
+                Err(_) => {
+                    return Ok(vec![generic_error_message(
+                        proc_id,
+                        RpcErrorCode::MalformedPayload,
+                        "TakeTerminalControl payload is malformed",
+                    )]);
+                }
+            };
+            match terminals.take_control(request, rpc_session_id(&session_state).await) {
+                Ok(response) => ok_payload_message(proc_id, response.encode()),
+                Err(err) => terminal_service_error_message(proc_id, err),
+            }
+        }
+        id if id == ProcId::CloseTerminalSession.as_u64() => {
+            let Some(payload) = payload else {
+                return Ok(vec![generic_error_message(
+                    proc_id,
+                    RpcErrorCode::MissingPayload,
+                    "CloseTerminalSession requires a payload",
+                )]);
+            };
+            let request = match CloseTerminalSessionReq::decode(payload) {
+                Ok(request) => request,
+                Err(_) => {
+                    return Ok(vec![generic_error_message(
+                        proc_id,
+                        RpcErrorCode::MalformedPayload,
+                        "CloseTerminalSession payload is malformed",
+                    )]);
+                }
+            };
+            match terminals.close_session(&request.terminal_session_id) {
+                Ok(()) => ok_void_message(proc_id),
+                Err(err) => terminal_service_error_message(proc_id, err),
+            }
         }
         _ => error_message(
             proc_id,
@@ -1943,13 +2413,70 @@ async fn load_runtime_client_credentials(
     Ok(state)
 }
 
+#[cfg(test)]
+async fn temporary_client_credentials_events(
+    client_credentials: &SharedClientCredentials,
+) -> SharedClientCredentialsEvents {
+    let state = client_credentials.lock().await.clone();
+    let (tx, _) = watch::channel(state);
+    tx
+}
+
+fn client_info_from_record(record: &ClientCredentialRecord) -> ClientInfo {
+    ClientInfo {
+        client_id: record.client_id.clone(),
+        label: record.label.clone(),
+        created_at_unix: record.created_at_unix,
+        expires_at_unix: record.expires_at_unix,
+    }
+}
+
+fn client_infos_from_credentials(credentials: &ClientCredentials) -> Vec<ClientInfo> {
+    credentials
+        .clients
+        .iter()
+        .map(client_info_from_record)
+        .collect()
+}
+
+fn clients_patch(previous: &[ClientInfo], next: &[ClientInfo]) -> Option<ClientsTableEvent> {
+    let previous_by_id: BTreeMap<String, ClientInfo> = previous
+        .iter()
+        .map(|row| (row.client_id.clone(), row.clone()))
+        .collect();
+    let next_by_id: BTreeMap<String, ClientInfo> = next
+        .iter()
+        .map(|row| (row.client_id.clone(), row.clone()))
+        .collect();
+    let removes = previous_by_id
+        .keys()
+        .filter(|client_id| !next_by_id.contains_key(*client_id))
+        .map(|client_id| ClientKey {
+            client_id: client_id.clone(),
+        })
+        .collect::<Vec<_>>();
+    let upserts = next
+        .iter()
+        .filter(|row| previous_by_id.get(&row.client_id) != Some(*row))
+        .cloned()
+        .collect::<Vec<_>>();
+
+    if removes.is_empty() && upserts.is_empty() {
+        None
+    } else {
+        Some(ClientsTableEvent::Patch { removes, upserts })
+    }
+}
+
 async fn store_runtime_client_credentials(
     credentials_path: &Path,
     client_credentials: &SharedClientCredentials,
+    client_credentials_events: &SharedClientCredentialsEvents,
     state: ClientCredentials,
 ) -> Result<()> {
     save_client_credentials(credentials_path, &state)?;
-    *client_credentials.lock().await = state;
+    *client_credentials.lock().await = state.clone();
+    let _ = client_credentials_events.send(state);
     Ok(())
 }
 
@@ -2015,6 +2542,10 @@ fn ok_payload_message(_proc_id: u64, payload: Vec<u8>) -> ReqResMessage {
     }
 }
 
+fn ok_void_message(_proc_id: u64) -> ReqResMessage {
+    ReqResMessage::ResponseUnaryOk { payload: None }
+}
+
 fn stream_start_payload_message(payload: Vec<u8>) -> ReqResMessage {
     ReqResMessage::ResponseStreamStart {
         payload: Some(payload),
@@ -2033,6 +2564,39 @@ fn service_error_message(proc_id: u64, err: ServiceError) -> ReqResMessage {
 fn stream_service_error_message(proc_id: u64, err: ServiceError) -> ReqResMessage {
     let code = service_error_code(&err);
     stream_error_message(proc_id, code, &err.to_string())
+}
+
+fn terminal_service_error_message(proc_id: u64, err: ServiceError) -> ReqResMessage {
+    let code = terminal_service_error_code(&err);
+    error_message(proc_id, code, &err.to_string())
+}
+
+fn terminal_stream_service_error_message(proc_id: u64, err: ServiceError) -> ReqResMessage {
+    let code = terminal_service_error_code(&err);
+    stream_error_message(proc_id, code, &err.to_string())
+}
+
+fn terminal_service_error_code(err: &ServiceError) -> &'static str {
+    match err {
+        ServiceError::NotFound => "not_found",
+        ServiceError::PermissionDenied => "permission_denied",
+        ServiceError::OperationFailed(message) if message.contains("attach not found") => {
+            "attach_not_found"
+        }
+        ServiceError::OperationFailed(message) if message.contains("not the live primary") => {
+            "not_primary_attach"
+        }
+        ServiceError::OperationFailed(message) if message.contains("terminal size is invalid") => {
+            "invalid_size"
+        }
+        ServiceError::OperationFailed(message) if message.contains("command is empty") => {
+            "invalid_launch"
+        }
+        ServiceError::OperationFailed(message) if message.contains("no shell is available") => {
+            "shell_not_found"
+        }
+        _ => service_error_code(err),
+    }
 }
 
 fn service_error_code(err: &ServiceError) -> &'static str {
@@ -2143,6 +2707,11 @@ fn method_error_variant(proc_id: u64, code: &str) -> Option<u64> {
             "failed" => Some(0),
             _ => None,
         },
+        id if id == ProcId::SubscribeClients.as_u64() => match code {
+            "failed" => Some(0),
+            "permission_denied" => Some(1),
+            _ => None,
+        },
         id if id == ProcId::StartPairing.as_u64() => match code {
             "failed" => Some(0),
             _ => None,
@@ -2195,6 +2764,53 @@ fn method_error_variant(proc_id: u64, code: &str) -> Option<u64> {
                 _ => None,
             }
         }
+        id if id == ProcId::CreateTerminalSession.as_u64() => match code {
+            "failed" => Some(0),
+            "permission_denied" => Some(1),
+            "invalid_size" => Some(2),
+            "shell_not_found" => Some(3),
+            "invalid_launch" => Some(4),
+            _ => None,
+        },
+        id if id == ProcId::SubscribeTerminalSessions.as_u64() => match code {
+            "failed" => Some(0),
+            "permission_denied" => Some(1),
+            _ => None,
+        },
+        id if id == ProcId::SubscribeAvailableShells.as_u64() => match code {
+            "failed" => Some(0),
+            "permission_denied" => Some(1),
+            _ => None,
+        },
+        id if id == ProcId::AttachTerminalSession.as_u64() => match code {
+            "failed" => Some(0),
+            "not_found" => Some(1),
+            "permission_denied" => Some(2),
+            "invalid_size" => Some(3),
+            _ => None,
+        },
+        id if id == ProcId::TakeTerminalControl.as_u64() => match code {
+            "failed" => Some(0),
+            "not_found" => Some(1),
+            "permission_denied" => Some(2),
+            "attach_not_found" => Some(3),
+            "invalid_size" => Some(4),
+            _ => None,
+        },
+        id if id == ProcId::WriteTerminalInput.as_u64() => match code {
+            "failed" => Some(0),
+            "not_found" => Some(1),
+            "permission_denied" => Some(2),
+            "attach_not_found" => Some(3),
+            "not_primary_attach" => Some(4),
+            _ => None,
+        },
+        id if id == ProcId::CloseTerminalSession.as_u64() => match code {
+            "failed" => Some(0),
+            "not_found" => Some(1),
+            "permission_denied" => Some(2),
+            _ => None,
+        },
         _ => None,
     }
 }
@@ -2291,6 +2907,7 @@ mod tests {
             pairing_challenge.clone(),
             session_state.clone(),
             test_files(),
+            test_terminals(),
             None,
         )
         .await
@@ -2354,6 +2971,7 @@ mod tests {
             pairing_challenge.clone(),
             Arc::new(Mutex::new(RpcSessionState::default())),
             test_files(),
+            test_terminals(),
             None,
         )
         .await
@@ -2412,6 +3030,7 @@ mod tests {
             pairing_challenge.clone(),
             Arc::new(Mutex::new(RpcSessionState::default())),
             test_files(),
+            test_terminals(),
             None,
         )
         .await
@@ -2461,6 +3080,7 @@ mod tests {
             pairing_challenge.clone(),
             test_session_state(8),
             test_files(),
+            test_terminals(),
             None,
         )
         .await
@@ -2507,6 +3127,7 @@ mod tests {
             pairing_challenge.clone(),
             Arc::new(Mutex::new(RpcSessionState::default())),
             test_files(),
+            test_terminals(),
             Some(Arc::new(notifier.clone())),
         )
         .await
@@ -2550,6 +3171,7 @@ mod tests {
             pairing_challenge.clone(),
             Arc::new(Mutex::new(RpcSessionState::default())),
             test_files(),
+            test_terminals(),
             Some(Arc::new(notifier.clone())),
         )
         .await
@@ -2607,6 +3229,7 @@ mod tests {
                 first_pairing_challenge,
                 test_session_state(1),
                 test_files(),
+                test_terminals(),
                 Some(Arc::new(first_notifier)),
             )
             .await
@@ -2623,6 +3246,7 @@ mod tests {
             pairing_challenge.clone(),
             test_session_state(2),
             test_files(),
+            test_terminals(),
             Some(Arc::new(notifier.clone())),
         )
         .await
@@ -2676,6 +3300,7 @@ mod tests {
             pairing_challenge.clone(),
             Arc::new(Mutex::new(RpcSessionState::default())),
             test_files(),
+            test_terminals(),
             None,
         )
         .await
@@ -2713,6 +3338,7 @@ mod tests {
             test_pairing_challenge(),
             Arc::new(Mutex::new(RpcSessionState::default())),
             test_files(),
+            test_terminals(),
             None,
         )
         .await
@@ -2855,6 +3481,7 @@ mod tests {
             test_pairing_challenge(),
             session_state.clone(),
             test_files(),
+            test_terminals(),
             None,
         )
         .await
@@ -2905,6 +3532,7 @@ mod tests {
             test_pairing_challenge(),
             session_state.clone(),
             test_files(),
+            test_terminals(),
             None,
         )
         .await
@@ -2953,6 +3581,7 @@ mod tests {
             test_pairing_challenge(),
             session_state,
             test_files(),
+            test_terminals(),
             None,
         )
         .await
@@ -3169,6 +3798,10 @@ mod tests {
 
     fn test_files() -> SharedFileService {
         Arc::new(TestFileService)
+    }
+
+    fn test_terminals() -> SharedTerminalManager {
+        Arc::new(TerminalManager::new())
     }
 
     #[derive(Debug)]

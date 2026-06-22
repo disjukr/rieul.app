@@ -6,6 +6,7 @@ import {
   formatSize,
   kindLabel,
 } from "../../../../../../state/explorer.ts";
+import { Button } from "../../../../../ui/button.tsx";
 
 const inspectorClassName = [
   "inspector min-w-0 overflow-auto border-l border-l-[#d8dde7]",
@@ -30,7 +31,7 @@ const modalHeadClassName = [
   "[&_span]:text-[#667085] [&_span]:text-[12px] [&_span]:font-700",
   "[&_h2]:m-0 [&_h2]:text-[#20242d] [&_h2]:text-[18px] [&_h2]:tracking-[0]",
 ].join(" ");
-const iconButtonClassName = "w-[36px] min-w-[36px] p-0";
+const iconButtonClassName = "!w-[36px] !min-w-[36px] !p-0";
 const entryPropertiesBodyClassName = [
   "pt-[14px] px-[16px] pb-[16px]",
   "[&_dl]:grid [&_dl]:gap-[6px] [&_dl]:m-0",
@@ -86,15 +87,14 @@ export function EntryPropertiesModal(
             <span>File</span>
             <h2 id="entry-properties-title">Properties</h2>
           </div>
-          <button
-            type="button"
+          <Button
             onClick={onClose}
             title="Close"
             aria-label="Close properties modal"
             className={iconButtonClassName}
           >
             <X size={16} />
-          </button>
+          </Button>
         </header>
 
         <div className={entryPropertiesBodyClassName}>

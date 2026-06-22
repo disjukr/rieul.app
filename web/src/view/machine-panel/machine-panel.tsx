@@ -1,5 +1,6 @@
 import React from "react";
 import { ChevronDown, WifiOff } from "lucide-react";
+import type { AvailableShellInfo } from "../../protocol/rpc.ts";
 import type { Machine } from "../../state/machines.ts";
 import type { ConnectionState } from "../../state/types.ts";
 import type { WorkbenchTool } from "../../state/workbench.ts";
@@ -18,9 +19,11 @@ interface MachinePanelProps {
     event: React.MouseEvent<HTMLButtonElement>,
     machine: Machine,
   ) => void;
+  onOpenTerminalShell: (shell?: AvailableShellInfo) => void;
   onResizeKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => void;
   onResizePointerDown: (event: React.PointerEvent<HTMLDivElement>) => void;
   onSelectTool: (tool: WorkbenchTool) => void;
+  terminalShells: AvailableShellInfo[];
 }
 
 const machinePanelClassName = [
@@ -35,10 +38,10 @@ const machineTitleClassName = [
   "[&_h1]:flex [&_h1]:items-center [&_h1]:m-0 [&_h1]:min-w-0",
 ].join(" ");
 const machineTitleButtonClassName = [
-  "machine-title-button items-center justify-start gap-[5px]",
+  "machine-title-button inline-flex appearance-none items-center justify-start gap-[5px]",
   "h-[32px] max-w-full min-h-[32px] overflow-visible",
-  "border-0 rounded-[6px] bg-transparent text-[#20242d]",
-  "text-[17px] font-700 leading-none tracking-[0] px-[8px]",
+  "cursor-pointer border-0 rounded-[6px] bg-transparent text-[#20242d]",
+  "px-[8px] text-[17px] font-700 leading-none tracking-[0] [font-family:inherit]",
   "hover:bg-[#eef2f7] [&_svg]:flex-[0_0_auto]",
 ].join(" ");
 const machineTitleTextClassName = [
@@ -65,9 +68,11 @@ export function MachinePanel(
     machinePanelMinWidth,
     machinePanelWidth,
     onOpenMachineMenu,
+    onOpenTerminalShell,
     onResizeKeyDown,
     onResizePointerDown,
     onSelectTool,
+    terminalShells,
   }: MachinePanelProps,
 ) {
   return (
@@ -117,6 +122,8 @@ export function MachinePanel(
 
             <ToolMenu
               activeTool={activeTool}
+              terminalShells={terminalShells}
+              onOpenTerminalShell={onOpenTerminalShell}
               onSelect={onSelectTool}
             />
             <div

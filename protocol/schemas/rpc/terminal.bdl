@@ -113,40 +113,24 @@ struct CreateTerminalSessionReq {
 
   @ id - 4
   @ description
-  | Launch behavior for the hosted terminal. If absent, the daemon chooses the
-  | active user's default interactive shell.
-  launch?: TerminalLaunchSpec,
+  | Exact command and arguments the daemon should launch. Clients should use
+  | command and args from SubscribeAvailableShells for known shells, including
+  | the default shell.
+  launch: TerminalLaunchSpec,
 
   @ id - 5
   @ description - Initial title hint for the hosted terminal, if requested.
   title?: string,
 }
 
-@ description - Terminal process launch behavior.
-union TerminalLaunchSpec {
+@ description - Terminal process launch command.
+struct TerminalLaunchSpec {
   @ id - 1
-  @ description - Use the daemon's default interactive shell for the active user.
-  DefaultShell(),
+  command: string,
 
   @ id - 2
-  @ description
-  | Use one shell option from SubscribeAvailableShells. The shell id is resolved
-  | by the daemon at session creation time.
-  Shell(
-    @ id - 1
-    shellId: string,
-  ),
-
-  @ id - 3
-  @ description - Execute a custom program instead of a known shell option.
-  CustomCommand(
-    @ id - 1
-    command: string,
-
-    @ id - 2
-    @ description - Program arguments. Empty means no additional arguments.
-    args?: string[],
-  ),
+  @ description - Program arguments. Empty means no additional arguments.
+  args: string[],
 }
 
 @ description - Terminal session metadata.
@@ -210,6 +194,10 @@ struct TerminalSessionInfo {
   | Last working directory the daemon learned for the hosted shell. This is a
   | best-effort hint and may be absent or stale.
   lastKnownCwd?: string,
+
+  @ id - 14
+  @ description - Launch specification used to create this terminal session.
+  launch: TerminalLaunchSpec,
 }
 
 @ description
@@ -244,8 +232,9 @@ struct TerminalSessionKey {
 @ description
 | Reactive available shells table event. Snapshot replaces the whole subscribed
 | shell options table view. Patch applies membership changes to the current
-| view. Clients should use shellId from this table with TerminalLaunchSpec.Shell
-| rather than reconstructing daemon-specific launch commands themselves.
+| view. Clients should use command and args from this table when creating
+| terminal sessions rather than reconstructing daemon-specific launch commands
+| themselves.
 union AvailableShellsTableEvent {
   @ id - 1
   Snapshot(
