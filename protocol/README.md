@@ -10,8 +10,8 @@ client. The protocol is split into narrow layers so each document has one job.
   streams and datagrams.
 - `wgo-rpc` defines RPC proc ids, stream shapes, payload schema selection, and
   method-level error unions.
-- `schemas/rpc` defines domain RPC contracts such as pairing and filesystem
-  methods.
+- `schemas/rpc` defines domain RPC contracts such as pairing, filesystem, and
+  terminal methods.
 - `schemas/config` defines local daemon configuration files. These schemas do
   not use RPC-only primitives such as `i53` or `u53`.
 
@@ -63,21 +63,28 @@ RPC payload bytes are selected by proc id and by response variant. Method-level
 errors use the proc's declared `throws` union. Failures outside a method
 contract use the generic wire/envelope error payload.
 
-Current proc id registry:
+Protocol proc id registry:
 
-| id | proc                    |
-| -: | ----------------------- |
-|  1 | `GetDaemonInfo`         |
-|  2 | `StartPairing`          |
-|  3 | `CompletePairing`       |
-|  4 | `RenewClientCredential` |
-|  5 | `SubscribeRoots`        |
-|  6 | `SubscribeDirectory`    |
-|  7 | `ReadFile`              |
-|  8 | `WriteFile`             |
-|  9 | `CreateNodes`           |
-| 10 | `RenamePaths`           |
-| 11 | `DeletePaths`           |
+| id | proc                        |
+| -: | --------------------------- |
+|  1 | `GetDaemonInfo`             |
+|  2 | `StartPairing`              |
+|  3 | `CompletePairing`           |
+|  4 | `RenewClientCredential`     |
+|  5 | `SubscribeRoots`            |
+|  6 | `SubscribeDirectory`        |
+|  7 | `ReadFile`                  |
+|  8 | `WriteFile`                 |
+|  9 | `CreateNodes`               |
+| 10 | `RenamePaths`               |
+| 11 | `DeletePaths`               |
+| 12 | `CreateTerminalSession`     |
+| 13 | `SubscribeTerminalSessions` |
+| 14 | `SubscribeAvailableShells`  |
+| 15 | `AttachTerminalSession`     |
+| 16 | `TakeTerminalControl`       |
+| 17 | `WriteTerminalInput`        |
+| 18 | `CloseTerminalSession`      |
 
 `GetDaemonInfo` returns daemon metadata: supported proc ids, daemon version, a
 human-readable OS name for the daemon host, daemon instance lifecycle fields,
@@ -88,8 +95,9 @@ fixed while that daemon process is running and change when the daemon process
 restarts. `serverTimeMs` is sampled while producing each response. Clients
 should fetch daemon info again after reconnecting and compare `instanceId` with
 the previous value to detect process-local state loss, such as terminal
-sessions. Protected proc ids may still require session authentication before
-invocation.
+sessions. `supportedProcIds` is the daemon's implemented subset of the protocol
+registry for that process lifetime. Protected proc ids may still require session
+authentication before invocation.
 
 A proc's `stream` attribute defines request and response cardinality:
 
@@ -145,3 +153,77 @@ File content I/O is range-oriented rather than cursor-oriented:
 Offsets, lengths, sizes, and epoch millisecond timestamps use `u53`.
 `WriteFileStart.modifiedAtMs` is best-effort; inability to apply it does not
 fail an otherwise successful write.
+
+## Terminal Model
+
+Terminal sessions are daemon-process-local pseudo-terminal sessions. They may
+outlive browser tabs and WebTransport connections, but not a daemon process
+restart. `TerminalSessionInfo.creatorClientId` records the paired client that
+created the session as a cleanup and UI hint.
+
+Terminal session membership is modeled as a reactive table subscription.
+`SubscribeTerminalSessions` streams a `Snapshot` first. Later `Snapshot` events
+replace the whole table view, and `Patch` events update membership with
+`removes` and `upserts`. Newly created sessions are upserted into the table.
+Exited sessions remain in the table with `TerminalSessionInfo.exit` until the
+user explicitly closes them. User-closed sessions are removed from the table.
+
+Available host shells are also modeled as a reactive table subscription.
+`SubscribeAvailableShells` reports daemon-defined shell launch options. Clients
+should start known shells by passing `TerminalLaunchSpec.Shell(shellId)` to
+`CreateTerminalSession`, not by reconstructing host-specific commands from
+display text. If launch is absent, the daemon uses the active user's default
+interactive shell. `TerminalLaunchSpec.CustomCommand` is reserved for explicit
+custom program launches.
+
+Clients attach to a terminal session with `AttachTerminalSession`. Each attach
+stream gets a unique `attachId`; the same WebTransport connection may attach to
+the same terminal session more than once. Terminal output is an append-only raw
+byte stream split into `OutputChunk` events with monotonic `seq` values. A
+session with no output has `latestOutputSeq = 0`, and the first output chunk has
+`seq = 1`. If `afterSeq` is absent, attach replay starts from the oldest
+retained output. A client that reconnects sends `afterSeq` to replay retained
+output after that sequence before following live output. A client that wants
+live output only can pass the `latestOutputSeq` it has observed. If the
+requested history has fallen out of the daemon's retention buffer, the daemon
+reports `HistoryGap`.
+
+Current daemon implementations retain up to 1 MiB of raw terminal output per
+terminal session, including exited sessions retained for user cleanup. This is
+an implementation policy, not a wire contract. Older retained output is dropped
+first; `latestOutputSeq` remains monotonic across dropped chunks.
+
+Terminal control is attach-scoped. `TakeTerminalControl` replaces the session's
+`primaryAttachId` with a live attach owned by the current WebTransport session.
+The previous primary attach does not need to be live. Calling
+`TakeTerminalControl` again from the current primary attach is valid and updates
+the pseudo-terminal size without changing control ownership. Input is accepted
+only from the live primary attach and is sent over a client-streaming
+`WriteTerminalInput` RPC whose first message binds the stream to one attach, and
+later messages carry raw input bytes. The pseudo-terminal has a single
+server-side size; successful take operations update that size. Repeated take
+calls are idempotent for event purposes: attach streams report `ControlChanged`
+only when `primaryAttachId` changes, and `PseudoTerminalResized` only when the
+pseudo-terminal size changes.
+
+`WriteTerminalInput` starts by binding the input stream to one live attach owned
+by the current WebTransport session. If that attach stops being the live primary
+attach while the input stream is open, the daemon fails the stream with
+`WriteTerminalInputError.NotPrimaryAttach`.
+
+`TerminalSessionInfo.lastKnownCwd` is a best-effort hint for the last working
+directory the daemon learned for the hosted shell. The daemon may learn this
+from shell integration escape sequences such as OSC 7 or from platform-specific
+inspection. When the daemon learns a new value, attach streams may report
+`WorkingDirectoryChanged`. When this event is derived from output bytes, it is
+reported after the `OutputChunk` containing the bytes that caused the update.
+These hints may be absent or stale, and the raw terminal byte stream remains
+authoritative for terminal rendering.
+
+`CreateTerminalSessionReq.title` is an initial title hint. After creation,
+`TerminalSessionInfo.lastKnownTitle` is the best-effort title the daemon learned
+for the hosted terminal. The daemon may learn this from terminal title escape
+sequences such as OSC 0 or OSC 2. When the daemon learns a new value, attach
+streams may report `TitleChanged`. When this event is derived from output bytes,
+it is reported after the `OutputChunk` containing the bytes that caused the
+update.

@@ -1,0 +1,676 @@
+# standard - wgo-rpc
+# description
+| Terminal RPC methods manage long-lived pseudo-terminal sessions owned by the
+| daemon process. A terminal session may outlive WebTransport connections and
+| browser tabs, but not a daemon process restart. These methods require valid
+| paired client credentials. Terminal output is represented as an append-only
+| byte stream split into chunks with sequence numbers so reconnecting clients
+| can replay retained output before following live output. Output sequence
+| numbers start at 1; a session with no output has latestOutputSeq 0. Screen
+| snapshots are intentionally not part of this version; terminals are
+| synchronized by raw output replay.
+| Authorization, routing, and malformed wire messages are wgo-wire envelope
+| errors.
+
+@ description
+| Creates a pseudo-terminal session. The creatorClientId recorded in the
+| resulting TerminalSessionInfo is the authenticated paired client id that made
+| this request. It is a cleanup and UI hint, not by itself an access-control
+| boundary.
+@ id - 12
+@ stream - unary
+proc CreateTerminalSession = CreateTerminalSessionReq -> TerminalSessionInfo throws CreateTerminalSessionError
+
+@ description
+| Subscribes to terminal sessions currently known to this daemon process. The
+| first response event is TerminalSessionsTableEvent.Snapshot. Later Snapshot
+| events replace the whole terminal sessions table view; Patch events apply
+| incremental table membership updates. Exited sessions stay in the table until
+| the user explicitly closes them. User-closed sessions are removed from the
+| table.
+@ id - 13
+@ stream - server
+proc SubscribeTerminalSessions = void -> TerminalSessionsTableEvent throws SubscribeTerminalSessionsError
+
+@ description
+| Subscribes to terminal shell launch options available on the host. The first
+| response event is AvailableShellsTableEvent.Snapshot. Later Snapshot events
+| replace the whole available shells table view; Patch events apply incremental
+| table membership updates. Shell ids are daemon-defined stable keys for the
+| lifetime of the row.
+@ id - 14
+@ stream - server
+proc SubscribeAvailableShells = void -> AvailableShellsTableEvent throws SubscribeAvailableShellsError
+
+@ description
+| Attaches this RPC stream to an existing terminal session. The daemon assigns a
+| new attachId for this stream and sends TerminalEvent.Attached first. If
+| afterSeq is absent, the daemon replays retained output from the oldest retained
+| sequence before continuing with live output. If afterSeq is present, the daemon
+| replays retained output chunks with seq greater than afterSeq before continuing
+| with live output. A client that wants live output only can pass the
+| latestOutputSeq it has observed. If the requested history is no longer
+| retained, the stream reports TerminalEvent.HistoryGap and then continues from
+| the oldest retained output or live output.
+@ id - 15
+@ stream - server
+proc AttachTerminalSession = AttachTerminalSessionReq -> TerminalEvent throws AttachTerminalSessionError
+
+@ description
+| Gives an existing live attach control of the terminal session. The requested
+| attach must belong to the current WebTransport session. The previous
+| primaryAttachId does not need to be live; take always replaces it when the
+| requested attach is valid. The daemon resizes the pseudo-terminal to the
+| provided viewport as part of taking control. Calling this again with the
+| current primary attach is valid and updates the pseudo-terminal size without
+| changing control ownership. Repeated calls are idempotent for event purposes:
+| attach streams MUST report ControlChanged only when primaryAttachId changes,
+| and MUST report PseudoTerminalResized only when the pseudo-terminal size
+| changes.
+@ id - 16
+@ stream - unary
+proc TakeTerminalControl = TakeTerminalControlReq -> TakeTerminalControlRes throws TakeTerminalControlError
+
+@ description
+| Writes input bytes to the pseudo-terminal. The request stream MUST begin with
+| exactly one WriteTerminalInputReq.WriteTerminalInputStart message. All
+| following request messages MUST be WriteTerminalInputReq.WriteTerminalInputChunk.
+| WriteTerminalInputStart MUST NOT appear after the first request message, and
+| an empty request stream is invalid. The start message's attach must be a live
+| attach owned by the current WebTransport session. Only the current live primary
+| attach may write input chunks. If the attach stops being the live primary
+| attach while the input stream is open, the daemon MUST fail the stream with
+| WriteTerminalInputError.NotPrimaryAttach. Normal request completion is
+| represented by transport half-close.
+@ id - 17
+@ stream - client
+proc WriteTerminalInput = WriteTerminalInputReq -> void throws WriteTerminalInputError
+
+@ description
+| Requests termination and cleanup of a terminal session. This is a session-level
+| close, not an attach close. If the hosted process is still running, existing
+| attach streams for the session should end after reporting SessionClosed when
+| possible. If the hosted process already exited, this removes the retained
+| exited session record. In both cases, the terminal sessions table removes the
+| row.
+@ id - 18
+@ stream - unary
+proc CloseTerminalSession = CloseTerminalSessionReq -> void throws CloseTerminalSessionError
+
+@ description - Terminal session creation request.
+struct CreateTerminalSessionReq {
+  @ id - 1
+  @ description - Initial pseudo-terminal column count.
+  cols: u53,
+
+  @ id - 2
+  @ description - Initial pseudo-terminal row count.
+  rows: u53,
+
+  @ id - 3
+  @ description - Initial working directory for the shell, if requested.
+  cwd?: string,
+
+  @ id - 4
+  @ description
+  | Launch behavior for the hosted terminal. If absent, the daemon chooses the
+  | active user's default interactive shell.
+  launch?: TerminalLaunchSpec,
+
+  @ id - 5
+  @ description - Initial title hint for the hosted terminal, if requested.
+  title?: string,
+}
+
+@ description - Terminal process launch behavior.
+union TerminalLaunchSpec {
+  @ id - 1
+  @ description - Use the daemon's default interactive shell for the active user.
+  DefaultShell(),
+
+  @ id - 2
+  @ description
+  | Use one shell option from SubscribeAvailableShells. The shell id is resolved
+  | by the daemon at session creation time.
+  Shell(
+    @ id - 1
+    shellId: string,
+  ),
+
+  @ id - 3
+  @ description - Execute a custom program instead of a known shell option.
+  CustomCommand(
+    @ id - 1
+    command: string,
+
+    @ id - 2
+    @ description - Program arguments. Empty means no additional arguments.
+    args?: string[],
+  ),
+}
+
+@ description - Terminal session metadata.
+struct TerminalSessionInfo {
+  @ id - 1
+  terminalSessionId: string,
+
+  @ id - 2
+  @ description
+  | Paired client id that created this session. This is retained as a cleanup
+  | and display hint.
+  creatorClientId: string,
+
+  @ id - 3
+  createdAtMs: u53,
+
+  @ id - 4
+  @ description - Last time an attach stream was opened for this session.
+  lastAttachedAtMs?: u53,
+
+  @ id - 5
+  @ description - Last time an attach stream closed for this session.
+  lastDetachedAtMs?: u53,
+
+  @ id - 6
+  @ description - Last time output bytes were read from the pseudo-terminal.
+  lastOutputAtMs?: u53,
+
+  @ id - 7
+  @ description - Current or most recently requested pseudo-terminal columns.
+  cols: u53,
+
+  @ id - 8
+  @ description - Current or most recently requested pseudo-terminal rows.
+  rows: u53,
+
+  @ id - 9
+  @ description
+  | Last attach that took control. This id may be stale if that attach has
+  | disconnected.
+  primaryAttachId?: string,
+
+  @ id - 10
+  @ description
+  | Highest output sequence number produced so far. This is 0 before the first
+  | output chunk.
+  latestOutputSeq: u53,
+
+  @ id - 11
+  @ description
+  | Last title the daemon learned for the hosted terminal. This is a
+  | best-effort hint and may be absent or stale.
+  lastKnownTitle?: string,
+
+  @ id - 12
+  @ description - Exit metadata if the hosted process has exited.
+  exit?: TerminalExit,
+
+  @ id - 13
+  @ description
+  | Last working directory the daemon learned for the hosted shell. This is a
+  | best-effort hint and may be absent or stale.
+  lastKnownCwd?: string,
+}
+
+@ description
+| Reactive terminal sessions table event. Snapshot replaces the whole
+| subscribed terminal sessions table view. Patch applies membership changes to
+| the current view: removes means a session leaves the user-visible retained
+| session table, and upserts includes newly created sessions, metadata updates,
+| and exited sessions retained for user cleanup.
+union TerminalSessionsTableEvent {
+  @ id - 1
+  Snapshot(
+    @ id - 1
+    rows: TerminalSessionInfo[],
+  ),
+
+  @ id - 2
+  Patch(
+    @ id - 1
+    removes: TerminalSessionKey[],
+
+    @ id - 2
+    upserts: TerminalSessionInfo[],
+  ),
+}
+
+@ description - Terminal sessions table row key.
+struct TerminalSessionKey {
+  @ id - 1
+  terminalSessionId: string,
+}
+
+@ description
+| Reactive available shells table event. Snapshot replaces the whole subscribed
+| shell options table view. Patch applies membership changes to the current
+| view. Clients should use shellId from this table with TerminalLaunchSpec.Shell
+| rather than reconstructing daemon-specific launch commands themselves.
+union AvailableShellsTableEvent {
+  @ id - 1
+  Snapshot(
+    @ id - 1
+    rows: AvailableShellInfo[],
+  ),
+
+  @ id - 2
+  Patch(
+    @ id - 1
+    removes: AvailableShellKey[],
+
+    @ id - 2
+    upserts: AvailableShellInfo[],
+  ),
+}
+
+@ description - Available shell table row.
+struct AvailableShellInfo {
+  @ id - 1
+  @ description
+  | Daemon-defined stable key for this shell option while the row remains in the
+  | available shells table.
+  shellId: string,
+
+  @ id - 2
+  @ description - Human-readable shell name for display.
+  name: string,
+
+  @ id - 3
+  @ description - Program the daemon would launch for this shell option.
+  command: string,
+
+  @ id - 4
+  @ description - Program arguments the daemon would launch for this shell option.
+  args: string[],
+
+  @ id - 5
+  @ description - True when this shell is the daemon's default interactive shell.
+  isDefault: bool,
+}
+
+@ description - Available shell table row key.
+struct AvailableShellKey {
+  @ id - 1
+  shellId: string,
+}
+
+@ description - Attach stream request.
+struct AttachTerminalSessionReq {
+  @ id - 1
+  terminalSessionId: string,
+
+  @ id - 2
+  @ description
+  | Last output sequence number processed by the client. When present, replay
+  | starts after this sequence. When absent, replay starts from the oldest
+  | retained output.
+  afterSeq?: u53,
+
+  @ id - 3
+  @ description - Client viewport column count for this attach.
+  viewportCols: u53,
+
+  @ id - 4
+  @ description - Client viewport row count for this attach.
+  viewportRows: u53,
+}
+
+@ description - Terminal attach and output events.
+union TerminalEvent {
+  @ id - 1
+  @ description
+  | First event on every attach stream. primaryAttachId may refer to a stale
+  | attach; clients can take control with their own attachId when needed.
+  Attached(
+    @ id - 1
+    attachId: string,
+
+    @ id - 2
+    primaryAttachId?: string,
+
+    @ id - 3
+    session: TerminalSessionInfo,
+  ),
+
+  @ id - 2
+  @ description
+  | Raw pseudo-terminal output bytes. The byte stream may include terminal
+  | control sequences such as OSC 7 current-directory reports. If the daemon
+  | derives metadata from those bytes, it may also emit metadata events such as
+  | WorkingDirectoryChanged; the raw bytes remain present in OutputChunk.
+  OutputChunk(
+    @ id - 1
+    @ description
+    | Monotonic output sequence number. The first output chunk has seq 1.
+    seq: u53,
+
+    @ id - 2
+    bytes: bytes,
+  ),
+
+  @ id - 3
+  @ description
+  | Requested replay history is no longer fully retained. nextSeq is the first
+  | sequence the daemon can provide after the gap, or the next live sequence if
+  | no retained output remains.
+  HistoryGap(
+    @ id - 1
+    nextSeq: u53,
+  ),
+
+  @ id - 4
+  @ description
+  | The terminal session's primaryAttachId changed. This event MUST NOT be
+  | emitted for a TakeTerminalControl call that keeps the same primary attach.
+  ControlChanged(
+    @ id - 1
+    primaryAttachId: string,
+  ),
+
+  @ id - 5
+  @ description
+  | The pseudo-terminal size changed. This event MUST NOT be emitted for a
+  | TakeTerminalControl call whose viewport matches the current size.
+  PseudoTerminalResized(
+    @ id - 1
+    cols: u53,
+
+    @ id - 2
+    rows: u53,
+  ),
+
+  @ id - 6
+  @ description - The hosted process exited. The attach stream closes normally after this event.
+  SessionExited(
+    @ id - 1
+    exit: TerminalExit,
+  ),
+
+  @ id - 7
+  @ description - The terminal session was closed without normal process exit metadata.
+  SessionClosed(
+    @ id - 1
+    reason: TerminalSessionCloseReason,
+  ),
+
+  @ id - 8
+  @ description
+  | The daemon learned a new working directory for the hosted shell. This is a
+  | best-effort hint, commonly derived from shell integration escape sequences
+  | such as OSC 7. When derived from output bytes, this event MUST be emitted
+  | after the OutputChunk containing the bytes that caused the update.
+  WorkingDirectoryChanged(
+    @ id - 1
+    cwd: string,
+  ),
+
+  @ id - 9
+  @ description
+  | The daemon learned a new terminal title. This is a best-effort hint,
+  | commonly derived from terminal title escape sequences such as OSC 0 or OSC
+  | 2. When derived from output bytes, this event MUST be emitted after the
+  | OutputChunk containing the bytes that caused the update.
+  TitleChanged(
+    @ id - 1
+    title: string,
+  ),
+}
+
+@ description - Request to take control for one live attach.
+struct TakeTerminalControlReq {
+  @ id - 1
+  terminalSessionId: string,
+
+  @ id - 2
+  attachId: string,
+
+  @ id - 3
+  viewportCols: u53,
+
+  @ id - 4
+  viewportRows: u53,
+}
+
+@ description - Result of taking terminal control.
+struct TakeTerminalControlRes {
+  @ id - 1
+  primaryAttachId: string,
+}
+
+@ description - Terminal input request stream item.
+union WriteTerminalInputReq {
+  @ id - 1
+  @ description
+  | First request-stream message for WriteTerminalInput. It binds the input
+  | stream to one live attach owned by the current WebTransport session and must
+  | appear exactly once as the first request message.
+  WriteTerminalInputStart(
+    @ id - 1
+    terminalSessionId: string,
+
+    @ id - 2
+    attachId: string,
+  ),
+
+  @ id - 2
+  @ description - Raw input bytes for the hosted pseudo-terminal.
+  WriteTerminalInputChunk(
+    @ id - 1
+    bytes: bytes,
+  ),
+}
+
+@ description - Terminal session close request.
+struct CloseTerminalSessionReq {
+  @ id - 1
+  terminalSessionId: string,
+}
+
+@ description - Hosted process exit metadata.
+struct TerminalExit {
+  @ id - 1
+  @ description - Process exit code, when the OS reports one.
+  code?: i53,
+
+  @ id - 2
+  @ description - Unix signal name or number, when the OS reports one.
+  signal?: string,
+
+  @ id - 3
+  exitedAtMs: u53,
+}
+
+@ description - Terminal session close reason without normal exit metadata.
+union TerminalSessionCloseReason {
+  @ id - 0
+  Failed(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 1
+  ClosedByClient(),
+
+  @ id - 2
+  DaemonShuttingDown(),
+
+  @ id - 3
+  Unknown(),
+}
+
+@ description - Method-level terminal session creation errors.
+union CreateTerminalSessionError {
+  @ id - 0
+  Failed(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 1
+  PermissionDenied(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 2
+  InvalidSize(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 3
+  ShellNotFound(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 4
+  InvalidLaunch(
+    @ id - 1
+    message: string,
+  ),
+}
+
+@ description - Method-level terminal sessions subscription start errors.
+union SubscribeTerminalSessionsError {
+  @ id - 0
+  Failed(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 1
+  PermissionDenied(
+    @ id - 1
+    message: string,
+  ),
+}
+
+@ description - Method-level available shells subscription start errors.
+union SubscribeAvailableShellsError {
+  @ id - 0
+  Failed(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 1
+  PermissionDenied(
+    @ id - 1
+    message: string,
+  ),
+}
+
+@ description - Method-level terminal session close errors.
+union CloseTerminalSessionError {
+  @ id - 0
+  Failed(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 1
+  NotFound(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 2
+  PermissionDenied(
+    @ id - 1
+    message: string,
+  ),
+}
+
+@ description - Method-level attach start errors.
+union AttachTerminalSessionError {
+  @ id - 0
+  Failed(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 1
+  NotFound(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 2
+  PermissionDenied(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 3
+  InvalidSize(
+    @ id - 1
+    message: string,
+  ),
+}
+
+@ description - Method-level terminal control take errors.
+union TakeTerminalControlError {
+  @ id - 0
+  Failed(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 1
+  NotFound(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 2
+  PermissionDenied(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 3
+  AttachNotFound(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 4
+  InvalidSize(
+    @ id - 1
+    message: string,
+  ),
+}
+
+@ description - Method-level terminal input errors.
+union WriteTerminalInputError {
+  @ id - 0
+  Failed(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 1
+  NotFound(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 2
+  PermissionDenied(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 3
+  AttachNotFound(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 4
+  NotPrimaryAttach(
+    @ id - 1
+    message: string,
+  ),
+}
