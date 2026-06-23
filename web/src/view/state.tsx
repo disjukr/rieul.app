@@ -4,6 +4,7 @@ import type {
 } from "react";
 import { bunja } from "bunja";
 import { atom } from "jotai";
+import { atomWithStorage } from "jotai/utils";
 import { JotaiStoreScope } from "unsaturated/store";
 
 const machinePanelMinWidth = 212;
@@ -11,11 +12,15 @@ const machinePanelMaxWidth = 420;
 const machinePanelTransitionMs = 180;
 const minimumWorkbenchWidth = 360;
 const machineRailWidth = 64;
+const machinePanelCollapsedStorageKey = "wgo.machine-panel-collapsed.v1";
 
 export const layoutBunja = bunja(() => {
   const store = bunja.use(JotaiStoreScope);
   const machinePanelWidthAtom = atom(264);
-  const machinePanelCollapsedAtom = atom(false);
+  const machinePanelCollapsedAtom = atomWithStorage(
+    machinePanelCollapsedStorageKey,
+    false,
+  );
   const machinePanelTransitioningAtom = atom(false);
   let machinePanelTransitionTimeout:
     | ReturnType<typeof globalThis.setTimeout>
