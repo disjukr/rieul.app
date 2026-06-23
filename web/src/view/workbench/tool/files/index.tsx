@@ -1,10 +1,16 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useAtomValue } from "jotai";
 import { useBunja } from "bunja/react";
-import { HardDrive, Info, KeyRound } from "lucide-react";
-import { FsEntry, FsEntryKind } from "../../../../protocol/rpc.ts";
+import { HardDrive, Info, KeyRound, Loader2, Trash2, X } from "lucide-react";
+import {
+  DeleteMode,
+  deletePaths,
+  FsEntry,
+  FsEntryKind,
+} from "../../../../protocol/rpc.ts";
 import { connectionBunja } from "../../../../state/connection.ts";
 import {
+  displayName,
   explorerBunja,
   ExplorerPaneScope,
 } from "../../../../state/explorer.ts";
@@ -40,11 +46,57 @@ const entryContextMenuClassName = [
   "[&_button]:px-[10px] [&_button]:text-[#20242d]",
   "[&_button:hover]:bg-[#f2f6ff]",
 ].join(" ");
+const dangerMenuItemClassName =
+  "!text-[#b42318] hover:!bg-[#fff2f0] hover:!text-[#912018]";
+const modalBackdropClassName =
+  "fixed inset-0 z-[20] grid place-items-center bg-[rgb(32_36_45_/_42%)] p-[24px]";
+const modalClassName = [
+  "w-[min(460px,100%)] overflow-hidden border border-[#d8dde7]",
+  "rounded-[8px] bg-white [box-shadow:0_24px_72px_rgb(32_36_45_/_28%)]",
+].join(" ");
+const modalHeadClassName = [
+  "flex items-center justify-between gap-[12px] border-b border-b-[#e4e8ef]",
+  "px-[16px] py-[14px]",
+  "[&_div]:grid [&_div]:gap-[2px] [&_div]:min-w-0",
+  "[&_span]:text-[#667085] [&_span]:text-[12px] [&_span]:font-700",
+  "[&_h2]:m-0 [&_h2]:text-[#20242d] [&_h2]:text-[18px] [&_h2]:tracking-[0]",
+].join(" ");
+const iconButtonClassName = "!w-[36px] !min-w-[36px] !p-0";
+const deleteDialogBodyClassName = [
+  "grid gap-[12px] p-[16px]",
+  "[&_p]:m-0 [&_p]:text-[#475467] [&_p]:text-[13px] [&_p]:leading-[1.45]",
+].join(" ");
+const entrySummaryClassName = [
+  "grid gap-[2px] min-w-0 border border-[#d8dde7] rounded-[8px]",
+  "bg-[#f7f8fb] p-[10px]",
+  "[&_strong]:min-w-0 [&_strong]:overflow-hidden [&_strong]:text-ellipsis",
+  "[&_strong]:whitespace-nowrap [&_strong]:text-[#20242d] [&_strong]:text-[13px]",
+  "[&_span]:min-w-0 [&_span]:[overflow-wrap:anywhere]",
+  "[&_span]:text-[#667085] [&_span]:text-[12px]",
+].join(" ");
+const modalActionsClassName = "flex justify-end gap-[8px]";
+const dangerActionClassName = [
+  "border-[#f6c2bd] bg-[#fff4f2] text-[#b42318]",
+  "hover:border-[#f04438] hover:bg-[#fff2f0] hover:text-[#912018]",
+].join(" ");
+const fieldErrorClassName = "text-[#b42318] text-[12px]";
 
 interface EntryMenuState {
   entry: FsEntry;
   x: number;
   y: number;
+}
+
+interface DeleteEntryState {
+  entry: FsEntry;
+  error?: string;
+  isDeleting: boolean;
+}
+
+interface DeleteEntryModalProps {
+  state: DeleteEntryState;
+  onClose: () => void;
+  onDelete: () => void;
 }
 
 export function FilesTool() {
@@ -62,6 +114,7 @@ export function FilesTool() {
   const lastConnectionEpochRef = useRef(connectionEpoch);
   const [entryMenu, setEntryMenu] = useState<EntryMenuState>();
   const [propertiesEntry, setPropertiesEntry] = useState<FsEntry>();
+  const [deleteEntry, setDeleteEntry] = useState<DeleteEntryState>();
 
   useEffect(() => {
     if (lastConnectionEpochRef.current === connectionEpoch) return;
@@ -99,7 +152,19 @@ export function FilesTool() {
     return () => globalThis.removeEventListener("keydown", closeModalOnEscape);
   }, [propertiesEntry]);
 
+  useEffect(() => {
+    if (!deleteEntry || deleteEntry.isDeleting) return;
+
+    function closeModalOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") setDeleteEntry(undefined);
+    }
+
+    globalThis.addEventListener("keydown", closeModalOnEscape);
+    return () => globalThis.removeEventListener("keydown", closeModalOnEscape);
+  }, [deleteEntry]);
+
   const {
+    currentPathAtom,
     goBack,
     goUp,
     navigate,
@@ -107,6 +172,7 @@ export function FilesTool() {
     openFile,
     selectEntry,
   } = explorer;
+  const currentPath = useAtomValue(currentPathAtom);
 
   function goBackFromToolbar() {
     goBack();
@@ -148,6 +214,50 @@ export function FilesTool() {
   function openEntryProperties(entry: FsEntry) {
     setEntryMenu(undefined);
     setPropertiesEntry(entry);
+  }
+
+  function openDeleteEntry(entry: FsEntry) {
+    setEntryMenu(undefined);
+    setDeleteEntry({ entry, isDeleting: false });
+  }
+
+  async function deleteSelectedEntry() {
+    if (!machine || !deleteEntry || deleteEntry.isDeleting) return;
+    setDeleteEntry((current) =>
+      current ? { ...current, error: undefined, isDeleting: true } : current
+    );
+    try {
+      const result = await deletePaths(
+        machine,
+        [deleteEntry.entry.path],
+        DeleteMode.Trash,
+        machineStore.rpcCallOptions(),
+      );
+      const failure = result.results.find((item) => !item.ok);
+      if (failure && !failure.ok) {
+        setDeleteEntry((current) =>
+          current
+            ? {
+              ...current,
+              error: failure.message || failure.code,
+              isDeleting: false,
+            }
+            : current
+        );
+        return;
+      }
+      setDeleteEntry(undefined);
+    } catch (err) {
+      setDeleteEntry((current) =>
+        current
+          ? {
+            ...current,
+            error: err instanceof Error ? err.message : String(err),
+            isDeleting: false,
+          }
+          : current
+      );
+    }
   }
 
   const actions: FilesActions = {
@@ -209,6 +319,19 @@ export function FilesTool() {
               <Info size={15} />
               Properties
             </button>
+            {currentPath
+              ? (
+                <button
+                  type="button"
+                  role="menuitem"
+                  className={dangerMenuItemClassName}
+                  onClick={() => openDeleteEntry(entryMenu.entry)}
+                >
+                  <Trash2 size={15} />
+                  Delete...
+                </button>
+              )
+              : null}
           </div>
         )
         : null}
@@ -221,6 +344,84 @@ export function FilesTool() {
           />
         )
         : null}
+
+      {deleteEntry
+        ? (
+          <DeleteEntryModal
+            state={deleteEntry}
+            onClose={() => {
+              if (!deleteEntry.isDeleting) setDeleteEntry(undefined);
+            }}
+            onDelete={deleteSelectedEntry}
+          />
+        )
+        : null}
     </section>
+  );
+}
+
+function DeleteEntryModal(
+  { state, onClose, onDelete }: DeleteEntryModalProps,
+) {
+  return (
+    <div
+      className={modalBackdropClassName}
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget && !state.isDeleting) {
+          onClose();
+        }
+      }}
+    >
+      <section
+        className={modalClassName}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="delete-entry-title"
+      >
+        <header className={modalHeadClassName}>
+          <div>
+            <span>File</span>
+            <h2 id="delete-entry-title">Delete</h2>
+          </div>
+          <Button
+            onClick={onClose}
+            title="Close"
+            aria-label="Close delete dialog"
+            disabled={state.isDeleting}
+            className={iconButtonClassName}
+          >
+            <X size={16} />
+          </Button>
+        </header>
+
+        <div className={deleteDialogBodyClassName}>
+          <div className={entrySummaryClassName}>
+            <strong>{displayName(state.entry)}</strong>
+            <span>{state.entry.path}</span>
+          </div>
+          <p>
+            This moves the selected item to the system trash.
+          </p>
+          {state.error
+            ? <div className={fieldErrorClassName}>{state.error}</div>
+            : null}
+          <div className={modalActionsClassName}>
+            <Button onClick={onClose} disabled={state.isDeleting}>
+              Cancel
+            </Button>
+            <Button
+              className={dangerActionClassName}
+              onClick={onDelete}
+              disabled={state.isDeleting}
+            >
+              {state.isDeleting
+                ? <Loader2 size={16} className="animate-spin" />
+                : <Trash2 size={16} />}
+              Delete
+            </Button>
+          </div>
+        </div>
+      </section>
+    </div>
   );
 }
