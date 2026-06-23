@@ -37,9 +37,9 @@ const emptyWorkspaceClassName = [
   "[&_h2]:m-0 [&_h2]:text-[#303642] [&_h2]:text-[18px] [&_h2]:tracking-[0]",
 ].join(" ");
 const terminalFooterClassName = [
-  "flex items-center justify-end gap-[12px] min-h-[28px]",
+  "flex items-center justify-end gap-[12px] h-[1.6rem] min-h-[1.6rem] box-border",
   "border-t border-t-[#d8dde7] bg-[#fbfcfe] text-[#667085]",
-  "px-[16px] text-[12px]",
+  "px-[8px] text-[0.8rem] leading-[1.6]",
   "[@container_workbench-tab-page_(min-width:520px)]:justify-between",
 ].join(" ");
 const terminalFooterDetailsClassName = [

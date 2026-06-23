@@ -43,8 +43,9 @@ const workbenchPaneClassName = [
   "w-full h-full min-w-0 min-h-0 overflow-hidden bg-white",
 ].join(" ");
 const workbenchPaneHeadClassName = [
-  "grid [grid-template-columns:24px_minmax(0,1fr)_auto]",
-  "items-center min-h-[32px] border-b border-b-[#d8dde7] bg-[#f6f8fb]",
+  "grid [grid-template-columns:0.8em_minmax(0,1fr)_auto]",
+  "items-center h-[1.6em] min-h-[1.6em] box-border leading-[1.6]",
+  "border-b border-b-[#d8dde7] bg-[#f6f8fb]",
 ].join(" ");
 const paneHandleClassName =
   "flex items-center justify-center self-stretch text-[#98a2b3] cursor-grab";
@@ -52,16 +53,21 @@ const workbenchTabsClassName = [
   "flex items-end min-w-0 h-full overflow-visible",
   "[&.drop-at-end]:[box-shadow:inset_-2px_0_0_#4f8cff]",
 ].join(" ");
-const paneActionsClassName = "flex items-center gap-[3px] px-[5px]";
-const newTabMenuWrapClassName = "relative flex";
+const paneActionsClassName = "flex items-center";
+const paneActionButtonGroupClassName =
+  "inline-flex h-[1.6rem] items-center box-border p-[2px]";
+const newTabMenuWrapClassName = "relative flex h-full";
 const iconButtonClassName = [
   "!w-[36px] !min-w-[36px] !p-0",
 ].join(" ");
 const newTabTriggerClassName = [
-  "!w-[34px] !min-w-[34px] !h-[24px] !min-h-[24px] !gap-[1px] !p-0",
+  "!w-[1.8em] !min-w-[1.8em] !h-full !min-h-0 !box-border !gap-[1px] !p-0",
 ].join(" ");
 const compactIconButtonClassName =
-  "!w-[24px] !min-w-[24px] !h-[24px] !min-h-[24px] !p-0";
+  "!w-[1.6em] !min-w-[1.6em] !h-full !min-h-0 !box-border !p-0";
+const buttonGroupFirstClassName = "!rounded-l-[4px] !rounded-r-0";
+const buttonGroupMiddleClassName = "-ml-px !rounded-0";
+const buttonGroupLastClassName = "-ml-px !rounded-l-0 !rounded-r-[4px]";
 const newTabMenuClassName = [
   "absolute top-[calc(100%+5px)] right-0 z-[12] w-[148px]",
   "border border-[#d8dde7] rounded-[7px] bg-white",
@@ -368,7 +374,7 @@ export function WorkbenchPaneView(
     >
       <header className={workbenchPaneHeadClassName}>
         <Handle className={paneHandleClassName}>
-          <GripVertical size={14} />
+          <GripVertical size={8} />
         </Handle>
         <div
           className={className(
@@ -405,74 +411,88 @@ export function WorkbenchPaneView(
           ))}
         </div>
         <div className={paneActionsClassName}>
-          <div className={newTabMenuWrapClassName} ref={newTabMenuRef}>
+          <div className={paneActionButtonGroupClassName}>
+            <div className={newTabMenuWrapClassName} ref={newTabMenuRef}>
+              <Button
+                className={className(
+                  newTabTriggerClassName,
+                  buttonGroupFirstClassName,
+                )}
+                onClick={() => setNewTabMenuOpen((open) => !open)}
+                title="Open tab"
+                aria-label="Open tab"
+                aria-haspopup="menu"
+                aria-expanded={newTabMenuOpen}
+              >
+                <Plus size={12} />
+                <ChevronDown size={10} />
+              </Button>
+              {newTabMenuOpen
+                ? (
+                  <div className={newTabMenuClassName} role="menu">
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={openDaemonTab}
+                    >
+                      <Info size={14} />
+                      Daemon
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={openFilesTab}
+                    >
+                      <Folder size={14} />
+                      Files
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={openTerminalTab}
+                    >
+                      <Terminal size={14} />
+                      Terminal
+                    </button>
+                  </div>
+                )
+                : null}
+            </div>
             <Button
-              className={newTabTriggerClassName}
-              onClick={() => setNewTabMenuOpen((open) => !open)}
-              title="Open tab"
-              aria-label="Open tab"
-              aria-haspopup="menu"
-              aria-expanded={newTabMenuOpen}
+              className={className(
+                compactIconButtonClassName,
+                buttonGroupMiddleClassName,
+              )}
+              onClick={() => splitPane("horizontal")}
+              title="Split right"
+              aria-label="Split right"
             >
-              <Plus size={13} />
-              <ChevronDown size={11} />
+              <Columns2 size={12} />
             </Button>
-            {newTabMenuOpen
-              ? (
-                <div className={newTabMenuClassName} role="menu">
-                  <button
-                    type="button"
-                    role="menuitem"
-                    onClick={openDaemonTab}
-                  >
-                    <Info size={14} />
-                    Daemon
-                  </button>
-                  <button
-                    type="button"
-                    role="menuitem"
-                    onClick={openFilesTab}
-                  >
-                    <Folder size={14} />
-                    Files
-                  </button>
-                  <button
-                    type="button"
-                    role="menuitem"
-                    onClick={openTerminalTab}
-                  >
-                    <Terminal size={14} />
-                    Terminal
-                  </button>
-                </div>
-              )
-              : null}
+            <Button
+              className={className(
+                compactIconButtonClassName,
+                buttonGroupMiddleClassName,
+              )}
+              onClick={() => splitPane("vertical")}
+              title="Split down"
+              aria-label="Split down"
+            >
+              <Rows2 size={12} />
+            </Button>
+            <Button
+              className={className(
+                compactIconButtonClassName,
+                buttonGroupLastClassName,
+              )}
+              onClick={closePane}
+              disabled={!canClosePane}
+              title="Close pane"
+              aria-label="Close pane"
+            >
+              <X size={12} />
+            </Button>
           </div>
-          <Button
-            className={compactIconButtonClassName}
-            onClick={() => splitPane("horizontal")}
-            title="Split right"
-            aria-label="Split right"
-          >
-            <Columns2 size={14} />
-          </Button>
-          <Button
-            className={compactIconButtonClassName}
-            onClick={() => splitPane("vertical")}
-            title="Split down"
-            aria-label="Split down"
-          >
-            <Rows2 size={14} />
-          </Button>
-          <Button
-            className={compactIconButtonClassName}
-            onClick={closePane}
-            disabled={!canClosePane}
-            title="Close pane"
-            aria-label="Close pane"
-          >
-            <X size={14} />
-          </Button>
         </div>
       </header>
       <div

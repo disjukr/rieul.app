@@ -38,7 +38,7 @@ interface WorkbenchTabItemProps {
 }
 
 const workbenchTabClassName = [
-  "workbench-tab relative flex items-center min-w-0 max-w-[168px] h-full",
+  "workbench-tab relative flex items-center min-w-0 max-w-[168px] h-full box-border leading-[1.6]",
   "border-r border-r-[#e4e8ef] bg-[#eef1f5]",
   "before:content-[''] before:absolute before:top-[4px] before:bottom-[4px]",
   "before:z-[2] before:w-[2px] before:rounded-full before:bg-transparent",
@@ -51,11 +51,11 @@ const workbenchTabClassName = [
   "[&.dragging]:opacity-48",
   "[&.active]:bg-white",
   "[&>button]:inline-flex [&>button]:appearance-none [&>button]:items-center",
-  "[&>button]:justify-center [&>button]:[font-family:inherit]",
+  "[&>button]:justify-center [&>button]:[font-family:inherit] [&>button]:leading-[1.6]",
   "[&>button]:min-w-0 [&>button]:h-full [&>button]:min-h-0",
   "[&>button]:cursor-pointer [&>button]:border-0 [&>button]:rounded-0 [&>button]:bg-transparent",
-  "[&>button]:px-[8px] [&>button]:text-[#344054]",
-  "[&>button]:text-[12px] [&>button]:font-700",
+  "[&>button]:px-[6px] [&>button]:text-[#344054]",
+  "[&>button]:text-[0.8rem] [&>button]:font-700",
   "[&>button:hover]:bg-transparent",
   "[&>button[role='tab']]:justify-start",
   "[&>button[role='tab']]:flex-[1_1_auto]",
@@ -66,10 +66,10 @@ const workbenchTabClassName = [
   "[&>button[role='tab']]:cursor-grab",
   "[&>button[role='tab']:active]:cursor-grabbing",
   "[&.active>button]:text-[#20242d]",
-  "[&_.tab-close]:flex-[0_0_auto] [&_.tab-close]:w-[22px]",
-  "[&_.tab-close]:min-w-[22px] [&_.tab-close]:p-0 [&_.tab-close]:text-[#667085]",
+  "[&_.tab-close]:flex-[0_0_auto] [&_.tab-close]:w-[1.6em]",
+  "[&_.tab-close]:min-w-[1.6em] [&_.tab-close]:p-0 [&_.tab-close]:text-[#667085]",
 ].join(" ");
-const workbenchTabIconClassName = "mr-[6px] flex-[0_0_auto] text-[#667085]";
+const workbenchTabIconClassName = "mr-[5px] flex-[0_0_auto] text-[#667085]";
 const workbenchTabTitleClassName =
   "min-w-0 overflow-hidden text-ellipsis whitespace-nowrap";
 const activePaneTabClassName = [
@@ -77,7 +77,7 @@ const activePaneTabClassName = [
   "[box-shadow:inset_2px_0_0_#7f9abf,inset_-2px_0_0_#7f9abf,inset_0_2px_0_#7f9abf]",
 ].join(" ");
 const activeTabBottomCoverClassName = [
-  "pointer-events-none absolute left-[2px] right-[2px] bottom-[-1px]",
+  "pointer-events-none absolute left-[2px] right-[2px] bottom-0",
   "z-[9] h-[1px] bg-white",
 ].join(" ");
 
@@ -180,7 +180,7 @@ export function WorkbenchTabItem(
             title="Close tab"
             aria-label={`Close ${label}`}
           >
-            <X size={13} />
+            <X size={11} className="translate-x-[-1px]" />
           </button>
         )
         : null}
@@ -200,12 +200,12 @@ function WorkbenchTabIcon(
   { className, tool }: WorkbenchTabIconProps,
 ) {
   if (tool === "daemon") {
-    return <Info size={14} className={className} />;
+    return <Info size={12} className={className} />;
   }
   if (tool === "terminal") {
-    return <Terminal size={14} className={className} />;
+    return <Terminal size={12} className={className} />;
   }
-  return <Folder size={14} className={className} />;
+  return <Folder size={12} className={className} />;
 }
 
 function useWorkbenchTabLabel(

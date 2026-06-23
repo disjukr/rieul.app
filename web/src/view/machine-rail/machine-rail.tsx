@@ -25,39 +25,41 @@ interface MachineRailProps {
 }
 
 const machineRailClassName = [
-  "[grid-row:1/-1] grid [grid-template-rows:auto_minmax(0,1fr)_auto]",
-  "justify-items-center gap-[14px] min-h-0 overflow-hidden bg-[#242832] py-[12px]",
+  "[grid-row:1/-1] grid [grid-template-rows:72px_minmax(0,1fr)_auto]",
+  "justify-items-center gap-0 min-h-0 overflow-hidden bg-[#242832] p-0",
 ].join(" ");
 const railBrandClassName = [
-  "flex items-center justify-center w-[60px] h-[60px] mt-[-8px] overflow-visible",
-  "[&_img]:block [&_img]:w-[58px] [&_img]:h-[58px] [&_img]:object-contain",
+  "flex items-center justify-center w-[48px] h-[72px] overflow-visible",
+  "[&_img]:block [&_img]:w-[46px] [&_img]:h-[46px] [&_img]:object-contain",
 ].join(" ");
 const railListClassName = [
-  "grid content-start justify-items-center gap-[10px]",
+  "grid content-start justify-items-center gap-0",
   "w-full min-h-0 overflow-auto",
 ].join(" ");
+const railItemFrameClassName = "grid h-[48px] w-full place-items-center";
 const railMachineClassName = [
-  "relative inline-flex appearance-none items-center justify-center w-[44px] min-w-[44px] h-[44px] min-h-[44px]",
+  "relative inline-flex appearance-none items-center justify-center w-[36px] min-w-[36px] h-[36px] min-h-[36px]",
   "cursor-pointer border-0 rounded-full bg-[#343946] text-[#d8dde7] p-0",
   "[font-family:inherit]",
   "[transition:border-radius_140ms_ease,background_140ms_ease,color_140ms_ease]",
-  "hover:rounded-[16px] hover:bg-[#343946] hover:text-[#d8dde7]",
-  "[&.active]:rounded-[16px] [&.active]:bg-[#4f8cff] [&.active]:text-white",
-  "[&:hover_.rail-indicator]:h-[20px]",
-  "[&.active_.rail-indicator]:h-[34px]",
+  "hover:rounded-[13px] hover:bg-[#343946] hover:text-[#d8dde7]",
+  "[&.active]:rounded-[13px] [&.active]:bg-[#4f8cff] [&.active]:text-white",
+  "[&:hover_.rail-indicator]:h-[18px]",
+  "[&.active_.rail-indicator]:h-[28px]",
 ].join(" ");
 const railIndicatorClassName = [
-  "rail-indicator absolute left-[-12px] w-[4px] h-0 rounded-[0_999px_999px_0]",
+  "rail-indicator absolute left-[-6px] w-[3px] h-0 rounded-[0_999px_999px_0]",
   "bg-white [transition:height_140ms_ease]",
 ].join(" ");
-const machineAvatarClassName = "text-[14px] font-750 tracking-[0]";
+const machineAvatarClassName = "text-[12px] font-750 tracking-[0]";
 const railActionClassName = [
-  "relative inline-flex appearance-none items-center justify-center w-[44px] min-w-[44px] h-[44px] min-h-[44px]",
+  "relative inline-flex appearance-none items-center justify-center w-[36px] min-w-[36px] h-[36px] min-h-[36px]",
   "cursor-pointer border-0 rounded-full bg-[#343946] text-[#38b86f] p-0",
   "[font-family:inherit]",
   "[transition:border-radius_140ms_ease,background_140ms_ease,color_140ms_ease]",
-  "hover:rounded-[16px] hover:bg-[#4f8cff] hover:text-white",
+  "hover:rounded-[13px] hover:bg-[#4f8cff] hover:text-white",
 ].join(" ");
+const railActionFrameClassName = "grid h-[48px] w-full place-items-center";
 const railTooltipClassName = [
   "fixed z-[40] translate-y-[-50%] rounded-[6px] bg-[#101828] text-white",
   "[box-shadow:0_12px_32px_rgb(16_24_40_/_24%)]",
@@ -89,40 +91,45 @@ export function MachineRail(
 
         <nav className={railListClassName} aria-label="Machines">
           {machines.map((machine) => (
-            <button
-              type="button"
-              key={machine.id}
-              className={className(
-                railMachineClassName,
-                machine.id === selectedId && "active",
-              )}
-              onClick={() => onSelectMachine(machine.id)}
-              onMouseEnter={(event) =>
-                onShowTooltip(event.currentTarget, machine.name)}
-              onMouseLeave={onHideTooltip}
-              onFocus={(event) =>
-                onShowTooltip(event.currentTarget, machine.name)}
-              onBlur={onHideTooltip}
-              onContextMenu={(event) => onContextMenu(event, machine)}
-              aria-label={machine.name}
-            >
-              <span className={railIndicatorClassName} />
-              <span className={machineAvatarClassName}>
-                {machineInitials(machine.name)}
-              </span>
-            </button>
+            <div key={machine.id} className={railItemFrameClassName}>
+              <button
+                type="button"
+                className={className(
+                  railMachineClassName,
+                  machine.id === selectedId && "active",
+                )}
+                onClick={() =>
+                  onSelectMachine(machine.id)}
+                onMouseEnter={(event) =>
+                  onShowTooltip(event.currentTarget, machine.name)}
+                onMouseLeave={onHideTooltip}
+                onFocus={(event) =>
+                  onShowTooltip(event.currentTarget, machine.name)}
+                onBlur={onHideTooltip}
+                onContextMenu={(event) =>
+                  onContextMenu(event, machine)}
+                aria-label={machine.name}
+              >
+                <span className={railIndicatorClassName} />
+                <span className={machineAvatarClassName}>
+                  {machineInitials(machine.name)}
+                </span>
+              </button>
+            </div>
           ))}
         </nav>
 
-        <button
-          type="button"
-          className={railActionClassName}
-          onClick={onAddMachine}
-          title="Add machine"
-          aria-label="Add machine"
-        >
-          <Plus size={22} />
-        </button>
+        <div className={railActionFrameClassName}>
+          <button
+            type="button"
+            className={railActionClassName}
+            onClick={onAddMachine}
+            title="Add machine"
+            aria-label="Add machine"
+          >
+            <Plus size={18} />
+          </button>
+        </div>
       </aside>
 
       {railTooltip

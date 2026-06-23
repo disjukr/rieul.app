@@ -29,17 +29,17 @@ interface MachinePanelProps {
 const machinePanelClassName = [
   "machine-panel relative [grid-column:2] [grid-row:2] grid",
   "[grid-template-rows:auto_minmax(0,1fr)] min-w-0 min-h-0 overflow-hidden",
-  "border-r border-r-[#d8dde7] rounded-tl-[8px] bg-[#fbfcfe]",
+  "border-r border-r-[#d8dde7] rounded-tl-[16px] bg-[#fbfcfe]",
 ].join(" ");
 const machinePanelSummaryClassName =
-  "grid border-b border-b-[#d8dde7] px-[12px] py-[14px]";
+  "grid h-[48px] min-h-[48px] border-b border-b-[#d8dde7] px-[8px] py-0";
 const machineTitleClassName = [
   "flex items-center min-w-0",
   "[&_h1]:flex [&_h1]:items-center [&_h1]:m-0 [&_h1]:min-w-0",
 ].join(" ");
 const machineTitleButtonClassName = [
   "machine-title-button inline-flex appearance-none items-center justify-start gap-[5px]",
-  "h-[32px] max-w-full min-h-[32px] overflow-visible",
+  "h-[48px] max-w-full min-h-[48px] overflow-visible",
   "cursor-pointer border-0 rounded-[6px] bg-transparent text-[#20242d]",
   "px-[8px] text-[17px] font-700 leading-none tracking-[0] [font-family:inherit]",
   "hover:bg-[#eef2f7] [&_svg]:flex-[0_0_auto]",

@@ -10,6 +10,7 @@
   },
   "imports": {
     "@vitejs/plugin-react": "npm:@vitejs/plugin-react@^4.3.4",
+    "@unocss/reset/tailwind.css": "npm:@unocss/reset@66.7.0/tailwind.css",
     "@xterm/addon-fit": "npm:@xterm/addon-fit@^0.10.0",
     "@xterm/xterm": "npm:@xterm/xterm@^5.5.0",
     "@xterm/xterm/css/xterm.css": "npm:@xterm/xterm@^5.5.0/css/xterm.css",

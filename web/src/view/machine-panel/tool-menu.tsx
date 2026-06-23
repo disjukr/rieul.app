@@ -44,12 +44,15 @@ const SHELL_MENU_EDGE_GAP = 8;
 const SHELL_MENU_TRIGGER_GAP = 5;
 
 const toolMenuClassName =
-  "grid content-start gap-[4px] min-h-0 overflow-visible px-[8px] py-[10px]";
-const toolItemRowClassName =
-  "relative grid [grid-template-columns:minmax(0,1fr)_30px]";
+  "grid content-start gap-0 min-h-0 overflow-visible px-[8px] py-[12px]";
+const toolItemFrameClassName = "h-[48px] box-border py-[2px]";
+const toolItemRowClassName = [
+  "relative grid h-[48px] box-border py-[2px]",
+  "[grid-template-columns:minmax(0,1fr)_36px]",
+].join(" ");
 const toolItemClassName = [
   "inline-flex appearance-none items-center justify-start gap-[8px]",
-  "w-full min-h-[38px] border-0 rounded-[6px]",
+  "w-full h-full min-h-0 border-0 rounded-[6px]",
   "cursor-pointer bg-transparent px-[10px] text-left text-[#475467] [font-family:inherit]",
   "hover:bg-[#eef3fb] hover:text-[#20242d]",
   "[&.active]:bg-[#eef3fb] [&.active]:text-[#20242d]",
@@ -63,7 +66,7 @@ const terminalMainButtonClassName = [
 ].join(" ");
 const terminalDropdownButtonClassName = [
   "inline-flex appearance-none items-center justify-center",
-  "min-h-[38px] w-[30px] min-w-[30px] p-0 rounded-l-[3px] rounded-r-[6px]",
+  "h-full min-h-0 w-[36px] min-w-[36px] p-0 rounded-l-[3px] rounded-r-[6px]",
   "cursor-pointer border-0 bg-transparent text-[#475467] [font-family:inherit]",
   "hover:bg-[#eef3fb] hover:text-[#20242d]",
   "[&.active]:bg-[#eef3fb] [&.active]:text-[#20242d]",
@@ -260,20 +263,21 @@ export function ToolMenu(
             </div>
           )
           : (
-            <button
-              type="button"
-              key={id}
-              className={className(
-                toolItemClassName,
-                activeTool === id && "active",
-              )}
-              onClick={() => onSelect(id)}
-              disabled={disabled}
-              aria-current={activeTool === id ? "page" : undefined}
-            >
-              <Icon size={17} />
-              <span>{label}</span>
-            </button>
+            <div key={id} className={toolItemFrameClassName}>
+              <button
+                type="button"
+                className={className(
+                  toolItemClassName,
+                  activeTool === id && "active",
+                )}
+                onClick={() => onSelect(id)}
+                disabled={disabled}
+                aria-current={activeTool === id ? "page" : undefined}
+              >
+                <Icon size={17} />
+                <span>{label}</span>
+              </button>
+            </div>
           )
       )}
     </nav>

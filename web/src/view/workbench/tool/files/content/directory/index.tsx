@@ -19,8 +19,9 @@ const browserLayoutClassName = [
   "h-full min-h-0 overflow-hidden",
 ].join(" ");
 const explorerFooterClassName = [
-  "flex items-center justify-end min-h-[28px] border-t border-t-[#d8dde7]",
-  "bg-[#fbfcfe] text-[#667085] px-[16px] text-[12px]",
+  "flex items-center justify-end h-[1.6rem] min-h-[1.6rem] box-border",
+  "border-t border-t-[#d8dde7] bg-[#fbfcfe] text-[#667085]",
+  "px-[8px] text-[0.8rem] leading-[1.6]",
 ].join(" ");
 
 export function DirectoryContent() {

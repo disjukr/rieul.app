@@ -1,6 +1,7 @@
 {
   "version": "5",
   "specifiers": {
+    "npm:@unocss/reset@66.7.0": "66.7.0",
     "npm:@vitejs/plugin-react@^4.3.4": "4.7.0_vite@6.4.2",
     "npm:@xterm/addon-fit@0.10": "0.10.0_@xterm+xterm@5.5.0",
     "npm:@xterm/xterm@^5.5.0": "5.5.0",
@@ -846,6 +847,9 @@
         "@unocss/preset-wind3"
       ]
     },
+    "@unocss/reset@66.7.0": {
+      "integrity": "sha512-auMYYTWXrE1n7lPoT1TFyGhmrBlgMdn9GgvypBSxtdi9Jg6Rz4qdNngEbJeSnqnjfRawx247TJJdNKiigSZ29g=="
+    },
     "@unocss/rule-utils@66.7.0": {
       "integrity": "sha512-DMJIiey/m+xr0hpSbxFhSbKlC3e7QsuwdAEdgMmIM7pEcu/AEMl7oH198QYX9880P2X0hy5iFE6UCWx9CwGAXQ==",
       "dependencies": [
@@ -1467,6 +1471,7 @@
   },
   "workspace": {
     "dependencies": [
+      "npm:@unocss/reset@66.7.0",
       "npm:@vitejs/plugin-react@^4.3.4",
       "npm:@xterm/addon-fit@0.10",
       "npm:@xterm/xterm@^5.5.0",

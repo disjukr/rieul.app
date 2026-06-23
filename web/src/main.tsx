@@ -1,6 +1,7 @@
 import { createRoot } from "react-dom/client";
 import { BunjaStoreProvider } from "bunja/react";
 import { JotaiProvider } from "unsaturated/store";
+import "@unocss/reset/tailwind.css";
 import "virtual:uno.css";
 import View from "./view/index.tsx";
 

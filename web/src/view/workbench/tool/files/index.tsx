@@ -46,6 +46,12 @@ const entryContextMenuClassName = [
   "[&_button]:px-[10px] [&_button]:text-[#20242d]",
   "[&_button:hover]:bg-[#f2f6ff]",
 ].join(" ");
+const entryContextMenuViewportMargin = 8;
+const entryContextMenuWidth = 176;
+const entryContextMenuVerticalPadding = 12;
+const entryContextMenuBorderWidth = 2;
+const entryContextMenuItemHeight = 34;
+const entryContextMenuItemGap = 2;
 const dangerMenuItemClassName =
   "!text-[#b42318] hover:!bg-[#fff2f0] hover:!text-[#912018]";
 const modalBackdropClassName =
@@ -208,7 +214,14 @@ export function FilesTool() {
     event.preventDefault();
     event.stopPropagation();
     selectEntry(entry);
-    setEntryMenu({ entry, x: event.clientX, y: event.clientY });
+    setEntryMenu({
+      entry,
+      ...entryContextMenuPosition(
+        event.clientX,
+        event.clientY,
+        Boolean(currentPath),
+      ),
+    });
   }
 
   function openEntryProperties(entry: FsEntry) {
@@ -358,6 +371,37 @@ export function FilesTool() {
         : null}
     </section>
   );
+}
+
+function entryContextMenuPosition(
+  x: number,
+  y: number,
+  hasDeleteItem: boolean,
+): { x: number; y: number } {
+  const itemCount = hasDeleteItem ? 2 : 1;
+  const height = entryContextMenuBorderWidth +
+    entryContextMenuVerticalPadding +
+    itemCount * entryContextMenuItemHeight +
+    Math.max(0, itemCount - 1) * entryContextMenuItemGap;
+  return {
+    x: clampViewportPosition(
+      x,
+      entryContextMenuWidth,
+      globalThis.innerWidth,
+    ),
+    y: clampViewportPosition(y, height, globalThis.innerHeight),
+  };
+}
+
+function clampViewportPosition(
+  value: number,
+  size: number,
+  viewportSize: number,
+): number {
+  const min = entryContextMenuViewportMargin;
+  const max = viewportSize - size - entryContextMenuViewportMargin;
+  if (max < min) return min;
+  return Math.max(min, Math.min(value, max));
 }
 
 function DeleteEntryModal(

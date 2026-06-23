@@ -18,6 +18,10 @@ body,
   overflow: hidden;
 }
 
+html {
+  font-size: 15px;
+}
+
 body {
   background: #f3f5f8;
   color: #20242d;

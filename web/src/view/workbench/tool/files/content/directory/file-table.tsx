@@ -24,31 +24,31 @@ const fileTableClassName = [
   "file-table grid",
   "[grid-template-columns:minmax(220px,1fr)_minmax(96px,130px)_minmax(88px,120px)_minmax(140px,190px)]",
   "[@container_workbench-tab-page_(max-width:680px)]:[grid-template-columns:minmax(200px,1fr)_96px_88px]",
-  "auto-rows-[38px] min-w-0 min-h-0 overflow-auto bg-white",
+  "auto-rows-[1.6em] min-w-0 min-h-0 overflow-auto bg-white leading-[1.6]",
 ].join(" ");
 const hideInNarrowContainerClassName =
   "[@container_workbench-tab-page_(max-width:680px)]:hidden";
 const fileHeadClassName = [
-  "file-head sticky top-0 z-[1] flex items-center border-b border-b-[#d8dde7]",
-  "bg-[#f6f8fb] text-[#667085] text-[12px] font-700 px-[12px]",
+  "file-head sticky top-0 z-[1] flex items-center h-[1.6rem] box-border",
+  "border-b border-b-[#d8dde7] bg-[#f6f8fb] text-[#667085] text-[0.8rem] font-700 px-[8px]",
 ].join(" ");
 const fileRowClassName = [
   "grid [grid-column:1/-1] [grid-template-columns:subgrid]",
-  "min-h-[38px] border-0 border-b border-b-[#eef1f5] rounded-0",
-  "appearance-none cursor-pointer bg-white p-0 text-left [font-family:inherit] hover:bg-[#f7faff]",
+  "h-[1.6em] min-h-[1.6em] box-border border-0 border-b border-b-[#eef1f5] rounded-0",
+  "appearance-none cursor-pointer bg-white p-0 text-left leading-[1.6] [font-family:inherit] hover:bg-[#f7faff]",
   "[&.selected]:bg-[#eaf3ff]",
 ].join(" ");
 const fileCellBaseClassName = [
   "file-cell flex items-center min-w-0 overflow-hidden text-[#303642]",
-  "px-[12px] text-ellipsis whitespace-nowrap",
+  "px-[8px] text-ellipsis whitespace-nowrap",
 ].join(" ");
-const fileNameCellClassName = `${fileCellBaseClassName} name gap-[9px]`;
-const fileMetaCellClassName =
-  `${fileCellBaseClassName} text-[#667085] text-[12px]`;
-const fileNameClassName = "min-w-0 overflow-hidden text-ellipsis";
+const fileNameCellClassName = `${fileCellBaseClassName} name gap-[6px]`;
+const fileMetaCellClassName = `${fileCellBaseClassName} text-[#667085]`;
+const fileNameClassName =
+  "min-w-0 overflow-hidden text-ellipsis whitespace-nowrap leading-[1.6]";
 const readonlyClassName = [
   "flex-[0_0_auto] border border-[#e4c778] rounded-full bg-[#fff8df]",
-  "text-[#8a6116] px-[6px] py-[1px] text-[11px]",
+  "text-[#8a6116] px-[4px] py-0 leading-[1]",
 ].join(" ");
 const tableEmptyClassName =
   "[grid-column:1/-1] flex items-center text-[#667085] px-[12px]";

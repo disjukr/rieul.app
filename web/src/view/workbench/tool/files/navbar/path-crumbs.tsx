@@ -9,20 +9,25 @@ interface PathCrumbsProps {
 
 const pathInputFormClassName = [
   "min-w-0",
-  "[&_input]:w-full [&_input]:h-[26px] [&_input]:min-h-[26px] [&_input]:px-[8px]",
+  "[&_input]:w-full [&_input]:h-[1.6em] [&_input]:min-h-[1.6em]",
+  "[&_input]:box-border [&_input]:px-[6px] [&_input]:text-[0.8rem] [&_input]:leading-[1.6]",
+  "[&_input:focus]:outline-none",
 ].join(" ");
 const crumbsClassName = [
-  "flex items-center gap-[4px] w-full min-h-[26px] min-w-0",
+  "flex items-center gap-0 w-full h-[1.6em] min-h-[1.6em] min-w-0",
+  "box-border leading-[1.6]",
   "overflow-x-auto overflow-y-hidden overscroll-x-contain [scrollbar-width:thin] cursor-text",
   "[&::-webkit-scrollbar]:h-[6px]",
   "[&::-webkit-scrollbar-thumb]:rounded-full",
   "[&::-webkit-scrollbar-thumb]:bg-[#c6cfdb]",
-  "[&_svg]:flex-[0_0_auto]",
+  "[&_svg]:flex-[0_0_auto] [&_svg]:pointer-events-none",
   "[&_button]:inline-flex [&_button]:appearance-none [&_button]:cursor-pointer",
   "[&_button]:items-center [&_button]:flex-[0_0_auto] [&_button]:[font-family:inherit]",
   "[&_button]:min-w-0 [&_button]:max-w-[180px]",
-  "[&_button]:min-h-[24px] [&_button]:overflow-hidden",
-  "[&_button]:border-transparent [&_button]:bg-transparent [&_button]:px-[7px]",
+  "[&_button]:h-[1.6em] [&_button]:min-h-[1.6em] [&_button]:overflow-hidden [&_button]:text-[0.8rem] [&_button]:leading-[1.6]",
+  "[&_button]:box-border [&_button]:border-transparent [&_button]:bg-transparent [&_button]:px-[6px]",
+  "[&_button:hover]:bg-[#eef3fb] [&_button:hover]:text-[#20242d]",
+  "[&_button:focus-visible]:bg-[#eef3fb] [&_button:focus-visible]:outline-none",
   "[&_button]:text-ellipsis [&_button]:whitespace-nowrap",
 ].join(" ");
 
@@ -103,7 +108,7 @@ export function PathCrumbs(
     >
       {crumbs.map((crumb, index) => (
         <React.Fragment key={`${crumb.path ?? "roots"}:${index}`}>
-          {index > 0 ? <ChevronRight size={14} /> : null}
+          {index > 0 ? <ChevronRight size={12} /> : null}
           <button
             type="button"
             onClick={() =>

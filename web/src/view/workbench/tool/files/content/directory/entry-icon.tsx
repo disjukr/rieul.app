@@ -8,10 +8,10 @@ interface EntryIconProps {
 export function EntryIcon({ entry }: EntryIconProps) {
   if (entry.kind === FsEntryKind.Directory) {
     return entry.path.endsWith("\\")
-      ? <HardDrive size={16} />
-      : <Folder size={16} />;
+      ? <HardDrive size={12} />
+      : <Folder size={12} />;
   }
-  if (entry.kind === FsEntryKind.Symlink) return <Link2 size={16} />;
-  if (entry.kind === FsEntryKind.File) return <FileText size={16} />;
-  return <FileQuestion size={16} />;
+  if (entry.kind === FsEntryKind.Symlink) return <Link2 size={12} />;
+  if (entry.kind === FsEntryKind.File) return <FileText size={12} />;
+  return <FileQuestion size={12} />;
 }

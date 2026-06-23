@@ -4,9 +4,9 @@ import type { ConnectionState } from "../../state/types.ts";
 import { className } from "../class-name.ts";
 
 const connectionPillClassName = [
-  "inline-flex appearance-none justify-self-end items-center gap-[6px] min-h-[22px]",
+  "inline-flex appearance-none justify-self-end items-center gap-[4px] h-[1.6em] min-h-[1.6em]",
   "border border-[#444b5c] rounded-full bg-transparent text-[#cbd3df]",
-  "cursor-pointer px-[8px] text-[11px] font-700 whitespace-nowrap [font-family:inherit]",
+  "box-border cursor-pointer px-[6px] font-700 leading-[1.6] whitespace-nowrap [font-family:inherit]",
   "hover:border-[#566074] hover:bg-[#343946] hover:text-white",
   "focus-visible:border-[#566074] focus-visible:bg-[#343946] focus-visible:text-white",
   "active:translate-y-[1px]",
@@ -20,7 +20,7 @@ const connectionPillClassName = [
   "[&.checking_.connection-refresh]:opacity-100",
 ].join(" ");
 const statusIconClassName =
-  "relative inline-flex items-center justify-center w-[14px] h-[14px]";
+  "relative inline-flex items-center justify-center w-[1em] h-[1em]";
 const connectionDotClassName = [
   "connection-dot absolute w-[7px] h-[7px] rounded-full bg-[#f04438]",
   "[transition:opacity_0.12s_ease]",
@@ -28,6 +28,7 @@ const connectionDotClassName = [
 const connectionRefreshClassName = [
   "connection-refresh absolute opacity-0 [transition:opacity_0.12s_ease]",
 ].join(" ");
+const connectionLabelClassName = "text-[0.8rem] leading-[1.6]";
 
 interface ConnectionPillProps {
   machine?: Machine;
@@ -65,14 +66,14 @@ export function ConnectionPill(
       <span className={statusIconClassName} aria-hidden="true">
         <span className={connectionDotClassName} />
         <RefreshCw
-          size={13}
+          size={12}
           className={className(
             connectionRefreshClassName,
             checking && "animate-spin",
           )}
         />
       </span>
-      <span>{label}</span>
+      <span className={connectionLabelClassName}>{label}</span>
     </button>
   );
 }
