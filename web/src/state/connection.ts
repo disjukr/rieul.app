@@ -30,7 +30,7 @@ export const connectionBunja = bunja(() => {
     store.set(connectionAtom, { phase: "checking", message });
   }
 
-  function markReachable(message: string, latencyMs: number) {
+  function markReachable(message: string, latencyMs?: number) {
     if (!connectionReachable) {
       store.set(connectionEpochAtom, (current) => current + 1);
     }
@@ -67,9 +67,15 @@ export const connectionBunja = bunja(() => {
     if (showChecking) setChecking("Checking transport");
 
     try {
-      const latencyMs = await checkReachable(machine);
+      const reachability = await checkReachable(
+        machine,
+        machines.rpcCallOptions(),
+      );
       if (!isCurrentPing(generation, key)) return;
-      markReachable(formatLatency(latencyMs), latencyMs);
+      markReachable(
+        formatReachability(reachability.latencyMs),
+        reachability.latencyMs,
+      );
     } catch (err) {
       if (!isCurrentPing(generation, key)) return;
       markOffline(connectionErrorMessage(err, machine));
@@ -136,7 +142,8 @@ function connectionKey(machine?: Machine): string {
   ].join("\n");
 }
 
-function formatLatency(latencyMs: number): string {
+function formatReachability(latencyMs?: number): string {
+  if (latencyMs === undefined) return "Connected";
   return `${Math.max(1, Math.round(latencyMs))}ms`;
 }
 

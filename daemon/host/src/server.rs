@@ -52,6 +52,8 @@ const CONFIG_STARTUP_RETRY_INTERVAL: Duration = Duration::from_secs(5);
 const SCHEDULED_CERT_REFRESH_INTERVAL: Duration = Duration::from_secs(60 * 60);
 const SUBSCRIPTION_DEBOUNCE: Duration = Duration::from_millis(150);
 const ROOTS_SUBSCRIPTION_POLL_INTERVAL: Duration = Duration::from_secs(2);
+const QUIC_MAX_IDLE_TIMEOUT: Duration = Duration::from_secs(120);
+const QUIC_KEEP_ALIVE_INTERVAL: Duration = Duration::from_secs(10);
 const READ_FILE_CHUNK_SIZE: usize = 64 * 1024;
 
 type SharedSystemConfig = Arc<Mutex<SystemConfig>>;
@@ -408,8 +410,13 @@ fn build_reloadable_server(
     let quic_config: web_transport_quinn::quinn::crypto::rustls::QuicServerConfig = tls_config
         .try_into()
         .context("failed to build QUIC TLS config")?;
-    let server_config =
+    let mut server_config =
         web_transport_quinn::quinn::ServerConfig::with_crypto(Arc::new(quic_config));
+    let mut transport_config = web_transport_quinn::quinn::TransportConfig::default();
+    transport_config
+        .max_idle_timeout(Some(QUIC_MAX_IDLE_TIMEOUT.try_into()?))
+        .keep_alive_interval(Some(QUIC_KEEP_ALIVE_INTERVAL));
+    server_config.transport_config(Arc::new(transport_config));
     let endpoint = web_transport_quinn::quinn::Endpoint::server(server_config, addr)
         .context("failed to bind QUIC endpoint")?;
     Ok(web_transport_quinn::Server::new(endpoint))

@@ -84,6 +84,10 @@ export interface RenewClientCredentialResponse {
   clientCredentialExpiresAtUnix: number;
 }
 
+export interface ReachabilityResult {
+  latencyMs?: number;
+}
+
 export interface DaemonInfo {
   supportedProcIds: number[];
   version: string;
@@ -694,11 +698,27 @@ export async function closeTerminalSession(
   );
 }
 
-export async function checkReachable(machine: Machine): Promise<number> {
+export async function checkReachable(
+  machine: Machine,
+  options: RpcCallOptions = {},
+): Promise<ReachabilityResult> {
   const startedAt = performance.now();
+  if (machine.clientId && machine.clientSecret) {
+    const session = await authenticatedSession(machine, options);
+    try {
+      return {
+        latencyMs: await pingDatagram(session.datagrams),
+      };
+    } catch (err) {
+      if (isDatagramPingTimeoutError(err)) return {};
+      closeSession(machine);
+      throw err;
+    }
+  }
+
   const session = await openRpcSession(machine, "/rpc");
   try {
-    return performance.now() - startedAt;
+    return { latencyMs: performance.now() - startedAt };
   } finally {
     closeRpcSession(session);
   }

@@ -32,6 +32,7 @@ export function MachinePanelRegion() {
   const selectedIsPaired = useAtomValue(machineStore.selectedIsPairedAtom);
   const machineMenu = useAtomValue(machineMenuState.machineMenuAtom);
   const connection = useAtomValue(connectionState.connectionAtom);
+  const connectionEpoch = useAtomValue(connectionState.connectionEpochAtom);
   const workbench = useBunja(workbenchBunja);
   const activeTool = useAtomValue(workbench.activeToolAtom);
   const machinePanelCollapsed = useAtomValue(
@@ -72,7 +73,7 @@ export function MachinePanelRegion() {
       cancelled = true;
       void iterator.return(undefined);
     };
-  }, [machineStore, selected, selectedIsPaired]);
+  }, [connectionEpoch, machineStore, selected, selectedIsPaired]);
 
   function openMachineTitleMenu(
     event: React.MouseEvent<HTMLButtonElement>,

@@ -16,6 +16,7 @@ import {
   type TerminalSessionInfo,
   writeTerminalInput,
 } from "../../../../protocol/rpc.ts";
+import { connectionBunja } from "../../../../state/connection.ts";
 import { machineModalBunja } from "../../../../state/machine-modal.ts";
 import { machineStoreBunja } from "../../../../state/machine-store.ts";
 import type { Machine } from "../../../../state/machines.ts";
@@ -97,11 +98,13 @@ interface OpenTerminalOptions {
 }
 
 export function TerminalTool() {
+  const connectionState = useBunja(connectionBunja);
   const machineStore = useBunja(machineStoreBunja);
   const machineModal = useBunja(machineModalBunja);
   const tabState = useBunja(workbenchTabBunja);
   const machine = useAtomValue(machineStore.selectedAtom);
   const isPaired = useAtomValue(machineStore.selectedIsPairedAtom);
+  const connectionEpoch = useAtomValue(connectionState.connectionEpochAtom);
   const tab = useAtomValue(tabState.tabAtom);
   const hostRef = useRef<HTMLDivElement>(null);
   const machineRef = useRef<Machine | undefined>(undefined);
@@ -236,6 +239,7 @@ export function TerminalTool() {
     machine?.clientId,
     machine?.clientSecret,
     isPaired,
+    connectionEpoch,
     tab?.id,
   ]);
 

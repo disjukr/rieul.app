@@ -1,7 +1,7 @@
 export type ConnectionState =
   | { phase: "idle"; message: string }
   | { phase: "checking"; message: string }
-  | { phase: "reachable"; message: string; latencyMs: number }
+  | { phase: "reachable"; message: string; latencyMs?: number }
   | { phase: "offline"; message: string };
 
 export type StreamState =

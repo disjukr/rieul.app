@@ -236,6 +236,7 @@ export function DaemonTool() {
     daemonInfoState.daemonUptimeSecondsAtom,
   );
   const connection = useAtomValue(connectionState.connectionAtom);
+  const connectionEpoch = useAtomValue(connectionState.connectionEpochAtom);
   const machine = useAtomValue(machines.selectedAtom);
   const isPaired = useAtomValue(machines.selectedIsPairedAtom);
   const tab = useAtomValue(tabState.tabAtom);
@@ -330,6 +331,7 @@ export function DaemonTool() {
     machine?.clientId,
     machine?.clientSecret,
     machine?.id,
+    connectionEpoch,
   ]);
 
   useEffect(() => {
@@ -382,6 +384,7 @@ export function DaemonTool() {
     machine?.clientId,
     machine?.clientSecret,
     machine?.id,
+    connectionEpoch,
   ]);
 
   function openRootPage() {
@@ -474,6 +477,7 @@ export function DaemonTool() {
 
 function formatDaemonConnectionLabel(connection: ConnectionState): string {
   if (connection.phase === "reachable") {
+    if (connection.latencyMs === undefined) return "Connected";
     return `Connected · latency ${
       Math.max(1, Math.round(connection.latencyMs))
     } ms`;
