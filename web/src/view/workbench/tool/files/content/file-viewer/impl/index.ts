@@ -1,4 +1,4 @@
-import { lazy, type ComponentType, type LazyExoticComponent } from "react";
+import { type ComponentType, lazy, type LazyExoticComponent } from "react";
 
 export interface FileViewerImpl {
   label: string;
@@ -11,6 +11,11 @@ export const fileViewerImpls = {
     label: "Markdown",
     viewerName: "markdown viewer",
     Component: lazy(() => import("./markdown/index.tsx")),
+  },
+  pdf: {
+    label: "PDF",
+    viewerName: "pdf viewer",
+    Component: lazy(() => import("./pdf/index.tsx")),
   },
   text: {
     label: "Text",

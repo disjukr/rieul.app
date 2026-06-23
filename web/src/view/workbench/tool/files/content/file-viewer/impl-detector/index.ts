@@ -35,7 +35,6 @@ const binaryExtensions = new Set([
   "mp4",
   "o",
   "obj",
-  "pdf",
   "png",
   "ppt",
   "pptx",
@@ -91,6 +90,10 @@ const markdownExtensions = new Set([
   "mkdn",
 ]);
 
+const pdfExtensions = new Set([
+  "pdf",
+]);
+
 const markdownFilenames = new Set([
   "readme",
 ]);
@@ -139,6 +142,8 @@ function detectFileViewerImplFromBytes(
   bytes: Uint8Array,
   nameHint: FileViewerImplId | undefined,
 ): FileViewerImplId {
+  if (nameHint === "pdf") return "pdf";
+
   const sample = bytes.subarray(0, Math.min(bytes.length, sampleByteCount));
   if (sample.includes(0)) return "hex";
 
@@ -162,8 +167,9 @@ function detectFileViewerImplFromName(
 
   const extension = fileExtension(basename);
   if (!extension) return undefined;
-  if (binaryExtensions.has(extension)) return "hex";
   if (markdownExtensions.has(extension)) return "markdown";
+  if (pdfExtensions.has(extension)) return "pdf";
+  if (binaryExtensions.has(extension)) return "hex";
   if (textExtensions.has(extension)) return "text";
   return undefined;
 }

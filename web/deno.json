@@ -27,6 +27,7 @@
     "monaco-editor/esm/vs/language/json/json.worker.js": "npm:monaco-editor@0.55.1/esm/vs/language/json/json.worker.js",
     "monaco-editor/esm/vs/language/typescript/ts.worker.js": "npm:monaco-editor@0.55.1/esm/vs/language/typescript/ts.worker.js",
     "panecake": "npm:panecake@^0.0.1",
+    "pdfjs-dist": "npm:pdfjs-dist@^5.7.284",
     "react": "npm:react@^19.0.0",
     "react/jsx-dev-runtime": "npm:react@^19.0.0/jsx-dev-runtime",
     "react/jsx-runtime": "npm:react@^19.0.0/jsx-runtime",
