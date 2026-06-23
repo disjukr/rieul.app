@@ -17,8 +17,12 @@ export const connectionBunja = bunja(() => {
     message: "No machine selected",
   });
   const connectionEpochAtom = atom(0);
+  const selectedConnectionKeyAtom = atom((get) =>
+    connectionKey(get(machines.selectedAtom))
+  );
 
   let connectionReachable = false;
+  let pingGeneration = 0;
   let stopped = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
 
@@ -40,10 +44,8 @@ export const connectionBunja = bunja(() => {
   }
 
   function restartPingLoop() {
-    if (timer !== undefined) {
-      clearTimeout(timer);
-      timer = undefined;
-    }
+    clearPingTimer();
+    const generation = nextPingGeneration();
     connectionReachable = false;
     const selected = store.get(machines.selectedAtom);
     if (!selected) {
@@ -53,59 +55,63 @@ export const connectionBunja = bunja(() => {
       });
       return;
     }
-    void pingStatus(selected, true);
+    void pingStatus(selected, true, generation);
   }
 
-  async function pingStatus(machine: Machine, showChecking: boolean) {
+  async function pingStatus(
+    machine: Machine,
+    showChecking: boolean,
+    generation: number,
+  ) {
     const key = connectionKey(machine);
     if (showChecking) setChecking("Checking transport");
 
     try {
       const latencyMs = await checkReachable(machine);
-      if (stopped || connectionKey(store.get(machines.selectedAtom)) !== key) {
-        return;
-      }
+      if (!isCurrentPing(generation, key)) return;
       markReachable(formatLatency(latencyMs), latencyMs);
     } catch (err) {
-      if (stopped || connectionKey(store.get(machines.selectedAtom)) !== key) {
-        return;
-      }
+      if (!isCurrentPing(generation, key)) return;
       markOffline(connectionErrorMessage(err, machine));
     } finally {
-      if (!stopped && connectionKey(store.get(machines.selectedAtom)) === key) {
+      if (isCurrentPing(generation, key)) {
         timer = setTimeout(
-          () => void pingStatus(machine, false),
+          () => void pingStatus(machine, false, generation),
           STATUS_PING_INTERVAL_MS,
         );
       }
     }
   }
 
-  async function checkSelected() {
-    const selected = store.get(machines.selectedAtom);
-    if (!selected) return;
+  function checkSelected() {
+    restartPingLoop();
+  }
 
-    setChecking("Checking transport");
-    try {
-      const latencyMs = await checkReachable(selected);
-      if (
-        connectionKey(store.get(machines.selectedAtom)) !==
-          connectionKey(selected)
-      ) {
-        return;
-      }
-      markReachable(formatLatency(latencyMs), latencyMs);
-    } catch (err) {
-      markOffline(connectionErrorMessage(err, selected));
+  function clearPingTimer() {
+    if (timer !== undefined) {
+      clearTimeout(timer);
+      timer = undefined;
     }
   }
 
+  function nextPingGeneration(): number {
+    pingGeneration += 1;
+    return pingGeneration;
+  }
+
+  function isCurrentPing(generation: number, key: string): boolean {
+    return !stopped &&
+      pingGeneration === generation &&
+      store.get(selectedConnectionKeyAtom) === key;
+  }
+
   bunja.effect(() => {
-    const unsubscribe = store.sub(machines.selectedAtom, restartPingLoop);
+    const unsubscribe = store.sub(selectedConnectionKeyAtom, restartPingLoop);
     restartPingLoop();
     return () => {
       stopped = true;
-      if (timer !== undefined) clearTimeout(timer);
+      nextPingGeneration();
+      clearPingTimer();
       unsubscribe();
     };
   });
