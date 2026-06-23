@@ -6,9 +6,12 @@ import {
   MachinePanelRegion,
 } from "./machine-panel/index.tsx";
 import { MachineRailRegion } from "./machine-rail/index.tsx";
-import { daemonInfoBunja } from "../state/daemon-info.ts";
 import { MachineIdContext } from "../state/machine-id.tsx";
 import { machineStoreBunja } from "../state/machine-store.ts";
+import {
+  RpcSessionKeyContext,
+  rpcSessionKeyForMachine,
+} from "../state/rpc-session.ts";
 import { layoutBunja } from "./state.tsx";
 import { TopBarRegion } from "./top-bar/index.tsx";
 import { WorkbenchRegion } from "./workbench/index.tsx";
@@ -28,17 +31,15 @@ const appShellClassName = [
 ].join(" ");
 
 export default function View() {
-  useBunja(daemonInfoBunja);
-
   return (
     <Layout>
-      <MachineRailRegion />
-      <TopBarRegion />
       <SelectedMachineIdProvider>
+        <MachineRailRegion />
+        <TopBarRegion />
         <MachinePanelRegion />
         <WorkbenchRegion />
+        <MachineModalHost />
       </SelectedMachineIdProvider>
-      <MachineModalHost />
     </Layout>
   );
 }
@@ -79,10 +80,12 @@ function SelectedMachineIdProvider(
   { children }: PropsWithChildren,
 ) {
   const machineStore = useBunja(machineStoreBunja);
-  const selectedId = useAtomValue(machineStore.selectedIdAtom);
+  const selected = useAtomValue(machineStore.selectedAtom);
   return (
-    <MachineIdContext value={selectedId}>
-      {children}
+    <MachineIdContext value={selected?.id}>
+      <RpcSessionKeyContext value={rpcSessionKeyForMachine(selected)}>
+        {children}
+      </RpcSessionKeyContext>
     </MachineIdContext>
   );
 }

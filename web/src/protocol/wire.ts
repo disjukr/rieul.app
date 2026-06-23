@@ -1,10 +1,26 @@
 import {
-  CborValue,
+  type CborValue,
   decodeCbor,
   decodeCborSequence,
   decodeCborSequencePrefix,
   encodeCbor,
 } from "./cbor.ts";
+import {
+  type DatagramMessage as GeneratedDatagramMessage,
+  decodeDatagramMessageValue,
+  decodePairedSecretCredentialValue,
+  decodeReqResMessageValue,
+  encodeDatagramMessageValue,
+  encodePairedSecretCredentialValue,
+  encodeReqResMessageValue,
+  type PairedSecretCredential,
+  type ReqResMessage as GeneratedReqResMessage,
+  RpcErrorKind,
+  SessionAuthErrorCode,
+} from "./generated.ts";
+
+export { RpcErrorKind, SessionAuthErrorCode };
+export type { PairedSecretCredential };
 
 export const PAIRED_SECRET_AUTH_MECHANISM = "wgo.paired-secret.v1";
 
@@ -27,18 +43,6 @@ export enum DatagramMessageKind {
   Pong = 2,
 }
 
-export enum RpcErrorKind {
-  System = 1,
-  Method = 2,
-}
-
-export enum SessionAuthErrorCode {
-  UnsupportedMechanism = 1,
-  InvalidCredentials = 2,
-  MalformedPayload = 3,
-  AlreadyAuthenticated = 4,
-}
-
 export interface ReqResMessage {
   kind: ReqResMessageKind;
   procId?: number | undefined;
@@ -55,14 +59,12 @@ export interface DatagramMessage {
   pingId: number;
 }
 
-export interface PairedSecretCredential {
-  credentialId: string;
-  credentialSecret: string;
-}
-
 export function encodeReqResMessage(message: ReqResMessage): Uint8Array {
-  const [kind, fields] = toCborParts(message);
-  return concat([encodeCbor(kind), encodeCbor(fields)]);
+  const value = encodeReqResMessageValue(toGeneratedReqResMessage(message));
+  if (!Array.isArray(value) || value.length !== 2) {
+    throw new Error("generated ReqResMessage must encode to union tuple");
+  }
+  return concat([encodeCbor(value[0]!), encodeCbor(value[1]!)]);
 }
 
 export function encodeReqResMessageSequence(
@@ -76,7 +78,7 @@ export function decodeReqResMessage(bytes: Uint8Array): ReqResMessage {
   if (values.length !== 2) {
     throw new Error("expected ReqResMessage kind/map pair");
   }
-  return fromCborParts(values[0]!, values[1]!);
+  return fromGeneratedReqResMessage(decodeGeneratedReqResMessage(values));
 }
 
 export function decodeReqResMessageSequence(
@@ -88,7 +90,11 @@ export function decodeReqResMessageSequence(
   }
   const messages: ReqResMessage[] = [];
   for (let i = 0; i < values.length; i += 2) {
-    messages.push(fromCborParts(values[i]!, values[i + 1]!));
+    messages.push(
+      fromGeneratedReqResMessage(
+        decodeGeneratedReqResMessage([values[i]!, values[i + 1]!]),
+      ),
+    );
   }
   return messages;
 }
@@ -100,7 +106,11 @@ export function decodeReqResMessageSequencePrefix(
   const pairCount = Math.floor(items.length / 2);
   const messages: ReqResMessage[] = [];
   for (let i = 0; i < pairCount * 2; i += 2) {
-    messages.push(fromCborParts(items[i]!.value, items[i + 1]!.value));
+    messages.push(
+      fromGeneratedReqResMessage(
+        decodeGeneratedReqResMessage([items[i]!.value, items[i + 1]!.value]),
+      ),
+    );
   }
   return {
     messages,
@@ -109,254 +119,183 @@ export function decodeReqResMessageSequencePrefix(
 }
 
 export function encodeDatagramMessage(message: DatagramMessage): Uint8Array {
-  return encodeCbor([
-    message.kind,
-    fields([[1, requiredU53(message.pingId)]]),
-  ]);
+  return encodeCbor(encodeDatagramMessageValue(toGeneratedDatagram(message)));
 }
 
 export function decodeDatagramMessage(bytes: Uint8Array): DatagramMessage {
-  const value = decodeCbor(bytes);
-  if (!Array.isArray(value) || value.length !== 2) {
-    throw new Error("expected DatagramMessage union tuple");
-  }
-  const kind = datagramMessageKind(value[0]);
-  const fields = value[1];
-  if (!(fields instanceof Map)) {
-    throw new Error("expected DatagramMessage fields");
-  }
-  switch (kind) {
-    case DatagramMessageKind.Ping:
-    case DatagramMessageKind.Pong:
-      return { kind, pingId: requiredU53(fields.get(1)) };
-  }
+  return fromGeneratedDatagram(decodeDatagramMessageValue(decodeCbor(bytes)));
 }
 
 export function encodePairedSecretCredential(
   credential: PairedSecretCredential,
 ): Uint8Array {
-  return encodeCbor(
-    new Map<number, CborValue>([
-      [1, credential.credentialId],
-      [2, credential.credentialSecret],
-    ]),
-  );
+  return encodeCbor(encodePairedSecretCredentialValue(credential));
 }
 
-function toCborParts(message: ReqResMessage): [CborValue, CborValue] {
+export function decodePairedSecretCredential(
+  bytes: Uint8Array,
+): PairedSecretCredential {
+  return decodePairedSecretCredentialValue(decodeCbor(bytes));
+}
+
+function decodeGeneratedReqResMessage(
+  values: CborValue[],
+): GeneratedReqResMessage {
+  return decodeReqResMessageValue(values);
+}
+
+function toGeneratedReqResMessage(
+  message: ReqResMessage,
+): GeneratedReqResMessage {
   switch (message.kind) {
     case ReqResMessageKind.RequestUnary:
+      return {
+        type: "requestUnary",
+        procId: required(message.procId, "missing proc id"),
+        payload: message.payload,
+      };
     case ReqResMessageKind.RequestStreamStart:
-      if (message.procId === undefined) throw new Error("missing proc id");
-      return [
-        message.kind,
-        fields([
-          [1, message.procId],
-          [2, message.payload],
-        ]),
-      ];
+      return {
+        type: "requestStreamStart",
+        procId: required(message.procId, "missing proc id"),
+        payload: message.payload,
+      };
     case ReqResMessageKind.RequestStreamChunk:
-    case ReqResMessageKind.ResponseStreamChunk:
-      if (message.payload === undefined) throw new Error("missing payload");
-      return [message.kind, fields([[2, message.payload]])];
+      return {
+        type: "requestStreamChunk",
+        payload: required(message.payload, "missing payload"),
+      };
     case ReqResMessageKind.ResponseUnaryOk:
-    case ReqResMessageKind.ResponseStreamStart:
-      return [message.kind, fields([[2, message.payload]])];
+      return { type: "responseUnaryOk", payload: message.payload };
     case ReqResMessageKind.ResponseUnaryError:
+      return {
+        type: "responseUnaryError",
+        error: required(message.error, "missing error"),
+        errorKind: required(message.errorKind, "missing error kind"),
+      };
+    case ReqResMessageKind.ResponseStreamStart:
+      return { type: "responseStreamStart", payload: message.payload };
+    case ReqResMessageKind.ResponseStreamChunk:
+      return {
+        type: "responseStreamChunk",
+        payload: required(message.payload, "missing payload"),
+      };
     case ReqResMessageKind.ResponseStreamErrorEnd:
-      if (message.error === undefined) throw new Error("missing error");
-      if (message.errorKind === undefined) {
-        throw new Error("missing error kind");
-      }
-      return [
-        message.kind,
-        fields([
-          [3, message.error],
-          [4, message.errorKind],
-        ]),
-      ];
+      return {
+        type: "responseStreamErrorEnd",
+        error: required(message.error, "missing error"),
+        errorKind: required(message.errorKind, "missing error kind"),
+      };
     case ReqResMessageKind.SessionAuthenticate:
-      if (message.mechanism === undefined) throw new Error("missing mechanism");
-      if (message.payload === undefined) throw new Error("missing payload");
-      return [
-        message.kind,
-        fields([
-          [1, message.mechanism],
-          [2, message.payload],
-        ]),
-      ];
+      return {
+        type: "sessionAuthenticate",
+        mechanism: required(message.mechanism, "missing mechanism"),
+        payload: required(message.payload, "missing payload"),
+      };
     case ReqResMessageKind.SessionAuthenticated:
-      return [message.kind, new Map<number, CborValue>()];
+      return { type: "sessionAuthenticated" };
     case ReqResMessageKind.SessionAuthError:
-      if (message.authErrorCode === undefined) {
-        throw new Error("missing session auth error code");
-      }
-      if (message.message === undefined) throw new Error("missing message");
-      return [
-        message.kind,
-        fields([
-          [1, message.authErrorCode],
-          [2, message.message],
-        ]),
-      ];
+      return {
+        type: "sessionAuthError",
+        code: required(
+          message.authErrorCode,
+          "missing session auth error code",
+        ),
+        message: required(message.message, "missing message"),
+      };
   }
 }
 
-function fromCborParts(
-  kindValue: CborValue,
-  fieldsValue: CborValue,
+function fromGeneratedReqResMessage(
+  message: GeneratedReqResMessage,
 ): ReqResMessage {
-  const kind = reqResMessageKind(kindValue);
-  const fields = fieldsValue;
-  if (!(fields instanceof Map)) {
-    throw new Error("expected ReqResMessage fields");
-  }
-  switch (kind) {
-    case ReqResMessageKind.RequestUnary:
-    case ReqResMessageKind.RequestStreamStart:
+  switch (message.type) {
+    case "requestUnary":
       return {
-        kind,
-        procId: requiredProcId(fields.get(1)),
-        payload: optionalBytes(fields.get(2)),
+        kind: ReqResMessageKind.RequestUnary,
+        procId: message.procId,
+        payload: message.payload,
       };
-    case ReqResMessageKind.RequestStreamChunk:
-    case ReqResMessageKind.ResponseStreamChunk:
+    case "requestStreamStart":
       return {
-        kind,
-        payload: requiredBytes(fields.get(2)),
+        kind: ReqResMessageKind.RequestStreamStart,
+        procId: message.procId,
+        payload: message.payload,
       };
-    case ReqResMessageKind.ResponseUnaryOk:
-    case ReqResMessageKind.ResponseStreamStart:
+    case "requestStreamChunk":
       return {
-        kind,
-        payload: optionalBytes(fields.get(2)),
+        kind: ReqResMessageKind.RequestStreamChunk,
+        payload: message.payload,
       };
-    case ReqResMessageKind.ResponseUnaryError:
-    case ReqResMessageKind.ResponseStreamErrorEnd:
+    case "responseUnaryOk":
       return {
-        kind,
-        error: requiredBytes(fields.get(3)),
-        errorKind: requiredRpcErrorKind(fields.get(4)),
+        kind: ReqResMessageKind.ResponseUnaryOk,
+        payload: message.payload,
       };
-    case ReqResMessageKind.SessionAuthenticate:
+    case "responseUnaryError":
       return {
-        kind,
-        mechanism: requiredText(fields.get(1)),
-        payload: requiredBytes(fields.get(2)),
+        kind: ReqResMessageKind.ResponseUnaryError,
+        error: message.error,
+        errorKind: message.errorKind,
       };
-    case ReqResMessageKind.SessionAuthenticated:
-      return { kind };
-    case ReqResMessageKind.SessionAuthError:
+    case "responseStreamStart":
       return {
-        kind,
-        authErrorCode: requiredSessionAuthErrorCode(fields.get(1)),
-        message: requiredText(fields.get(2)),
+        kind: ReqResMessageKind.ResponseStreamStart,
+        payload: message.payload,
+      };
+    case "responseStreamChunk":
+      return {
+        kind: ReqResMessageKind.ResponseStreamChunk,
+        payload: message.payload,
+      };
+    case "responseStreamErrorEnd":
+      return {
+        kind: ReqResMessageKind.ResponseStreamErrorEnd,
+        error: message.error,
+        errorKind: message.errorKind,
+      };
+    case "sessionAuthenticate":
+      return {
+        kind: ReqResMessageKind.SessionAuthenticate,
+        mechanism: message.mechanism,
+        payload: message.payload,
+      };
+    case "sessionAuthenticated":
+      return { kind: ReqResMessageKind.SessionAuthenticated };
+    case "sessionAuthError":
+      return {
+        kind: ReqResMessageKind.SessionAuthError,
+        authErrorCode: message.code,
+        message: message.message,
       };
   }
 }
 
-function fields(
-  entries: [number, CborValue | undefined][],
-): Map<number, CborValue> {
-  const map = new Map<number, CborValue>();
-  for (const [field, value] of entries) {
-    if (value !== undefined) map.set(field, value);
-  }
-  return map;
-}
-
-function requiredProcId(value: unknown): number {
-  if (!isU53(value)) {
-    throw new Error("expected proc id");
-  }
-  return value;
-}
-
-function requiredU53(value: unknown): number {
-  if (!isU53(value)) throw new Error("expected u53");
-  return value;
-}
-
-function isU53(value: unknown): value is number {
-  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
-}
-
-function requiredRpcErrorKind(value: unknown): RpcErrorKind {
-  if (typeof value !== "number" || !Number.isSafeInteger(value)) {
-    throw new Error("expected error kind");
-  }
-  switch (value) {
-    case RpcErrorKind.System:
-    case RpcErrorKind.Method:
-      return value;
-    default:
-      throw new Error(`unknown error kind ${value}`);
-  }
-}
-
-function requiredSessionAuthErrorCode(value: unknown): SessionAuthErrorCode {
-  if (typeof value !== "number" || !Number.isSafeInteger(value)) {
-    throw new Error("expected session auth error code");
-  }
-  switch (value) {
-    case SessionAuthErrorCode.UnsupportedMechanism:
-    case SessionAuthErrorCode.InvalidCredentials:
-    case SessionAuthErrorCode.MalformedPayload:
-    case SessionAuthErrorCode.AlreadyAuthenticated:
-      return value;
-    default:
-      throw new Error(`unknown session auth error code ${value}`);
-  }
-}
-
-function requiredBytes(value: unknown): Uint8Array {
-  if (!(value instanceof Uint8Array)) throw new Error("expected bytes");
-  return value;
-}
-
-function optionalBytes(value: unknown): Uint8Array | undefined {
-  if (value == null) return undefined;
-  return requiredBytes(value);
-}
-
-function requiredText(value: unknown): string {
-  if (typeof value !== "string") throw new Error("expected string");
-  return value;
-}
-
-function reqResMessageKind(value: unknown): ReqResMessageKind {
-  if (typeof value !== "number" || !Number.isSafeInteger(value)) {
-    throw new Error("expected ReqResMessage kind");
-  }
-  switch (value) {
-    case ReqResMessageKind.RequestUnary:
-    case ReqResMessageKind.RequestStreamStart:
-    case ReqResMessageKind.RequestStreamChunk:
-    case ReqResMessageKind.ResponseUnaryOk:
-    case ReqResMessageKind.ResponseUnaryError:
-    case ReqResMessageKind.ResponseStreamStart:
-    case ReqResMessageKind.ResponseStreamChunk:
-    case ReqResMessageKind.ResponseStreamErrorEnd:
-    case ReqResMessageKind.SessionAuthenticate:
-    case ReqResMessageKind.SessionAuthenticated:
-    case ReqResMessageKind.SessionAuthError:
-      return value;
-    default:
-      throw new Error(`unknown ReqResMessage kind ${value}`);
-  }
-}
-
-function datagramMessageKind(value: unknown): DatagramMessageKind {
-  if (!isU53(value)) {
-    throw new Error("expected DatagramMessage kind");
-  }
-  switch (value) {
+function toGeneratedDatagram(
+  message: DatagramMessage,
+): GeneratedDatagramMessage {
+  switch (message.kind) {
     case DatagramMessageKind.Ping:
+      return { type: "ping", pingId: message.pingId };
     case DatagramMessageKind.Pong:
-      return value;
-    default:
-      throw new Error(`unknown DatagramMessage kind ${value}`);
+      return { type: "pong", pingId: message.pingId };
   }
+}
+
+function fromGeneratedDatagram(
+  message: GeneratedDatagramMessage,
+): DatagramMessage {
+  switch (message.type) {
+    case "ping":
+      return { kind: DatagramMessageKind.Ping, pingId: message.pingId };
+    case "pong":
+      return { kind: DatagramMessageKind.Pong, pingId: message.pingId };
+  }
+}
+
+function required<T>(value: T | undefined, message: string): T {
+  if (value === undefined) throw new Error(message);
+  return value;
 }
 
 function concat(chunks: Uint8Array[]): Uint8Array {

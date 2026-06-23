@@ -11,16 +11,16 @@ import {
   createTerminalSession,
   RpcError,
   takeTerminalControl,
-  type TerminalExit,
   type TerminalEvent,
+  type TerminalExit,
   type TerminalLaunchSpec,
   type TerminalSessionInfo,
   writeTerminalInput,
 } from "../../../../protocol/rpc.ts";
-import { connectionBunja } from "../../../../state/connection.ts";
 import { machineModalBunja } from "../../../../state/machine-modal.ts";
 import { machineStoreBunja } from "../../../../state/machine-store.ts";
 import type { Machine } from "../../../../state/machines.ts";
+import { rpcSessionBunja } from "../../../../state/rpc-session.ts";
 import {
   workbenchTabBunja,
   type WorkbenchTerminalSessionSnapshot,
@@ -107,13 +107,13 @@ interface OpenTerminalOptions {
 }
 
 export function TerminalTool() {
-  const connectionState = useBunja(connectionBunja);
   const machineStore = useBunja(machineStoreBunja);
   const machineModal = useBunja(machineModalBunja);
+  const rpcSession = useBunja(rpcSessionBunja);
   const tabState = useBunja(workbenchTabBunja);
   const machine = useAtomValue(machineStore.selectedAtom);
   const isPaired = useAtomValue(machineStore.selectedIsPairedAtom);
-  const connectionEpoch = useAtomValue(connectionState.connectionEpochAtom);
+  const connectionEpoch = useAtomValue(rpcSession.connectionEpochAtom);
   const tab = useAtomValue(tabState.tabAtom);
   const hostRef = useRef<HTMLDivElement>(null);
   const machineRef = useRef<Machine | undefined>(undefined);
@@ -292,13 +292,13 @@ export function TerminalTool() {
           launch: options.launch,
           title: options.title,
         },
-        machineStore.rpcCallOptions(),
+        machineStore.rpcCallOptions(rpcSession.rpcCallOptions()),
       );
       if (generationRef.current !== generation) {
         void closeTerminalSession(
           currentMachine,
           session.terminalSessionId,
-          machineStore.rpcCallOptions(),
+          machineStore.rpcCallOptions(rpcSession.rpcCallOptions()),
         ).catch(() => {});
         return;
       }
@@ -341,7 +341,7 @@ export function TerminalTool() {
         viewportCols: size.cols,
         viewportRows: size.rows,
       },
-      machineStore.rpcCallOptions(),
+      machineStore.rpcCallOptions(rpcSession.rpcCallOptions()),
     );
     stopAttachRef.current = () => {
       cancelled = true;
@@ -460,7 +460,7 @@ export function TerminalTool() {
           terminalSessionId,
           attachId,
           bytes,
-          machineStore.rpcCallOptions(),
+          machineStore.rpcCallOptions(rpcSession.rpcCallOptions()),
         );
       })
       .catch((err) => {
@@ -494,7 +494,7 @@ export function TerminalTool() {
           viewportCols: size.cols,
           viewportRows: size.rows,
         },
-        machineStore.rpcCallOptions(),
+        machineStore.rpcCallOptions(rpcSession.rpcCallOptions()),
       );
       setStatus({
         phase: "attached",
@@ -633,7 +633,8 @@ export function TerminalTool() {
             : null}
         </div>
         <span className={terminalFooterSizeClassName}>
-          {sessionInfo?.cols ?? terminalDimensions.cols} ×{" "}
+          {sessionInfo?.cols ?? terminalDimensions.cols}
+          {" x "}
           {sessionInfo?.rows ?? terminalDimensions.rows}
         </span>
       </div>

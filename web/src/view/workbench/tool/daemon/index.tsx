@@ -20,9 +20,8 @@ import {
   type TerminalSessionInfo,
   type TerminalSessionsTableEvent,
 } from "../../../../protocol/rpc.ts";
-import { daemonInfoBunja } from "../../../../state/daemon-info.ts";
-import { connectionBunja } from "../../../../state/connection.ts";
 import { machineStoreBunja } from "../../../../state/machine-store.ts";
+import { rpcSessionBunja } from "../../../../state/rpc-session.ts";
 import type { ConnectionState } from "../../../../state/types.ts";
 import { workbenchTabBunja } from "../../../../state/workbench.ts";
 import { Button } from "../../../ui/button.tsx";
@@ -224,19 +223,16 @@ interface TerminalSessionsState {
 }
 
 export function DaemonTool() {
-  const daemonInfoState = useBunja(daemonInfoBunja);
-  const connectionState = useBunja(connectionBunja);
   const machines = useBunja(machineStoreBunja);
+  const rpcSession = useBunja(rpcSessionBunja);
   const tabState = useBunja(workbenchTabBunja);
-  const daemonInfo = useAtomValue(daemonInfoState.daemonInfoAtom);
-  const daemonServerTimeMs = useAtomValue(
-    daemonInfoState.daemonServerTimeMsAtom,
-  );
+  const daemonInfo = useAtomValue(rpcSession.daemonInfoAtom);
+  const daemonServerTimeMs = useAtomValue(rpcSession.daemonServerTimeMsAtom);
   const daemonUptimeSeconds = useAtomValue(
-    daemonInfoState.daemonUptimeSecondsAtom,
+    rpcSession.daemonUptimeSecondsAtom,
   );
-  const connection = useAtomValue(connectionState.connectionAtom);
-  const connectionEpoch = useAtomValue(connectionState.connectionEpochAtom);
+  const connection = useAtomValue(rpcSession.connectionAtom);
+  const connectionEpoch = useAtomValue(rpcSession.connectionEpochAtom);
   const machine = useAtomValue(machines.selectedAtom);
   const isPaired = useAtomValue(machines.selectedIsPairedAtom);
   const tab = useAtomValue(tabState.tabAtom);
@@ -290,7 +286,10 @@ export function DaemonTool() {
     }
 
     let cancelled = false;
-    const iterator = subscribeClients(machine, machines.rpcCallOptions());
+    const iterator = subscribeClients(
+      machine,
+      machines.rpcCallOptions(rpcSession.rpcCallOptions()),
+    );
     setClientsState((current) => ({ ...current, phase: "loading" }));
 
     void (async () => {
@@ -347,7 +346,7 @@ export function DaemonTool() {
     let cancelled = false;
     const iterator = subscribeTerminalSessions(
       machine,
-      machines.rpcCallOptions(),
+      machines.rpcCallOptions(rpcSession.rpcCallOptions()),
     );
     setTerminalSessionsState((current) => ({
       ...current,
@@ -404,7 +403,10 @@ export function DaemonTool() {
 
   async function renewSelectedClientCredential() {
     if (!machine) return;
-    await renewClientCredential(machine, machines.rpcCallOptions());
+    await renewClientCredential(
+      machine,
+      machines.rpcCallOptions(rpcSession.rpcCallOptions()),
+    );
   }
 
   async function closeSelectedTerminalSession(terminalSessionId: string) {
@@ -412,7 +414,7 @@ export function DaemonTool() {
     await closeTerminalSession(
       machine,
       terminalSessionId,
-      machines.rpcCallOptions(),
+      machines.rpcCallOptions(rpcSession.rpcCallOptions()),
     );
   }
 
@@ -478,7 +480,7 @@ export function DaemonTool() {
 function formatDaemonConnectionLabel(connection: ConnectionState): string {
   if (connection.phase === "reachable") {
     if (connection.latencyMs === undefined) return "Connected";
-    return `Connected · latency ${
+    return `Connected - latency ${
       Math.max(1, Math.round(connection.latencyMs))
     } ms`;
   }
@@ -1085,7 +1087,7 @@ function ClientTerminalSessions(
             {sessions.map((session) => (
               <article key={session.terminalSessionId}>
                 <strong>{commandName(session.launch.command)}</strong>
-                <span>{session.cols} × {session.rows}</span>
+                <span>{session.cols} x {session.rows}</span>
                 <Button
                   className={terminalSessionCloseButtonClassName}
                   disabled={closingSessionIds.has(session.terminalSessionId)}
@@ -1096,7 +1098,8 @@ function ClientTerminalSessions(
                     : "Close"}
                 </Button>
                 <small>
-                  {terminalSessionStatus(session)} ·{" "}
+                  {terminalSessionStatus(session)}
+                  {" - "}
                   {session.lastKnownCwd ?? "cwd unknown"}
                 </small>
               </article>

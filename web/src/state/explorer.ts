@@ -3,7 +3,6 @@ import { atom, type PrimitiveAtom, type SetStateAction } from "jotai";
 import { atomWithStorage } from "jotai/utils";
 import { type JotaiStore, JotaiStoreScope } from "unsaturated/store";
 import {
-  closeMachineSession,
   DirectoryTableEvent,
   FsEntry,
   FsEntryKind,
@@ -15,6 +14,7 @@ import {
 import { MachineIdScope } from "./machine-id.tsx";
 import { machineBunja, machineStoreBunja } from "./machine-store.ts";
 import { Machine } from "./machines.ts";
+import { rpcSessionBunja } from "./rpc-session.ts";
 import { StreamState } from "./types.ts";
 
 export const ExplorerPaneScope = createScope<string>();
@@ -192,6 +192,7 @@ export const explorerRootsBunja = bunja(() => {
   const store = bunja.use(JotaiStoreScope);
   const machineState = bunja.use(explorerMachineBunja);
   const machines = bunja.use(machineStoreBunja);
+  const rpcSession = bunja.use(rpcSessionBunja);
   const refresh = bunja.use(explorerRefreshBunja);
 
   const rootsAtom = atom<FsEntry[]>([]);
@@ -222,7 +223,10 @@ export const explorerRootsBunja = bunja(() => {
       }
 
       let cancelled = false;
-      const iterator = subscribeRoots(machine, machines.rpcCallOptions());
+      const iterator = subscribeRoots(
+        machine,
+        machines.rpcCallOptions(rpcSession.rpcCallOptions()),
+      );
       stopCurrent = () => {
         cancelled = true;
         void iterator.return(undefined);
@@ -244,6 +248,7 @@ export const explorerRootsBunja = bunja(() => {
                 machine,
                 err,
                 machines.clearMachineCredentials,
+                rpcSession.closeRpcSession,
               )
             ) {
               store.set(rootsStateAtom, {
@@ -281,6 +286,7 @@ export const explorerDirectoryBunja = bunja(() => {
   const store = bunja.use(JotaiStoreScope);
   const machineState = bunja.use(explorerMachineBunja);
   const machines = bunja.use(machineStoreBunja);
+  const rpcSession = bunja.use(rpcSessionBunja);
   const refresh = bunja.use(explorerRefreshBunja);
   const navigation = bunja.use(explorerNavigationBunja);
 
@@ -321,7 +327,7 @@ export const explorerDirectoryBunja = bunja(() => {
       const iterator = subscribeDirectory(
         machine,
         currentPath,
-        machines.rpcCallOptions(),
+        machines.rpcCallOptions(rpcSession.rpcCallOptions()),
       );
       stopCurrent = () => {
         cancelled = true;
@@ -356,6 +362,7 @@ export const explorerDirectoryBunja = bunja(() => {
                 machine,
                 err,
                 machines.clearMachineCredentials,
+                rpcSession.closeRpcSession,
               )
             ) {
               store.set(directoryStateAtom, {
@@ -439,9 +446,10 @@ function handleInvalidCredentials(
   machine: Machine,
   err: unknown,
   clearMachineCredentials: (machineId: string) => void,
+  closeSession: () => void,
 ): boolean {
   if (!isInvalidCredentialsError(err)) return false;
-  closeMachineSession(machine);
+  closeSession();
   clearMachineCredentials(machine.id);
   return true;
 }

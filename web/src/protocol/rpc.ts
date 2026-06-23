@@ -1,10 +1,7 @@
 import { CborValue, decodeCbor, encodeCbor } from "./cbor.ts";
 import {
-  DatagramMessageKind,
-  decodeDatagramMessage,
   decodeReqResMessageSequence,
   decodeReqResMessageSequencePrefix,
-  encodeDatagramMessage,
   encodePairedSecretCredential,
   encodeReqResMessageSequence,
   PAIRED_SECRET_AUTH_MECHANISM,
@@ -35,27 +32,6 @@ const PROC_WRITE_TERMINAL_INPUT = 17;
 const PROC_CLOSE_TERMINAL_SESSION = 18;
 const PROC_SUBSCRIBE_CLIENTS = 19;
 const CONNECT_TIMEOUT_MS = 10_000;
-const DATAGRAM_PING_TIMEOUT_MS = 5_000;
-const CLIENT_CREDENTIAL_RENEWAL_INTERVAL_MS = 24 * 60 * 60 * 1000;
-
-export interface RpcSession {
-  transport: WebTransport;
-  datagrams: DatagramRuntime;
-}
-
-interface DatagramRuntime {
-  writer: WritableStreamDefaultWriter<Uint8Array>;
-  pendingPings: Map<number, PendingDatagramPing>;
-  nextPingId: number;
-  closed: boolean;
-}
-
-interface PendingDatagramPing {
-  startedAt: number;
-  timeout: ReturnType<typeof setTimeout>;
-  resolve: (latencyMs: number) => void;
-  reject: (err: Error) => void;
-}
 
 export interface ClientCredentialRenewal {
   machineId: string;
@@ -65,10 +41,10 @@ export interface ClientCredentialRenewal {
 }
 
 export interface RpcCallOptions {
+  rpcSession?: () => Promise<WebTransport>;
+  closeRpcSession?: () => void;
   onClientCredentialRenewal?: (renewal: ClientCredentialRenewal) => void;
 }
-
-const rpcSessions = new Map<string, Promise<RpcSession>>();
 
 export interface CompletePairingResponse {
   clientId: string;
@@ -82,10 +58,6 @@ export interface StartPairingResponse {
 
 export interface RenewClientCredentialResponse {
   clientCredentialExpiresAtUnix: number;
-}
-
-export interface ReachabilityResult {
-  latencyMs?: number;
 }
 
 export interface DaemonInfo {
@@ -289,32 +261,19 @@ export class RpcError extends Error {
   }
 }
 
-export class DatagramPingTimeoutError extends Error {
-  constructor(timeoutMs: number) {
-    super(`datagram pong timed out after ${timeoutMs}ms`);
-    this.name = "DatagramPingTimeoutError";
-  }
-}
-
-export function isDatagramPingTimeoutError(
-  err: unknown,
-): err is DatagramPingTimeoutError {
-  return err instanceof DatagramPingTimeoutError;
-}
-
 export function isInvalidCredentialsError(err: unknown): boolean {
   return err instanceof RpcError && err.code === "InvalidCredentials";
 }
 
 export async function completePairing(
-  session: RpcSession,
+  transport: WebTransport,
   code: string,
 ): Promise<CompletePairingResponse> {
   const payload = encodeCbor(
     new Map<number, CborValue>([[1, code]]),
   );
   const response = await sendUnaryPayload(
-    session.transport,
+    transport,
     PROC_COMPLETE_PAIRING,
     payload,
   );
@@ -327,7 +286,7 @@ export async function completePairing(
 }
 
 export async function startPairing(
-  session: RpcSession,
+  transport: WebTransport,
   machine: Machine,
   confirmationCode: string,
   clientLabel: string,
@@ -343,7 +302,7 @@ export async function startPairing(
     new Map<number, CborValue>(fields),
   );
   const response = await sendUnaryPayload(
-    session.transport,
+    transport,
     PROC_START_PAIRING,
     payload,
   );
@@ -360,18 +319,15 @@ export async function renewClientCredential(
   if (!machine.clientId || !machine.clientSecret) {
     throw new Error("missing paired client credentials");
   }
-  const session = await authenticatedSession(machine, {
-    ...options,
-    renewOnConnect: false,
-  });
+  const session = await authenticatedSession(options);
   try {
     const renewal = await renewAuthenticatedSessionCredential(
-      session.transport,
+      session,
     );
     emitClientCredentialRenewal(machine, options, renewal);
     return renewal;
   } catch (err) {
-    closeSession(machine);
+    closeSession(machine, options);
     throw err;
   }
 }
@@ -698,34 +654,11 @@ export async function closeTerminalSession(
   );
 }
 
-export async function checkReachable(
+export function closeMachineWebTransport(
   machine: Machine,
   options: RpcCallOptions = {},
-): Promise<ReachabilityResult> {
-  const startedAt = performance.now();
-  if (machine.clientId && machine.clientSecret) {
-    const session = await authenticatedSession(machine, options);
-    try {
-      return {
-        latencyMs: await pingDatagram(session.datagrams),
-      };
-    } catch (err) {
-      if (isDatagramPingTimeoutError(err)) return {};
-      closeSession(machine);
-      throw err;
-    }
-  }
-
-  const session = await openRpcSession(machine, "/rpc");
-  try {
-    return { latencyMs: performance.now() - startedAt };
-  } finally {
-    closeRpcSession(session);
-  }
-}
-
-export function closeMachineSession(machine: Machine): void {
-  closeSession(machine);
+): void {
+  closeSession(machine, options);
 }
 
 async function callUnaryPayload(
@@ -758,20 +691,20 @@ async function callUnary(
   if (
     options.includeAuth !== false && machine.clientId && machine.clientSecret
   ) {
-    const session = await authenticatedSession(machine, options);
+    const transport = await authenticatedSession(options);
     try {
-      return await sendUnary(session.transport, procId, payload);
+      return await sendUnary(transport, procId, payload);
     } catch (err) {
-      closeSession(machine);
+      closeSession(machine, options);
       throw err;
     }
   }
 
-  const session = await openRpcSession(machine, "/rpc");
+  const transport = await openWebTransport(machine, "/rpc");
   try {
-    return await sendUnary(session.transport, procId, payload);
+    return await sendUnary(transport, procId, payload);
   } finally {
-    closeRpcSession(session);
+    closeWebTransport(transport);
   }
 }
 
@@ -801,30 +734,30 @@ async function callClientStream(
   options: RpcCallOptions = {},
 ): Promise<Uint8Array | undefined> {
   if (machine.clientId && machine.clientSecret) {
-    const session = await authenticatedSession(machine, options);
+    const transport = await authenticatedSession(options);
     try {
       return await sendClientStream(
-        session.transport,
+        transport,
         procId,
         startPayload,
         chunkPayloads,
       );
     } catch (err) {
-      closeSession(machine);
+      closeSession(machine, options);
       throw err;
     }
   }
 
-  const session = await openRpcSession(machine, "/rpc");
+  const transport = await openWebTransport(machine, "/rpc");
   try {
     return await sendClientStream(
-      session.transport,
+      transport,
       procId,
       startPayload,
       chunkPayloads,
     );
   } finally {
-    closeRpcSession(session);
+    closeWebTransport(transport);
   }
 }
 
@@ -836,33 +769,33 @@ async function* callServerStreamEvents<T>(
   options: RpcCallOptions = {},
 ): AsyncGenerator<T> {
   if (machine.clientId && machine.clientSecret) {
-    const session = await authenticatedSession(machine, options);
+    const transport = await authenticatedSession(options);
     try {
       yield* streamServerEvents(
-        session.transport,
+        transport,
         procId,
         payload,
         decodePayload,
       );
     } catch (err) {
       if (!shouldKeepAuthenticatedSessionAfterStreamError(procId, err)) {
-        closeSession(machine);
+        closeSession(machine, options);
       }
       throw err;
     }
     return;
   }
 
-  const session = await openRpcSession(machine, "/rpc");
+  const transport = await openWebTransport(machine, "/rpc");
   try {
     yield* streamServerEvents(
-      session.transport,
+      transport,
       procId,
       payload,
       decodePayload,
     );
   } finally {
-    closeRpcSession(session);
+    closeWebTransport(transport);
   }
 }
 
@@ -875,10 +808,10 @@ function shouldKeepAuthenticatedSessionAfterStreamError(
     err.code === "NotFound";
 }
 
-export async function openRpcSession(
+export async function openWebTransport(
   machine: Machine,
   path = "/rpc",
-): Promise<RpcSession> {
+): Promise<WebTransport> {
   const transport = new WebTransport(
     `${normalizeMachineUrl(machine.baseUrl)}${path}`,
   );
@@ -892,10 +825,7 @@ export async function openRpcSession(
     transport.close();
     throw err;
   }
-  return {
-    transport,
-    datagrams: startDatagramRuntime(transport),
-  };
+  return transport;
 }
 
 function withTimeout<T>(
@@ -915,51 +845,16 @@ function withTimeout<T>(
   });
 }
 
-interface AuthenticatedSessionOptions extends RpcCallOptions {
-  renewOnConnect?: boolean;
-}
-
 function authenticatedSession(
-  machine: Machine,
-  options: AuthenticatedSessionOptions = {},
-): Promise<RpcSession> {
-  const key = sessionKey(machine);
-  const current = rpcSessions.get(key);
-  if (current) return current;
-
-  const sessionPromise: Promise<RpcSession> = (async () => {
-    if (!machine.clientId || !machine.clientSecret) {
-      throw new Error("missing paired client credentials");
-    }
-    const session = await openRpcSession(machine, "/rpc");
-    try {
-      await authenticateSession(
-        session.transport,
-        machine.clientId,
-        machine.clientSecret,
-      );
-    } catch (err) {
-      closeRpcSession(session);
-      throw err;
-    }
-    if (options.renewOnConnect !== false) {
-      await renewSessionCredential(machine, session.transport, options);
-      startClientCredentialRenewalLoop(machine, session, options);
-    }
-    session.transport.closed.finally(() => {
-      if (rpcSessions.get(key) === sessionPromise) rpcSessions.delete(key);
-    });
-    return session;
-  })();
-
-  rpcSessions.set(key, sessionPromise);
-  sessionPromise.catch(() => {
-    if (rpcSessions.get(key) === sessionPromise) rpcSessions.delete(key);
-  });
-  return sessionPromise;
+  options: RpcCallOptions = {},
+): Promise<WebTransport> {
+  if (!options.rpcSession) {
+    throw new Error("missing authenticated RPC session provider");
+  }
+  return options.rpcSession();
 }
 
-async function renewSessionCredential(
+export async function renewWebTransportCredential(
   machine: Machine,
   transport: WebTransport,
   options: RpcCallOptions,
@@ -973,20 +868,6 @@ async function renewSessionCredential(
     // credential expiry fails. The next renewal tick or authenticated session
     // will retry.
   }
-}
-
-function startClientCredentialRenewalLoop(
-  machine: Machine,
-  session: RpcSession,
-  options: RpcCallOptions,
-): void {
-  const timer = setInterval(
-    () => void renewSessionCredential(machine, session.transport, options),
-    CLIENT_CREDENTIAL_RENEWAL_INTERVAL_MS,
-  );
-  session.transport.closed
-    .catch(() => {})
-    .finally(() => clearInterval(timer));
 }
 
 function emitClientCredentialRenewal(
@@ -1003,23 +884,12 @@ function emitClientCredentialRenewal(
   });
 }
 
-function closeSession(machine: Machine): void {
-  const key = sessionKey(machine);
-  const session = rpcSessions.get(key);
-  rpcSessions.delete(key);
-  session?.then(closeRpcSession).catch(() => {});
+function closeSession(machine: Machine, options: RpcCallOptions = {}): void {
+  void machine;
+  options.closeRpcSession?.();
 }
 
-function sessionKey(machine: Machine): string {
-  return [
-    machine.id,
-    normalizeMachineUrl(machine.baseUrl),
-    machine.clientId ?? "",
-    machine.clientSecret ?? "",
-  ].join("\n");
-}
-
-async function authenticateSession(
+export async function authenticateWebTransport(
   transport: WebTransport,
   clientId: string,
   clientSecret: string,
@@ -1067,140 +937,8 @@ async function renewAuthenticatedSessionCredential(
   };
 }
 
-function startDatagramRuntime(transport: WebTransport): DatagramRuntime {
-  const runtime: DatagramRuntime = {
-    writer: transport.datagrams.writable.getWriter(),
-    pendingPings: new Map(),
-    nextPingId: 0,
-    closed: false,
-  };
-  void readDatagrams(transport, runtime);
-  transport.closed
-    .catch(() => {})
-    .finally(() => {
-      closeDatagramRuntime(runtime, new Error("WebTransport session closed"));
-    });
-  return runtime;
-}
-
-async function readDatagrams(
-  transport: WebTransport,
-  runtime: DatagramRuntime,
-): Promise<void> {
-  const reader = transport.datagrams.readable.getReader();
-  try {
-    while (!runtime.closed) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      await handleIncomingDatagram(runtime, value);
-    }
-  } catch (err) {
-    closeDatagramRuntime(
-      runtime,
-      err instanceof Error ? err : new Error(String(err)),
-    );
-  } finally {
-    try {
-      reader.releaseLock();
-    } catch {
-      // The reader may already be detached by transport shutdown.
-    }
-  }
-}
-
-async function handleIncomingDatagram(
-  runtime: DatagramRuntime,
-  bytes: Uint8Array,
-): Promise<void> {
-  let message;
-  try {
-    message = decodeDatagramMessage(bytes);
-  } catch {
-    return;
-  }
-
-  if (message.kind === DatagramMessageKind.Ping) {
-    try {
-      await runtime.writer.write(encodeDatagramMessage({
-        kind: DatagramMessageKind.Pong,
-        pingId: message.pingId,
-      }));
-    } catch {
-      closeDatagramRuntime(runtime, new Error("failed to send datagram pong"));
-    }
-    return;
-  }
-
-  const pending = runtime.pendingPings.get(message.pingId);
-  if (!pending) return;
-
-  runtime.pendingPings.delete(message.pingId);
-  clearTimeout(pending.timeout);
-  pending.resolve(performance.now() - pending.startedAt);
-}
-
-function pingDatagram(
-  runtime: DatagramRuntime,
-  timeoutMs = DATAGRAM_PING_TIMEOUT_MS,
-): Promise<number> {
-  if (runtime.closed) {
-    return Promise.reject(new Error("datagram runtime is closed"));
-  }
-
-  const pingId = nextPingId(runtime);
-  const startedAt = performance.now();
-  return new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      runtime.pendingPings.delete(pingId);
-      reject(new DatagramPingTimeoutError(timeoutMs));
-    }, timeoutMs);
-    const pending: PendingDatagramPing = {
-      startedAt,
-      timeout,
-      resolve,
-      reject,
-    };
-    runtime.pendingPings.set(pingId, pending);
-
-    runtime.writer.write(encodeDatagramMessage({
-      kind: DatagramMessageKind.Ping,
-      pingId,
-    })).catch((err) => {
-      if (runtime.pendingPings.get(pingId) !== pending) return;
-      runtime.pendingPings.delete(pingId);
-      clearTimeout(timeout);
-      const error = err instanceof Error ? err : new Error(String(err));
-      closeDatagramRuntime(runtime, error);
-      reject(error);
-    });
-  });
-}
-
-function nextPingId(runtime: DatagramRuntime): number {
-  runtime.nextPingId = runtime.nextPingId >= Number.MAX_SAFE_INTEGER
-    ? 1
-    : runtime.nextPingId + 1;
-  return runtime.nextPingId;
-}
-
-export function closeRpcSession(session: RpcSession): void {
-  closeDatagramRuntime(session.datagrams, new Error("RPC session closed"));
-  session.transport.close();
-}
-
-function closeDatagramRuntime(runtime: DatagramRuntime, err: Error): void {
-  if (runtime.closed) return;
-  runtime.closed = true;
-  for (const [pingId, pending] of runtime.pendingPings) {
-    runtime.pendingPings.delete(pingId);
-    clearTimeout(pending.timeout);
-    pending.reject(err);
-  }
-  try {
-    runtime.writer.releaseLock();
-  } catch {
-    // The writer may be in an errored state after transport shutdown.
-  }
+export function closeWebTransport(transport: WebTransport): void {
+  transport.close();
 }
 
 async function sendUnary(

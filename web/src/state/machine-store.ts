@@ -98,9 +98,11 @@ export const machineStoreBunja = bunja(() => {
     })
   );
 
-  function rpcCallOptions(): RpcCallOptions {
+  function rpcCallOptions(extra: RpcCallOptions = {}): RpcCallOptions {
     return {
+      ...extra,
       onClientCredentialRenewal: (renewal) => {
+        extra.onClientCredentialRenewal?.(renewal);
         const machine = getMachine(store.get(machinesAtom), renewal.machineId);
         if (
           machine?.clientId !== renewal.clientId ||

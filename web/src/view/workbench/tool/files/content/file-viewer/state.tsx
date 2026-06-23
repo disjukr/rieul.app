@@ -10,6 +10,7 @@ import {
   machineBunja,
   machineStoreBunja,
 } from "../../../../../../state/machine-store.ts";
+import { rpcSessionBunja } from "../../../../../../state/rpc-session.ts";
 import { WorkbenchTabIdScope } from "../../../../../../state/workbench.ts";
 import { type FileViewerImplId, isFileViewerImpl } from "./impl/index.ts";
 import { detectFileViewerImpl } from "./impl-detector/index.ts";
@@ -24,6 +25,7 @@ const FsEntryScope = createScopeFromContext(FsEntryContext);
 export const fileViewerBunja = bunja(() => {
   const machine = bunja.use(machineBunja);
   const machines = bunja.use(machineStoreBunja);
+  const rpcSession = bunja.use(rpcSessionBunja);
   const tabId = requireWorkbenchTabId(bunja.use(WorkbenchTabIdScope));
   const fsEntry = requireFsEntry(bunja.use(FsEntryScope));
   const store = bunja.use(JotaiStoreScope);
@@ -68,7 +70,7 @@ export const fileViewerBunja = bunja(() => {
       const result = await detectFileViewerImpl(
         currentMachine,
         fsEntry,
-        machines.rpcCallOptions(),
+        machines.rpcCallOptions(rpcSession.rpcCallOptions()),
       );
       if (cancelled) return;
       store.set(stateAtom, {
@@ -87,7 +89,7 @@ export const fileViewerBunja = bunja(() => {
     fsEntry,
     implAtom,
     machineAtom: machine.machineAtom,
-    rpcCallOptions: machines.rpcCallOptions,
+    rpcCallOptions: () => machines.rpcCallOptions(rpcSession.rpcCallOptions()),
     stateAtom,
     tabId,
   };

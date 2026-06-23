@@ -19,7 +19,6 @@ import {
   FsEntryKind,
   subscribeAvailableShells,
 } from "../../../../protocol/rpc.ts";
-import { connectionBunja } from "../../../../state/connection.ts";
 import {
   displayName,
   explorerBunja,
@@ -27,6 +26,7 @@ import {
 } from "../../../../state/explorer.ts";
 import { machineModalBunja } from "../../../../state/machine-modal.ts";
 import { machineStoreBunja } from "../../../../state/machine-store.ts";
+import { rpcSessionBunja } from "../../../../state/rpc-session.ts";
 import {
   workbenchBunja,
   workbenchTabBunja,
@@ -113,12 +113,12 @@ interface DeleteEntryModalProps {
 }
 
 export function FilesTool() {
-  const connectionState = useBunja(connectionBunja);
   const machineModal = useBunja(machineModalBunja);
   const machineStore = useBunja(machineStoreBunja);
+  const rpcSession = useBunja(rpcSessionBunja);
   const machine = useAtomValue(machineStore.selectedAtom);
   const isPaired = useAtomValue(machineStore.selectedIsPairedAtom);
-  const connectionEpoch = useAtomValue(connectionState.connectionEpochAtom);
+  const connectionEpoch = useAtomValue(rpcSession.connectionEpochAtom);
   const workbench = useBunja(workbenchBunja);
   const tabState = useBunja(workbenchTabBunja);
   const explorer = useBunja(explorerBunja, [
@@ -169,7 +169,7 @@ export function FilesTool() {
     let cancelled = false;
     const iterator = subscribeAvailableShells(
       machine,
-      machineStore.rpcCallOptions(),
+      machineStore.rpcCallOptions(rpcSession.rpcCallOptions()),
     );
     void (async () => {
       try {
@@ -192,7 +192,7 @@ export function FilesTool() {
       cancelled = true;
       void iterator.return(undefined);
     };
-  }, [connectionEpoch, isPaired, machine, machineStore]);
+  }, [connectionEpoch, isPaired, machine, machineStore, rpcSession]);
 
   useEffect(() => {
     if (!propertiesEntry) return;
@@ -317,7 +317,7 @@ export function FilesTool() {
         machine,
         [deleteEntry.entry.path],
         DeleteMode.Trash,
-        machineStore.rpcCallOptions(),
+        machineStore.rpcCallOptions(rpcSession.rpcCallOptions()),
       );
       const failure = result.results.find((item) => !item.ok);
       if (failure && !failure.ok) {

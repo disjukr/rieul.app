@@ -1,0 +1,17 @@
+{
+  "version": "5",
+  "specifiers": {
+    "jsr:@disjukr/bdl@*": "0.8.3",
+    "jsr:@disjukr/bdl@0.8.3": "0.8.3"
+  },
+  "jsr": {
+    "@disjukr/bdl@0.8.3": {
+      "integrity": "f8989abc713c4151f1cc40d6d6a0b6832817829d042f1c2c182be2f52918249f"
+    }
+  },
+  "workspace": {
+    "dependencies": [
+      "jsr:@disjukr/bdl@0.8.3"
+    ]
+  }
+}

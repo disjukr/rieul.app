@@ -1,16 +1,16 @@
 import { useAtomValue } from "jotai";
 import { useBunja } from "bunja/react";
-import { connectionBunja } from "../../state/connection.ts";
 import { machineStoreBunja } from "../../state/machine-store.ts";
+import { rpcSessionBunja } from "../../state/rpc-session.ts";
 import { layoutBunja } from "../state.tsx";
 import { AppTopbar } from "./app-topbar.tsx";
 
 export function TopBarRegion() {
   const layout = useBunja(layoutBunja);
   const machineStore = useBunja(machineStoreBunja);
-  const connectionState = useBunja(connectionBunja);
+  const rpcSession = useBunja(rpcSessionBunja);
   const selected = useAtomValue(machineStore.selectedAtom);
-  const connection = useAtomValue(connectionState.connectionAtom);
+  const connection = useAtomValue(rpcSession.connectionAtom);
   const machinePanelCollapsed = useAtomValue(
     layout.machinePanelCollapsedAtom,
   );
@@ -20,7 +20,7 @@ export function TopBarRegion() {
       connection={connection}
       machine={selected}
       machinePanelCollapsed={machinePanelCollapsed}
-      onRefresh={() => void connectionState.checkSelected()}
+      onRefresh={() => void rpcSession.reconnect()}
       onToggleMachinePanel={layout.toggleMachinePanel}
     />
   );

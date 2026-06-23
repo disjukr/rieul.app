@@ -1,5 +1,10 @@
 {
+  "imports": {
+    "@disjukr/bdl/ir": "jsr:@disjukr/bdl@0.8.3/ir",
+    "@disjukr/bdl/ir/builder": "jsr:@disjukr/bdl@0.8.3/ir/builder"
+  },
   "tasks": {
+    "codegen:typescript": "deno run -A ./scripts/codegen/typescript/main.ts --out ./web/src/protocol/generated.ts --cbor-import ./cbor.ts",
     "macos:dev:daemons": "./scripts/macos/dev-daemons.sh",
     "macos:kill:daemons": "./scripts/macos/kill-daemons.sh",
     "macos:package:daemon": "./scripts/macos/package-daemon-dmg.sh",

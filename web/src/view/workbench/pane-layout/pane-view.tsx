@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { closeTerminalSession } from "../../../protocol/rpc.ts";
 import { machineStoreBunja } from "../../../state/machine-store.ts";
+import { rpcSessionBunja } from "../../../state/rpc-session.ts";
 import {
   type TabDropPosition,
   workbenchBunja,
@@ -106,6 +107,7 @@ export function WorkbenchPaneView(
   }: WorkbenchPaneViewProps,
 ) {
   const machineStore = useBunja(machineStoreBunja);
+  const rpcSession = useBunja(rpcSessionBunja);
   const workbench = useBunja(workbenchBunja);
   const paneState = useBunja(workbenchPaneBunja);
   const machine = useAtomValue(machineStore.selectedAtom);
@@ -198,7 +200,7 @@ export function WorkbenchPaneView(
       void closeTerminalSession(
         machine,
         terminalSessionId,
-        machineStore.rpcCallOptions(),
+        machineStore.rpcCallOptions(rpcSession.rpcCallOptions()),
       ).catch(() => {
         // Closing a tab should not be blocked by a stale connection or session.
       });

@@ -6,11 +6,11 @@ import {
   type AvailableShellsTableEvent,
   subscribeAvailableShells,
 } from "../../protocol/rpc.ts";
-import { connectionBunja } from "../../state/connection.ts";
 import { machineMenuBunja } from "../../state/machine-menu.ts";
 import { machineModalBunja } from "../../state/machine-modal.ts";
 import { machineStoreBunja } from "../../state/machine-store.ts";
 import type { Machine } from "../../state/machines.ts";
+import { rpcSessionBunja } from "../../state/rpc-session.ts";
 import { workbenchBunja } from "../../state/workbench.ts";
 import { layoutBunja } from "../state.tsx";
 import { AddMachineForm } from "./add-machine-form.tsx";
@@ -26,13 +26,13 @@ const machineMenuWidth = 176;
 export function MachinePanelRegion() {
   const layout = useBunja(layoutBunja);
   const machineStore = useBunja(machineStoreBunja);
+  const rpcSession = useBunja(rpcSessionBunja);
   const machineMenuState = useBunja(machineMenuBunja);
-  const connectionState = useBunja(connectionBunja);
   const selected = useAtomValue(machineStore.selectedAtom);
   const selectedIsPaired = useAtomValue(machineStore.selectedIsPairedAtom);
   const machineMenu = useAtomValue(machineMenuState.machineMenuAtom);
-  const connection = useAtomValue(connectionState.connectionAtom);
-  const connectionEpoch = useAtomValue(connectionState.connectionEpochAtom);
+  const connection = useAtomValue(rpcSession.connectionAtom);
+  const connectionEpoch = useAtomValue(rpcSession.connectionEpochAtom);
   const workbench = useBunja(workbenchBunja);
   const activeTool = useAtomValue(workbench.activeToolAtom);
   const machinePanelCollapsed = useAtomValue(
@@ -52,7 +52,7 @@ export function MachinePanelRegion() {
     let cancelled = false;
     const iterator = subscribeAvailableShells(
       selected,
-      machineStore.rpcCallOptions(),
+      machineStore.rpcCallOptions(rpcSession.rpcCallOptions()),
     );
     void (async () => {
       try {
@@ -73,7 +73,7 @@ export function MachinePanelRegion() {
       cancelled = true;
       void iterator.return(undefined);
     };
-  }, [connectionEpoch, machineStore, selected, selectedIsPaired]);
+  }, [connectionEpoch, machineStore, rpcSession, selected, selectedIsPaired]);
 
   function openMachineTitleMenu(
     event: React.MouseEvent<HTMLButtonElement>,
@@ -182,7 +182,7 @@ export function MachineAddFormContainer(
 export function MachineModalHost() {
   const machineStore = useBunja(machineStoreBunja);
   const machineModal = useBunja(machineModalBunja);
-  const connectionState = useBunja(connectionBunja);
+  const rpcSession = useBunja(rpcSessionBunja);
   const machines = useAtomValue(machineStore.machinesAtom);
   const selected = useAtomValue(machineStore.selectedAtom);
   const machineName = useAtomValue(machineModal.machineNameAtom);
@@ -202,7 +202,7 @@ export function MachineModalHost() {
     machineModal.isRequestingPairingCodeAtom,
   );
   const isPairing = useAtomValue(machineModal.isPairingAtom);
-  const connection = useAtomValue(connectionState.connectionAtom);
+  const connection = useAtomValue(rpcSession.connectionAtom);
   const modalTitle = useAtomValue(machineModal.modalTitleAtom);
   const setConfigNameDraft = useSetAtom(machineModal.configNameDraftAtom);
   const setConfigUrlDraft = useSetAtom(machineModal.configUrlDraftAtom);
