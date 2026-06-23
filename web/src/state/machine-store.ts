@@ -6,12 +6,14 @@ import { loadMachines, Machine, saveMachines } from "./machines.ts";
 import { MachineIdScope } from "./machine-id.tsx";
 
 const initialMachines = loadMachines();
+const SELECTED_MACHINE_STORAGE_KEY = "wgo.selected-machine-id.v1";
+const initialSelectedId = loadSelectedMachineId(initialMachines);
 
 export const machineStoreBunja = bunja(() => {
   const store = bunja.use(JotaiStoreScope);
 
   const machinesAtom = atom<Machine[]>(initialMachines);
-  const selectedIdAtom = atom<string | undefined>(initialMachines[0]?.id);
+  const selectedIdAtom = atom<string | undefined>(initialSelectedId);
   const selectedAtom = atom((get) =>
     getMachine(get(machinesAtom), get(selectedIdAtom))
   );
@@ -90,6 +92,11 @@ export const machineStoreBunja = bunja(() => {
       saveMachines(store.get(machinesAtom));
     })
   );
+  bunja.effect(() =>
+    store.sub(selectedIdAtom, () => {
+      saveSelectedMachineId(store.get(selectedIdAtom));
+    })
+  );
 
   function rpcCallOptions(): RpcCallOptions {
     return {
@@ -147,6 +154,20 @@ function getMachine(
   machineId?: string,
 ): Machine | undefined {
   return machines.find((machine) => machine.id === machineId);
+}
+
+function loadSelectedMachineId(machines: Machine[]): string | undefined {
+  const stored = localStorage.getItem(SELECTED_MACHINE_STORAGE_KEY);
+  if (stored && getMachine(machines, stored)) return stored;
+  return machines[0]?.id;
+}
+
+function saveSelectedMachineId(machineId?: string) {
+  if (machineId) {
+    localStorage.setItem(SELECTED_MACHINE_STORAGE_KEY, machineId);
+  } else {
+    localStorage.removeItem(SELECTED_MACHINE_STORAGE_KEY);
+  }
 }
 
 export function isPaired(machine?: Machine): boolean {
