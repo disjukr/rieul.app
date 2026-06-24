@@ -115,8 +115,10 @@ export function TerminalTool() {
   const isPaired = useAtomValue(machineStore.selectedIsPairedAtom);
   const connectionEpoch = useAtomValue(rpcSession.connectionEpochAtom);
   const tab = useAtomValue(tabState.tabAtom);
+  const active = useAtomValue(tabState.activeAtom);
   const hostRef = useRef<HTMLDivElement>(null);
   const machineRef = useRef<Machine | undefined>(undefined);
+  const activeRef = useRef(false);
   const runtimeRef = useRef<TerminalRuntime | undefined>(undefined);
   const terminalSessionIdRef = useRef<string | undefined>(undefined);
   const attachIdRef = useRef<string | undefined>(undefined);
@@ -143,6 +145,13 @@ export function TerminalTool() {
   useEffect(() => {
     machineRef.current = machine;
   }, [machine]);
+
+  useEffect(() => {
+    activeRef.current = active;
+    if (!active) return;
+    fitTerminal();
+    void takeCurrentControl();
+  }, [active]);
 
   useEffect(() => {
     if (!sessionInfo) {
@@ -331,7 +340,9 @@ export function TerminalTool() {
   ) {
     const runtime = runtimeRef.current;
     if (!runtime) return;
-    const size = terminalSize(runtime.terminal);
+    const size = activeRef.current
+      ? terminalSize(runtime.terminal)
+      : sessionInfo ?? terminalDimensions;
     let cancelled = false;
     const iterator = attachTerminalSession(
       currentMachine,
@@ -385,7 +396,7 @@ export function TerminalTool() {
             ? "Terminal attached"
             : "Terminal attached in view mode",
         });
-        void takeCurrentControl();
+        if (activeRef.current) void takeCurrentControl();
         return;
       case "outputChunk":
         latestSeqRef.current = event.seq;
@@ -475,6 +486,7 @@ export function TerminalTool() {
     const attachId = attachIdRef.current;
     if (
       terminalSessionFinishedRef.current ||
+      !activeRef.current ||
       !currentMachine ||
       !runtime ||
       !terminalSessionId ||
