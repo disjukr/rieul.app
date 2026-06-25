@@ -10,7 +10,9 @@ interface PathCrumbsProps {
 const pathInputFormClassName = [
   "min-w-0",
   "[&_input]:w-full [&_input]:h-[2em] [&_input]:min-h-[2em]",
-  "[&_input]:box-border [&_input]:px-[6px] [&_input]:leading-[1.6]",
+  "[&_input]:min-w-0 [&_input]:box-border [&_input]:border [&_input]:border-[#c7ceda]",
+  "[&_input]:rounded-[3px] [&_input]:bg-white [&_input]:px-[6px] [&_input]:text-[#20242d]",
+  "[&_input]:[font:inherit] [&_input]:leading-[1.6]",
   "[&_input:focus]:outline-none",
 ].join(" ");
 const crumbsClassName = [

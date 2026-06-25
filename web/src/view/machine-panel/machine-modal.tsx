@@ -30,6 +30,10 @@ const machineModalFormClassName = [
   "grid gap-[12px] p-[16px]",
   "[&_label]:grid [&_label]:gap-[6px] [&_label]:min-w-0",
   "[&_label_span]:text-[#475467] [&_label_span]:text-[12px] [&_label_span]:font-700",
+  "[&_input]:min-w-0 [&_input]:min-h-[34px] [&_input]:border [&_input]:border-[#c7ceda]",
+  "[&_input]:rounded-[6px] [&_input]:bg-white [&_input]:px-[10px] [&_input]:text-[#20242d]",
+  "[&_input]:[font:inherit] [&_input:focus]:outline [&_input:focus]:outline-2",
+  "[&_input:focus]:outline-[#4f8cff] [&_input:focus]:outline-offset-1",
 ].join(" ");
 const modalMachineSummaryClassName = [
   "grid gap-[2px] min-w-0 border border-[#d8dde7] rounded-[8px]",

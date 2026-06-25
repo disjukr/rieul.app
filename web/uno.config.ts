@@ -30,22 +30,6 @@ body {
     "Segoe UI", sans-serif;
 }
 
-input {
-  font: inherit;
-  min-width: 0;
-  min-height: 34px;
-  border: 1px solid #c7ceda;
-  border-radius: 6px;
-  background: #ffffff;
-  color: #20242d;
-  padding: 0 10px;
-}
-
-input:focus {
-  outline: 2px solid #4f8cff;
-  outline-offset: 1px;
-}
-
 `;
 
 export default defineConfig({
