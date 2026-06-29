@@ -5,9 +5,12 @@ import {
   purgeTrashItems,
   restoreTrashItems,
   subscribeTrashItems,
+} from "../../../../../../protocol/generated/client.ts";
+import {
+  type BulkMutationRes,
   type TrashItem,
   type TrashItemsTableEvent,
-} from "../../../../../../protocol/rpc.ts";
+} from "../../../../../../protocol/generated/rpc.ts";
 import { formatDate, formatSize } from "../../../../../../state/explorer.ts";
 import { rpcSessionBunja } from "../../../../../../state/rpc-session.ts";
 import {
@@ -150,20 +153,22 @@ export function TrashContent() {
 
   async function mutateTrashItem(
     itemId: string,
-    mutate: (transport: WebTransport, itemIds: string[]) => Promise<{
-      results: { ok: boolean; message?: string; code?: string }[];
-    }>,
+    mutate: (
+      transport: WebTransport,
+      request: { itemIds: string[] },
+    ) => Promise<BulkMutationRes>,
     fallbackMessage: string,
   ) {
     try {
       const transport = await rpcSession.webTransport();
-      const result = await mutate(transport, [itemId]);
-      const failure = result.results.find((item) => !item.ok);
-      if (failure && !failure.ok) {
+      const result = await mutate(transport, { itemIds: [itemId] });
+      const failure = result.results.find((item) => item.type === "failed");
+      if (failure?.type === "failed") {
         setState((current) => ({
           phase: "error",
           items: current.items,
-          message: failure.message || failure.code || fallbackMessage,
+          message: failure.error.message || failure.error.type ||
+            fallbackMessage,
         }));
       }
     } catch (err) {
@@ -264,7 +269,7 @@ function applyTrashItemsEvent(
   return {
     phase: "closed",
     items: current,
-    message: `Trash closed: ${event.reason}`,
+    message: `Trash closed: ${event.reason.type}`,
   };
 }
 

@@ -1,5 +1,5 @@
 import { X } from "lucide-react";
-import { FsEntry } from "../../../../../../protocol/rpc.ts";
+import type { FsEntry } from "../../../../../../protocol/generated/rpc.ts";
 import {
   displayName,
   formatDate,

@@ -12,15 +12,17 @@ import {
   WifiOff,
 } from "lucide-react";
 import {
-  type ClientInfo,
-  type ClientsTableEvent,
   closeTerminalSession,
   renewClientCredential,
   subscribeClients,
   subscribeTerminalSessions,
-  type TerminalSessionInfo,
-  type TerminalSessionsTableEvent,
-} from "../../../../protocol/rpc.ts";
+} from "../../../../protocol/generated/client.ts";
+import type {
+  ClientInfo,
+  ClientsTableEvent,
+  TerminalSessionInfo,
+  TerminalSessionsTableEvent,
+} from "../../../../protocol/generated/rpc.ts";
 import { machineStoreBunja } from "../../../../state/machine-store.ts";
 import { rpcSessionBunja } from "../../../../state/rpc-session.ts";
 import type { ConnectionState } from "../../../../state/types.ts";
@@ -438,10 +440,9 @@ export function DaemonTool() {
 
   async function closeSelectedTerminalSession(terminalSessionId: string) {
     if (!machine) return;
-    await closeTerminalSession(
-      await rpcSession.webTransport(),
+    await closeTerminalSession(await rpcSession.webTransport(), {
       terminalSessionId,
-    );
+    });
   }
 
   function openTerminalSession(session: TerminalSessionInfo) {

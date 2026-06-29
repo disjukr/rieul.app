@@ -9,14 +9,17 @@ import {
   attachTerminalSession,
   closeTerminalSession,
   createTerminalSession,
-  RpcError,
   takeTerminalControl,
-  type TerminalEvent,
-  type TerminalExit,
-  type TerminalLaunchSpec,
-  type TerminalSessionInfo,
   writeTerminalInput,
-} from "../../../../protocol/rpc.ts";
+} from "../../../../protocol/generated/client.ts";
+import { RpcError } from "../../../../protocol/client.ts";
+import type {
+  TerminalEvent,
+  TerminalExit,
+  TerminalLaunchSpec,
+  TerminalSessionCloseReason,
+  TerminalSessionInfo,
+} from "../../../../protocol/generated/rpc.ts";
 import { machineModalBunja } from "../../../../state/machine-modal.ts";
 import { machineStoreBunja } from "../../../../state/machine-store.ts";
 import type { Machine } from "../../../../state/machines.ts";
@@ -331,7 +334,7 @@ export function TerminalTool() {
       if (generationRef.current !== generation) {
         void closeTerminalSession(
           transport,
-          session.terminalSessionId,
+          { terminalSessionId: session.terminalSessionId },
         ).catch(() => {});
         return;
       }
@@ -517,9 +520,10 @@ export function TerminalTool() {
         ) return;
         await writeTerminalInput(
           await rpcSession.webTransport(),
-          terminalSessionId,
-          attachId,
-          bytes,
+          [
+            { type: "writeTerminalInputStart", terminalSessionId, attachId },
+            { type: "writeTerminalInputChunk", bytes },
+          ],
         );
       })
       .catch((err) => {
@@ -667,7 +671,7 @@ export function TerminalTool() {
       try {
         await closeTerminalSession(
           await rpcSession.webTransport(),
-          exitedSessionId,
+          { terminalSessionId: exitedSessionId },
         );
       } catch (err) {
         if (!isTerminalSessionNotFoundError(err)) {
@@ -831,11 +835,14 @@ function terminalExitMessage(exit: TerminalExit): string {
   return "Process exited.";
 }
 
-function terminalSessionClosedMessage(reason: string): string {
-  if (reason === "ClosedByClient") {
+function terminalSessionClosedMessage(
+  reason: TerminalSessionCloseReason,
+): string {
+  if (reason.type === "closedByClient") {
     return "A client closed this terminal session.";
   }
-  return humanizeCode(reason, "The terminal session was closed.");
+  if (reason.type === "failed") return reason.message;
+  return humanizeCode(reason.type, "The terminal session was closed.");
 }
 
 function terminalSessionSnapshotKey(
@@ -860,7 +867,7 @@ function errorMessage(err: unknown): string {
 }
 
 function isStalePrimaryAttachError(err: unknown): boolean {
-  return err instanceof RpcError && err.code === "NotPrimaryAttach";
+  return err instanceof RpcError && err.code === "notPrimaryAttach";
 }
 
 function installTerminalClipboardShortcuts(terminal: XTerm) {
@@ -926,7 +933,7 @@ function installReplayQueryHandlers(
 }
 
 function isTerminalSessionNotFoundError(err: unknown): boolean {
-  return err instanceof RpcError && err.code === "NotFound";
+  return err instanceof RpcError && err.code === "notFound";
 }
 
 function humanizeCode(code: string, fallback: string): string {

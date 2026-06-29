@@ -1,7 +1,7 @@
 import { createContext } from "react";
 import type React from "react";
 import type { Atom } from "jotai";
-import type { FsEntry } from "../../../../protocol/rpc.ts";
+import type { FsEntry } from "../../../../protocol/generated/rpc.ts";
 import type { ExplorerSpecialLocation } from "../../../../state/explorer.ts";
 
 export interface FilesExplorerHistoryEntry {

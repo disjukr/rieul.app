@@ -5,7 +5,7 @@ import { atom } from "jotai";
 import { atomWithStorage } from "jotai/utils";
 import { createLayout, type LayoutState } from "panecake";
 import { JotaiStoreScope } from "unsaturated/store";
-import type { TerminalLaunchSpec } from "../protocol/rpc.ts";
+import type { TerminalLaunchSpec } from "../protocol/generated/rpc.ts";
 import { copyExplorerNavigationState } from "./explorer.ts";
 import { copyFileViewerState } from "./file-viewer.ts";
 import { MachineIdScope } from "./machine.tsx";

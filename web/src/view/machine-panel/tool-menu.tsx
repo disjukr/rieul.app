@@ -12,7 +12,7 @@ import {
   Terminal,
   Trash2,
 } from "lucide-react";
-import type { AvailableShellInfo } from "../../protocol/rpc.ts";
+import type { AvailableShellInfo } from "../../protocol/generated/rpc.ts";
 import type {
   WorkbenchFilesView,
   WorkbenchTool,

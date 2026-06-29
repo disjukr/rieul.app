@@ -1,11 +1,11 @@
 import { bunja } from "bunja";
 import { atom } from "jotai";
 import { JotaiStoreScope } from "unsaturated/store";
-import {
-  type AvailableShellInfo,
-  type AvailableShellsTableEvent,
-  subscribeAvailableShells,
-} from "../protocol/rpc.ts";
+import { subscribeAvailableShells } from "../protocol/generated/client.ts";
+import type {
+  AvailableShellInfo,
+  AvailableShellsTableEvent,
+} from "../protocol/generated/rpc.ts";
 import { machineStoreBunja } from "./machine-store.ts";
 import type { Machine } from "./machines.ts";
 import { rpcSessionBunja } from "./rpc-session.ts";

@@ -2,8 +2,8 @@ import { useContext, useEffect, useRef, useState } from "react";
 import * as pdfjs from "pdfjs-dist";
 import { useBunja } from "bunja/react";
 import { useAtomValue } from "jotai";
-import { readFile } from "../../../../../../../../protocol/rpc.ts";
-import type { FsEntry } from "../../../../../../../../protocol/rpc.ts";
+import type { FsEntry } from "../../../../../../../../protocol/generated/rpc.ts";
+import { readFileBytes } from "../../read-file-bytes.ts";
 import {
   FilesActionsContext,
   requireFilesActions,
@@ -80,7 +80,7 @@ export default function PdfFileViewer() {
       try {
         const bytes = hasCompleteInitialBytes(fsEntry, viewerState.initialBytes)
           ? viewerState.initialBytes
-          : await readFile(await webTransport(), fsEntry.path);
+          : await readFileBytes(await webTransport(), fsEntry.path);
         if (cancelled) return;
         setState({ phase: "ready", bytes });
       } catch (err) {

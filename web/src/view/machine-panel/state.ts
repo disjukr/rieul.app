@@ -1,6 +1,6 @@
 import { bunja } from "bunja";
 import { JotaiStoreScope } from "unsaturated/store";
-import type { AvailableShellInfo } from "../../protocol/rpc.ts";
+import type { AvailableShellInfo } from "../../protocol/generated/rpc.ts";
 import { machineMenuBunja } from "../../state/machine-menu.ts";
 import { machineStoreBunja } from "../../state/machine-store.ts";
 import type { Machine } from "../../state/machines.ts";

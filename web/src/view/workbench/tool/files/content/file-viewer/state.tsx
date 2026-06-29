@@ -4,7 +4,10 @@ import { createScopeFromContext } from "bunja/react";
 import { atom } from "jotai";
 import { atomWithStorage } from "jotai/utils";
 import { JotaiStoreScope } from "unsaturated/store";
-import { FsEntry, FsEntryKind } from "../../../../../../protocol/rpc.ts";
+import {
+  type FsEntry,
+  FsEntryKind,
+} from "../../../../../../protocol/generated/rpc.ts";
 import { fileViewerSelectedImplStorageKey } from "../../../../../../state/file-viewer.ts";
 import { machineBunja } from "../../../../../../state/machine-store.ts";
 import { rpcSessionBunja } from "../../../../../../state/rpc-session.ts";

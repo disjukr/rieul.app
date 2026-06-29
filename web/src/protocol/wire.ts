@@ -17,7 +17,7 @@ import {
   type ReqResMessage as GeneratedReqResMessage,
   RpcErrorKind,
   SessionAuthErrorCode,
-} from "./generated.ts";
+} from "./generated/wire.ts";
 
 export { RpcErrorKind, SessionAuthErrorCode };
 export type { PairedSecretCredential };

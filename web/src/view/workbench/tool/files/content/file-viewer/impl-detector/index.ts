@@ -1,5 +1,6 @@
 import type { FileViewerImplId } from "../impl/index.ts";
-import { type FsEntry, readFile } from "../../../../../../../protocol/rpc.ts";
+import type { FsEntry } from "../../../../../../../protocol/generated/rpc.ts";
+import { readFileBytes } from "../read-file-bytes.ts";
 import type { Machine } from "../../../../../../../state/machines.ts";
 
 const sampleByteCount = 4096;
@@ -118,7 +119,7 @@ export async function detectFileViewerImpl(
   }
 
   try {
-    const initialBytes = await readFile(transport, fsEntry.path, {
+    const initialBytes = await readFileBytes(transport, fsEntry.path, {
       offset: 0,
       length: sampleByteCount,
     });

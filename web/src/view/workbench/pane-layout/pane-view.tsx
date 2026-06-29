@@ -14,7 +14,7 @@ import {
   Unlink,
   X,
 } from "lucide-react";
-import { closeTerminalSession } from "../../../protocol/rpc.ts";
+import { closeTerminalSession } from "../../../protocol/generated/client.ts";
 import { machineStoreBunja } from "../../../state/machine-store.ts";
 import { rpcSessionBunja } from "../../../state/rpc-session.ts";
 import { terminalShellsBunja } from "../../../state/terminal-shells.ts";
@@ -329,7 +329,7 @@ export function WorkbenchPaneView(
     for (const terminalSessionId of closingTerminalSessionIds) {
       void (async () => {
         const transport = await rpcSession.webTransport();
-        await closeTerminalSession(transport, terminalSessionId);
+        await closeTerminalSession(transport, { terminalSessionId });
       })().catch(() => {
         // Closing a tab should not be blocked by a stale connection or session.
       });

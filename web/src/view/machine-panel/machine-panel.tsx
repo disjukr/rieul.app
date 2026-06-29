@@ -1,6 +1,6 @@
 import React from "react";
 import { ChevronDown, WifiOff } from "lucide-react";
-import type { AvailableShellInfo } from "../../protocol/rpc.ts";
+import type { AvailableShellInfo } from "../../protocol/generated/rpc.ts";
 import type { Machine } from "../../state/machines.ts";
 import type { ConnectionState } from "../../state/types.ts";
 import type {

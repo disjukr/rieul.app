@@ -6,13 +6,15 @@ import { JotaiStoreScope } from "unsaturated/store";
 import {
   authenticateWebTransport,
   closeWebTransport as closeProtocolWebTransport,
-  completePairing,
-  type DaemonInfo,
-  getDaemonInfoFromTransport,
   openWebTransport,
+} from "../protocol/client.ts";
+import {
+  completePairing,
+  getDaemonInfo,
   renewClientCredential,
   startPairing,
-} from "../protocol/rpc.ts";
+} from "../protocol/generated/client.ts";
+import type { DaemonInfo } from "../protocol/generated/rpc.ts";
 import {
   DatagramMessageKind,
   decodeDatagramMessage,
@@ -436,9 +438,11 @@ function createRpcSessionController(
       async (session) => {
         const response = await startPairing(
           session.transport,
-          machine,
-          confirmationCode,
-          clientLabel,
+          {
+            confirmationCode,
+            clientLabel,
+            clientId: machine.clientId,
+          },
         );
         pairingStarted = true;
         return response;
@@ -454,7 +458,7 @@ function createRpcSessionController(
     }
     const credentials = await withControllerRpcSession(
       rpcSession,
-      (session) => completePairing(session.transport, code),
+      (session) => completePairing(session.transport, { code }),
     );
     const session = await rpcSession;
     await authenticateManagedSessionWithCredential(
@@ -540,7 +544,7 @@ function createRpcSessionController(
     try {
       const session = await getRpcSession();
       if (closed) return;
-      const daemonInfo = await getDaemonInfoFromTransport(session.transport);
+      const daemonInfo = await getDaemonInfo(session.transport);
       if (closed) return;
       setState((state) => ({
         ...state,

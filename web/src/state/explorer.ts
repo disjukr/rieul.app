@@ -2,15 +2,19 @@ import { bunja, createScope } from "bunja";
 import { atom, type PrimitiveAtom, type SetStateAction } from "jotai";
 import { atomWithStorage } from "jotai/utils";
 import { type JotaiStore, JotaiStoreScope } from "unsaturated/store";
+import { isInvalidCredentialsError } from "../protocol/client.ts";
 import {
-  DirectoryTableEvent,
-  FsEntry,
-  FsEntryKind,
-  isInvalidCredentialsError,
-  RootsTableEvent,
   subscribeDirectory,
   subscribeRoots,
-} from "../protocol/rpc.ts";
+} from "../protocol/generated/client.ts";
+import {
+  type DirectorySubscriptionCloseReason,
+  type DirectoryTableEvent,
+  type FsEntry,
+  FsEntryKind,
+  type RootsSubscriptionCloseReason,
+  type RootsTableEvent,
+} from "../protocol/generated/rpc.ts";
 import { MachineIdScope } from "./machine.tsx";
 import { machineBunja, machineStoreBunja } from "./machine-store.ts";
 import { Machine } from "./machines.ts";
@@ -390,7 +394,7 @@ export const explorerDirectoryBunja = bunja(() => {
         try {
           const transport = await rpcSession.webTransport();
           if (cancelled) return;
-          iterator = subscribeDirectory(transport, currentPath);
+          iterator = subscribeDirectory(transport, { path: currentPath });
           for await (const event of iterator) {
             if (cancelled) break;
             applyDirectoryEvent(
@@ -603,7 +607,7 @@ function applyRootsEvent(
   }
   store.set(rootsStateAtom, {
     phase: "closed",
-    message: `Roots closed: ${event.reason}`,
+    message: `Roots closed: ${subscriptionCloseReasonLabel(event.reason)}`,
   });
 }
 
@@ -640,11 +644,17 @@ function applyDirectoryEvent(
     });
     return;
   }
-  if (event.reason === "Moved") onMoved(event.to);
+  if (event.reason.type === "moved") onMoved(event.reason.to);
   store.set(directoryStateAtom, {
     phase: "closed",
-    message: `Directory closed: ${event.reason}`,
+    message: `Directory closed: ${subscriptionCloseReasonLabel(event.reason)}`,
   });
+}
+
+function subscriptionCloseReasonLabel(
+  reason: DirectorySubscriptionCloseReason | RootsSubscriptionCloseReason,
+): string {
+  return reason.type;
 }
 
 function applyEntryPatch(

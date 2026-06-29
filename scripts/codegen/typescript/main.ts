@@ -68,10 +68,16 @@ type TypeRef =
 
 type PrimitiveTypeName = "u53" | "i53" | "string" | "bool" | "bytes";
 
+type CodegenStandard = "wire" | "rpc";
+
 interface CliOptions {
   cborImport: string;
+  generatedImport: string;
   out?: string;
+  rpcClientOut?: string;
+  rpcRuntimeImport: string;
   schemaRoots: string[];
+  standard?: CodegenStandard;
 }
 
 const primitiveTypes = new Set(["u53", "i53", "string", "bool", "bytes"]);
@@ -79,6 +85,8 @@ const primitiveTypes = new Set(["u53", "i53", "string", "bool", "bytes"]);
 function parseCli(args: string[]): CliOptions {
   const options: CliOptions = {
     cborImport: "./cbor.ts",
+    generatedImport: "./generated.ts",
+    rpcRuntimeImport: "./client.ts",
     schemaRoots: [],
   };
 
@@ -86,10 +94,18 @@ function parseCli(args: string[]): CliOptions {
     const arg = args[i];
     if (arg === "--out") {
       options.out = requiredArg(args, ++i, arg);
+    } else if (arg === "--rpc-client-out") {
+      options.rpcClientOut = requiredArg(args, ++i, arg);
     } else if (arg === "--cbor-import") {
       options.cborImport = requiredArg(args, ++i, arg);
+    } else if (arg === "--generated-import") {
+      options.generatedImport = requiredArg(args, ++i, arg);
+    } else if (arg === "--rpc-runtime-import") {
+      options.rpcRuntimeImport = requiredArg(args, ++i, arg);
     } else if (arg === "--schema") {
       options.schemaRoots.push(requiredArg(args, ++i, arg));
+    } else if (arg === "--standard") {
+      options.standard = parseStandard(requiredArg(args, ++i, arg));
     } else if (arg === "--help" || arg === "-h") {
       printHelpAndExit();
     } else if (arg.startsWith("-")) {
@@ -100,9 +116,14 @@ function parseCli(args: string[]): CliOptions {
   }
 
   if (options.schemaRoots.length === 0) {
-    options.schemaRoots.push("protocol/schemas/wire", "protocol/schemas/rpc");
+    throw new Error("at least one --schema is required");
   }
   return options;
+}
+
+function parseStandard(value: string): CodegenStandard {
+  if (value === "wire" || value === "rpc") return value;
+  throw new Error(`unknown standard ${value}`);
 }
 
 function requiredArg(args: string[], index: number, option: string): string {
@@ -115,9 +136,16 @@ function printHelpAndExit(): never {
   console.log(`Usage: deno run -A scripts/codegen/typescript/main.ts [options]
 
 Options:
-  --schema <path>       BDL file or directory. Defaults to wire and rpc schemas.
+  --standard <wire|rpc> BDL standard to generate for. Inferred from schema when omitted.
+  --schema <path>       BDL file or directory.
   --out <path>          Generated TypeScript output file. Defaults to stdout.
+  --rpc-client-out <path>
+                       Generated RPC client wrapper output file.
   --cbor-import <path>  Import specifier for CborValue/decodeCbor/encodeCbor.
+  --generated-import <path>
+                       Import specifier for generated codec module from rpc client output.
+  --rpc-runtime-import <path>
+                       Import specifier for RPC runtime module from rpc client output.
 `);
   Deno.exit(0);
 }
@@ -301,7 +329,29 @@ function validateUniqueIds(
   }
 }
 
-function emitTypeScript(schema: Schema, options: CliOptions): string {
+function emitWireTypeScript(schema: Schema, options: CliOptions): string {
+  const procs = sortedProcs(schema);
+  if (procs.length > 0) {
+    throw new Error(
+      "wire TypeScript codegen does not accept proc declarations",
+    );
+  }
+  return emitSchemaCodecTypeScript(schema, options, false);
+}
+
+function emitRpcTypeScript(schema: Schema, options: CliOptions): string {
+  const procs = sortedProcs(schema);
+  if (procs.length === 0) {
+    throw new Error("rpc TypeScript codegen requires proc declarations");
+  }
+  return emitSchemaCodecTypeScript(schema, options, true);
+}
+
+function emitSchemaCodecTypeScript(
+  schema: Schema,
+  options: CliOptions,
+  emitProcs: boolean,
+): string {
   const out = new Writer();
   const named = declarationMap(schema);
 
@@ -310,40 +360,44 @@ function emitTypeScript(schema: Schema, options: CliOptions): string {
   out.line(`import type { CborValue } from "${options.cborImport}";`);
   out.line();
 
-  emitProcIds(out, schema);
+  if (emitProcs) {
+    emitProcIds(out, schema);
+  }
   for (const declaration of schema.declarations) {
     if (declaration.kind === "proc") continue;
     out.line();
     emitTypeDeclaration(out, declaration);
   }
 
-  out.line();
-  out.line("export interface ProcDefinition {");
-  out.indent(() => {
-    out.line("id: number;");
-    out.line("name: string;");
-    out.line("stream: string;");
-    out.line("requestType: string;");
-    out.line("responseType: string;");
-    out.line("errorType: string;");
-  });
-  out.line("}");
-  out.line();
-  out.line("export const procDefinitions: readonly ProcDefinition[] = [");
-  out.indent(() => {
-    for (const proc of sortedProcs(schema)) {
-      out.line(
-        `{ id: ${proc.id}, name: "${proc.name}", stream: "${proc.stream}", requestType: "${
-          typeName(proc.requestType, named)
-        }", responseType: "${
-          typeName(proc.responseType, named)
-        }", errorType: "${typeName(proc.errorType, named)}" },`,
-      );
-    }
-  });
-  out.line("] as const;");
+  if (emitProcs) {
+    out.line();
+    out.line("export interface ProcDefinition {");
+    out.indent(() => {
+      out.line("id: number;");
+      out.line("name: string;");
+      out.line("stream: string;");
+      out.line("requestType: string;");
+      out.line("responseType: string;");
+      out.line("errorType: string;");
+    });
+    out.line("}");
+    out.line();
+    out.line("export const procDefinitions: readonly ProcDefinition[] = [");
+    out.indent(() => {
+      for (const proc of sortedProcs(schema)) {
+        out.line(
+          `{ id: ${proc.id}, name: "${proc.name}", stream: "${proc.stream}", requestType: "${
+            typeName(proc.requestType, named)
+          }", responseType: "${
+            typeName(proc.responseType, named)
+          }", errorType: "${typeName(proc.errorType, named)}" },`,
+        );
+      }
+    });
+    out.line("] as const;");
 
-  emitProcCodecs(out, schema, named);
+    emitProcCodecs(out, schema, named);
+  }
 
   for (const declaration of schema.declarations) {
     if (declaration.kind === "proc") continue;
@@ -354,6 +408,62 @@ function emitTypeScript(schema: Schema, options: CliOptions): string {
   emitDefaultFunctions(out, schema, named);
   emitRuntimeHelpers(out);
   return out.toString();
+}
+
+function emitRpcClientTypeScript(schema: Schema, options: CliOptions): string {
+  const out = new Writer();
+  const named = declarationMap(schema);
+  const procs = sortedProcs(schema);
+
+  out.line("// Generated by scripts/codegen/typescript/main.ts");
+  out.line("// Do not edit by hand.");
+  out.line("import {");
+  out.indent(() => {
+    out.line("callClientStream,");
+    out.line("callServerStream,");
+    out.line("callUnary,");
+    out.line("type RpcClientStream,");
+  });
+  out.line(`} from "${options.rpcRuntimeImport}";`);
+  out.line("import {");
+  out.indent(() => {
+    for (const proc of procs) out.line(`${procCodecName(proc)},`);
+  });
+  out.line(`} from "${options.generatedImport}";`);
+
+  const typeNames = new Set<string>();
+  for (const proc of procs) {
+    collectTypeImport(typeNames, proc.requestType, named);
+    collectTypeImport(typeNames, proc.responseType, named);
+  }
+  if (typeNames.size > 0) {
+    out.line("import type {");
+    out.indent(() => {
+      for (const name of [...typeNames].sort((a, b) => a.localeCompare(b))) {
+        out.line(`${name},`);
+      }
+    });
+    out.line(`} from "${options.generatedImport}";`);
+  }
+
+  for (const proc of procs) {
+    out.line();
+    emitProcClientWrapper(out, proc);
+  }
+  return out.toString();
+}
+
+function collectTypeImport(
+  typeNames: Set<string>,
+  type: TypeRef,
+  named: Map<string, Declaration>,
+) {
+  if (type.kind === "void" || type.kind === "primitive") return;
+  if (type.kind === "array") {
+    collectTypeImport(typeNames, type.item, named);
+    return;
+  }
+  typeNames.add(getNamed(type, named).name);
 }
 
 function declarationMap(schema: Schema): Map<string, Declaration> {
@@ -436,6 +546,57 @@ function emitProcCodecs(
     }
   });
   out.line("} as const;");
+}
+
+function emitProcClientWrapper(out: Writer, proc: ProcDeclaration) {
+  const requestType = tsType(proc.requestType);
+  const responseType = tsType(proc.responseType);
+  const name = lowerCamel(proc.name);
+  const codec = procCodecName(proc);
+  const requestIsVoid = proc.requestType.kind === "void";
+
+  if (proc.stream === "unary") {
+    const params = requestIsVoid
+      ? "transport: WebTransport"
+      : `transport: WebTransport, request: ${requestType}`;
+    const requestExpr = requestIsVoid ? "undefined" : "request";
+    out.line(
+      `export function ${name}(${params}): Promise<${responseType}> {`,
+    );
+    out.indent(() =>
+      out.line(`return callUnary(transport, ${codec}, ${requestExpr});`)
+    );
+    out.line("}");
+    return;
+  }
+
+  if (proc.stream === "server") {
+    const params = requestIsVoid
+      ? "transport: WebTransport"
+      : `transport: WebTransport, request: ${requestType}`;
+    const requestExpr = requestIsVoid ? "undefined" : "request";
+    out.line(
+      `export function ${name}(${params}): AsyncGenerator<${responseType}> {`,
+    );
+    out.indent(() =>
+      out.line(`return callServerStream(transport, ${codec}, ${requestExpr});`)
+    );
+    out.line("}");
+    return;
+  }
+
+  if (proc.stream === "client") {
+    out.line(
+      `export function ${name}(transport: WebTransport, requests: RpcClientStream<${requestType}>): Promise<${responseType}> {`,
+    );
+    out.indent(() =>
+      out.line(`return callClientStream(transport, ${codec}, requests);`)
+    );
+    out.line("}");
+    return;
+  }
+
+  throw new Error(`unsupported proc stream mode ${proc.stream}`);
 }
 
 function procCodecName(proc: ProcDeclaration): string {
@@ -967,6 +1128,10 @@ function lowerCamel(name: string): string {
   return name.slice(0, 1).toLowerCase() + name.slice(1);
 }
 
+function inferStandard(schema: Schema): CodegenStandard {
+  return sortedProcs(schema).length > 0 ? "rpc" : "wire";
+}
+
 function requiredId(
   item: { attributes: Record<string, string>; name: string },
   label: string,
@@ -1028,11 +1193,22 @@ class Writer {
 if (import.meta.main) {
   const options = parseCli(Deno.args);
   const schema = await loadSchema(options.schemaRoots);
-  const code = emitTypeScript(schema, options);
+  const standard = options.standard ?? inferStandard(schema);
+  const code = standard === "wire"
+    ? emitWireTypeScript(schema, options)
+    : emitRpcTypeScript(schema, options);
   if (options.out) {
     await Deno.mkdir(dirname(options.out), { recursive: true });
     await Deno.writeTextFile(options.out, code);
   } else {
     console.log(code);
+  }
+  if (options.rpcClientOut) {
+    if (standard !== "rpc") {
+      throw new Error("--rpc-client-out is only valid with --standard rpc");
+    }
+    const rpcClientCode = emitRpcClientTypeScript(schema, options);
+    await Deno.mkdir(dirname(options.rpcClientOut), { recursive: true });
+    await Deno.writeTextFile(options.rpcClientOut, rpcClientCode);
   }
 }

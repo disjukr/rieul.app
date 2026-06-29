@@ -1,18 +1,18 @@
 import { lazy, Suspense, useContext, useEffect, useRef, useState } from "react";
 import { useBunja } from "bunja/react";
 import { useAtomValue } from "jotai";
+import { writeFile } from "../../../../../../../../protocol/generated/client.ts";
 import {
   type FsEntry,
-  readFile,
-  writeFile,
   WriteFileMode,
-} from "../../../../../../../../protocol/rpc.ts";
+} from "../../../../../../../../protocol/generated/rpc.ts";
 import { workbenchTabBunja } from "../../../../../../../../state/workbench.ts";
 import {
   FilesActionsContext,
   requireFilesActions,
 } from "../../../../context.tsx";
 import { BigFileWarning } from "../../big-file-warning.tsx";
+import { readFileBytes } from "../../read-file-bytes.ts";
 import {
   fileViewerBunja,
   FsEntryContext,
@@ -91,7 +91,7 @@ export default function TextFileViewer() {
     setState({ phase: "loading" });
     void (async () => {
       try {
-        const bytes = await readFile(await webTransport(), fsEntry.path);
+        const bytes = await readFileBytes(await webTransport(), fsEntry.path);
         if (cancelled) return;
         const text = decodeTextFile(bytes);
         loadedFileVersionKeyRef.current = fileVersionKey;
@@ -155,10 +155,15 @@ export default function TextFileViewer() {
         const bytes = new TextEncoder().encode(nextText);
         const result = await writeFile(
           await webTransport(),
-          fsEntry.path,
-          WriteFileMode.Replace,
-          bytes,
-          { expectedResultSize: bytes.byteLength },
+          [
+            {
+              type: "writeFileStart",
+              path: fsEntry.path,
+              mode: WriteFileMode.Replace,
+              expectedResultSize: bytes.byteLength,
+            },
+            { type: "writeFileChunk", bytes },
+          ],
         );
         loadedFileVersionKeyRef.current = fileVersionKey;
         ownSavedFileVersionRef.current = {

@@ -14,12 +14,14 @@ import {
 } from "lucide-react";
 import {
   createNodes,
-  DeleteMode,
   deletePaths,
-  FsEntry,
-  FsEntryKind,
   renamePaths,
-} from "../../../../protocol/rpc.ts";
+} from "../../../../protocol/generated/client.ts";
+import {
+  DeleteMode,
+  type FsEntry,
+  FsEntryKind,
+} from "../../../../protocol/generated/rpc.ts";
 import {
   displayName,
   explorerBunja,
@@ -339,16 +341,15 @@ export function FilesTool() {
       const transport = await rpcSession.webTransport();
       const result = await deletePaths(
         transport,
-        [deleteEntry.entry.path],
-        DeleteMode.Trash,
+        { paths: [deleteEntry.entry.path], mode: DeleteMode.Trash },
       );
-      const failure = result.results.find((item) => !item.ok);
-      if (failure && !failure.ok) {
+      const failure = result.results.find((item) => item.type === "failed");
+      if (failure?.type === "failed") {
         setDeleteEntry((current) =>
           current
             ? {
               ...current,
-              error: failure.message || failure.code,
+              error: failure.error.message || failure.error.type,
               isDeleting: false,
             }
             : current
@@ -399,14 +400,16 @@ export function FilesTool() {
     try {
       const transport = await rpcSession.webTransport();
       const to = childPath(currentPath, nextName);
-      const result = await renamePaths(transport, [{ from: entry.path, to }]);
-      const failure = result.results.find((item) => !item.ok);
-      if (failure && !failure.ok) {
+      const result = await renamePaths(transport, {
+        ops: [{ from: entry.path, to }],
+      });
+      const failure = result.results.find((item) => item.type === "failed");
+      if (failure?.type === "failed") {
         setRenameEntry((current) =>
           current && current.entry.path === entry.path
             ? {
               ...current,
-              error: failure.message || failure.code,
+              error: failure.error.message || failure.error.type,
               isRenaming: false,
             }
             : current
@@ -443,16 +446,16 @@ export function FilesTool() {
     );
     try {
       const transport = await rpcSession.webTransport();
-      const result = await createNodes(transport, [
-        { path: childPath(currentPath, name), spec: { type: "file" } },
-      ]);
-      const failure = result.results.find((item) => !item.ok);
-      if (failure && !failure.ok) {
+      const result = await createNodes(transport, {
+        nodes: [{ path: childPath(currentPath, name), spec: { type: "file" } }],
+      });
+      const failure = result.results.find((item) => item.type === "failed");
+      if (failure?.type === "failed") {
         setCreateFile((current) =>
           current
             ? {
               ...current,
-              error: failure.message || failure.code,
+              error: failure.error.message || failure.error.type,
               isCreating: false,
             }
             : current

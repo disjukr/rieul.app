@@ -1,5 +1,8 @@
 import React from "react";
-import { FsEntry, FsEntryKind } from "../../../../../../protocol/rpc.ts";
+import {
+  type FsEntry,
+  FsEntryKind,
+} from "../../../../../../protocol/generated/rpc.ts";
 import {
   displayName,
   formatDate,
