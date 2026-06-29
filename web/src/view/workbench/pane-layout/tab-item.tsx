@@ -1,7 +1,7 @@
 import React from "react";
 import { useAtomValue } from "jotai";
 import { useBunja } from "bunja/react";
-import { Folder, Info, Terminal, X } from "lucide-react";
+import { Folder, Info, Terminal, Trash2, X } from "lucide-react";
 import {
   displayName,
   explorerNavigationBunja,
@@ -106,6 +106,10 @@ export function WorkbenchTabItem(
   const dirty = useAtomValue(tabState.dirtyAtom);
   const showClose = useAtomValue(tabState.showCloseAtom);
   const label = useWorkbenchTabLabel(tabState.tabId, tab);
+  const navigation = useBunja(explorerNavigationBunja, [
+    ExplorerPaneScope.bind(tabState.tabId),
+  ]);
+  const specialLocation = useAtomValue(navigation.specialLocationAtom);
   const tabClassName = className(
     workbenchTabClassName,
     active && "active",
@@ -172,7 +176,8 @@ export function WorkbenchTabItem(
         title={label}
       >
         <WorkbenchTabIcon
-          tool={tab.tool}
+          tab={tab}
+          trashActive={specialLocation === "trash"}
           className={workbenchTabIconClassName}
         />
         <span className={workbenchTabTitleClassName}>{label}</span>
@@ -210,17 +215,21 @@ export function WorkbenchTabItem(
 
 interface WorkbenchTabIconProps {
   className: string;
-  tool: WorkbenchTab["tool"];
+  tab: WorkbenchTab;
+  trashActive: boolean;
 }
 
 function WorkbenchTabIcon(
-  { className, tool }: WorkbenchTabIconProps,
+  { className, tab, trashActive }: WorkbenchTabIconProps,
 ) {
-  if (tool === "daemon") {
+  if (tab.tool === "daemon") {
     return <Info size={12} className={className} />;
   }
-  if (tool === "terminal") {
+  if (tab.tool === "terminal") {
     return <Terminal size={12} className={className} />;
+  }
+  if (tab.tool === "files" && trashActive) {
+    return <Trash2 size={12} className={className} />;
   }
   return <Folder size={12} className={className} />;
 }
@@ -234,9 +243,11 @@ function useWorkbenchTabLabel(
   ]);
   const currentPath = useAtomValue(navigation.currentPathAtom);
   const openedFile = useAtomValue(navigation.openedFileAtom);
+  const specialLocation = useAtomValue(navigation.specialLocationAtom);
 
   if (!tab) return "Files";
   if (tab.tool === "files") {
+    if (specialLocation === "trash") return "Trash";
     return openedFile
       ? displayName(openedFile)
       : folderNameFromPath(currentPath);

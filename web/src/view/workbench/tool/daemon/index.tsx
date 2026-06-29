@@ -50,6 +50,9 @@ const procNames = new Map<number, string>([
   [17, "WriteTerminalInput"],
   [18, "CloseTerminalSession"],
   [19, "SubscribeClients"],
+  [20, "SubscribeTrashItems"],
+  [21, "RestoreTrashItems"],
+  [22, "PurgeTrashItems"],
 ]);
 
 const daemonToolClassName = [

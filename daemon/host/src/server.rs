@@ -29,12 +29,14 @@ use wgo_daemon_core::pairing::{
 use wgo_daemon_core::rpc::{
     AttachTerminalSessionReq, AvailableShellsTableEvent, BulkMutationItemResult, BulkMutationRes,
     ClientInfo, ClientKey, ClientsTableEvent, CloseTerminalSessionReq, CompletePairingRequest,
-    CompletePairingResponse, CreateNodesReq, CreateTerminalSessionReq, DaemonInfo, DeletePathsReq,
-    DirectoryEntryKey, DirectorySubscriptionCloseReason, DirectoryTableEvent, FsEntry, ProcId,
-    ReadFileChunk, ReadFileReq, RenamePathsReq, RenewClientCredentialResponse, RootEntryKey,
+    CompletePairingResponse, CreateNodesReq, CreateTerminalSessionReq, DaemonInfo, DeleteMode,
+    DeletePathsReq, DirectoryEntryKey, DirectorySubscriptionCloseReason, DirectoryTableEvent,
+    FsEntry, ProcId, PurgeTrashItemsReq, ReadFileChunk, ReadFileReq, RenamePathsReq,
+    RenewClientCredentialResponse, RestoreTrashItemsReq, RootEntryKey,
     RootsSubscriptionCloseReason, RootsTableEvent, RpcErrorCode, RpcErrorPayload,
     StartPairingRequest, StartPairingResponse, TakeTerminalControlReq, TerminalEvent,
-    TerminalSessionsTableEvent, WriteFileReq, WriteTerminalInputReq,
+    TerminalSessionsTableEvent, TrashItem, TrashItemsSubscriptionCloseReason, TrashItemsTableEvent,
+    WriteFileReq, WriteTerminalInputReq,
 };
 use wgo_daemon_core::traits::{FileService, ServiceError};
 use wgo_daemon_core::wire::{
@@ -52,6 +54,7 @@ const CONFIG_STARTUP_RETRY_INTERVAL: Duration = Duration::from_secs(5);
 const SCHEDULED_CERT_REFRESH_INTERVAL: Duration = Duration::from_secs(60 * 60);
 const SUBSCRIPTION_DEBOUNCE: Duration = Duration::from_millis(150);
 const ROOTS_SUBSCRIPTION_POLL_INTERVAL: Duration = Duration::from_secs(2);
+const TRASH_SUBSCRIPTION_POLL_INTERVAL: Duration = Duration::from_secs(2);
 const QUIC_MAX_IDLE_TIMEOUT: Duration = Duration::from_secs(120);
 const QUIC_KEEP_ALIVE_INTERVAL: Duration = Duration::from_secs(10);
 const READ_FILE_CHUNK_SIZE: usize = 64 * 1024;
@@ -66,6 +69,7 @@ type SharedRpcSessionState = Arc<Mutex<RpcSessionState>>;
 type SharedFileService = Arc<dyn FileService>;
 type SharedPairingNotifier = Arc<dyn PairingNotifier>;
 type SharedTerminalManager = Arc<TerminalManager>;
+type SharedTrashEvents = watch::Sender<u64>;
 
 static NEXT_RPC_SESSION_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -175,6 +179,7 @@ async fn run_system_server_once(
     let (client_credentials_events, _) = watch::channel(initial_client_credentials);
     let pairing_challenge = Arc::new(Mutex::new(PairingState::default()));
     let terminals = Arc::new(TerminalManager::new());
+    let (trash_events, _) = watch::channel(0);
 
     let resolver = Arc::new(ReloadingCertResolver::new(certificate.certified_key));
     let mut server = build_reloadable_server(addr, provider.clone(), resolver.clone())?;
@@ -198,6 +203,7 @@ async fn run_system_server_once(
         let pairing_challenge = pairing_challenge.clone();
         let files = files.clone();
         let terminals = terminals.clone();
+        let trash_events = trash_events.clone();
         let pairing_notifier = pairing_notifier.clone();
         tokio::spawn(async move {
             if let Err(err) = handle_request(
@@ -210,6 +216,7 @@ async fn run_system_server_once(
                 pairing_challenge,
                 files,
                 terminals,
+                trash_events,
                 pairing_notifier,
             )
             .await
@@ -731,6 +738,7 @@ async fn handle_request(
     pairing_challenge: SharedPairingChallenge,
     files: SharedFileService,
     terminals: SharedTerminalManager,
+    trash_events: SharedTrashEvents,
     pairing_notifier: Option<SharedPairingNotifier>,
 ) -> Result<()> {
     let path = request.url.path().to_string();
@@ -747,6 +755,7 @@ async fn handle_request(
                 pairing_challenge,
                 files,
                 terminals,
+                trash_events,
                 pairing_notifier,
             )
             .await
@@ -774,6 +783,7 @@ async fn run_rpc_session(
     pairing_challenge: SharedPairingChallenge,
     files: SharedFileService,
     terminals: SharedTerminalManager,
+    trash_events: SharedTrashEvents,
     pairing_notifier: Option<SharedPairingNotifier>,
 ) -> Result<()> {
     let session_state = Arc::new(Mutex::new(RpcSessionState {
@@ -793,6 +803,7 @@ async fn run_rpc_session(
                 let session_state = session_state.clone();
                 let files = files.clone();
                 let terminals = terminals.clone();
+                let trash_events = trash_events.clone();
                 let pairing_notifier = pairing_notifier.clone();
                 tokio::spawn(async move {
                     let response = async {
@@ -811,6 +822,7 @@ async fn run_rpc_session(
                             session_state,
                             files,
                             terminals,
+                            trash_events,
                             pairing_notifier,
                         )
                         .await?;
@@ -851,6 +863,7 @@ fn handle_wire_datagram(bytes: &[u8]) -> Option<Vec<u8>> {
 fn is_subscription_proc(proc_id: u64) -> bool {
     proc_id == ProcId::SubscribeRoots.as_u64()
         || proc_id == ProcId::SubscribeDirectory.as_u64()
+        || proc_id == ProcId::SubscribeTrashItems.as_u64()
         || proc_id == ProcId::SubscribeTerminalSessions.as_u64()
         || proc_id == ProcId::SubscribeAvailableShells.as_u64()
         || proc_id == ProcId::SubscribeClients.as_u64()
@@ -887,6 +900,7 @@ async fn handle_reqres_messages(
     pairing_notifier: Option<SharedPairingNotifier>,
 ) -> Result<Vec<ReqResMessage>> {
     let client_credentials_events = temporary_client_credentials_events(&client_credentials).await;
+    let (trash_events, _) = watch::channel(0);
     handle_reqres_messages_with_events(
         messages,
         config_path,
@@ -898,6 +912,7 @@ async fn handle_reqres_messages(
         session_state,
         files,
         terminals,
+        trash_events,
         pairing_notifier,
     )
     .await
@@ -914,6 +929,7 @@ async fn handle_reqres_messages_with_events(
     session_state: SharedRpcSessionState,
     files: SharedFileService,
     terminals: SharedTerminalManager,
+    trash_events: SharedTrashEvents,
     pairing_notifier: Option<SharedPairingNotifier>,
 ) -> Result<Vec<ReqResMessage>> {
     let Some(first) = messages.first() else {
@@ -937,6 +953,7 @@ async fn handle_reqres_messages_with_events(
             session_state,
             files,
             terminals,
+            trash_events,
             pairing_notifier,
         )
         .await
@@ -955,6 +972,7 @@ async fn handle_reqres_stream(
     session_state: SharedRpcSessionState,
     files: SharedFileService,
     terminals: SharedTerminalManager,
+    trash_events: SharedTrashEvents,
     pairing_notifier: Option<SharedPairingNotifier>,
 ) -> Result<()> {
     if let Some((proc_id, payload)) = request_unary_parts(&messages) {
@@ -968,6 +986,7 @@ async fn handle_reqres_stream(
                 session_state,
                 files,
                 terminals,
+                trash_events,
             )
             .await;
         }
@@ -993,6 +1012,7 @@ async fn handle_reqres_stream(
         session_state,
         files,
         terminals,
+        trash_events,
         pairing_notifier,
     )
     .await?;
@@ -1018,6 +1038,7 @@ async fn handle_server_stream(
     session_state: SharedRpcSessionState,
     files: SharedFileService,
     terminals: SharedTerminalManager,
+    trash_events: SharedTrashEvents,
 ) -> Result<()> {
     if requires_authentication(proc_id) && !is_authenticated(&session_state).await {
         write_reqres_message(
@@ -1038,6 +1059,10 @@ async fn handle_server_stream(
 
     if proc_id == ProcId::SubscribeRoots.as_u64() {
         return stream_roots_subscription(send, files.clone(), proc_id).await;
+    }
+
+    if proc_id == ProcId::SubscribeTrashItems.as_u64() {
+        return stream_trash_items_subscription(send, files.clone(), trash_events, proc_id).await;
     }
 
     if proc_id == ProcId::SubscribeTerminalSessions.as_u64() {
@@ -1537,6 +1562,59 @@ async fn stream_roots_subscription(
     }
 }
 
+async fn stream_trash_items_subscription(
+    send: &mut web_transport_quinn::SendStream,
+    files: SharedFileService,
+    trash_events: SharedTrashEvents,
+    proc_id: u64,
+) -> Result<()> {
+    let mut rows = match files.trash_items().await {
+        Ok(rows) => rows,
+        Err(err) => {
+            write_reqres_message(send, stream_service_error_message(proc_id, err)).await?;
+            return Ok(());
+        }
+    };
+    write_reqres_message(
+        send,
+        stream_start_payload_message(
+            TrashItemsTableEvent::Snapshot { rows: rows.clone() }.encode(),
+        ),
+    )
+    .await?;
+
+    let mut interval = tokio::time::interval(TRASH_SUBSCRIPTION_POLL_INTERVAL);
+    let mut trash_events = trash_events.subscribe();
+    loop {
+        tokio::select! {
+            _ = interval.tick() => {}
+            changed = trash_events.changed() => {
+                if changed.is_err() {
+                    return Ok(());
+                }
+            }
+        }
+        match files.trash_items().await {
+            Ok(next_rows) => {
+                if let Some(event) = trash_items_patch(&rows, &next_rows) {
+                    write_reqres_message(send, stream_chunk_payload_message(event.encode()))
+                        .await?;
+                    rows = next_rows;
+                }
+            }
+            Err(err) => {
+                let reason = trash_items_close_reason_for_error(&err);
+                write_reqres_message(
+                    send,
+                    stream_chunk_payload_message(TrashItemsTableEvent::Closed { reason }.encode()),
+                )
+                .await?;
+                return Ok(());
+            }
+        }
+    }
+}
+
 async fn stream_directory_subscription(
     send: &mut web_transport_quinn::SendStream,
     files: SharedFileService,
@@ -1720,6 +1798,39 @@ fn directory_patch(previous: &[FsEntry], next: &[FsEntry]) -> Option<DirectoryTa
     }
 }
 
+fn trash_items_patch(previous: &[TrashItem], next: &[TrashItem]) -> Option<TrashItemsTableEvent> {
+    let previous_by_id: BTreeMap<&str, &TrashItem> = previous
+        .iter()
+        .map(|entry| (entry.id.as_str(), entry))
+        .collect();
+    let next_by_id: BTreeMap<&str, &TrashItem> = next
+        .iter()
+        .map(|entry| (entry.id.as_str(), entry))
+        .collect();
+
+    let removes = previous_by_id
+        .keys()
+        .filter(|id| !next_by_id.contains_key(**id))
+        .map(|id| (*id).to_string())
+        .collect::<Vec<_>>();
+    let upserts = next_by_id
+        .iter()
+        .filter_map(|(id, entry)| {
+            if previous_by_id.get(id).copied() == Some(*entry) {
+                None
+            } else {
+                Some((*entry).clone())
+            }
+        })
+        .collect::<Vec<_>>();
+
+    if removes.is_empty() && upserts.is_empty() {
+        None
+    } else {
+        Some(TrashItemsTableEvent::Patch { removes, upserts })
+    }
+}
+
 fn roots_close_reason_for_error(err: &ServiceError) -> RootsSubscriptionCloseReason {
     match err {
         ServiceError::PermissionDenied => RootsSubscriptionCloseReason::PermissionLost,
@@ -1737,6 +1848,16 @@ fn directory_close_reason_for_error(err: &ServiceError) -> DirectorySubscription
         ServiceError::PermissionDenied => DirectorySubscriptionCloseReason::PermissionLost,
         ServiceError::OperationFailed(_) => DirectorySubscriptionCloseReason::Failed,
         _ => DirectorySubscriptionCloseReason::Unknown,
+    }
+}
+
+fn trash_items_close_reason_for_error(err: &ServiceError) -> TrashItemsSubscriptionCloseReason {
+    match err {
+        ServiceError::PermissionDenied => TrashItemsSubscriptionCloseReason::PermissionLost,
+        ServiceError::OperationFailed(_) | ServiceError::Unsupported => {
+            TrashItemsSubscriptionCloseReason::Failed
+        }
+        _ => TrashItemsSubscriptionCloseReason::Unknown,
     }
 }
 
@@ -1831,6 +1952,7 @@ async fn handle_rpc_messages(
     pairing_notifier: Option<SharedPairingNotifier>,
 ) -> Result<Vec<ReqResMessage>> {
     let client_credentials_events = temporary_client_credentials_events(&client_credentials).await;
+    let (trash_events, _) = watch::channel(0);
     handle_rpc_messages_with_events(
         messages,
         config_path,
@@ -1842,6 +1964,7 @@ async fn handle_rpc_messages(
         session_state,
         files,
         terminals,
+        trash_events,
         pairing_notifier,
     )
     .await
@@ -1858,6 +1981,7 @@ async fn handle_rpc_messages_with_events(
     session_state: SharedRpcSessionState,
     files: SharedFileService,
     terminals: SharedTerminalManager,
+    trash_events: SharedTrashEvents,
     pairing_notifier: Option<SharedPairingNotifier>,
 ) -> Result<Vec<ReqResMessage>> {
     if messages.len() != 1 {
@@ -2209,10 +2333,60 @@ async fn handle_rpc_messages_with_events(
                     )]);
                 }
             };
-            ok_payload_message(
-                proc_id,
-                delete_paths(files.as_ref(), request).await.encode(),
-            )
+            let mode = request.mode;
+            let response = delete_paths(files.as_ref(), request).await;
+            if mode == DeleteMode::Trash && bulk_mutation_has_ok(&response) {
+                notify_trash_changed(&trash_events);
+            }
+            ok_payload_message(proc_id, response.encode())
+        }
+        id if id == ProcId::RestoreTrashItems.as_u64() => {
+            let Some(payload) = payload else {
+                return Ok(vec![error_message(
+                    proc_id,
+                    "missing_payload",
+                    "RestoreTrashItems requires a payload",
+                )]);
+            };
+            let request = match RestoreTrashItemsReq::decode(payload) {
+                Ok(request) => request,
+                Err(_) => {
+                    return Ok(vec![generic_error_message(
+                        proc_id,
+                        RpcErrorCode::MalformedPayload,
+                        "RestoreTrashItems payload is malformed",
+                    )]);
+                }
+            };
+            let response = restore_trash_items(files.as_ref(), request).await;
+            if bulk_mutation_has_ok(&response) {
+                notify_trash_changed(&trash_events);
+            }
+            ok_payload_message(proc_id, response.encode())
+        }
+        id if id == ProcId::PurgeTrashItems.as_u64() => {
+            let Some(payload) = payload else {
+                return Ok(vec![error_message(
+                    proc_id,
+                    "missing_payload",
+                    "PurgeTrashItems requires a payload",
+                )]);
+            };
+            let request = match PurgeTrashItemsReq::decode(payload) {
+                Ok(request) => request,
+                Err(_) => {
+                    return Ok(vec![generic_error_message(
+                        proc_id,
+                        RpcErrorCode::MalformedPayload,
+                        "PurgeTrashItems payload is malformed",
+                    )]);
+                }
+            };
+            let response = purge_trash_items(files.as_ref(), request).await;
+            if bulk_mutation_has_ok(&response) {
+                notify_trash_changed(&trash_events);
+            }
+            ok_payload_message(proc_id, response.encode())
         }
         id if id == ProcId::CreateTerminalSession.as_u64() => {
             let Some(client_id) = authenticated_client_id(&session_state).await else {
@@ -2332,6 +2506,49 @@ async fn delete_paths(files: &dyn FileService, request: DeletePathsReq) -> BulkM
         }
     }
     BulkMutationRes { results }
+}
+
+async fn restore_trash_items(
+    files: &dyn FileService,
+    request: RestoreTrashItemsReq,
+) -> BulkMutationRes {
+    let mut results = Vec::with_capacity(request.item_ids.len());
+    for (index, item_id) in request.item_ids.into_iter().enumerate() {
+        match files.restore_trash_item(item_id).await {
+            Ok(()) => results.push(BulkMutationItemResult::ok(index)),
+            Err(err) => results.push(BulkMutationItemResult::failed(index, err)),
+        }
+    }
+    BulkMutationRes { results }
+}
+
+async fn purge_trash_items(
+    files: &dyn FileService,
+    request: PurgeTrashItemsReq,
+) -> BulkMutationRes {
+    let mut results = Vec::with_capacity(request.item_ids.len());
+    for (index, item_id) in request.item_ids.into_iter().enumerate() {
+        match files.purge_trash_item(item_id).await {
+            Ok(()) => results.push(BulkMutationItemResult::ok(index)),
+            Err(err) => results.push(BulkMutationItemResult::failed(index, err)),
+        }
+    }
+    BulkMutationRes { results }
+}
+
+fn bulk_mutation_has_ok(response: &BulkMutationRes) -> bool {
+    response
+        .results
+        .iter()
+        .any(|result| matches!(result, BulkMutationItemResult::Ok { .. }))
+}
+
+fn notify_trash_changed(trash_events: &SharedTrashEvents) {
+    let next = {
+        let current = *trash_events.borrow();
+        current.wrapping_add(1)
+    };
+    trash_events.send_replace(next);
 }
 
 async fn is_authenticated(session_state: &SharedRpcSessionState) -> bool {
@@ -2744,6 +2961,11 @@ fn method_error_variant(proc_id: u64, code: &str) -> Option<u64> {
             "not_directory" => Some(3),
             _ => None,
         },
+        id if id == ProcId::SubscribeTrashItems.as_u64() => match code {
+            "failed" | "unsupported" => Some(0),
+            "permission_denied" => Some(1),
+            _ => None,
+        },
         id if id == ProcId::ReadFile.as_u64() => match code {
             "failed" => Some(0),
             "permission_denied" => Some(1),
@@ -2764,7 +2986,9 @@ fn method_error_variant(proc_id: u64, code: &str) -> Option<u64> {
         },
         id if id == ProcId::CreateNodes.as_u64()
             || id == ProcId::RenamePaths.as_u64()
-            || id == ProcId::DeletePaths.as_u64() =>
+            || id == ProcId::DeletePaths.as_u64()
+            || id == ProcId::RestoreTrashItems.as_u64()
+            || id == ProcId::PurgeTrashItems.as_u64() =>
         {
             match code {
                 "failed" => Some(0),
@@ -3860,6 +4084,27 @@ mod tests {
             &self,
             _path: String,
             _mode: DeleteMode,
+        ) -> wgo_daemon_core::traits::BoxFutureResult<'_, ()> {
+            Box::pin(async { Err(ServiceError::Unsupported) })
+        }
+
+        fn trash_items(
+            &self,
+        ) -> wgo_daemon_core::traits::BoxFutureResult<'_, Vec<wgo_daemon_core::rpc::TrashItem>>
+        {
+            Box::pin(async { Err(ServiceError::Unsupported) })
+        }
+
+        fn restore_trash_item(
+            &self,
+            _item_id: String,
+        ) -> wgo_daemon_core::traits::BoxFutureResult<'_, ()> {
+            Box::pin(async { Err(ServiceError::Unsupported) })
+        }
+
+        fn purge_trash_item(
+            &self,
+            _item_id: String,
         ) -> wgo_daemon_core::traits::BoxFutureResult<'_, ()> {
             Box::pin(async { Err(ServiceError::Unsupported) })
         }

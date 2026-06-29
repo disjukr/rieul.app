@@ -6,7 +6,10 @@ import { machineStoreBunja } from "../../state/machine-store.ts";
 import type { Machine } from "../../state/machines.ts";
 import { rpcSessionBunja } from "../../state/rpc-session.ts";
 import { terminalShellsBunja } from "../../state/terminal-shells.ts";
-import { workbenchBunja } from "../../state/workbench.ts";
+import {
+  workbenchBunja,
+  type WorkbenchFilesView,
+} from "../../state/workbench.ts";
 import { layoutBunja } from "../state.tsx";
 
 const machineMenuWidth = 176;
@@ -53,6 +56,10 @@ export const machinePanelBunja = bunja(() => {
     );
   }
 
+  function openFilesView(filesView: WorkbenchFilesView) {
+    workbench.openFilesTab({ filesView });
+  }
+
   return {
     activeToolAtom: workbench.activeToolAtom,
     connectionAtom: rpcSession.connectionAtom,
@@ -62,6 +69,7 @@ export const machinePanelBunja = bunja(() => {
     machinePanelMinWidth: layout.machinePanelMinWidth,
     machinePanelWidthAtom: layout.machinePanelWidthAtom,
     openMachineTitleMenu,
+    openFilesView,
     openTerminalShell,
     resizeMachinePanelWithKeyboard: layout.resizeMachinePanelWithKeyboard,
     selectTool: workbench.selectTool,

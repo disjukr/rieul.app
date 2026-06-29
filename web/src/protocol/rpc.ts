@@ -31,6 +31,9 @@ const PROC_TAKE_TERMINAL_CONTROL = 16;
 const PROC_WRITE_TERMINAL_INPUT = 17;
 const PROC_CLOSE_TERMINAL_SESSION = 18;
 const PROC_SUBSCRIBE_CLIENTS = 19;
+const PROC_SUBSCRIBE_TRASH_ITEMS = 20;
+const PROC_RESTORE_TRASH_ITEMS = 21;
+const PROC_PURGE_TRASH_ITEMS = 22;
 const CONNECT_TIMEOUT_MS = 10_000;
 
 export interface CompletePairingResponse {
@@ -96,6 +99,23 @@ export type DirectoryTableEvent =
   | { type: "snapshot"; rows: FsEntry[] }
   | { type: "patch"; removes: { name: string }[]; upserts: FsEntry[] }
   | { type: "closed"; reason: string; to?: string };
+
+export interface TrashItem {
+  id: string;
+  name: string;
+  originalParent: string;
+  deletedAtMs?: number;
+  size?: TrashItemSize;
+}
+
+export type TrashItemSize =
+  | { type: "bytes"; value: number }
+  | { type: "entries"; value: number };
+
+export type TrashItemsTableEvent =
+  | { type: "snapshot"; rows: TrashItem[] }
+  | { type: "patch"; removes: string[]; upserts: TrashItem[] }
+  | { type: "closed"; reason: string };
 
 export enum WriteFileMode {
   Create = 1,
@@ -474,6 +494,47 @@ export async function deletePaths(
   const response = await callUnaryPayload(
     transport,
     PROC_DELETE_PATHS,
+    payload,
+  );
+  return decodeBulkMutationResponse(response);
+}
+
+export async function* subscribeTrashItems(
+  transport: WebTransport,
+): AsyncGenerator<TrashItemsTableEvent> {
+  yield* callServerStreamEvents(
+    transport,
+    PROC_SUBSCRIBE_TRASH_ITEMS,
+    undefined,
+    decodeTrashItemsTableEvent,
+  );
+}
+
+export async function restoreTrashItems(
+  transport: WebTransport,
+  itemIds: string[],
+): Promise<BulkMutationResponse> {
+  const payload = encodeCbor(
+    new Map<number, CborValue>([[1, itemIds]]),
+  );
+  const response = await callUnaryPayload(
+    transport,
+    PROC_RESTORE_TRASH_ITEMS,
+    payload,
+  );
+  return decodeBulkMutationResponse(response);
+}
+
+export async function purgeTrashItems(
+  transport: WebTransport,
+  itemIds: string[],
+): Promise<BulkMutationResponse> {
+  const payload = encodeCbor(
+    new Map<number, CborValue>([[1, itemIds]]),
+  );
+  const response = await callUnaryPayload(
+    transport,
+    PROC_PURGE_TRASH_ITEMS,
     payload,
   );
   return decodeBulkMutationResponse(response);
@@ -1098,6 +1159,30 @@ function decodeDirectoryTableEvent(bytes: Uint8Array): DirectoryTableEvent {
   }
 }
 
+function decodeTrashItemsTableEvent(bytes: Uint8Array): TrashItemsTableEvent {
+  const [variantId, fields] = decodeUnion(decodeCbor(bytes));
+  switch (variantId) {
+    case 1:
+      return {
+        type: "snapshot",
+        rows: array(fields.get(1)).map(decodeTrashItem),
+      };
+    case 2:
+      return {
+        type: "patch",
+        removes: array(fields.get(1)).map(text),
+        upserts: array(fields.get(2)).map(decodeTrashItem),
+      };
+    case 3:
+      return {
+        type: "closed",
+        reason: trashItemsCloseReason(fields.get(1)),
+      };
+    default:
+      throw new Error(`unknown TrashItemsTableEvent variant ${variantId}`);
+  }
+}
+
 function decodeTerminalSessionsTableEvent(
   bytes: Uint8Array,
 ): TerminalSessionsTableEvent {
@@ -1309,6 +1394,30 @@ function decodeClientInfoValue(value: unknown): ClientInfo {
   };
 }
 
+function decodeTrashItem(value: CborValue): TrashItem {
+  const map = mapValue(value);
+  return {
+    id: text(map.get(1)),
+    name: text(map.get(2)),
+    originalParent: text(map.get(3)),
+    deletedAtMs: optionalInteger(map.get(4)),
+    size: decodeTrashItemSize(map.get(5)),
+  };
+}
+
+function decodeTrashItemSize(value: unknown): TrashItemSize | undefined {
+  if (value === undefined) return undefined;
+  const [variantId, fields] = decodeUnionValue(value);
+  switch (variantId) {
+    case 1:
+      return { type: "bytes", value: integer(fields.get(1)) };
+    case 2:
+      return { type: "entries", value: integer(fields.get(1)) };
+    default:
+      throw new Error(`unknown TrashItemSize variant ${variantId}`);
+  }
+}
+
 function decodeFsEntries(value: unknown): FsEntry[] {
   return array(value).map(decodeFsEntry);
 }
@@ -1400,6 +1509,20 @@ function directoryCloseReason(variantId: number): string {
       return "Unknown";
     default:
       return `DirectorySubscriptionCloseReason${variantId}`;
+  }
+}
+
+function trashItemsCloseReason(value: unknown): string {
+  const [variantId] = decodeUnionValue(value);
+  switch (variantId) {
+    case 0:
+      return "Failed";
+    case 1:
+      return "PermissionLost";
+    case 2:
+      return "Unknown";
+    default:
+      return `TrashItemsSubscriptionCloseReason${variantId}`;
   }
 }
 
@@ -1560,6 +1683,10 @@ const METHOD_ERROR_CODES: Record<string, string> = {
   [methodErrorKey(PROC_CLOSE_TERMINAL_SESSION, 2)]: "PermissionDenied",
   [methodErrorKey(PROC_SUBSCRIBE_CLIENTS, 0)]: "Failed",
   [methodErrorKey(PROC_SUBSCRIBE_CLIENTS, 1)]: "PermissionDenied",
+  [methodErrorKey(PROC_SUBSCRIBE_TRASH_ITEMS, 0)]: "Failed",
+  [methodErrorKey(PROC_SUBSCRIBE_TRASH_ITEMS, 1)]: "PermissionDenied",
+  [methodErrorKey(PROC_RESTORE_TRASH_ITEMS, 0)]: "Failed",
+  [methodErrorKey(PROC_PURGE_TRASH_ITEMS, 0)]: "Failed",
 };
 
 const SESSION_AUTH_ERROR_CODES: Record<string, string> = {

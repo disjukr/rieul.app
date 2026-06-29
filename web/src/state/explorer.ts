@@ -18,16 +18,21 @@ import { rpcSessionBunja } from "./rpc-session.ts";
 import { StreamState } from "./types.ts";
 
 export const ExplorerPaneScope = createScope<string>();
+export const trashLocationPath = "wgo://trash";
+
+export type ExplorerSpecialLocation = "trash";
 
 interface ExplorerNavigationState {
   currentPath?: string;
   history: ExplorerHistoryEntry[];
   openedFile?: FsEntry;
+  specialLocation?: ExplorerSpecialLocation;
 }
 
 interface ExplorerHistoryEntry {
   path?: string;
   openedFile?: FsEntry;
+  specialLocation?: ExplorerSpecialLocation;
 }
 
 export const explorerMachineBunja = bunja(() => {
@@ -98,7 +103,22 @@ export const explorerNavigationBunja = bunja(() => {
     },
   );
   const displayPathAtom = atom((get) =>
-    get(openedFileAtom)?.path ?? get(currentPathAtom)
+    get(specialLocationAtom) === "trash"
+      ? trashLocationPath
+      : get(openedFileAtom)?.path ?? get(currentPathAtom)
+  );
+  const specialLocationAtom = atom(
+    (get) => get(navigationStateAtom).specialLocation,
+    (get, set, update: SetStateAction<ExplorerSpecialLocation | undefined>) => {
+      const next = resolveSetStateAction(
+        update,
+        get(navigationStateAtom).specialLocation,
+      );
+      set(navigationStateAtom, (current) => ({
+        ...current,
+        specialLocation: next,
+      }));
+    },
   );
   const historyAtom = atom(
     (get) => get(navigationStateAtom).history,
@@ -118,12 +138,33 @@ export const explorerNavigationBunja = bunja(() => {
   }
 
   function navigate(path?: string) {
+    if (path === trashLocationPath) {
+      navigateTrash();
+      return;
+    }
     store.set(
       historyAtom,
       (current) => [...current, currentLocation()],
     );
     store.set(currentPathAtom, path);
     store.set(openedFileAtom, undefined);
+    store.set(specialLocationAtom, undefined);
+    store.set(selectedPathAtom, undefined);
+  }
+
+  function navigateTrash() {
+    store.set(
+      historyAtom,
+      (current) => [...current, currentLocation()],
+    );
+    store.set(openedFileAtom, undefined);
+    store.set(specialLocationAtom, "trash");
+    store.set(selectedPathAtom, undefined);
+  }
+
+  function replaceWithTrash() {
+    store.set(openedFileAtom, undefined);
+    store.set(specialLocationAtom, "trash");
     store.set(selectedPathAtom, undefined);
   }
 
@@ -133,11 +174,13 @@ export const explorerNavigationBunja = bunja(() => {
     const next = history[history.length - 1];
     store.set(currentPathAtom, next.path);
     store.set(openedFileAtom, next.openedFile);
+    store.set(specialLocationAtom, next.specialLocation);
     store.set(selectedPathAtom, next.openedFile?.path);
     store.set(historyAtom, history.slice(0, -1));
   }
 
   function goUp() {
+    if (store.get(specialLocationAtom) === "trash") return;
     if (store.get(openedFileAtom)) {
       navigate(store.get(currentPathAtom));
       return;
@@ -152,6 +195,7 @@ export const explorerNavigationBunja = bunja(() => {
       navigate(entry.path);
       return;
     }
+    store.set(specialLocationAtom, undefined);
     store.set(selectedPathAtom, entry.path);
   }
 
@@ -161,6 +205,7 @@ export const explorerNavigationBunja = bunja(() => {
       (current) => [...current, currentLocation()],
     );
     store.set(openedFileAtom, entry);
+    store.set(specialLocationAtom, undefined);
     store.set(selectedPathAtom, entry.path);
   }
 
@@ -168,6 +213,7 @@ export const explorerNavigationBunja = bunja(() => {
     return {
       path: store.get(currentPathAtom),
       openedFile: store.get(openedFileAtom),
+      specialLocation: store.get(specialLocationAtom),
     };
   }
 
@@ -177,8 +223,11 @@ export const explorerNavigationBunja = bunja(() => {
     historyAtom,
     openedFileAtom,
     selectedPathAtom,
+    specialLocationAtom,
     selectEntry,
     navigate,
+    navigateTrash,
+    replaceWithTrash,
     goBack,
     goUp,
     openEntry,
@@ -300,6 +349,7 @@ export const explorerDirectoryBunja = bunja(() => {
       get(machineState.connectionKeyAtom),
       get(machineState.isPairedAtom) ? "paired" : "unpaired",
       get(navigation.currentPathAtom) ?? "",
+      get(navigation.specialLocationAtom) ?? "",
       get(refresh.refreshAtom),
     ].join("\n")
   );
@@ -315,7 +365,10 @@ export const explorerDirectoryBunja = bunja(() => {
 
       const machine = store.get(machineState.machineAtom);
       const currentPath = store.get(navigation.currentPathAtom);
-      if (!machine || !store.get(machineState.isPairedAtom) || !currentPath) {
+      if (
+        !machine || !store.get(machineState.isPairedAtom) || !currentPath ||
+        store.get(navigation.specialLocationAtom)
+      ) {
         store.set(directoryStateAtom, {
           phase: "idle",
           message: "Directory idle",
@@ -425,11 +478,14 @@ export const explorerBunja = bunja(() => {
     historyAtom: navigation.historyAtom,
     openedFileAtom,
     selectedPathAtom: navigation.selectedPathAtom,
+    specialLocationAtom: navigation.specialLocationAtom,
     visibleRowsAtom,
     selectedEntryAtom,
     refresh: refresh.refresh,
     selectEntry: navigation.selectEntry,
     navigate: navigation.navigate,
+    navigateTrash: navigation.navigateTrash,
+    replaceWithTrash: navigation.replaceWithTrash,
     goBack: navigation.goBack,
     goUp: navigation.goUp,
     openEntry: navigation.openEntry,

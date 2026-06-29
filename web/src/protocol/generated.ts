@@ -22,6 +22,9 @@ export enum ProcId {
   WriteTerminalInput = 17,
   CloseTerminalSession = 18,
   SubscribeClients = 19,
+  SubscribeTrashItems = 20,
+  RestoreTrashItems = 21,
+  PurgeTrashItems = 22,
 }
 
 export type ReqResMessage =
@@ -291,6 +294,12 @@ export type DirectoryTableEvent =
   | { type: "closed"; reason: DirectorySubscriptionCloseReason }
 ;
 
+export type TrashItemsTableEvent =
+  | { type: "snapshot"; rows: TrashItem[] }
+  | { type: "patch"; removes: string[]; upserts: TrashItem[] }
+  | { type: "closed"; reason: TrashItemsSubscriptionCloseReason }
+;
+
 export interface RootEntryKey {
   path: string;
 }
@@ -314,6 +323,12 @@ export type DirectorySubscriptionCloseReason =
   | { type: "unknown" }
 ;
 
+export type TrashItemsSubscriptionCloseReason =
+  | { type: "failed" }
+  | { type: "permissionLost" }
+  | { type: "unknown" }
+;
+
 export interface FsEntry {
   name: string;
   path: string;
@@ -329,6 +344,19 @@ export enum FsEntryKind {
   Symlink = 3,
   Other = 4,
 }
+
+export interface TrashItem {
+  id: string;
+  name: string;
+  originalParent: string;
+  deletedAtMs?: number;
+  size?: TrashItemSize;
+}
+
+export type TrashItemSize =
+  | { type: "bytes"; value: number }
+  | { type: "entries"; value: number }
+;
 
 export interface ReadFileChunk {
   offset: number;
@@ -383,6 +411,14 @@ export interface DeletePathsReq {
   mode: DeleteMode;
 }
 
+export interface RestoreTrashItemsReq {
+  itemIds: string[];
+}
+
+export interface PurgeTrashItemsReq {
+  itemIds: string[];
+}
+
 export enum DeleteMode {
   Trash = 1,
   Permanent = 2,
@@ -417,6 +453,11 @@ export type SubscribeDirectoryError =
   | { type: "permissionDenied"; message: string }
   | { type: "notFound"; message: string }
   | { type: "notDirectory"; message: string }
+;
+
+export type SubscribeTrashItemsError =
+  | { type: "failed"; message: string }
+  | { type: "permissionDenied"; message: string }
 ;
 
 export type ReadFileError =
@@ -504,6 +545,9 @@ export const procDefinitions: readonly ProcDefinition[] = [
   { id: 17, name: "WriteTerminalInput", stream: "client", requestType: "WriteTerminalInputReq", responseType: "void", errorType: "WriteTerminalInputError" },
   { id: 18, name: "CloseTerminalSession", stream: "unary", requestType: "CloseTerminalSessionReq", responseType: "void", errorType: "CloseTerminalSessionError" },
   { id: 19, name: "SubscribeClients", stream: "server", requestType: "void", responseType: "ClientsTableEvent", errorType: "SubscribeClientsError" },
+  { id: 20, name: "SubscribeTrashItems", stream: "server", requestType: "void", responseType: "TrashItemsTableEvent", errorType: "SubscribeTrashItemsError" },
+  { id: 21, name: "RestoreTrashItems", stream: "unary", requestType: "RestoreTrashItemsReq", responseType: "BulkMutationRes", errorType: "FsMutationError" },
+  { id: 22, name: "PurgeTrashItems", stream: "unary", requestType: "PurgeTrashItemsReq", responseType: "BulkMutationRes", errorType: "FsMutationError" },
 ] as const;
 
 export interface ProcCodec<Request, Response, ErrorPayload> {
@@ -746,6 +790,42 @@ export const subscribeClientsProc: ProcCodec<undefined, ClientsTableEvent, Subsc
   decodeError: decodeSubscribeClientsErrorValue,
 };
 
+export const subscribeTrashItemsProc: ProcCodec<undefined, TrashItemsTableEvent, SubscribeTrashItemsError> = {
+  id: ProcId.SubscribeTrashItems,
+  name: "SubscribeTrashItems",
+  stream: "server",
+  requestType: "void",
+  responseType: "TrashItemsTableEvent",
+  errorType: "SubscribeTrashItemsError",
+  encodeRequest: encodeVoidValue,
+  decodeResponse: decodeTrashItemsTableEventValue,
+  decodeError: decodeSubscribeTrashItemsErrorValue,
+};
+
+export const restoreTrashItemsProc: ProcCodec<RestoreTrashItemsReq, BulkMutationRes, FsMutationError> = {
+  id: ProcId.RestoreTrashItems,
+  name: "RestoreTrashItems",
+  stream: "unary",
+  requestType: "RestoreTrashItemsReq",
+  responseType: "BulkMutationRes",
+  errorType: "FsMutationError",
+  encodeRequest: encodeRestoreTrashItemsReqValue,
+  decodeResponse: decodeBulkMutationResValue,
+  decodeError: decodeFsMutationErrorValue,
+};
+
+export const purgeTrashItemsProc: ProcCodec<PurgeTrashItemsReq, BulkMutationRes, FsMutationError> = {
+  id: ProcId.PurgeTrashItems,
+  name: "PurgeTrashItems",
+  stream: "unary",
+  requestType: "PurgeTrashItemsReq",
+  responseType: "BulkMutationRes",
+  errorType: "FsMutationError",
+  encodeRequest: encodePurgeTrashItemsReqValue,
+  decodeResponse: decodeBulkMutationResValue,
+  decodeError: decodeFsMutationErrorValue,
+};
+
 export const procs = {
   getDaemonInfo: getDaemonInfoProc,
   startPairing: startPairingProc,
@@ -766,6 +846,9 @@ export const procs = {
   writeTerminalInput: writeTerminalInputProc,
   closeTerminalSession: closeTerminalSessionProc,
   subscribeClients: subscribeClientsProc,
+  subscribeTrashItems: subscribeTrashItemsProc,
+  restoreTrashItems: restoreTrashItemsProc,
+  purgeTrashItems: purgeTrashItemsProc,
 } as const;
 
 export function encodeReqResMessageValue(value: ReqResMessage): CborValue {
@@ -2074,6 +2157,50 @@ export function decodeDirectoryTableEventValue(value: CborValue): DirectoryTable
   throw new Error(`unknown DirectoryTableEvent variant ${variantId}`);
 }
 
+export function encodeTrashItemsTableEventValue(value: TrashItemsTableEvent): CborValue {
+  switch (value.type) {
+    case "snapshot": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, required(value.rows, "TrashItemsTableEvent.Snapshot.rows").map((item) => encodeTrashItemValue(item)));
+      return [1, fields];
+    }
+    case "patch": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, required(value.removes, "TrashItemsTableEvent.Patch.removes").map((item) => text(item)));
+      fields.set(2, required(value.upserts, "TrashItemsTableEvent.Patch.upserts").map((item) => encodeTrashItemValue(item)));
+      return [2, fields];
+    }
+    case "closed": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, encodeTrashItemsSubscriptionCloseReasonValue(required(value.reason, "TrashItemsTableEvent.Closed.reason")));
+      return [3, fields];
+    }
+  }
+}
+
+export function decodeTrashItemsTableEventValue(value: CborValue): TrashItemsTableEvent {
+  const [variantId, fields] = expectUnion(value);
+  switch (variantId) {
+    case 1:
+      return {
+        type: "snapshot",
+        rows: fieldOrDefault(fields.get(1), (value) => array(value).map((item) => decodeTrashItemValue(item)), () => []),
+      };
+    case 2:
+      return {
+        type: "patch",
+        removes: fieldOrDefault(fields.get(1), (value) => array(value).map((item) => textValue(item)), () => []),
+        upserts: fieldOrDefault(fields.get(2), (value) => array(value).map((item) => decodeTrashItemValue(item)), () => []),
+      };
+    case 3:
+      return {
+        type: "closed",
+        reason: fieldOrDefault(fields.get(1), (value) => decodeTrashItemsSubscriptionCloseReasonValue(value), () => defaultTrashItemsSubscriptionCloseReason()),
+      };
+  }
+  throw new Error(`unknown TrashItemsTableEvent variant ${variantId}`);
+}
+
 export function encodeRootEntryKeyValue(value: RootEntryKey): CborValue {
   const fields = new Map<number, CborValue>();
   fields.set(1, text(required(value.path, "RootEntryKey.path")));
@@ -2198,6 +2325,42 @@ export function decodeDirectorySubscriptionCloseReasonValue(value: CborValue): D
   throw new Error(`unknown DirectorySubscriptionCloseReason variant ${variantId}`);
 }
 
+export function encodeTrashItemsSubscriptionCloseReasonValue(value: TrashItemsSubscriptionCloseReason): CborValue {
+  switch (value.type) {
+    case "failed": {
+      const fields = new Map<number, CborValue>();
+      return [0, fields];
+    }
+    case "permissionLost": {
+      const fields = new Map<number, CborValue>();
+      return [1, fields];
+    }
+    case "unknown": {
+      const fields = new Map<number, CborValue>();
+      return [2, fields];
+    }
+  }
+}
+
+export function decodeTrashItemsSubscriptionCloseReasonValue(value: CborValue): TrashItemsSubscriptionCloseReason {
+  const [variantId, fields] = expectUnion(value);
+  switch (variantId) {
+    case 0:
+      return {
+        type: "failed",
+      };
+    case 1:
+      return {
+        type: "permissionLost",
+      };
+    case 2:
+      return {
+        type: "unknown",
+      };
+  }
+  throw new Error(`unknown TrashItemsSubscriptionCloseReason variant ${variantId}`);
+}
+
 export function encodeFsEntryValue(value: FsEntry): CborValue {
   const fields = new Map<number, CborValue>();
   fields.set(1, text(required(value.name, "FsEntry.name")));
@@ -2229,6 +2392,59 @@ export function decodeFsEntryKindValue(value: CborValue): FsEntryKind {
   const id = integer(value);
   if (![1, 2, 3, 4].includes(id)) throw new Error(`unknown FsEntryKind variant ${id}`);
   return id as FsEntryKind;
+}
+
+export function encodeTrashItemValue(value: TrashItem): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, text(required(value.id, "TrashItem.id")));
+  fields.set(2, text(required(value.name, "TrashItem.name")));
+  fields.set(3, text(required(value.originalParent, "TrashItem.originalParent")));
+  if (value.deletedAtMs !== undefined) fields.set(4, u53(value.deletedAtMs));
+  if (value.size !== undefined) fields.set(5, encodeTrashItemSizeValue(value.size));
+  return fields;
+}
+
+export function decodeTrashItemValue(value: CborValue): TrashItem {
+  const fields = expectMap(value);
+  return {
+    id: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+    name: fieldOrDefault(fields.get(2), (value) => textValue(value), () => ""),
+    originalParent: fieldOrDefault(fields.get(3), (value) => textValue(value), () => ""),
+    deletedAtMs: optionalField(fields.get(4), (value) => integer(value)),
+    size: optionalField(fields.get(5), (value) => decodeTrashItemSizeValue(value)),
+  };
+}
+
+export function encodeTrashItemSizeValue(value: TrashItemSize): CborValue {
+  switch (value.type) {
+    case "bytes": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, u53(required(value.value, "TrashItemSize.Bytes.value")));
+      return [1, fields];
+    }
+    case "entries": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, u53(required(value.value, "TrashItemSize.Entries.value")));
+      return [2, fields];
+    }
+  }
+}
+
+export function decodeTrashItemSizeValue(value: CborValue): TrashItemSize {
+  const [variantId, fields] = expectUnion(value);
+  switch (variantId) {
+    case 1:
+      return {
+        type: "bytes",
+        value: fieldOrDefault(fields.get(1), (value) => integer(value), () => 0),
+      };
+    case 2:
+      return {
+        type: "entries",
+        value: fieldOrDefault(fields.get(1), (value) => integer(value), () => 0),
+      };
+  }
+  throw new Error(`unknown TrashItemSize variant ${variantId}`);
 }
 
 export function encodeReadFileChunkValue(value: ReadFileChunk): CborValue {
@@ -2429,6 +2645,32 @@ export function decodeDeletePathsReqValue(value: CborValue): DeletePathsReq {
   return {
     paths: fieldOrDefault(fields.get(1), (value) => array(value).map((item) => textValue(item)), () => []),
     mode: fieldOrDefault(fields.get(2), (value) => decodeDeleteModeValue(value), () => DeleteMode.Trash),
+  };
+}
+
+export function encodeRestoreTrashItemsReqValue(value: RestoreTrashItemsReq): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, required(value.itemIds, "RestoreTrashItemsReq.itemIds").map((item) => text(item)));
+  return fields;
+}
+
+export function decodeRestoreTrashItemsReqValue(value: CborValue): RestoreTrashItemsReq {
+  const fields = expectMap(value);
+  return {
+    itemIds: fieldOrDefault(fields.get(1), (value) => array(value).map((item) => textValue(item)), () => []),
+  };
+}
+
+export function encodePurgeTrashItemsReqValue(value: PurgeTrashItemsReq): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, required(value.itemIds, "PurgeTrashItemsReq.itemIds").map((item) => text(item)));
+  return fields;
+}
+
+export function decodePurgeTrashItemsReqValue(value: CborValue): PurgeTrashItemsReq {
+  const fields = expectMap(value);
+  return {
+    itemIds: fieldOrDefault(fields.get(1), (value) => array(value).map((item) => textValue(item)), () => []),
   };
 }
 
@@ -2653,6 +2895,38 @@ export function decodeSubscribeDirectoryErrorValue(value: CborValue): SubscribeD
       };
   }
   throw new Error(`unknown SubscribeDirectoryError variant ${variantId}`);
+}
+
+export function encodeSubscribeTrashItemsErrorValue(value: SubscribeTrashItemsError): CborValue {
+  switch (value.type) {
+    case "failed": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.message, "SubscribeTrashItemsError.Failed.message")));
+      return [0, fields];
+    }
+    case "permissionDenied": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.message, "SubscribeTrashItemsError.PermissionDenied.message")));
+      return [1, fields];
+    }
+  }
+}
+
+export function decodeSubscribeTrashItemsErrorValue(value: CborValue): SubscribeTrashItemsError {
+  const [variantId, fields] = expectUnion(value);
+  switch (variantId) {
+    case 0:
+      return {
+        type: "failed",
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+    case 1:
+      return {
+        type: "permissionDenied",
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+  }
+  throw new Error(`unknown SubscribeTrashItemsError variant ${variantId}`);
 }
 
 export function encodeReadFileErrorValue(value: ReadFileError): CborValue {
@@ -3242,6 +3516,13 @@ function defaultDirectoryTableEvent(): DirectoryTableEvent {
   };
 }
 
+function defaultTrashItemsTableEvent(): TrashItemsTableEvent {
+  return {
+    type: "snapshot",
+    rows: [],
+  };
+}
+
 function defaultRootEntryKey(): RootEntryKey {
   return {
     path: "",
@@ -3266,12 +3547,33 @@ function defaultDirectorySubscriptionCloseReason(): DirectorySubscriptionCloseRe
   };
 }
 
+function defaultTrashItemsSubscriptionCloseReason(): TrashItemsSubscriptionCloseReason {
+  return {
+    type: "failed",
+  };
+}
+
 function defaultFsEntry(): FsEntry {
   return {
     name: "",
     path: "",
     kind: FsEntryKind.File,
     readonly: false,
+  };
+}
+
+function defaultTrashItem(): TrashItem {
+  return {
+    id: "",
+    name: "",
+    originalParent: "",
+  };
+}
+
+function defaultTrashItemSize(): TrashItemSize {
+  return {
+    type: "bytes",
+    value: 0,
   };
 }
 
@@ -3336,6 +3638,18 @@ function defaultDeletePathsReq(): DeletePathsReq {
   };
 }
 
+function defaultRestoreTrashItemsReq(): RestoreTrashItemsReq {
+  return {
+    itemIds: [],
+  };
+}
+
+function defaultPurgeTrashItemsReq(): PurgeTrashItemsReq {
+  return {
+    itemIds: [],
+  };
+}
+
 function defaultBulkMutationRes(): BulkMutationRes {
   return {
     results: [],
@@ -3365,6 +3679,13 @@ function defaultSubscribeRootsError(): SubscribeRootsError {
 }
 
 function defaultSubscribeDirectoryError(): SubscribeDirectoryError {
+  return {
+    type: "failed",
+    message: "",
+  };
+}
+
+function defaultSubscribeTrashItemsError(): SubscribeTrashItemsError {
   return {
     type: "failed",
     message: "",

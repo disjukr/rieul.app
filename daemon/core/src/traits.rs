@@ -2,7 +2,8 @@ use std::future::Future;
 use std::pin::Pin;
 
 use crate::rpc::{
-    CreateNodeOp, DeleteMode, FsEntry, ReadFileReq, WriteFileChunk, WriteFileResult, WriteFileStart,
+    CreateNodeOp, DeleteMode, FsEntry, ReadFileReq, TrashItem, WriteFileChunk, WriteFileResult,
+    WriteFileStart,
 };
 
 pub type BoxFutureResult<'a, T> =
@@ -40,4 +41,7 @@ pub trait FileService: Send + Sync {
     fn create_node(&self, op: CreateNodeOp) -> BoxFutureResult<'_, ()>;
     fn rename_path(&self, from: String, to: String) -> BoxFutureResult<'_, ()>;
     fn delete_path(&self, path: String, mode: DeleteMode) -> BoxFutureResult<'_, ()>;
+    fn trash_items(&self) -> BoxFutureResult<'_, Vec<TrashItem>>;
+    fn restore_trash_item(&self, item_id: String) -> BoxFutureResult<'_, ()>;
+    fn purge_trash_item(&self, item_id: String) -> BoxFutureResult<'_, ()>;
 }

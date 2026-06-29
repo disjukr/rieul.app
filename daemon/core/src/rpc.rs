@@ -47,10 +47,13 @@ pub enum ProcId {
     WriteTerminalInput = 17,
     CloseTerminalSession = 18,
     SubscribeClients = 19,
+    SubscribeTrashItems = 20,
+    RestoreTrashItems = 21,
+    PurgeTrashItems = 22,
 }
 
 impl ProcId {
-    pub const SUPPORTED: [Self; 19] = [
+    pub const SUPPORTED: [Self; 22] = [
         Self::GetDaemonInfo,
         Self::StartPairing,
         Self::CompletePairing,
@@ -70,6 +73,9 @@ impl ProcId {
         Self::WriteTerminalInput,
         Self::CloseTerminalSession,
         Self::SubscribeClients,
+        Self::SubscribeTrashItems,
+        Self::RestoreTrashItems,
+        Self::PurgeTrashItems,
     ];
 
     pub fn as_u64(self) -> u64 {
@@ -1432,6 +1438,44 @@ impl DirectoryTableEvent {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TrashItemsTableEvent {
+    Snapshot {
+        rows: Vec<TrashItem>,
+    },
+    Patch {
+        removes: Vec<String>,
+        upserts: Vec<TrashItem>,
+    },
+    Closed {
+        reason: TrashItemsSubscriptionCloseReason,
+    },
+}
+
+impl TrashItemsTableEvent {
+    pub fn encode(&self) -> Vec<u8> {
+        match self {
+            Self::Snapshot { rows } => {
+                union_value(1, BTreeMap::from([(1, trash_items_value(rows))])).encode()
+            }
+            Self::Patch { removes, upserts } => union_value(
+                2,
+                BTreeMap::from([
+                    (
+                        1,
+                        Value::Array(removes.iter().map(|id| Value::Text(id.clone())).collect()),
+                    ),
+                    (2, trash_items_value(upserts)),
+                ]),
+            )
+            .encode(),
+            Self::Closed { reason } => {
+                union_value(3, BTreeMap::from([(1, reason.to_value())])).encode()
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RootEntryKey {
     pub path: String,
 }
@@ -1495,6 +1539,64 @@ impl DirectorySubscriptionCloseReason {
             Self::PermissionLost => union_value(3, BTreeMap::new()),
             Self::ReplacedByNonDirectory => union_value(4, BTreeMap::new()),
             Self::Unknown => union_value(5, BTreeMap::new()),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TrashItemsSubscriptionCloseReason {
+    Failed,
+    PermissionLost,
+    Unknown,
+}
+
+impl TrashItemsSubscriptionCloseReason {
+    fn to_value(&self) -> Value {
+        match self {
+            Self::Failed => union_value(0, BTreeMap::new()),
+            Self::PermissionLost => union_value(1, BTreeMap::new()),
+            Self::Unknown => union_value(2, BTreeMap::new()),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrashItem {
+    pub id: String,
+    pub name: String,
+    pub original_parent: String,
+    pub deleted_at_ms: Option<u64>,
+    pub size: Option<TrashItemSize>,
+}
+
+impl TrashItem {
+    pub fn to_value(&self) -> Value {
+        let mut map = BTreeMap::from([
+            (1, Value::Text(self.id.clone())),
+            (2, Value::Text(self.name.clone())),
+            (3, Value::Text(self.original_parent.clone())),
+        ]);
+        if let Some(deleted_at_ms) = self.deleted_at_ms {
+            map.insert(4, Value::U64(deleted_at_ms));
+        }
+        if let Some(size) = &self.size {
+            map.insert(5, size.to_value());
+        }
+        Value::Map(map)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TrashItemSize {
+    Bytes { value: u64 },
+    Entries { value: u64 },
+}
+
+impl TrashItemSize {
+    fn to_value(&self) -> Value {
+        match self {
+            Self::Bytes { value } => union_value(1, BTreeMap::from([(1, Value::U64(*value))])),
+            Self::Entries { value } => union_value(2, BTreeMap::from([(1, Value::U64(*value))])),
         }
     }
 }
@@ -1610,6 +1712,40 @@ impl DeletePathsReq {
                 .collect::<Result<_, _>>()?,
             mode: DeleteMode::from_u64(expect_u64(&map, 2)?)
                 .ok_or(RpcCodecError::WrongFieldType(2))?,
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RestoreTrashItemsReq {
+    pub item_ids: Vec<String>,
+}
+
+impl RestoreTrashItemsReq {
+    pub fn decode(bytes: &[u8]) -> Result<Self, RpcCodecError> {
+        let map = expect_map(Value::decode(bytes)?)?;
+        Ok(Self {
+            item_ids: expect_array(&map, 1)?
+                .iter()
+                .map(expect_text_value)
+                .collect::<Result<_, _>>()?,
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PurgeTrashItemsReq {
+    pub item_ids: Vec<String>,
+}
+
+impl PurgeTrashItemsReq {
+    pub fn decode(bytes: &[u8]) -> Result<Self, RpcCodecError> {
+        let map = expect_map(Value::decode(bytes)?)?;
+        Ok(Self {
+            item_ids: expect_array(&map, 1)?
+                .iter()
+                .map(expect_text_value)
+                .collect::<Result<_, _>>()?,
         })
     }
 }
@@ -1735,6 +1871,10 @@ impl FsMutationItemError {
 
 fn fs_entries_value(rows: &[FsEntry]) -> Value {
     Value::Array(rows.iter().map(FsEntry::to_value).collect())
+}
+
+fn trash_items_value(rows: &[TrashItem]) -> Value {
+    Value::Array(rows.iter().map(TrashItem::to_value).collect())
 }
 
 fn terminal_sessions_value(rows: &[TerminalSessionInfo]) -> Value {
@@ -1907,7 +2047,7 @@ mod tests {
         );
         assert_eq!(
             daemon_info.supported_proc_ids,
-            vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18]
+            vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]
         );
         assert_eq!(daemon_info.version, env!("CARGO_PKG_VERSION"));
         assert!(!daemon_info.os.is_empty());

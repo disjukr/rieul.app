@@ -4,9 +4,19 @@ import {
   useRef,
   useState,
 } from "react";
-import { Activity, ChevronDown, Folder, Info, Terminal } from "lucide-react";
+import {
+  Activity,
+  ChevronDown,
+  Folder,
+  Info,
+  Terminal,
+  Trash2,
+} from "lucide-react";
 import type { AvailableShellInfo } from "../../protocol/rpc.ts";
-import type { WorkbenchTool } from "../../state/workbench.ts";
+import type {
+  WorkbenchFilesView,
+  WorkbenchTool,
+} from "../../state/workbench.ts";
 import { className } from "../class-name.ts";
 import {
   FloatingMenu,
@@ -48,6 +58,7 @@ const tools: {
 const SHELL_MENU_WIDTH = 260;
 const SHELL_MENU_MAX_HEIGHT = 360;
 const SHELL_MENU_TRIGGER_GAP = 0;
+const FILES_MENU_WIDTH = 176;
 
 const toolMenuClassName =
   "grid content-start gap-0 min-h-0 overflow-visible px-[8px] py-[12px]";
@@ -97,19 +108,34 @@ const shellMenuCommandClassName = [
 interface ToolMenuProps {
   activeTool: WorkbenchTool;
   terminalShells: AvailableShellInfo[];
+  onOpenFilesView: (filesView: WorkbenchFilesView) => void;
   onOpenTerminalShell: (shell?: AvailableShellInfo) => void;
   onSelect: (tool: WorkbenchTool) => void;
 }
 
 export function ToolMenu(
-  { activeTool, terminalShells, onOpenTerminalShell, onSelect }: ToolMenuProps,
+  {
+    activeTool,
+    terminalShells,
+    onOpenFilesView,
+    onOpenTerminalShell,
+    onSelect,
+  }: ToolMenuProps,
 ) {
   const hasTerminalShells = terminalShells.length > 0;
+  const [filesMenuOpen, setFilesMenuOpen] = useState(false);
+  const [filesMenuPosition, setFilesMenuPosition] = useState<
+    FloatingMenuPosition | undefined
+  >(undefined);
   const [shellMenuOpen, setShellMenuOpen] = useState(false);
   const [shellMenuPosition, setShellMenuPosition] = useState<
     FloatingMenuPosition | undefined
   >(undefined);
+  const filesMenuRef = useRef<HTMLDivElement>(null);
   const shellMenuRef = useRef<HTMLDivElement>(null);
+  useFloatingMenuDismiss(filesMenuOpen, filesMenuRef, closeFilesMenu, {
+    closeOnScroll: true,
+  });
   useFloatingMenuDismiss(shellMenuOpen, shellMenuRef, closeShellMenu, {
     closeOnScroll: true,
   });
@@ -121,6 +147,29 @@ export function ToolMenu(
   function closeShellMenu() {
     setShellMenuOpen(false);
     setShellMenuPosition(undefined);
+  }
+
+  function closeFilesMenu() {
+    setFilesMenuOpen(false);
+    setFilesMenuPosition(undefined);
+  }
+
+  function toggleFilesMenu(event: ReactMouseEvent<HTMLButtonElement>) {
+    if (filesMenuOpen) {
+      closeFilesMenu();
+      return;
+    }
+    setFilesMenuPosition(
+      floatingMenuPositionFromRect(
+        event.currentTarget.getBoundingClientRect(),
+        {
+          itemCount: 2,
+          width: FILES_MENU_WIDTH,
+        },
+        SHELL_MENU_TRIGGER_GAP,
+      ),
+    );
+    setFilesMenuOpen(true);
   }
 
   function toggleShellMenu(event: ReactMouseEvent<HTMLButtonElement>) {
@@ -148,10 +197,69 @@ export function ToolMenu(
     onOpenTerminalShell();
   }
 
+  function openFilesView(filesView: WorkbenchFilesView) {
+    closeFilesMenu();
+    onOpenFilesView(filesView);
+  }
+
   return (
     <nav className={toolMenuClassName} aria-label="Workspace tools">
       {tools.map(({ id, label, disabled, Icon }) =>
-        id === "terminal"
+        id === "files"
+          ? (
+            <div
+              key={id}
+              className={toolItemRowClassName}
+              ref={filesMenuRef}
+            >
+              <button
+                type="button"
+                className={className(
+                  terminalMainButtonClassName,
+                  activeTool === id && "active",
+                )}
+                onClick={() => openFilesView("browser")}
+                disabled={disabled}
+                aria-current={activeTool === id ? "page" : undefined}
+              >
+                <Icon size={17} />
+                <span>{label}</span>
+              </button>
+              <button
+                type="button"
+                className={className(
+                  terminalDropdownButtonClassName,
+                  (activeTool === id || filesMenuOpen) && "active",
+                )}
+                onClick={toggleFilesMenu}
+                disabled={disabled}
+                aria-label="Open files view menu"
+                aria-haspopup="menu"
+                aria-expanded={filesMenuOpen}
+                title="Open files view"
+              >
+                <ChevronDown size={14} />
+              </button>
+              {filesMenuOpen
+                ? (
+                  <FloatingMenu
+                    className="z-[80] w-[176px]"
+                    position={filesMenuPosition}
+                  >
+                    <FloatingMenuItem onClick={() => openFilesView("browser")}>
+                      <Folder size={15} />
+                      Files
+                    </FloatingMenuItem>
+                    <FloatingMenuItem onClick={() => openFilesView("trash")}>
+                      <Trash2 size={15} />
+                      Trash
+                    </FloatingMenuItem>
+                  </FloatingMenu>
+                )
+                : null}
+            </div>
+          )
+          : id === "terminal"
           ? (
             <div
               key={id}

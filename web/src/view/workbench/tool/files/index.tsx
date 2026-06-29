@@ -144,10 +144,14 @@ export function FilesTool() {
   const workbench = useBunja(workbenchBunja);
   const paneState = useBunja(workbenchPaneBunja);
   const tabState = useBunja(workbenchTabBunja);
+  const tab = useAtomValue(tabState.tabAtom);
   const explorer = useBunja(explorerBunja, [
     ExplorerPaneScope.bind(tabState.tabId),
   ]);
+  const initialTrashLocationAppliedRef = useRef(false);
   const openedFile = useAtomValue(explorer.openedFileAtom);
+  const specialLocation = useAtomValue(explorer.specialLocationAtom);
+  const filesView = specialLocation === "trash" ? "trash" : "browser";
   const lastDaemonInstanceIdRef = useRef(daemonInstanceId);
   const [entryMenu, setEntryMenu] = useState<EntryMenuState>();
   const [folderMenu, setFolderMenu] = useState<FolderMenuState>();
@@ -157,6 +161,14 @@ export function FilesTool() {
   const [createFile, setCreateFile] = useState<CreateFileState>();
   const defaultShell = useAtomValue(filesTool.defaultShellAtom);
   const terminalShells = useAtomValue(filesTool.terminalShellsAtom);
+
+  useEffect(() => {
+    if (initialTrashLocationAppliedRef.current) return;
+    initialTrashLocationAppliedRef.current = true;
+    if (tab?.tool === "files" && tab.filesView === "trash") {
+      explorer.replaceWithTrash();
+    }
+  }, [explorer, tab?.filesView, tab?.tool]);
 
   useEffect(() => {
     if (lastDaemonInstanceIdRef.current === daemonInstanceId) return;
@@ -527,7 +539,7 @@ export function FilesTool() {
             <FilesRenameContext value={renameState}>
               <FilesNavbar />
 
-              <FilesContent />
+              <FilesContent view={filesView} />
             </FilesRenameContext>
           </FilesCreateFileContext>
         </FilesActionsContext>

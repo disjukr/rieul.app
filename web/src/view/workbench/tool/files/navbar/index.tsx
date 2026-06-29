@@ -30,8 +30,9 @@ export function FilesNavbar() {
   const currentPath = useAtomValue(explorer.currentPathAtom);
   const displayPath = useAtomValue(explorer.displayPathAtom);
   const history = useAtomValue(explorer.historyAtom);
+  const specialLocation = useAtomValue(explorer.specialLocationAtom);
   const canGoBack = history.length > 0;
-  const canGoUp = currentPath !== undefined;
+  const canGoUp = currentPath !== undefined && !specialLocation;
 
   return (
     <div className={pathToolbarClassName}>

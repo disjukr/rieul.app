@@ -11,11 +11,13 @@ import { copyFileViewerState } from "./file-viewer.ts";
 import { MachineIdScope } from "./machine.tsx";
 
 export type WorkbenchTool = "daemon" | "files" | "processes" | "terminal";
+export type WorkbenchFilesView = "browser" | "trash";
 
 export interface WorkbenchTab {
   daemonClientDetailId?: string;
   daemonClientsPageOpen?: boolean;
   dirty?: boolean;
+  filesView?: WorkbenchFilesView;
   id: string;
   title: string;
   tool: WorkbenchTool;
@@ -31,6 +33,10 @@ export interface WorkbenchTerminalTabConfig {
   terminalSessionId?: string;
   terminalTitle?: string;
   title?: string;
+}
+
+export interface WorkbenchFilesTabConfig {
+  filesView?: WorkbenchFilesView;
 }
 
 export interface WorkbenchTerminalSessionSnapshot {
@@ -175,8 +181,13 @@ export const workbenchBunja = bunja(() => {
     );
   }
 
-  function addFilesTab(paneId: string): string {
-    return addToolTab(paneId, "files");
+  function addFilesTab(
+    paneId: string,
+    config: WorkbenchFilesTabConfig = {},
+  ): string {
+    const tab = createFilesTab(config);
+    store.set(stateAtom, (current) => openTabInPane(current, paneId, tab));
+    return tab.id;
   }
 
   function addDaemonTab(paneId: string): string {
@@ -193,6 +204,11 @@ export const workbenchBunja = bunja(() => {
 
   function openTerminalTab(config: WorkbenchTerminalTabConfig = {}) {
     const tab = createTerminalTab(config);
+    store.set(stateAtom, (current) => openTabInActivePane(current, tab));
+  }
+
+  function openFilesTab(config: WorkbenchFilesTabConfig = {}) {
+    const tab = createFilesTab(config);
     store.set(stateAtom, (current) => openTabInActivePane(current, tab));
   }
 
@@ -514,6 +530,7 @@ export const workbenchBunja = bunja(() => {
     addDaemonTab,
     addFilesTab,
     addTerminalTab,
+    openFilesTab,
     openTerminalTab,
     duplicateTab,
     selectTab,
@@ -545,8 +562,8 @@ export const workbenchPaneBunja = bunja(() => {
     return workbench.addPane(paneId);
   }
 
-  function addFilesTab(): string {
-    return workbench.addFilesTab(paneId);
+  function addFilesTab(config: WorkbenchFilesTabConfig = {}): string {
+    return workbench.addFilesTab(paneId, config);
   }
 
   function addDaemonTab(): string {
@@ -769,8 +786,12 @@ function insertTab(
   ];
 }
 
-function createFilesTab(): WorkbenchTab {
-  return createWorkbenchTab("files");
+function createFilesTab(config: WorkbenchFilesTabConfig = {}): WorkbenchTab {
+  return {
+    ...createWorkbenchTab("files"),
+    filesView: config.filesView,
+    title: config.filesView === "trash" ? "Trash" : "Files",
+  };
 }
 
 function createTerminalTab(config: WorkbenchTerminalTabConfig): WorkbenchTab {

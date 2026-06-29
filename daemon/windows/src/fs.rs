@@ -4,8 +4,9 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, UNIX_EPOCH};
 
 use wgo_daemon_core::rpc::{
-    CreateNodeOp, CreateNodeSpec, DeleteMode, FsEntry, FsEntryKind, ReadFileReq, WriteFileChunk,
-    WriteFileMode, WriteFileResult, WriteFileStart, MAX_U53,
+    CreateNodeOp, CreateNodeSpec, DeleteMode, FsEntry, FsEntryKind, ReadFileReq,
+    TrashItem as RpcTrashItem, TrashItemSize as RpcTrashItemSize, WriteFileChunk, WriteFileMode,
+    WriteFileResult, WriteFileStart, MAX_U53,
 };
 use wgo_daemon_core::traits::{BoxFutureResult, FileService, ServiceError};
 
@@ -151,6 +152,82 @@ impl FileService for WindowsFileService {
             }
         })
     }
+
+    fn trash_items(&self) -> BoxFutureResult<'_, Vec<RpcTrashItem>> {
+        Box::pin(async move {
+            let mut rows = trash::os_limited::list()
+                .map_err(|err| ServiceError::OperationFailed(err.to_string()))?
+                .iter()
+                .map(to_rpc_trash_item)
+                .collect::<Vec<_>>();
+            rows.sort_by(|a, b| {
+                b.deleted_at_ms
+                    .cmp(&a.deleted_at_ms)
+                    .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+                    .then_with(|| a.id.cmp(&b.id))
+            });
+            Ok(rows)
+        })
+    }
+
+    fn restore_trash_item(&self, item_id: String) -> BoxFutureResult<'_, ()> {
+        Box::pin(async move {
+            let item = find_trash_item(&item_id)?;
+            trash::os_limited::restore_all([item])
+                .map_err(|err| ServiceError::OperationFailed(err.to_string()))
+        })
+    }
+
+    fn purge_trash_item(&self, item_id: String) -> BoxFutureResult<'_, ()> {
+        Box::pin(async move {
+            let item = find_trash_item(&item_id)?;
+            trash::os_limited::purge_all([item])
+                .map_err(|err| ServiceError::OperationFailed(err.to_string()))
+        })
+    }
+}
+
+fn find_trash_item(item_id: &str) -> Result<trash::TrashItem, ServiceError> {
+    trash::os_limited::list()
+        .map_err(|err| ServiceError::OperationFailed(err.to_string()))?
+        .into_iter()
+        .find(|item| item.id.to_string_lossy() == item_id)
+        .ok_or(ServiceError::NotFound)
+}
+
+fn to_rpc_trash_item(item: &trash::TrashItem) -> RpcTrashItem {
+    RpcTrashItem {
+        id: item.id.to_string_lossy().to_string(),
+        name: item.name.to_string_lossy().to_string(),
+        original_parent: item.original_parent.to_string_lossy().to_string(),
+        deleted_at_ms: unix_seconds_to_u53_ms(item.time_deleted),
+        size: trash::os_limited::metadata(item)
+            .ok()
+            .and_then(|metadata| to_rpc_trash_item_size(metadata.size)),
+    }
+}
+
+fn to_rpc_trash_item_size(size: trash::TrashItemSize) -> Option<RpcTrashItemSize> {
+    match size {
+        trash::TrashItemSize::Bytes(value) if value <= MAX_U53 => {
+            Some(RpcTrashItemSize::Bytes { value })
+        }
+        trash::TrashItemSize::Entries(value) if (value as u64) <= MAX_U53 => {
+            Some(RpcTrashItemSize::Entries {
+                value: value as u64,
+            })
+        }
+        _ => None,
+    }
+}
+
+fn unix_seconds_to_u53_ms(seconds: i64) -> Option<u64> {
+    if seconds < 0 {
+        return None;
+    }
+    (seconds as u64)
+        .checked_mul(1000)
+        .filter(|value| *value <= MAX_U53)
 }
 
 fn write_file_chunks(

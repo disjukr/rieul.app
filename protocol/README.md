@@ -85,6 +85,10 @@ Protocol proc id registry:
 | 16 | `TakeTerminalControl`       |
 | 17 | `WriteTerminalInput`        |
 | 18 | `CloseTerminalSession`      |
+| 19 | `SubscribeClients`          |
+| 20 | `SubscribeTrashItems`       |
+| 21 | `RestoreTrashItems`         |
+| 22 | `PurgeTrashItems`           |
 
 `GetDaemonInfo` returns daemon metadata: supported proc ids, daemon version, a
 human-readable OS name for the daemon host, daemon instance lifecycle fields,
@@ -124,6 +128,8 @@ Filesystem read-side state is modeled as reactive table subscriptions.
 
 - `SubscribeRoots` streams a roots table.
 - `SubscribeDirectory` streams a directory entry table.
+- `SubscribeTrashItems` streams OS trash/recycle-bin items when supported by the
+  daemon platform.
 - The first event is `Snapshot`.
 - Later `Snapshot` events replace the whole subscribed table view.
 - `Patch` events update table membership with `removes` and `upserts`.
@@ -134,10 +140,19 @@ Filesystem metadata mutations are best-effort bulk commands:
 - `CreateNodes`
 - `RenamePaths`
 - `DeletePaths`
+- `RestoreTrashItems`
+- `PurgeTrashItems`
 
 Bulk mutation responses report item-level results by zero-based request item
 index. There is no rollback guarantee. Subscribed table events are the source of
 truth for resulting filesystem state.
+
+`DeletePaths` with `DeleteMode.Trash` moves filesystem entries to the host OS
+trash/recycle bin without permanently deleting on trash failure. Trash items are
+identified by opaque OS-defined ids returned by `SubscribeTrashItems`. Restore
+and purge requests use those ids. Clients derive display-only values such as the
+original full path from `TrashItem.originalParent` and `TrashItem.name`; the API
+does not duplicate values the client can derive.
 
 File content I/O is range-oriented rather than cursor-oriented:
 

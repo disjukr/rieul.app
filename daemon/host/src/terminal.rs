@@ -1125,7 +1125,10 @@ fn macos_console_user_name() -> Option<String> {
 
 #[cfg(target_os = "macos")]
 fn trimmed_command_output(command: &str, args: &[&str]) -> Option<String> {
-    let output = std::process::Command::new(command).args(args).output().ok()?;
+    let output = std::process::Command::new(command)
+        .args(args)
+        .output()
+        .ok()?;
     if !output.status.success() {
         return None;
     }

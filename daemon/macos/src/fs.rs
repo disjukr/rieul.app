@@ -4,8 +4,8 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, UNIX_EPOCH};
 
 use wgo_daemon_core::rpc::{
-    CreateNodeOp, CreateNodeSpec, DeleteMode, FsEntry, FsEntryKind, ReadFileReq, WriteFileChunk,
-    WriteFileMode, WriteFileResult, WriteFileStart, MAX_U53,
+    CreateNodeOp, CreateNodeSpec, DeleteMode, FsEntry, FsEntryKind, ReadFileReq, TrashItem,
+    WriteFileChunk, WriteFileMode, WriteFileResult, WriteFileStart, MAX_U53,
 };
 use wgo_daemon_core::traits::{BoxFutureResult, FileService, ServiceError};
 
@@ -120,6 +120,18 @@ impl FileService for MacFileService {
                 DeleteMode::Permanent => delete_permanently(Path::new(&path)),
             }
         })
+    }
+
+    fn trash_items(&self) -> BoxFutureResult<'_, Vec<TrashItem>> {
+        Box::pin(async move { Err(ServiceError::Unsupported) })
+    }
+
+    fn restore_trash_item(&self, _item_id: String) -> BoxFutureResult<'_, ()> {
+        Box::pin(async move { Err(ServiceError::Unsupported) })
+    }
+
+    fn purge_trash_item(&self, _item_id: String) -> BoxFutureResult<'_, ()> {
+        Box::pin(async move { Err(ServiceError::Unsupported) })
     }
 }
 

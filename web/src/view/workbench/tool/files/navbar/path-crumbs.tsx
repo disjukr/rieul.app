@@ -1,6 +1,9 @@
 import React, { FormEvent, useEffect, useRef, useState } from "react";
 import { ChevronRight } from "lucide-react";
-import { pathCrumbs } from "../../../../../state/explorer.ts";
+import {
+  pathCrumbs,
+  trashLocationPath,
+} from "../../../../../state/explorer.ts";
 
 interface PathCrumbsProps {
   path?: string;
@@ -38,7 +41,10 @@ export function PathCrumbs(
   const [draftPath, setDraftPath] = useState(path ?? "");
   const inputRef = useRef<HTMLInputElement>(null);
   const crumbsRef = useRef<HTMLDivElement>(null);
-  const crumbs = pathCrumbs(path);
+  const trashLocation = path === trashLocationPath;
+  const crumbs = trashLocation
+    ? [{ label: "Files" }, { label: "Trash", path: trashLocationPath }]
+    : pathCrumbs(path);
 
   useEffect(() => {
     if (!editing) setDraftPath(path ?? "");
@@ -83,6 +89,7 @@ export function PathCrumbs(
   }, [editing]);
 
   function beginEditing() {
+    if (trashLocation) return;
     setDraftPath(path ?? "");
     setEditing(true);
   }

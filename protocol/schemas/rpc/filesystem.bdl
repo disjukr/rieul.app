@@ -77,6 +77,36 @@ proc RenamePaths = RenamePathsReq -> BulkMutationRes throws FsMutationError
 @ stream - unary
 proc DeletePaths = DeletePathsReq -> BulkMutationRes throws FsMutationError
 
+@ description
+| Subscribes to OS trash/recycle-bin items visible to the active user context.
+| The first response event is TrashItemsTableEvent.Snapshot. Later Snapshot
+| events replace the whole trash table view; Patch events apply incremental
+| membership updates. Trash item ids are opaque OS-defined identifiers and are
+| valid only while the item remains in the trash.
+@ id - 20
+@ stream - server
+proc SubscribeTrashItems = void -> TrashItemsTableEvent throws SubscribeTrashItemsError
+
+@ description
+| Restores OS trash/recycle-bin items to their original parent with their
+| original item name. This is a best-effort bulk command: each result item
+| references the zero-based request item index. Restore fails per item if the
+| trash item no longer exists, the original location is unavailable, or the
+| destination would collide with an existing filesystem entry. The resulting
+| filesystem and trash state is observed through active table subscriptions.
+@ id - 21
+@ stream - unary
+proc RestoreTrashItems = RestoreTrashItemsReq -> BulkMutationRes throws FsMutationError
+
+@ description
+| Permanently removes OS trash/recycle-bin items. This is a best-effort bulk
+| command: each result item references the zero-based request item index. Purged
+| items cannot be restored by this protocol. The resulting trash state is
+| observed through active table subscriptions.
+@ id - 22
+@ stream - unary
+proc PurgeTrashItems = PurgeTrashItemsReq -> BulkMutationRes throws FsMutationError
+
 @ description - File range read request.
 struct ReadFileReq {
   @ id - 1
@@ -154,6 +184,35 @@ union DirectoryTableEvent {
   ),
 }
 
+@ description
+| Reactive trash table event. Snapshot replaces the whole subscribed trash
+| table view and is used for both the initial response and later
+| resynchronization. Patch applies membership changes to the current view.
+| Closed is a domain-level terminal event and is followed by normal response
+| stream close.
+union TrashItemsTableEvent {
+  @ id - 1
+  Snapshot(
+    @ id - 1
+    rows: TrashItem[],
+  ),
+
+  @ id - 2
+  Patch(
+    @ id - 1
+    removes: string[],
+
+    @ id - 2
+    upserts: TrashItem[],
+  ),
+
+  @ id - 3
+  Closed(
+    @ id - 1
+    reason: TrashItemsSubscriptionCloseReason,
+  ),
+}
+
 @ description - Root table row key. Root rows use path as their stable key.
 struct RootEntryKey {
   @ id - 1
@@ -209,6 +268,20 @@ union DirectorySubscriptionCloseReason {
   Unknown(),
 }
 
+@ description
+| Terminal reason for a trash item subscription. These are domain events, not
+| wgo-wire reqres stream errors.
+union TrashItemsSubscriptionCloseReason {
+  @ id - 0
+  Failed(),
+
+  @ id - 1
+  PermissionLost(),
+
+  @ id - 2
+  Unknown(),
+}
+
 @ description - One filesystem entry visible to the active user context.
 struct FsEntry {
   @ id - 1
@@ -243,6 +316,48 @@ enum FsEntryKind {
 
   @ id - 4
   Other,
+}
+
+@ description - One OS trash/recycle-bin item visible to the active user context.
+struct TrashItem {
+  @ id - 1
+  @ description
+  | Opaque OS-defined trash item id. Clients must not parse it and must treat
+  | it as valid only while this item remains in the trash.
+  id: string,
+
+  @ id - 2
+  @ description - Original filesystem item name.
+  name: string,
+
+  @ id - 3
+  @ description - Original parent directory path.
+  originalParent: string,
+
+  @ id - 4
+  @ description - Epoch millisecond timestamp when the item was moved to trash.
+  deletedAtMs?: u53,
+
+  @ id - 5
+  size?: TrashItemSize,
+}
+
+@ description
+| Trash item size as reported by the host trash implementation. File-like items
+| report byte size when available. Directory-like items may report a
+| non-recursive child-entry count instead of recursive byte size.
+union TrashItemSize {
+  @ id - 1
+  Bytes(
+    @ id - 1
+    value: u53,
+  ),
+
+  @ id - 2
+  Entries(
+    @ id - 1
+    value: u53,
+  ),
 }
 
 @ description - File read response chunk.
@@ -401,6 +516,18 @@ struct DeletePathsReq {
   mode: DeleteMode,
 }
 
+@ description - Bulk trash item restore request.
+struct RestoreTrashItemsReq {
+  @ id - 1
+  itemIds: string[],
+}
+
+@ description - Bulk trash item permanent-delete request.
+struct PurgeTrashItemsReq {
+  @ id - 1
+  itemIds: string[],
+}
+
 @ description - Deletion behavior for DeletePaths.
 enum DeleteMode {
   @ id - 1
@@ -527,6 +654,21 @@ union SubscribeDirectoryError {
 
   @ id - 3
   NotDirectory(
+    @ id - 1
+    message: string,
+  ),
+}
+
+@ description - Method-level trash item subscription start errors.
+union SubscribeTrashItemsError {
+  @ id - 0
+  Failed(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 1
+  PermissionDenied(
     @ id - 1
     message: string,
   ),

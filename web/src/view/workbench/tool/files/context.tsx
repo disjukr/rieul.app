@@ -2,6 +2,7 @@ import { createContext } from "react";
 import type React from "react";
 import type { Atom } from "jotai";
 import type { FsEntry } from "../../../../protocol/rpc.ts";
+import type { ExplorerSpecialLocation } from "../../../../state/explorer.ts";
 
 export interface FilesExplorerHistoryEntry {
   path?: string;
@@ -15,12 +16,15 @@ export interface FilesExplorerState {
   openedFileAtom: Atom<FsEntry | undefined>;
   selectedEntryAtom: Atom<FsEntry | undefined>;
   selectedPathAtom: Atom<string | undefined>;
+  specialLocationAtom: Atom<ExplorerSpecialLocation | undefined>;
   visibleRowsAtom: Atom<FsEntry[]>;
   goBack: () => void;
   goUp: () => void;
   navigate: (path?: string) => void;
+  navigateTrash: () => void;
   openEntry: (entry: FsEntry) => void;
   openFile: (entry: FsEntry) => void;
+  replaceWithTrash: () => void;
   refresh: () => void;
   selectEntry: (entry: FsEntry) => void;
 }

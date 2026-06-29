@@ -3,7 +3,10 @@ import { ChevronDown, WifiOff } from "lucide-react";
 import type { AvailableShellInfo } from "../../protocol/rpc.ts";
 import type { Machine } from "../../state/machines.ts";
 import type { ConnectionState } from "../../state/types.ts";
-import type { WorkbenchTool } from "../../state/workbench.ts";
+import type {
+  WorkbenchFilesView,
+  WorkbenchTool,
+} from "../../state/workbench.ts";
 import { ToolMenu } from "./tool-menu.tsx";
 
 interface MachinePanelProps {
@@ -18,6 +21,7 @@ interface MachinePanelProps {
     event: React.MouseEvent<HTMLButtonElement>,
     machine: Machine,
   ) => void;
+  onOpenFilesView: (filesView: WorkbenchFilesView) => void;
   onOpenTerminalShell: (shell?: AvailableShellInfo) => void;
   onResizeKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => void;
   onResizePointerDown: (event: React.PointerEvent<HTMLDivElement>) => void;
@@ -73,6 +77,7 @@ export function MachinePanel(
     machinePanelMinWidth,
     machinePanelWidth,
     onOpenMachineMenu,
+    onOpenFilesView,
     onOpenTerminalShell,
     onResizeKeyDown,
     onResizePointerDown,
@@ -125,6 +130,7 @@ export function MachinePanel(
         <ToolMenu
           activeTool={activeTool}
           terminalShells={terminalShells}
+          onOpenFilesView={onOpenFilesView}
           onOpenTerminalShell={onOpenTerminalShell}
           onSelect={onSelectTool}
         />

@@ -33,6 +33,7 @@ export function MachinePanelRegion() {
       machinePanelMinWidth={machinePanel.machinePanelMinWidth}
       machinePanelWidth={machinePanelWidth}
       onOpenMachineMenu={machinePanel.openMachineTitleMenu}
+      onOpenFilesView={machinePanel.openFilesView}
       onResizeKeyDown={machinePanel.resizeMachinePanelWithKeyboard}
       onResizePointerDown={machinePanel.startMachinePanelResize}
       onOpenTerminalShell={machinePanel.openTerminalShell}
