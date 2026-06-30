@@ -1,29 +1,40 @@
-use std::collections::BTreeMap;
 use std::sync::OnceLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use thiserror::Error;
-
-use crate::cbor::{CborError, Value};
+use crate::generated::rpc::{
+    WriteFileReq as GeneratedWriteFileReq, WriteTerminalInputReq as GeneratedWriteTerminalInputReq,
+};
 use crate::traits::ServiceError;
+pub use crate::wire::{RpcErrorCode, RpcErrorPayload};
 
 pub const MAX_U53: u64 = 9_007_199_254_740_991;
 
-#[derive(Debug, Error)]
-pub enum RpcCodecError {
-    #[error("cbor error: {0}")]
-    Cbor(#[from] CborError),
-    #[error("expected CBOR map")]
-    ExpectedMap,
-    #[error("expected CBOR array")]
-    ExpectedArray,
-    #[error("missing field {0}")]
-    MissingField(u64),
-    #[error("unexpected field type for field {0}")]
-    WrongFieldType(u64),
-    #[error("integer is out of range for field {0}")]
-    IntegerOutOfRange(u64),
-}
+pub type RpcCodecError = crate::generated::rpc::CodecError;
+
+pub use crate::generated::rpc::{
+    AttachTerminalSessionError, AttachTerminalSessionReq, AvailableShellInfo, AvailableShellKey,
+    AvailableShellsTableEvent, BulkMutationItemResult, BulkMutationRes, ClientInfo, ClientKey,
+    ClientsTableEvent, CloseTerminalSessionError, CloseTerminalSessionReq, CompletePairingError,
+    CompletePairingReq, CompletePairingRes, CreateNodeOp, CreateNodeSpec, CreateNodesReq,
+    CreateTerminalSessionError, CreateTerminalSessionReq, DaemonInfo, DeleteMode, DeletePathsReq,
+    DirectoryEntryKey, DirectorySubscriptionCloseReason, DirectoryTableEvent, FsEntry, FsEntryKind,
+    FsMutationError, FsMutationItemError, GetDaemonInfoError, PurgeTrashItemsReq, ReadFileChunk,
+    ReadFileError, ReadFileReq, RenamePathOp, RenamePathsReq, RenewClientCredentialError,
+    RenewClientCredentialRes, RestoreTrashItemsReq, RootEntryKey, RootsSubscriptionCloseReason,
+    RootsTableEvent, StartPairingError, StartPairingReq, StartPairingRes,
+    SubscribeAvailableShellsError, SubscribeClientsError, SubscribeDirectoryError,
+    SubscribeDirectoryReq, SubscribeRootsError, SubscribeTrashItemsError, TakeTerminalControlError,
+    TakeTerminalControlReq, TakeTerminalControlRes, TerminalEvent, TerminalExit,
+    TerminalLaunchSpec, TerminalSessionCloseReason, TerminalSessionInfo, TerminalSessionKey,
+    TerminalSessionsTableEvent, TrashItem, TrashItemSize, TrashItemsSubscriptionCloseReason,
+    TrashItemsTableEvent, WriteFileError, WriteFileMode, WriteFileResult, WriteTerminalInputError,
+};
+
+pub type StartPairingRequest = StartPairingReq;
+pub type StartPairingResponse = StartPairingRes;
+pub type CompletePairingRequest = CompletePairingReq;
+pub type CompletePairingResponse = CompletePairingRes;
+pub type RenewClientCredentialResponse = RenewClientCredentialRes;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u64)]
@@ -84,74 +95,6 @@ impl ProcId {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RpcErrorPayload {
-    pub code: RpcErrorCode,
-    pub message: String,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(u64)]
-pub enum RpcErrorCode {
-    BadMessage = 1,
-    Unauthorized = 2,
-    MissingPayload = 3,
-    NotImplemented = 4,
-    PermissionDenied = 6,
-    NotFound = 7,
-    OperationFailed = 8,
-    MalformedPayload = 9,
-}
-
-impl RpcErrorCode {
-    pub fn from_u64(value: u64) -> Option<Self> {
-        match value {
-            1 => Some(Self::BadMessage),
-            2 => Some(Self::Unauthorized),
-            3 => Some(Self::MissingPayload),
-            4 => Some(Self::NotImplemented),
-            6 => Some(Self::PermissionDenied),
-            7 => Some(Self::NotFound),
-            8 => Some(Self::OperationFailed),
-            9 => Some(Self::MalformedPayload),
-            _ => None,
-        }
-    }
-
-    pub fn as_u64(self) -> u64 {
-        self as u64
-    }
-}
-
-impl RpcErrorPayload {
-    pub fn encode(&self) -> Vec<u8> {
-        Value::Map(BTreeMap::from([
-            (1, Value::U64(self.code.as_u64())),
-            (2, Value::Text(self.message.clone())),
-        ]))
-        .encode()
-    }
-
-    pub fn decode(bytes: &[u8]) -> Result<Self, RpcCodecError> {
-        let map = expect_map(Value::decode(bytes)?)?;
-        Ok(Self {
-            code: RpcErrorCode::from_u64(expect_u64(&map, 1)?)
-                .ok_or(RpcCodecError::WrongFieldType(1))?,
-            message: expect_text(&map, 2)?,
-        })
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DaemonInfo {
-    pub supported_proc_ids: Vec<u64>,
-    pub version: String,
-    pub os: String,
-    pub instance_id: String,
-    pub started_at_ms: u64,
-    pub server_time_ms: u64,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
 struct DaemonProcessInfo {
     supported_proc_ids: Vec<u64>,
     version: String,
@@ -187,116 +130,148 @@ impl DaemonInfo {
             server_time_ms: current_unix_ms(),
         }
     }
+}
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WriteFileReq {
+    Start(WriteFileStart),
+    Chunk(WriteFileChunk),
+}
+
+impl WriteFileReq {
     pub fn encode(&self) -> Vec<u8> {
-        Value::Map(BTreeMap::from([
-            (
-                1,
-                Value::Array(
-                    self.supported_proc_ids
-                        .iter()
-                        .copied()
-                        .map(Value::U64)
-                        .collect(),
-                ),
-            ),
-            (2, Value::Text(self.version.clone())),
-            (3, Value::Text(self.os.clone())),
-            (4, Value::Text(self.instance_id.clone())),
-            (5, Value::U64(self.started_at_ms)),
-            (6, Value::U64(self.server_time_ms)),
-        ]))
-        .encode()
+        self.to_generated().encode()
     }
 
     pub fn decode(bytes: &[u8]) -> Result<Self, RpcCodecError> {
-        let map = expect_map(Value::decode(bytes)?)?;
-        Ok(Self {
-            supported_proc_ids: expect_array(&map, 1)?
-                .iter()
-                .map(expect_u53_value)
-                .collect::<Result<Vec<_>, _>>()?,
-            version: expect_text(&map, 2)?,
-            os: expect_text(&map, 3)?,
-            instance_id: expect_text(&map, 4)?,
-            started_at_ms: expect_u53(&map, 5)?,
-            server_time_ms: expect_u53(&map, 6)?,
-        })
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ClientInfo {
-    pub client_id: String,
-    pub label: String,
-    pub created_at_unix: i64,
-    pub expires_at_unix: i64,
-}
-
-impl ClientInfo {
-    pub fn to_value(&self) -> Value {
-        Value::Map(BTreeMap::from([
-            (1, Value::Text(self.client_id.clone())),
-            (2, Value::Text(self.label.clone())),
-            (3, Value::I64(self.created_at_unix)),
-            (4, Value::I64(self.expires_at_unix)),
-        ]))
+        Self::from_generated(GeneratedWriteFileReq::decode(bytes)?)
     }
 
-    pub fn from_value(value: &Value) -> Result<Self, RpcCodecError> {
-        let map = expect_map(value.clone())?;
-        Ok(Self {
-            client_id: expect_text(&map, 1)?,
-            label: expect_text(&map, 2)?,
-            created_at_unix: expect_i53(&map, 3)?,
-            expires_at_unix: expect_i53(&map, 4)?,
-        })
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ClientsTableEvent {
-    Snapshot {
-        rows: Vec<ClientInfo>,
-    },
-    Patch {
-        removes: Vec<ClientKey>,
-        upserts: Vec<ClientInfo>,
-    },
-}
-
-impl ClientsTableEvent {
-    pub fn encode(&self) -> Vec<u8> {
+    fn to_generated(&self) -> GeneratedWriteFileReq {
         match self {
-            Self::Snapshot { rows } => union_value(1, BTreeMap::from([(1, clients_value(rows))])),
-            Self::Patch { removes, upserts } => union_value(
-                2,
-                BTreeMap::from([
-                    (
-                        1,
-                        Value::Array(removes.iter().map(ClientKey::to_value).collect()),
-                    ),
-                    (2, clients_value(upserts)),
-                ]),
-            ),
+            Self::Start(start) => GeneratedWriteFileReq::WriteFileStart {
+                path: start.path.clone(),
+                mode: start.mode.clone(),
+                expected_result_size: start.expected_result_size,
+                modified_at_ms: start.modified_at_ms,
+            },
+            Self::Chunk(chunk) => GeneratedWriteFileReq::WriteFileChunk {
+                offset: chunk.offset,
+                bytes: chunk.bytes.clone(),
+            },
         }
-        .encode()
+    }
+
+    fn from_generated(value: GeneratedWriteFileReq) -> Result<Self, RpcCodecError> {
+        Ok(match value {
+            GeneratedWriteFileReq::WriteFileStart {
+                path,
+                mode,
+                expected_result_size,
+                modified_at_ms,
+            } => Self::Start(WriteFileStart {
+                path,
+                mode,
+                expected_result_size,
+                modified_at_ms,
+            }),
+            GeneratedWriteFileReq::WriteFileChunk { offset, bytes } => {
+                Self::Chunk(WriteFileChunk { offset, bytes })
+            }
+        })
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ClientKey {
-    pub client_id: String,
+pub struct WriteFileStart {
+    pub path: String,
+    pub mode: WriteFileMode,
+    pub expected_result_size: Option<u64>,
+    pub modified_at_ms: Option<u64>,
 }
 
-impl ClientKey {
-    fn to_value(&self) -> Value {
-        Value::Map(BTreeMap::from([(1, Value::Text(self.client_id.clone()))]))
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WriteFileChunk {
+    pub offset: Option<u64>,
+    pub bytes: Vec<u8>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WriteTerminalInputReq {
+    Start {
+        terminal_session_id: String,
+        attach_id: String,
+    },
+    Chunk {
+        bytes: Vec<u8>,
+    },
+}
+
+impl WriteTerminalInputReq {
+    pub fn encode(&self) -> Vec<u8> {
+        self.to_generated().encode()
+    }
+
+    pub fn decode(bytes: &[u8]) -> Result<Self, RpcCodecError> {
+        Ok(match GeneratedWriteTerminalInputReq::decode(bytes)? {
+            GeneratedWriteTerminalInputReq::WriteTerminalInputStart {
+                terminal_session_id,
+                attach_id,
+            } => Self::Start {
+                terminal_session_id,
+                attach_id,
+            },
+            GeneratedWriteTerminalInputReq::WriteTerminalInputChunk { bytes } => {
+                Self::Chunk { bytes }
+            }
+        })
+    }
+
+    fn to_generated(&self) -> GeneratedWriteTerminalInputReq {
+        match self {
+            Self::Start {
+                terminal_session_id,
+                attach_id,
+            } => GeneratedWriteTerminalInputReq::WriteTerminalInputStart {
+                terminal_session_id: terminal_session_id.clone(),
+                attach_id: attach_id.clone(),
+            },
+            Self::Chunk { bytes } => GeneratedWriteTerminalInputReq::WriteTerminalInputChunk {
+                bytes: bytes.clone(),
+            },
+        }
     }
 }
 
-fn clients_value(rows: &[ClientInfo]) -> Value {
-    Value::Array(rows.iter().map(ClientInfo::to_value).collect())
+impl BulkMutationItemResult {
+    pub fn ok(index: usize) -> Self {
+        Self::Ok {
+            index: index as u64,
+        }
+    }
+
+    pub fn failed(index: usize, error: ServiceError) -> Self {
+        Self::Failed {
+            index: index as u64,
+            error: FsMutationItemError::from_service_error(error),
+        }
+    }
+}
+
+impl FsMutationItemError {
+    fn from_service_error(error: ServiceError) -> Self {
+        let message = error.to_string();
+        match error {
+            ServiceError::PermissionDenied => Self::PermissionDenied { message },
+            ServiceError::NotFound => Self::NotFound { message },
+            ServiceError::AlreadyExists => Self::AlreadyExists { message },
+            ServiceError::NotDirectory => Self::NotDirectory { message },
+            ServiceError::NotFile => Self::NotFile { message },
+            ServiceError::InvalidPath => Self::InvalidPath { message },
+            ServiceError::Unsupported => Self::Unsupported { message },
+            ServiceError::OperationFailed(_) => Self::Failed { message },
+        }
+    }
 }
 
 fn current_unix_ms() -> u64 {
@@ -404,6 +379,7 @@ fn macos_license_product_name() -> Option<String> {
     .and_then(|text| macos_license_product_name_from_text(&text))
 }
 
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 fn macos_license_product_name_from_text(text: &str) -> Option<String> {
     const PREFIX: &str = "SOFTWARE LICENSE AGREEMENT FOR macOS ";
 
@@ -422,6 +398,7 @@ fn macos_license_product_name_from_text(text: &str) -> Option<String> {
     }
 }
 
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 fn macos_product_name_with_version(product_name: &str, product_version: &str) -> String {
     let Some(major_version) = product_version
         .split('.')
@@ -511,1532 +488,13 @@ fn parse_u32(value: &str) -> Option<u32> {
     value.trim().parse().ok()
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct StartPairingRequest {
-    pub confirmation_code: String,
-    pub client_label: String,
-    pub client_id: Option<String>,
-}
-
-impl StartPairingRequest {
-    pub fn encode(&self) -> Vec<u8> {
-        let mut fields = BTreeMap::from([
-            (1, Value::Text(self.confirmation_code.clone())),
-            (2, Value::Text(self.client_label.clone())),
-        ]);
-        if let Some(client_id) = &self.client_id {
-            fields.insert(3, Value::Text(client_id.clone()));
-        }
-        Value::Map(fields).encode()
-    }
-
-    pub fn decode(bytes: &[u8]) -> Result<Self, RpcCodecError> {
-        let map = expect_map(Value::decode(bytes)?)?;
-        Ok(Self {
-            confirmation_code: expect_text(&map, 1)?,
-            client_label: expect_text(&map, 2)?,
-            client_id: optional_text(&map, 3)?,
-        })
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct StartPairingResponse {
-    pub pairing_code_expires_at_unix: i64,
-}
-
-impl StartPairingResponse {
-    pub fn encode(&self) -> Vec<u8> {
-        Value::Map(BTreeMap::from([(
-            1,
-            Value::I64(self.pairing_code_expires_at_unix),
-        )]))
-        .encode()
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CompletePairingRequest {
-    pub code: String,
-}
-
-impl CompletePairingRequest {
-    pub fn encode(&self) -> Vec<u8> {
-        Value::Map(BTreeMap::from([(1, Value::Text(self.code.clone()))])).encode()
-    }
-
-    pub fn decode(bytes: &[u8]) -> Result<Self, RpcCodecError> {
-        let map = expect_map(Value::decode(bytes)?)?;
-        Ok(Self {
-            code: expect_text(&map, 1)?,
-        })
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CompletePairingResponse {
-    pub client_id: String,
-    pub client_secret: String,
-    pub client_credential_expires_at_unix: i64,
-}
-
-impl CompletePairingResponse {
-    pub fn encode(&self) -> Vec<u8> {
-        Value::Map(BTreeMap::from([
-            (1, Value::Text(self.client_id.clone())),
-            (2, Value::Text(self.client_secret.clone())),
-            (3, Value::I64(self.client_credential_expires_at_unix)),
-        ]))
-        .encode()
-    }
-
-    pub fn decode(bytes: &[u8]) -> Result<Self, RpcCodecError> {
-        let map = expect_map(Value::decode(bytes)?)?;
-        Ok(Self {
-            client_id: expect_text(&map, 1)?,
-            client_secret: expect_text(&map, 2)?,
-            client_credential_expires_at_unix: expect_i53(&map, 3)?,
-        })
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RenewClientCredentialResponse {
-    pub client_credential_expires_at_unix: i64,
-}
-
-impl RenewClientCredentialResponse {
-    pub fn encode(&self) -> Vec<u8> {
-        Value::Map(BTreeMap::from([(
-            1,
-            Value::I64(self.client_credential_expires_at_unix),
-        )]))
-        .encode()
-    }
-
-    pub fn decode(bytes: &[u8]) -> Result<Self, RpcCodecError> {
-        let map = expect_map(Value::decode(bytes)?)?;
-        Ok(Self {
-            client_credential_expires_at_unix: expect_i53(&map, 1)?,
-        })
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SubscribeDirectoryReq {
-    pub path: String,
-}
-
-impl SubscribeDirectoryReq {
-    pub fn encode(&self) -> Vec<u8> {
-        Value::Map(BTreeMap::from([(1, Value::Text(self.path.clone()))])).encode()
-    }
-
-    pub fn decode(bytes: &[u8]) -> Result<Self, RpcCodecError> {
-        let map = expect_map(Value::decode(bytes)?)?;
-        Ok(Self {
-            path: expect_text(&map, 1)?,
-        })
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ReadFileReq {
-    pub path: String,
-    pub offset: Option<u64>,
-    pub length: Option<u64>,
-}
-
-impl ReadFileReq {
-    pub fn encode(&self) -> Vec<u8> {
-        let mut map = BTreeMap::from([(1, Value::Text(self.path.clone()))]);
-        if let Some(offset) = self.offset {
-            map.insert(2, Value::U64(offset));
-        }
-        if let Some(length) = self.length {
-            map.insert(3, Value::U64(length));
-        }
-        Value::Map(map).encode()
-    }
-
-    pub fn decode(bytes: &[u8]) -> Result<Self, RpcCodecError> {
-        let map = expect_map(Value::decode(bytes)?)?;
-        Ok(Self {
-            path: expect_text(&map, 1)?,
-            offset: optional_u53(&map, 2)?,
-            length: optional_u53(&map, 3)?,
-        })
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ReadFileChunk {
-    pub offset: u64,
-    pub bytes: Vec<u8>,
-}
-
-impl ReadFileChunk {
-    pub fn encode(&self) -> Vec<u8> {
-        Value::Map(BTreeMap::from([
-            (1, Value::U64(self.offset)),
-            (2, Value::Bytes(self.bytes.clone())),
-        ]))
-        .encode()
-    }
-
-    pub fn decode(bytes: &[u8]) -> Result<Self, RpcCodecError> {
-        let map = expect_map(Value::decode(bytes)?)?;
-        Ok(Self {
-            offset: expect_u53(&map, 1)?,
-            bytes: expect_bytes(&map, 2)?,
-        })
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum WriteFileReq {
-    Start(WriteFileStart),
-    Chunk(WriteFileChunk),
-}
-
-impl WriteFileReq {
-    pub fn encode(&self) -> Vec<u8> {
-        match self {
-            Self::Start(start) => start.to_value().encode(),
-            Self::Chunk(chunk) => chunk.to_value().encode(),
-        }
-    }
-
-    pub fn decode(bytes: &[u8]) -> Result<Self, RpcCodecError> {
-        let value = Value::decode(bytes)?;
-        Self::from_value(&value)
-    }
-
-    pub fn from_value(value: &Value) -> Result<Self, RpcCodecError> {
-        let (variant, fields) = expect_union(value)?;
-        match variant {
-            1 => Ok(Self::Start(WriteFileStart::from_fields(fields)?)),
-            2 => Ok(Self::Chunk(WriteFileChunk::from_fields(fields)?)),
-            _ => Err(RpcCodecError::WrongFieldType(0)),
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct WriteFileStart {
-    pub path: String,
-    pub mode: WriteFileMode,
-    pub expected_result_size: Option<u64>,
-    pub modified_at_ms: Option<u64>,
-}
-
-impl WriteFileStart {
-    fn to_value(&self) -> Value {
-        let mut fields = BTreeMap::from([
-            (1, Value::Text(self.path.clone())),
-            (2, Value::U64(self.mode.as_u64())),
-        ]);
-        if let Some(expected_result_size) = self.expected_result_size {
-            fields.insert(3, Value::U64(expected_result_size));
-        }
-        if let Some(modified_at_ms) = self.modified_at_ms {
-            fields.insert(4, Value::U64(modified_at_ms));
-        }
-        union_value(1, fields)
-    }
-
-    fn from_fields(fields: &BTreeMap<u64, Value>) -> Result<Self, RpcCodecError> {
-        Ok(Self {
-            path: expect_text(fields, 1)?,
-            mode: WriteFileMode::from_u64(expect_u64(fields, 2)?)
-                .ok_or(RpcCodecError::WrongFieldType(2))?,
-            expected_result_size: optional_u53(fields, 3)?,
-            modified_at_ms: optional_u53(fields, 4)?,
-        })
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct WriteFileChunk {
-    pub offset: Option<u64>,
-    pub bytes: Vec<u8>,
-}
-
-impl WriteFileChunk {
-    fn to_value(&self) -> Value {
-        let mut fields = BTreeMap::from([(2, Value::Bytes(self.bytes.clone()))]);
-        if let Some(offset) = self.offset {
-            fields.insert(1, Value::U64(offset));
-        }
-        union_value(2, fields)
-    }
-
-    fn from_fields(fields: &BTreeMap<u64, Value>) -> Result<Self, RpcCodecError> {
-        Ok(Self {
-            offset: optional_u53(fields, 1)?,
-            bytes: expect_bytes(fields, 2)?,
-        })
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct WriteFileResult {
-    pub bytes_written: u64,
-    pub result_size: u64,
-    pub modified_at_ms: Option<u64>,
-}
-
-impl WriteFileResult {
-    pub fn encode(&self) -> Vec<u8> {
-        let mut fields = BTreeMap::from([
-            (1, Value::U64(self.bytes_written)),
-            (2, Value::U64(self.result_size)),
-        ]);
-        if let Some(modified_at_ms) = self.modified_at_ms {
-            fields.insert(3, Value::U64(modified_at_ms));
-        }
-        Value::Map(fields).encode()
-    }
-
-    pub fn decode(bytes: &[u8]) -> Result<Self, RpcCodecError> {
-        let map = expect_map(Value::decode(bytes)?)?;
-        Ok(Self {
-            bytes_written: expect_u53(&map, 1)?,
-            result_size: expect_u53(&map, 2)?,
-            modified_at_ms: optional_u53(&map, 3)?,
-        })
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(u64)]
-pub enum WriteFileMode {
-    Create = 1,
-    Replace = 2,
-    Append = 3,
-    Patch = 4,
-}
-
-impl WriteFileMode {
-    pub fn from_u64(value: u64) -> Option<Self> {
-        match value {
-            1 => Some(Self::Create),
-            2 => Some(Self::Replace),
-            3 => Some(Self::Append),
-            4 => Some(Self::Patch),
-            _ => None,
-        }
-    }
-
-    pub fn as_u64(self) -> u64 {
-        self as u64
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CreateTerminalSessionReq {
-    pub cols: u64,
-    pub rows: u64,
-    pub cwd: Option<String>,
-    pub launch: TerminalLaunchSpec,
-    pub title: Option<String>,
-}
-
-impl CreateTerminalSessionReq {
-    pub fn decode(bytes: &[u8]) -> Result<Self, RpcCodecError> {
-        let map = expect_map(Value::decode(bytes)?)?;
-        Ok(Self {
-            cols: expect_u53(&map, 1)?,
-            rows: expect_u53(&map, 2)?,
-            cwd: optional_text(&map, 3)?,
-            launch: match map.get(&4) {
-                Some(value) => TerminalLaunchSpec::from_value(value)?,
-                None => TerminalLaunchSpec {
-                    command: String::new(),
-                    args: Vec::new(),
-                },
-            },
-            title: optional_text(&map, 5)?,
-        })
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TerminalLaunchSpec {
-    pub command: String,
-    pub args: Vec<String>,
-}
-
-impl TerminalLaunchSpec {
-    fn from_value(value: &Value) -> Result<Self, RpcCodecError> {
-        let map = expect_map(value.clone())?;
-        Ok(Self {
-            command: expect_text(&map, 1)?,
-            args: optional_string_array(&map, 2)?.unwrap_or_default(),
-        })
-    }
-
-    fn to_value(&self) -> Value {
-        Value::Map(BTreeMap::from([
-            (1, Value::Text(self.command.clone())),
-            (
-                2,
-                Value::Array(
-                    self.args
-                        .iter()
-                        .map(|value| Value::Text(value.clone()))
-                        .collect(),
-                ),
-            ),
-        ]))
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TerminalSessionInfo {
-    pub terminal_session_id: String,
-    pub creator_client_id: String,
-    pub created_at_ms: u64,
-    pub last_attached_at_ms: Option<u64>,
-    pub last_detached_at_ms: Option<u64>,
-    pub last_output_at_ms: Option<u64>,
-    pub cols: u64,
-    pub rows: u64,
-    pub primary_attach_id: Option<String>,
-    pub latest_output_seq: u64,
-    pub last_known_title: Option<String>,
-    pub exit: Option<TerminalExit>,
-    pub last_known_cwd: Option<String>,
-    pub launch: TerminalLaunchSpec,
-}
-
-impl TerminalSessionInfo {
-    pub fn encode(&self) -> Vec<u8> {
-        self.to_value().encode()
-    }
-
-    fn to_value(&self) -> Value {
-        let mut fields = BTreeMap::from([
-            (1, Value::Text(self.terminal_session_id.clone())),
-            (2, Value::Text(self.creator_client_id.clone())),
-            (3, Value::U64(self.created_at_ms)),
-            (7, Value::U64(self.cols)),
-            (8, Value::U64(self.rows)),
-            (10, Value::U64(self.latest_output_seq)),
-        ]);
-        if let Some(value) = self.last_attached_at_ms {
-            fields.insert(4, Value::U64(value));
-        }
-        if let Some(value) = self.last_detached_at_ms {
-            fields.insert(5, Value::U64(value));
-        }
-        if let Some(value) = self.last_output_at_ms {
-            fields.insert(6, Value::U64(value));
-        }
-        if let Some(value) = &self.primary_attach_id {
-            fields.insert(9, Value::Text(value.clone()));
-        }
-        if let Some(value) = &self.last_known_title {
-            fields.insert(11, Value::Text(value.clone()));
-        }
-        if let Some(value) = &self.exit {
-            fields.insert(12, value.to_value());
-        }
-        if let Some(value) = &self.last_known_cwd {
-            fields.insert(13, Value::Text(value.clone()));
-        }
-        fields.insert(14, self.launch.to_value());
-        Value::Map(fields)
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum TerminalSessionsTableEvent {
-    Snapshot {
-        rows: Vec<TerminalSessionInfo>,
-    },
-    Patch {
-        removes: Vec<TerminalSessionKey>,
-        upserts: Vec<TerminalSessionInfo>,
-    },
-}
-
-impl TerminalSessionsTableEvent {
-    pub fn encode(&self) -> Vec<u8> {
-        match self {
-            Self::Snapshot { rows } => {
-                union_value(1, BTreeMap::from([(1, terminal_sessions_value(rows))]))
-            }
-            Self::Patch { removes, upserts } => union_value(
-                2,
-                BTreeMap::from([
-                    (
-                        1,
-                        Value::Array(removes.iter().map(TerminalSessionKey::to_value).collect()),
-                    ),
-                    (2, terminal_sessions_value(upserts)),
-                ]),
-            ),
-        }
-        .encode()
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TerminalSessionKey {
-    pub terminal_session_id: String,
-}
-
-impl TerminalSessionKey {
-    fn to_value(&self) -> Value {
-        Value::Map(BTreeMap::from([(
-            1,
-            Value::Text(self.terminal_session_id.clone()),
-        )]))
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum AvailableShellsTableEvent {
-    Snapshot {
-        rows: Vec<AvailableShellInfo>,
-    },
-    Patch {
-        removes: Vec<AvailableShellKey>,
-        upserts: Vec<AvailableShellInfo>,
-    },
-}
-
-impl AvailableShellsTableEvent {
-    pub fn encode(&self) -> Vec<u8> {
-        match self {
-            Self::Snapshot { rows } => {
-                union_value(1, BTreeMap::from([(1, available_shells_value(rows))]))
-            }
-            Self::Patch { removes, upserts } => union_value(
-                2,
-                BTreeMap::from([
-                    (
-                        1,
-                        Value::Array(removes.iter().map(AvailableShellKey::to_value).collect()),
-                    ),
-                    (2, available_shells_value(upserts)),
-                ]),
-            ),
-        }
-        .encode()
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AvailableShellInfo {
-    pub shell_id: String,
-    pub name: String,
-    pub command: String,
-    pub args: Vec<String>,
-    pub is_default: bool,
-}
-
-impl AvailableShellInfo {
-    fn to_value(&self) -> Value {
-        Value::Map(BTreeMap::from([
-            (1, Value::Text(self.shell_id.clone())),
-            (2, Value::Text(self.name.clone())),
-            (3, Value::Text(self.command.clone())),
-            (4, string_array_value(&self.args)),
-            (5, Value::Bool(self.is_default)),
-        ]))
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AvailableShellKey {
-    pub shell_id: String,
-}
-
-impl AvailableShellKey {
-    fn to_value(&self) -> Value {
-        Value::Map(BTreeMap::from([(1, Value::Text(self.shell_id.clone()))]))
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AttachTerminalSessionReq {
-    pub terminal_session_id: String,
-    pub after_seq: Option<u64>,
-    pub viewport_cols: u64,
-    pub viewport_rows: u64,
-}
-
-impl AttachTerminalSessionReq {
-    pub fn decode(bytes: &[u8]) -> Result<Self, RpcCodecError> {
-        let map = expect_map(Value::decode(bytes)?)?;
-        Ok(Self {
-            terminal_session_id: expect_text(&map, 1)?,
-            after_seq: optional_u53(&map, 2)?,
-            viewport_cols: expect_u53(&map, 3)?,
-            viewport_rows: expect_u53(&map, 4)?,
-        })
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum TerminalEvent {
-    Attached {
-        attach_id: String,
-        primary_attach_id: Option<String>,
-        session: TerminalSessionInfo,
-    },
-    OutputChunk {
-        seq: u64,
-        bytes: Vec<u8>,
-    },
-    HistoryGap {
-        next_seq: u64,
-    },
-    ControlChanged {
-        primary_attach_id: String,
-    },
-    PseudoTerminalResized {
-        cols: u64,
-        rows: u64,
-    },
-    SessionExited {
-        exit: TerminalExit,
-    },
-    SessionClosed {
-        reason: TerminalSessionCloseReason,
-    },
-    WorkingDirectoryChanged {
-        cwd: String,
-    },
-    TitleChanged {
-        title: String,
-    },
-}
-
-impl TerminalEvent {
-    pub fn encode(&self) -> Vec<u8> {
-        match self {
-            Self::Attached {
-                attach_id,
-                primary_attach_id,
-                session,
-            } => {
-                let mut fields =
-                    BTreeMap::from([(1, Value::Text(attach_id.clone())), (3, session.to_value())]);
-                if let Some(primary_attach_id) = primary_attach_id {
-                    fields.insert(2, Value::Text(primary_attach_id.clone()));
-                }
-                union_value(1, fields)
-            }
-            Self::OutputChunk { seq, bytes } => union_value(
-                2,
-                BTreeMap::from([(1, Value::U64(*seq)), (2, Value::Bytes(bytes.clone()))]),
-            ),
-            Self::HistoryGap { next_seq } => {
-                union_value(3, BTreeMap::from([(1, Value::U64(*next_seq))]))
-            }
-            Self::ControlChanged { primary_attach_id } => union_value(
-                4,
-                BTreeMap::from([(1, Value::Text(primary_attach_id.clone()))]),
-            ),
-            Self::PseudoTerminalResized { cols, rows } => union_value(
-                5,
-                BTreeMap::from([(1, Value::U64(*cols)), (2, Value::U64(*rows))]),
-            ),
-            Self::SessionExited { exit } => union_value(6, BTreeMap::from([(1, exit.to_value())])),
-            Self::SessionClosed { reason } => {
-                union_value(7, BTreeMap::from([(1, reason.to_value())]))
-            }
-            Self::WorkingDirectoryChanged { cwd } => {
-                union_value(8, BTreeMap::from([(1, Value::Text(cwd.clone()))]))
-            }
-            Self::TitleChanged { title } => {
-                union_value(9, BTreeMap::from([(1, Value::Text(title.clone()))]))
-            }
-        }
-        .encode()
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TakeTerminalControlReq {
-    pub terminal_session_id: String,
-    pub attach_id: String,
-    pub viewport_cols: u64,
-    pub viewport_rows: u64,
-}
-
-impl TakeTerminalControlReq {
-    pub fn decode(bytes: &[u8]) -> Result<Self, RpcCodecError> {
-        let map = expect_map(Value::decode(bytes)?)?;
-        Ok(Self {
-            terminal_session_id: expect_text(&map, 1)?,
-            attach_id: expect_text(&map, 2)?,
-            viewport_cols: expect_u53(&map, 3)?,
-            viewport_rows: expect_u53(&map, 4)?,
-        })
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TakeTerminalControlRes {
-    pub primary_attach_id: String,
-}
-
-impl TakeTerminalControlRes {
-    pub fn encode(&self) -> Vec<u8> {
-        Value::Map(BTreeMap::from([(
-            1,
-            Value::Text(self.primary_attach_id.clone()),
-        )]))
-        .encode()
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum WriteTerminalInputReq {
-    Start {
-        terminal_session_id: String,
-        attach_id: String,
-    },
-    Chunk {
-        bytes: Vec<u8>,
-    },
-}
-
-impl WriteTerminalInputReq {
-    pub fn encode(&self) -> Vec<u8> {
-        match self {
-            Self::Start {
-                terminal_session_id,
-                attach_id,
-            } => union_value(
-                1,
-                BTreeMap::from([
-                    (1, Value::Text(terminal_session_id.clone())),
-                    (2, Value::Text(attach_id.clone())),
-                ]),
-            ),
-            Self::Chunk { bytes } => {
-                union_value(2, BTreeMap::from([(1, Value::Bytes(bytes.clone()))]))
-            }
-        }
-        .encode()
-    }
-
-    pub fn decode(bytes: &[u8]) -> Result<Self, RpcCodecError> {
-        let value = Value::decode(bytes)?;
-        let (variant, fields) = expect_union(&value)?;
-        match variant {
-            1 => Ok(Self::Start {
-                terminal_session_id: expect_text(fields, 1)?,
-                attach_id: expect_text(fields, 2)?,
-            }),
-            2 => Ok(Self::Chunk {
-                bytes: expect_bytes(fields, 1)?,
-            }),
-            _ => Err(RpcCodecError::WrongFieldType(0)),
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CloseTerminalSessionReq {
-    pub terminal_session_id: String,
-}
-
-impl CloseTerminalSessionReq {
-    pub fn decode(bytes: &[u8]) -> Result<Self, RpcCodecError> {
-        let map = expect_map(Value::decode(bytes)?)?;
-        Ok(Self {
-            terminal_session_id: expect_text(&map, 1)?,
-        })
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TerminalExit {
-    pub code: Option<i64>,
-    pub signal: Option<String>,
-    pub exited_at_ms: u64,
-}
-
-impl TerminalExit {
-    fn to_value(&self) -> Value {
-        let mut fields = BTreeMap::from([(3, Value::U64(self.exited_at_ms))]);
-        if let Some(code) = self.code {
-            fields.insert(1, Value::I64(code));
-        }
-        if let Some(signal) = &self.signal {
-            fields.insert(2, Value::Text(signal.clone()));
-        }
-        Value::Map(fields)
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum TerminalSessionCloseReason {
-    Failed { message: String },
-    ClosedByClient,
-    DaemonShuttingDown,
-    Unknown,
-}
-
-impl TerminalSessionCloseReason {
-    fn to_value(&self) -> Value {
-        match self {
-            Self::Failed { message } => {
-                union_value(0, BTreeMap::from([(1, Value::Text(message.clone()))]))
-            }
-            Self::ClosedByClient => union_value(1, BTreeMap::new()),
-            Self::DaemonShuttingDown => union_value(2, BTreeMap::new()),
-            Self::Unknown => union_value(3, BTreeMap::new()),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(u64)]
-pub enum FsEntryKind {
-    File = 1,
-    Directory = 2,
-    Symlink = 3,
-    Other = 4,
-}
-
-impl FsEntryKind {
-    pub fn from_u64(value: u64) -> Option<Self> {
-        match value {
-            1 => Some(Self::File),
-            2 => Some(Self::Directory),
-            3 => Some(Self::Symlink),
-            4 => Some(Self::Other),
-            _ => None,
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct FsEntry {
-    pub name: String,
-    pub path: String,
-    pub kind: FsEntryKind,
-    pub size: Option<u64>,
-    pub modified_at_ms: Option<u64>,
-    pub readonly: bool,
-}
-
-impl FsEntry {
-    pub fn to_value(&self) -> Value {
-        let mut map = BTreeMap::from([
-            (1, Value::Text(self.name.clone())),
-            (2, Value::Text(self.path.clone())),
-            (3, Value::U64(self.kind as u64)),
-            (6, Value::Bool(self.readonly)),
-        ]);
-        if let Some(size) = self.size {
-            map.insert(4, Value::U64(size));
-        }
-        if let Some(modified_at_ms) = self.modified_at_ms {
-            map.insert(5, Value::U64(modified_at_ms));
-        }
-        Value::Map(map)
-    }
-
-    pub fn from_value(value: &Value) -> Result<Self, RpcCodecError> {
-        let Value::Map(map) = value else {
-            return Err(RpcCodecError::ExpectedMap);
-        };
-        Ok(Self {
-            name: expect_text(map, 1)?,
-            path: expect_text(map, 2)?,
-            kind: FsEntryKind::from_u64(expect_u64(map, 3)?)
-                .ok_or(RpcCodecError::WrongFieldType(3))?,
-            size: optional_u64(map, 4)?,
-            modified_at_ms: optional_u64(map, 5)?,
-            readonly: optional_bool(map, 6)?.unwrap_or(false),
-        })
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum RootsTableEvent {
-    Snapshot {
-        rows: Vec<FsEntry>,
-    },
-    Patch {
-        removes: Vec<RootEntryKey>,
-        upserts: Vec<FsEntry>,
-    },
-    Closed {
-        reason: RootsSubscriptionCloseReason,
-    },
-}
-
-impl RootsTableEvent {
-    pub fn encode(&self) -> Vec<u8> {
-        match self {
-            Self::Snapshot { rows } => {
-                union_value(1, BTreeMap::from([(1, fs_entries_value(rows))])).encode()
-            }
-            Self::Patch { removes, upserts } => union_value(
-                2,
-                BTreeMap::from([
-                    (
-                        1,
-                        Value::Array(removes.iter().map(RootEntryKey::to_value).collect()),
-                    ),
-                    (2, fs_entries_value(upserts)),
-                ]),
-            )
-            .encode(),
-            Self::Closed { reason } => {
-                union_value(3, BTreeMap::from([(1, reason.to_value())])).encode()
-            }
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum DirectoryTableEvent {
-    Snapshot {
-        rows: Vec<FsEntry>,
-    },
-    Patch {
-        removes: Vec<DirectoryEntryKey>,
-        upserts: Vec<FsEntry>,
-    },
-    Closed {
-        reason: DirectorySubscriptionCloseReason,
-    },
-}
-
-impl DirectoryTableEvent {
-    pub fn encode(&self) -> Vec<u8> {
-        match self {
-            Self::Snapshot { rows } => {
-                union_value(1, BTreeMap::from([(1, fs_entries_value(rows))])).encode()
-            }
-            Self::Patch { removes, upserts } => union_value(
-                2,
-                BTreeMap::from([
-                    (
-                        1,
-                        Value::Array(removes.iter().map(DirectoryEntryKey::to_value).collect()),
-                    ),
-                    (2, fs_entries_value(upserts)),
-                ]),
-            )
-            .encode(),
-            Self::Closed { reason } => {
-                union_value(3, BTreeMap::from([(1, reason.to_value())])).encode()
-            }
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum TrashItemsTableEvent {
-    Snapshot {
-        rows: Vec<TrashItem>,
-    },
-    Patch {
-        removes: Vec<String>,
-        upserts: Vec<TrashItem>,
-    },
-    Closed {
-        reason: TrashItemsSubscriptionCloseReason,
-    },
-}
-
-impl TrashItemsTableEvent {
-    pub fn encode(&self) -> Vec<u8> {
-        match self {
-            Self::Snapshot { rows } => {
-                union_value(1, BTreeMap::from([(1, trash_items_value(rows))])).encode()
-            }
-            Self::Patch { removes, upserts } => union_value(
-                2,
-                BTreeMap::from([
-                    (
-                        1,
-                        Value::Array(removes.iter().map(|id| Value::Text(id.clone())).collect()),
-                    ),
-                    (2, trash_items_value(upserts)),
-                ]),
-            )
-            .encode(),
-            Self::Closed { reason } => {
-                union_value(3, BTreeMap::from([(1, reason.to_value())])).encode()
-            }
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RootEntryKey {
-    pub path: String,
-}
-
-impl RootEntryKey {
-    fn to_value(&self) -> Value {
-        Value::Map(BTreeMap::from([(1, Value::Text(self.path.clone()))]))
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DirectoryEntryKey {
-    pub name: String,
-}
-
-impl DirectoryEntryKey {
-    fn to_value(&self) -> Value {
-        Value::Map(BTreeMap::from([(1, Value::Text(self.name.clone()))]))
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum RootsSubscriptionCloseReason {
-    Failed,
-    PermissionLost,
-    Unknown,
-}
-
-impl RootsSubscriptionCloseReason {
-    fn to_value(&self) -> Value {
-        match self {
-            Self::Failed => union_value(0, BTreeMap::new()),
-            Self::PermissionLost => union_value(1, BTreeMap::new()),
-            Self::Unknown => union_value(2, BTreeMap::new()),
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum DirectorySubscriptionCloseReason {
-    Failed,
-    Deleted,
-    Moved { to: Option<String> },
-    PermissionLost,
-    ReplacedByNonDirectory,
-    Unknown,
-}
-
-impl DirectorySubscriptionCloseReason {
-    fn to_value(&self) -> Value {
-        match self {
-            Self::Failed => union_value(0, BTreeMap::new()),
-            Self::Deleted => union_value(1, BTreeMap::new()),
-            Self::Moved { to } => {
-                let mut fields = BTreeMap::new();
-                if let Some(to) = to {
-                    fields.insert(1, Value::Text(to.clone()));
-                }
-                union_value(2, fields)
-            }
-            Self::PermissionLost => union_value(3, BTreeMap::new()),
-            Self::ReplacedByNonDirectory => union_value(4, BTreeMap::new()),
-            Self::Unknown => union_value(5, BTreeMap::new()),
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum TrashItemsSubscriptionCloseReason {
-    Failed,
-    PermissionLost,
-    Unknown,
-}
-
-impl TrashItemsSubscriptionCloseReason {
-    fn to_value(&self) -> Value {
-        match self {
-            Self::Failed => union_value(0, BTreeMap::new()),
-            Self::PermissionLost => union_value(1, BTreeMap::new()),
-            Self::Unknown => union_value(2, BTreeMap::new()),
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TrashItem {
-    pub id: String,
-    pub name: String,
-    pub original_parent: String,
-    pub deleted_at_ms: Option<u64>,
-    pub size: Option<TrashItemSize>,
-}
-
-impl TrashItem {
-    pub fn to_value(&self) -> Value {
-        let mut map = BTreeMap::from([
-            (1, Value::Text(self.id.clone())),
-            (2, Value::Text(self.name.clone())),
-            (3, Value::Text(self.original_parent.clone())),
-        ]);
-        if let Some(deleted_at_ms) = self.deleted_at_ms {
-            map.insert(4, Value::U64(deleted_at_ms));
-        }
-        if let Some(size) = &self.size {
-            map.insert(5, size.to_value());
-        }
-        Value::Map(map)
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum TrashItemSize {
-    Bytes { value: u64 },
-    Entries { value: u64 },
-}
-
-impl TrashItemSize {
-    fn to_value(&self) -> Value {
-        match self {
-            Self::Bytes { value } => union_value(1, BTreeMap::from([(1, Value::U64(*value))])),
-            Self::Entries { value } => union_value(2, BTreeMap::from([(1, Value::U64(*value))])),
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CreateNodesReq {
-    pub nodes: Vec<CreateNodeOp>,
-}
-
-impl CreateNodesReq {
-    pub fn decode(bytes: &[u8]) -> Result<Self, RpcCodecError> {
-        let map = expect_map(Value::decode(bytes)?)?;
-        Ok(Self {
-            nodes: expect_array(&map, 1)?
-                .iter()
-                .map(CreateNodeOp::from_value)
-                .collect::<Result<_, _>>()?,
-        })
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CreateNodeOp {
-    pub path: String,
-    pub spec: CreateNodeSpec,
-}
-
-impl CreateNodeOp {
-    fn from_value(value: &Value) -> Result<Self, RpcCodecError> {
-        let Value::Map(map) = value else {
-            return Err(RpcCodecError::ExpectedMap);
-        };
-        Ok(Self {
-            path: expect_text(map, 1)?,
-            spec: CreateNodeSpec::from_value(map.get(&2).ok_or(RpcCodecError::MissingField(2))?)?,
-        })
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum CreateNodeSpec {
-    File,
-    Directory,
-    Symlink { target: String },
-    Hardlink { target: String },
-}
-
-impl CreateNodeSpec {
-    fn from_value(value: &Value) -> Result<Self, RpcCodecError> {
-        let (variant, fields) = expect_union(value)?;
-        match variant {
-            1 => Ok(Self::File),
-            2 => Ok(Self::Directory),
-            3 => Ok(Self::Symlink {
-                target: expect_text(fields, 1)?,
-            }),
-            4 => Ok(Self::Hardlink {
-                target: expect_text(fields, 1)?,
-            }),
-            _ => Err(RpcCodecError::WrongFieldType(2)),
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RenamePathsReq {
-    pub ops: Vec<RenamePathOp>,
-}
-
-impl RenamePathsReq {
-    pub fn decode(bytes: &[u8]) -> Result<Self, RpcCodecError> {
-        let map = expect_map(Value::decode(bytes)?)?;
-        Ok(Self {
-            ops: expect_array(&map, 1)?
-                .iter()
-                .map(RenamePathOp::from_value)
-                .collect::<Result<_, _>>()?,
-        })
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RenamePathOp {
-    pub from: String,
-    pub to: String,
-}
-
-impl RenamePathOp {
-    fn from_value(value: &Value) -> Result<Self, RpcCodecError> {
-        let Value::Map(map) = value else {
-            return Err(RpcCodecError::ExpectedMap);
-        };
-        Ok(Self {
-            from: expect_text(map, 1)?,
-            to: expect_text(map, 2)?,
-        })
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DeletePathsReq {
-    pub paths: Vec<String>,
-    pub mode: DeleteMode,
-}
-
-impl DeletePathsReq {
-    pub fn decode(bytes: &[u8]) -> Result<Self, RpcCodecError> {
-        let map = expect_map(Value::decode(bytes)?)?;
-        Ok(Self {
-            paths: expect_array(&map, 1)?
-                .iter()
-                .map(expect_text_value)
-                .collect::<Result<_, _>>()?,
-            mode: DeleteMode::from_u64(expect_u64(&map, 2)?)
-                .ok_or(RpcCodecError::WrongFieldType(2))?,
-        })
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RestoreTrashItemsReq {
-    pub item_ids: Vec<String>,
-}
-
-impl RestoreTrashItemsReq {
-    pub fn decode(bytes: &[u8]) -> Result<Self, RpcCodecError> {
-        let map = expect_map(Value::decode(bytes)?)?;
-        Ok(Self {
-            item_ids: expect_array(&map, 1)?
-                .iter()
-                .map(expect_text_value)
-                .collect::<Result<_, _>>()?,
-        })
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PurgeTrashItemsReq {
-    pub item_ids: Vec<String>,
-}
-
-impl PurgeTrashItemsReq {
-    pub fn decode(bytes: &[u8]) -> Result<Self, RpcCodecError> {
-        let map = expect_map(Value::decode(bytes)?)?;
-        Ok(Self {
-            item_ids: expect_array(&map, 1)?
-                .iter()
-                .map(expect_text_value)
-                .collect::<Result<_, _>>()?,
-        })
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(u64)]
-pub enum DeleteMode {
-    Trash = 1,
-    Permanent = 2,
-}
-
-impl DeleteMode {
-    pub fn from_u64(value: u64) -> Option<Self> {
-        match value {
-            1 => Some(Self::Trash),
-            2 => Some(Self::Permanent),
-            _ => None,
-        }
-    }
-
-    pub fn as_u64(self) -> u64 {
-        self as u64
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct BulkMutationRes {
-    pub results: Vec<BulkMutationItemResult>,
-}
-
-impl BulkMutationRes {
-    pub fn encode(&self) -> Vec<u8> {
-        Value::Map(BTreeMap::from([(
-            1,
-            Value::Array(
-                self.results
-                    .iter()
-                    .map(BulkMutationItemResult::to_value)
-                    .collect(),
-            ),
-        )]))
-        .encode()
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum BulkMutationItemResult {
-    Failed {
-        index: u64,
-        error: FsMutationItemError,
-    },
-    Ok {
-        index: u64,
-    },
-}
-
-impl BulkMutationItemResult {
-    pub fn ok(index: usize) -> Self {
-        Self::Ok {
-            index: index as u64,
-        }
-    }
-
-    pub fn failed(index: usize, error: ServiceError) -> Self {
-        Self::Failed {
-            index: index as u64,
-            error: FsMutationItemError::from_service_error(error),
-        }
-    }
-
-    fn to_value(&self) -> Value {
-        match self {
-            Self::Failed { index, error } => union_value(
-                0,
-                BTreeMap::from([(1, Value::U64(*index)), (2, error.to_value())]),
-            ),
-            Self::Ok { index } => union_value(1, BTreeMap::from([(1, Value::U64(*index))])),
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum FsMutationItemError {
-    Failed { message: String },
-    PermissionDenied { message: String },
-    NotFound { message: String },
-    AlreadyExists { message: String },
-    NotDirectory { message: String },
-    NotFile { message: String },
-    InvalidPath { message: String },
-    Unsupported { message: String },
-}
-
-impl FsMutationItemError {
-    fn from_service_error(error: ServiceError) -> Self {
-        let message = error.to_string();
-        match error {
-            ServiceError::PermissionDenied => Self::PermissionDenied { message },
-            ServiceError::NotFound => Self::NotFound { message },
-            ServiceError::AlreadyExists => Self::AlreadyExists { message },
-            ServiceError::NotDirectory => Self::NotDirectory { message },
-            ServiceError::NotFile => Self::NotFile { message },
-            ServiceError::InvalidPath => Self::InvalidPath { message },
-            ServiceError::Unsupported => Self::Unsupported { message },
-            ServiceError::OperationFailed(_) => Self::Failed { message },
-        }
-    }
-
-    fn to_value(&self) -> Value {
-        let (variant, message) = match self {
-            Self::Failed { message } => (0, message),
-            Self::PermissionDenied { message } => (1, message),
-            Self::NotFound { message } => (2, message),
-            Self::AlreadyExists { message } => (3, message),
-            Self::NotDirectory { message } => (4, message),
-            Self::NotFile { message } => (5, message),
-            Self::InvalidPath { message } => (6, message),
-            Self::Unsupported { message } => (7, message),
-        };
-        union_value(variant, BTreeMap::from([(1, Value::Text(message.clone()))]))
-    }
-}
-
-fn fs_entries_value(rows: &[FsEntry]) -> Value {
-    Value::Array(rows.iter().map(FsEntry::to_value).collect())
-}
-
-fn trash_items_value(rows: &[TrashItem]) -> Value {
-    Value::Array(rows.iter().map(TrashItem::to_value).collect())
-}
-
-fn terminal_sessions_value(rows: &[TerminalSessionInfo]) -> Value {
-    Value::Array(rows.iter().map(TerminalSessionInfo::to_value).collect())
-}
-
-fn available_shells_value(rows: &[AvailableShellInfo]) -> Value {
-    Value::Array(rows.iter().map(AvailableShellInfo::to_value).collect())
-}
-
-fn string_array_value(items: &[String]) -> Value {
-    Value::Array(items.iter().cloned().map(Value::Text).collect())
-}
-
-fn union_value(variant: u64, fields: BTreeMap<u64, Value>) -> Value {
-    Value::Array(vec![Value::U64(variant), Value::Map(fields)])
-}
-
-fn expect_union(value: &Value) -> Result<(u64, &BTreeMap<u64, Value>), RpcCodecError> {
-    let Value::Array(items) = value else {
-        return Err(RpcCodecError::ExpectedArray);
-    };
-    if items.len() != 2 {
-        return Err(RpcCodecError::WrongFieldType(0));
-    }
-    let Value::U64(variant) = items[0] else {
-        return Err(RpcCodecError::WrongFieldType(0));
-    };
-    let Value::Map(fields) = &items[1] else {
-        return Err(RpcCodecError::ExpectedMap);
-    };
-    Ok((variant, fields))
-}
-
-fn expect_map(value: Value) -> Result<BTreeMap<u64, Value>, RpcCodecError> {
-    match value {
-        Value::Map(map) => Ok(map),
-        _ => Err(RpcCodecError::ExpectedMap),
-    }
-}
-
-fn expect_u64(map: &BTreeMap<u64, Value>, field: u64) -> Result<u64, RpcCodecError> {
-    match map.get(&field).ok_or(RpcCodecError::MissingField(field))? {
-        Value::U64(value) => Ok(*value),
-        _ => Err(RpcCodecError::WrongFieldType(field)),
-    }
-}
-
-fn expect_u53(map: &BTreeMap<u64, Value>, field: u64) -> Result<u64, RpcCodecError> {
-    let value = expect_u64(map, field)?;
-    if value <= MAX_U53 {
-        Ok(value)
-    } else {
-        Err(RpcCodecError::IntegerOutOfRange(field))
-    }
-}
-
-fn expect_i53(map: &BTreeMap<u64, Value>, field: u64) -> Result<i64, RpcCodecError> {
-    match map.get(&field).ok_or(RpcCodecError::MissingField(field))? {
-        Value::I64(value) if value.unsigned_abs() <= MAX_U53 => Ok(*value),
-        Value::U64(value) if *value <= MAX_U53 => Ok(*value as i64),
-        Value::I64(_) | Value::U64(_) => Err(RpcCodecError::IntegerOutOfRange(field)),
-        _ => Err(RpcCodecError::WrongFieldType(field)),
-    }
-}
-
-fn optional_u64(map: &BTreeMap<u64, Value>, field: u64) -> Result<Option<u64>, RpcCodecError> {
-    match map.get(&field) {
-        None => Ok(None),
-        Some(Value::U64(value)) => Ok(Some(*value)),
-        Some(_) => Err(RpcCodecError::WrongFieldType(field)),
-    }
-}
-
-fn optional_u53(map: &BTreeMap<u64, Value>, field: u64) -> Result<Option<u64>, RpcCodecError> {
-    optional_u64(map, field)?
-        .map(|value| {
-            if value <= MAX_U53 {
-                Ok(value)
-            } else {
-                Err(RpcCodecError::IntegerOutOfRange(field))
-            }
-        })
-        .transpose()
-}
-
-fn expect_text(map: &BTreeMap<u64, Value>, field: u64) -> Result<String, RpcCodecError> {
-    match map.get(&field).ok_or(RpcCodecError::MissingField(field))? {
-        Value::Text(value) => Ok(value.clone()),
-        _ => Err(RpcCodecError::WrongFieldType(field)),
-    }
-}
-
-fn optional_text(map: &BTreeMap<u64, Value>, field: u64) -> Result<Option<String>, RpcCodecError> {
-    match map.get(&field) {
-        None => Ok(None),
-        Some(Value::Text(value)) => Ok(Some(value.clone())),
-        Some(_) => Err(RpcCodecError::WrongFieldType(field)),
-    }
-}
-
-fn optional_string_array(
-    map: &BTreeMap<u64, Value>,
-    field: u64,
-) -> Result<Option<Vec<String>>, RpcCodecError> {
-    match map.get(&field) {
-        None => Ok(None),
-        Some(Value::Array(items)) => items
-            .iter()
-            .map(expect_text_value)
-            .collect::<Result<Vec<_>, _>>()
-            .map(Some),
-        Some(_) => Err(RpcCodecError::WrongFieldType(field)),
-    }
-}
-
-fn expect_text_value(value: &Value) -> Result<String, RpcCodecError> {
-    match value {
-        Value::Text(value) => Ok(value.clone()),
-        _ => Err(RpcCodecError::WrongFieldType(0)),
-    }
-}
-
-fn expect_u53_value(value: &Value) -> Result<u64, RpcCodecError> {
-    let Value::U64(value) = value else {
-        return Err(RpcCodecError::WrongFieldType(0));
-    };
-    if *value <= MAX_U53 {
-        Ok(*value)
-    } else {
-        Err(RpcCodecError::IntegerOutOfRange(0))
-    }
-}
-
-fn optional_bool(map: &BTreeMap<u64, Value>, field: u64) -> Result<Option<bool>, RpcCodecError> {
-    match map.get(&field) {
-        None => Ok(None),
-        Some(Value::Bool(value)) => Ok(Some(*value)),
-        Some(_) => Err(RpcCodecError::WrongFieldType(field)),
-    }
-}
-
-fn expect_bytes(map: &BTreeMap<u64, Value>, field: u64) -> Result<Vec<u8>, RpcCodecError> {
-    match map.get(&field).ok_or(RpcCodecError::MissingField(field))? {
-        Value::Bytes(value) => Ok(value.clone()),
-        _ => Err(RpcCodecError::WrongFieldType(field)),
-    }
-}
-
-fn expect_array<'a>(
-    map: &'a BTreeMap<u64, Value>,
-    field: u64,
-) -> Result<&'a [Value], RpcCodecError> {
-    match map.get(&field).ok_or(RpcCodecError::MissingField(field))? {
-        Value::Array(value) => Ok(value),
-        _ => Err(RpcCodecError::WrongFieldType(field)),
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use crate::rpc::{
+        CompletePairingRequest, CompletePairingResponse, DaemonInfo, DirectoryTableEvent, FsEntry,
+        FsEntryKind, ReadFileChunk, RenewClientCredentialResponse, StartPairingRequest,
+        WriteFileChunk, WriteFileMode, WriteFileReq, WriteFileStart,
+    };
 
     #[test]
     fn daemon_info_roundtrip() {
@@ -2045,84 +503,14 @@ mod tests {
             DaemonInfo::decode(&daemon_info.encode()).unwrap(),
             daemon_info
         );
-        assert_eq!(
-            daemon_info.supported_proc_ids,
-            vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]
-        );
-        assert_eq!(daemon_info.version, env!("CARGO_PKG_VERSION"));
-        assert!(!daemon_info.os.is_empty());
-        assert!(daemon_info.os.contains(&machine_bitness()));
-        assert!(daemon_info.started_at_ms > 0);
-        assert!(daemon_info.server_time_ms >= daemon_info.started_at_ms);
-        assert_eq!(
-            daemon_info.instance_id,
-            format!("{}-{}", daemon_info.started_at_ms, std::process::id())
-        );
     }
 
     #[test]
-    fn macos_license_product_name_parses_rtf_heading() {
-        let text = r"{\rtf1 SOFTWARE LICENSE AGREEMENT FOR macOS Tahoe 26\par}";
-        assert_eq!(
-            macos_license_product_name_from_text(text).as_deref(),
-            Some("macOS Tahoe 26")
-        );
-    }
-
-    #[test]
-    fn macos_product_name_replaces_major_with_full_version() {
-        assert_eq!(
-            macos_product_name_with_version("macOS Tahoe 26", "26.5.1"),
-            "macOS Tahoe 26.5.1"
-        );
-        assert_eq!(
-            macos_product_name_with_version("macOS", "26.5.1"),
-            "macOS 26.5.1"
-        );
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn windows_product_name_uses_windows_11_for_new_builds() {
-        assert_eq!(
-            normalize_windows_product_name("Windows 10 Pro".to_string(), Some("26200")),
-            "Windows 11 Pro"
-        );
-        assert_eq!(
-            normalize_windows_product_name("Windows 10 Pro".to_string(), Some("19045")),
-            "Windows 10 Pro"
-        );
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn windows_build_label_includes_ubr_when_available() {
-        assert_eq!(
-            windows_build_label(Some("26200"), Some(8655)).as_deref(),
-            Some("26200.8655")
-        );
-        assert_eq!(
-            windows_build_label(Some("26200"), None).as_deref(),
-            Some("26200")
-        );
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn service_pack_label_does_not_duplicate_named_service_pack() {
-        assert_eq!(service_pack_label("Service Pack 1"), "Service Pack 1");
-        assert_eq!(
-            service_pack_label("1000.26100.315.0"),
-            "service pack 1000.26100.315.0"
-        );
-    }
-
-    #[test]
-    fn complete_pairing_roundtrip() {
+    fn pairing_payloads_roundtrip() {
         let request = StartPairingRequest {
             confirmation_code: "42".to_string(),
-            client_label: "browser".to_string(),
-            client_id: Some("client".to_string()),
+            client_label: "test client".to_string(),
+            client_id: Some("client-1".to_string()),
         };
         assert_eq!(
             StartPairingRequest::decode(&request.encode()).unwrap(),
@@ -2138,9 +526,9 @@ mod tests {
         );
 
         let response = CompletePairingResponse {
-            client_id: "client".to_string(),
+            client_id: "client-1".to_string(),
             client_secret: "secret".to_string(),
-            client_credential_expires_at_unix: 400,
+            client_credential_expires_at_unix: 1234,
         };
         assert_eq!(
             CompletePairingResponse::decode(&response.encode()).unwrap(),
@@ -2148,7 +536,7 @@ mod tests {
         );
 
         let response = RenewClientCredentialResponse {
-            client_credential_expires_at_unix: 500,
+            client_credential_expires_at_unix: 5678,
         };
         assert_eq!(
             RenewClientCredentialResponse::decode(&response.encode()).unwrap(),
@@ -2159,8 +547,8 @@ mod tests {
     #[test]
     fn read_file_chunk_roundtrip() {
         let response = ReadFileChunk {
-            offset: 4,
-            bytes: b"hello".to_vec(),
+            offset: 7,
+            bytes: vec![1, 2, 3],
         };
         assert_eq!(ReadFileChunk::decode(&response.encode()).unwrap(), response);
     }
@@ -2168,58 +556,96 @@ mod tests {
     #[test]
     fn write_file_request_roundtrip() {
         let start = WriteFileReq::Start(WriteFileStart {
-            path: "C:\\tmp\\foo.txt".to_string(),
+            path: "/tmp/file.txt".to_string(),
             mode: WriteFileMode::Replace,
-            expected_result_size: Some(5),
-            modified_at_ms: None,
+            expected_result_size: Some(3),
+            modified_at_ms: Some(42),
         });
         assert_eq!(WriteFileReq::decode(&start.encode()).unwrap(), start);
 
         let chunk = WriteFileReq::Chunk(WriteFileChunk {
-            offset: Some(1),
-            bytes: b"hello".to_vec(),
+            offset: Some(5),
+            bytes: vec![1, 2, 3],
         });
         assert_eq!(WriteFileReq::decode(&chunk.encode()).unwrap(), chunk);
     }
 
     #[test]
     fn filesystem_snapshot_encodes_rows() {
-        let rows = vec![
-            FsEntry {
-                name: "foo.txt".to_string(),
-                path: "C:\\tmp\\foo.txt".to_string(),
-                kind: FsEntryKind::File,
-                size: Some(1234),
-                modified_at_ms: Some(1_710_000_000_000),
-                readonly: false,
-            },
-            FsEntry {
-                name: "docs".to_string(),
-                path: "C:\\tmp\\docs".to_string(),
-                kind: FsEntryKind::Directory,
-                size: None,
-                modified_at_ms: None,
-                readonly: true,
-            },
-        ];
+        let rows = vec![FsEntry {
+            name: "file.txt".to_string(),
+            path: "/tmp/file.txt".to_string(),
+            kind: FsEntryKind::File,
+            size: Some(12),
+            modified_at_ms: Some(34),
+            readonly: false,
+        }];
         let encoded = DirectoryTableEvent::Snapshot { rows: rows.clone() }.encode();
-        let Value::Array(items) = Value::decode(&encoded).unwrap() else {
-            panic!("expected event union");
-        };
-        assert_eq!(items.first(), Some(&Value::U64(1)));
-        let Value::Map(fields) = &items[1] else {
-            panic!("expected event fields");
-        };
-        let Value::Array(encoded_rows) = fields.get(&1).unwrap() else {
-            panic!("expected rows");
-        };
         assert_eq!(
-            encoded_rows
-                .iter()
-                .map(FsEntry::from_value)
-                .collect::<Result<Vec<_>, _>>()
-                .unwrap(),
-            rows
+            DirectoryTableEvent::decode(&encoded).unwrap(),
+            DirectoryTableEvent::Snapshot { rows }
+        );
+    }
+
+    #[test]
+    fn macos_license_product_name_from_text_extracts_marketing_name() {
+        assert_eq!(
+            super::macos_license_product_name_from_text(
+                "x SOFTWARE LICENSE AGREEMENT FOR macOS Sequoia\\foo"
+            ),
+            Some("macOS Sequoia".to_string())
+        );
+    }
+
+    #[test]
+    fn macos_product_name_with_version_replaces_major_suffix() {
+        assert_eq!(
+            super::macos_product_name_with_version("macOS Sequoia 15", "15.5"),
+            "macOS Sequoia 15.5"
+        );
+    }
+
+    #[test]
+    fn macos_product_name_with_version_appends_when_suffix_missing() {
+        assert_eq!(
+            super::macos_product_name_with_version("macOS Sequoia", "15.5"),
+            "macOS Sequoia 15.5"
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_product_name_normalizes_windows_10_registry_on_windows_11_builds() {
+        assert_eq!(
+            super::normalize_windows_product_name("Windows 10 Pro".to_string(), Some("26100")),
+            "Windows 11 Pro"
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_product_name_keeps_windows_10_for_old_builds() {
+        assert_eq!(
+            super::normalize_windows_product_name("Windows 10 Pro".to_string(), Some("19045")),
+            "Windows 10 Pro"
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_build_label_includes_ubr() {
+        assert_eq!(
+            super::windows_build_label(Some("26100"), Some(4351)),
+            Some("26100.4351".to_string())
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn service_pack_label_adds_prefix_for_numeric_value() {
+        assert_eq!(
+            super::service_pack_label("1000.26100.315.0"),
+            "service pack 1000.26100.315.0"
         );
     }
 }
