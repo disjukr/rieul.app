@@ -43,7 +43,7 @@ export function PathCrumbs(
   const crumbsRef = useRef<HTMLDivElement>(null);
   const trashLocation = path === trashLocationPath;
   const crumbs = trashLocation
-    ? [{ label: "Files" }, { label: "Trash", path: trashLocationPath }]
+    ? [{ label: "Root" }, { label: "Trash", path: trashLocationPath }]
     : pathCrumbs(path);
 
   useEffect(() => {

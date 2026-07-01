@@ -8,6 +8,8 @@ import {
   Activity,
   ChevronDown,
   Folder,
+  HardDrive,
+  Home,
   Info,
   Terminal,
   Trash2,
@@ -163,7 +165,7 @@ export function ToolMenu(
       floatingMenuPositionFromRect(
         event.currentTarget.getBoundingClientRect(),
         {
-          itemCount: 2,
+          itemCount: 3,
           width: FILES_MENU_WIDTH,
         },
         SHELL_MENU_TRIGGER_GAP,
@@ -218,7 +220,7 @@ export function ToolMenu(
                   terminalMainButtonClassName,
                   activeTool === id && "active",
                 )}
-                onClick={() => openFilesView("browser")}
+                onClick={() => openFilesView("home")}
                 disabled={disabled}
                 aria-current={activeTool === id ? "page" : undefined}
               >
@@ -246,9 +248,13 @@ export function ToolMenu(
                     className="z-[80] w-[176px]"
                     position={filesMenuPosition}
                   >
-                    <FloatingMenuItem onClick={() => openFilesView("browser")}>
-                      <Folder size={15} />
-                      Files
+                    <FloatingMenuItem onClick={() => openFilesView("roots")}>
+                      <HardDrive size={15} />
+                      Root
+                    </FloatingMenuItem>
+                    <FloatingMenuItem onClick={() => openFilesView("home")}>
+                      <Home size={15} />
+                      Home
                     </FloatingMenuItem>
                     <FloatingMenuItem onClick={() => openFilesView("trash")}>
                       <Trash2 size={15} />

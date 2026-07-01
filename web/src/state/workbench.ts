@@ -11,7 +11,7 @@ import { copyFileViewerState } from "./file-viewer.ts";
 import { MachineIdScope } from "./machine.tsx";
 
 export type WorkbenchTool = "daemon" | "files" | "processes" | "terminal";
-export type WorkbenchFilesView = "browser" | "trash";
+export type WorkbenchFilesView = "roots" | "home" | "trash";
 
 export interface WorkbenchTab {
   daemonClientDetailId?: string;
@@ -787,11 +787,23 @@ function insertTab(
 }
 
 function createFilesTab(config: WorkbenchFilesTabConfig = {}): WorkbenchTab {
+  const filesView = config.filesView ?? "roots";
   return {
     ...createWorkbenchTab("files"),
-    filesView: config.filesView,
-    title: config.filesView === "trash" ? "Trash" : "Files",
+    filesView,
+    title: titleForFilesView(filesView),
   };
+}
+
+function titleForFilesView(filesView: WorkbenchFilesView): string {
+  switch (filesView) {
+    case "roots":
+      return "Root";
+    case "home":
+      return "Home";
+    case "trash":
+      return "Trash";
+  }
 }
 
 function createTerminalTab(config: WorkbenchTerminalTabConfig): WorkbenchTab {

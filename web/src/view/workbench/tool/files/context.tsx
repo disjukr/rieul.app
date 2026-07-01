@@ -24,6 +24,7 @@ export interface FilesExplorerState {
   navigateTrash: () => void;
   openEntry: (entry: FsEntry) => void;
   openFile: (entry: FsEntry) => void;
+  replaceWithPath: (path?: string) => void;
   replaceWithTrash: () => void;
   refresh: () => void;
   selectEntry: (entry: FsEntry) => void;

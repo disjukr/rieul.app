@@ -15,6 +15,7 @@ import {
 import {
   createNodes,
   deletePaths,
+  getDaemonEnvironment,
   renamePaths,
 } from "../../../../protocol/generated/client.ts";
 import {
@@ -150,9 +151,18 @@ export function FilesTool() {
   const explorer = useBunja(explorerBunja, [
     ExplorerPaneScope.bind(tabState.tabId),
   ]);
-  const initialTrashLocationAppliedRef = useRef(false);
+  const initialFilesLocationAppliedRef = useRef(false);
+  const {
+    currentPathAtom,
+    goBack,
+    goUp,
+    navigate,
+    openEntry,
+    selectEntry,
+  } = explorer;
   const openedFile = useAtomValue(explorer.openedFileAtom);
   const specialLocation = useAtomValue(explorer.specialLocationAtom);
+  const currentPath = useAtomValue(currentPathAtom);
   const filesView = specialLocation === "trash" ? "trash" : "browser";
   const lastDaemonInstanceIdRef = useRef(daemonInstanceId);
   const [entryMenu, setEntryMenu] = useState<EntryMenuState>();
@@ -165,12 +175,36 @@ export function FilesTool() {
   const terminalShells = useAtomValue(filesTool.terminalShellsAtom);
 
   useEffect(() => {
-    if (initialTrashLocationAppliedRef.current) return;
-    initialTrashLocationAppliedRef.current = true;
-    if (tab?.tool === "files" && tab.filesView === "trash") {
+    if (initialFilesLocationAppliedRef.current) return;
+    if (tab?.tool !== "files") return;
+    if (tab.filesView === "trash") {
+      initialFilesLocationAppliedRef.current = true;
       explorer.replaceWithTrash();
+      return;
     }
-  }, [explorer, tab?.filesView, tab?.tool]);
+    if (tab.filesView !== "home") {
+      initialFilesLocationAppliedRef.current = true;
+      return;
+    }
+    if (!machine || !isPaired) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const transport = await rpcSession.webTransport();
+        const environment = await getDaemonEnvironment(transport);
+        if (cancelled || !environment.homeDirectory) return;
+        initialFilesLocationAppliedRef.current = true;
+        explorer.replaceWithPath(environment.homeDirectory);
+      } catch {
+        if (cancelled) return;
+        initialFilesLocationAppliedRef.current = true;
+        // Keep the roots view when the daemon cannot provide a home directory.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [explorer, isPaired, machine, rpcSession, tab?.filesView, tab?.tool]);
 
   useEffect(() => {
     if (lastDaemonInstanceIdRef.current === daemonInstanceId) return;
@@ -220,16 +254,6 @@ export function FilesTool() {
     globalThis.addEventListener("keydown", closeModalOnEscape);
     return () => globalThis.removeEventListener("keydown", closeModalOnEscape);
   }, [deleteEntry]);
-
-  const {
-    currentPathAtom,
-    goBack,
-    goUp,
-    navigate,
-    openEntry,
-    selectEntry,
-  } = explorer;
-  const currentPath = useAtomValue(currentPathAtom);
 
   function goBackFromToolbar() {
     goBack();

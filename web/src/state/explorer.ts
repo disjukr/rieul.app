@@ -172,6 +172,13 @@ export const explorerNavigationBunja = bunja(() => {
     store.set(selectedPathAtom, undefined);
   }
 
+  function replaceWithPath(path?: string) {
+    store.set(currentPathAtom, path);
+    store.set(openedFileAtom, undefined);
+    store.set(specialLocationAtom, undefined);
+    store.set(selectedPathAtom, undefined);
+  }
+
   function goBack() {
     const history = store.get(historyAtom);
     if (history.length === 0) return;
@@ -231,6 +238,7 @@ export const explorerNavigationBunja = bunja(() => {
     selectEntry,
     navigate,
     navigateTrash,
+    replaceWithPath,
     replaceWithTrash,
     goBack,
     goUp,
@@ -489,6 +497,7 @@ export const explorerBunja = bunja(() => {
     selectEntry: navigation.selectEntry,
     navigate: navigation.navigate,
     navigateTrash: navigation.navigateTrash,
+    replaceWithPath: navigation.replaceWithPath,
     replaceWithTrash: navigation.replaceWithTrash,
     goBack: navigation.goBack,
     goUp: navigation.goUp,
@@ -694,10 +703,9 @@ function kindRank(kind: FsEntryKind): number {
 export function pathCrumbs(
   path?: string,
 ): { label: string; path?: string }[] {
-  if (!path) return [{ label: "Files" }];
+  if (!path) return [{ label: "Root" }];
   const { root, separator } = pathRoot(path);
-  const crumbs = [{ label: "Files", path: root }];
-  if (root !== "/") crumbs.push({ label: root, path: root });
+  const crumbs = [{ label: "Root" }, { label: root, path: root }];
   const rest = path.slice(root.length).replace(/[\\/]+$/g, "");
   if (!rest) return crumbs;
   let cursor = root;
