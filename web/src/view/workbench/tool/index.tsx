@@ -1,14 +1,9 @@
-import { lazy, Suspense } from "react";
 import { useAtomValue } from "jotai";
 import { useBunja } from "bunja/react";
 import { workbenchTabBunja } from "../../../state/workbench.ts";
 import { DaemonTool } from "./daemon/index.tsx";
 import { FilesTool } from "./files/index.tsx";
-
-const TerminalTool = lazy(async () => {
-  const module = await import("./terminal/index.tsx");
-  return { default: module.TerminalTool };
-});
+import { TerminalTool } from "./terminal/index.tsx";
 
 export function WorkbenchToolContent() {
   const tabState = useBunja(workbenchTabBunja);
@@ -22,11 +17,7 @@ export function WorkbenchToolContent() {
     return <FilesTool />;
   }
   if (tab.tool === "terminal") {
-    return (
-      <Suspense fallback={null}>
-        <TerminalTool />
-      </Suspense>
-    );
+    return <TerminalTool />;
   }
   return null;
 }

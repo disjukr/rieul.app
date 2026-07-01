@@ -1,10 +1,10 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useAtomValue } from "jotai";
 import { useBunja } from "bunja/react";
-import { FitAddon } from "@xterm/addon-fit";
-import { Terminal as XTerm } from "@xterm/xterm";
+import type { FitAddon } from "@xterm/addon-fit";
+import type { Terminal as XTerm } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
-import { HardDrive, KeyRound } from "lucide-react";
+import { HardDrive, KeyRound, Loader2 } from "lucide-react";
 import {
   attachTerminalSession,
   closeTerminalSession,
@@ -66,6 +66,12 @@ const terminalOverlayNoticeClassName = [
   "[&_h2]:m-0 [&_h2]:text-[18px] [&_h2]:font-750 [&_h2]:text-[#f2f4f7]",
   "[&_p]:m-0 [&_p]:text-[13px] [&_p]:leading-[1.45]",
 ].join(" ");
+const terminalWaitingNoticeClassName = [
+  "absolute inset-0 z-[1] grid place-items-center bg-[#0b0f16]",
+  "px-[18px] text-[#d0d5dd]",
+  "[&_div]:flex [&_div]:items-center [&_div]:gap-[8px]",
+  "[&_span]:text-[13px] [&_span]:leading-[1.6]",
+].join(" ");
 const terminalStatusNoticeClassName = [
   "flex min-h-[2rem] items-center gap-[8px] border-t border-t-[#263244]",
   "bg-[#0f1520] px-[8px] leading-[1.6] text-[#98a2b3]",
@@ -87,7 +93,7 @@ interface TerminalRuntime {
 interface TerminalStatus {
   phase:
     | "idle"
-    | "opening"
+    | "waiting"
     | "attached"
     | "viewing"
     | "closed"
@@ -137,13 +143,15 @@ export function TerminalTool() {
   const replayWriteDepthRef = useRef(0);
   const persistedSessionSnapshotKeyRef = useRef<string | undefined>(undefined);
   const terminalSessionFinishedRef = useRef(false);
+  const xtermReadyPromiseRef = useRef<
+    Promise<TerminalRuntime | undefined> | undefined
+  >(undefined);
   const lastSizeRef = useRef<{ cols: number; rows: number } | undefined>(
     undefined,
   );
-  const [terminalReady, setTerminalReady] = useState(false);
   const [status, setStatus] = useState<TerminalStatus>({
-    phase: "idle",
-    message: "Terminal idle",
+    phase: "waiting",
+    message: "Waiting for terminal",
   });
   const [terminalDimensions, setTerminalDimensions] = useState({
     cols: 80,
@@ -186,7 +194,36 @@ export function TerminalTool() {
     const host = hostRef.current;
     if (!host) return;
 
-    const terminal = new XTerm({
+    let disposed = false;
+    const readyPromise = setupXtermRuntime(host).then((runtime) => {
+      if (disposed || !runtime) {
+        disposeTerminalRuntime(runtime);
+        return undefined;
+      }
+      runtimeRef.current = runtime;
+      return runtime;
+    });
+    xtermReadyPromiseRef.current = readyPromise;
+
+    return () => {
+      disposed = true;
+      stopCurrentAttach();
+      disposeTerminalRuntime(runtimeRef.current);
+      runtimeRef.current = undefined;
+      xtermReadyPromiseRef.current = undefined;
+    };
+  }, []);
+
+  async function setupXtermRuntime(
+    host: HTMLDivElement,
+  ): Promise<TerminalRuntime | undefined> {
+    const [{ Terminal }, { FitAddon }] = await Promise.all([
+      import("@xterm/xterm"),
+      import("@xterm/addon-fit"),
+    ]);
+    if (!host.isConnected) return undefined;
+
+    const terminal = new Terminal({
       cursorBlink: true,
       fontFamily: "Cascadia Mono, CaskaydiaCove Nerd Font, Consolas, monospace",
       fontSize: 13,
@@ -218,28 +255,26 @@ export function TerminalTool() {
       void takeCurrentControl();
     });
     resizeObserver.observe(host);
-    runtimeRef.current = {
+    return {
       terminal,
       fitAddon,
       inputDisposable,
       replayQueryDisposables,
       resizeObserver,
     };
-    setTerminalReady(true);
+  }
 
-    return () => {
-      setTerminalReady(false);
-      stopCurrentAttach();
-      inputDisposable.dispose();
-      for (const disposable of replayQueryDisposables) disposable.dispose();
-      resizeObserver.disconnect();
-      terminal.dispose();
-      runtimeRef.current = undefined;
-    };
-  }, []);
+  function disposeTerminalRuntime(runtime: TerminalRuntime | undefined) {
+    runtime?.inputDisposable.dispose();
+    for (const disposable of runtime?.replayQueryDisposables ?? []) {
+      disposable.dispose();
+    }
+    runtime?.resizeObserver.disconnect();
+    runtime?.terminal.dispose();
+  }
 
   useEffect(() => {
-    if (!terminalReady || !machine || !isPaired || !daemonInstanceId) {
+    if (!machine || !isPaired) {
       stopCurrentAttach();
       terminalSessionIdRef.current = undefined;
       attachIdRef.current = undefined;
@@ -254,6 +289,21 @@ export function TerminalTool() {
       return;
     }
 
+    if (!daemonInstanceId) {
+      stopCurrentAttach();
+      terminalSessionIdRef.current = undefined;
+      attachIdRef.current = undefined;
+      primaryAttachIdRef.current = undefined;
+      takeControlPromiseRef.current = undefined;
+      replayOutputUntilSeqRef.current = undefined;
+      suppressReplayGeneratedInputRef.current = false;
+      replayWriteDepthRef.current = 0;
+      latestSeqRef.current = undefined;
+      setSessionInfo(undefined);
+      setStatus({ phase: "waiting", message: "Waiting for terminal" });
+      return;
+    }
+
     void openTerminal({
       cwd: tab?.terminalLastKnownCwd,
       existingSessionId: tab?.terminalSessionId,
@@ -262,7 +312,6 @@ export function TerminalTool() {
     });
     return () => stopCurrentAttach();
   }, [
-    terminalReady,
     machine?.id,
     machine?.baseUrl,
     machine?.clientId,
@@ -274,8 +323,7 @@ export function TerminalTool() {
 
   async function openTerminal(options: OpenTerminalOptions) {
     const currentMachine = machineRef.current;
-    const runtime = runtimeRef.current;
-    if (!currentMachine || !runtime) return;
+    if (!currentMachine) return;
 
     const generation = generationRef.current + 1;
     generationRef.current = generation;
@@ -292,35 +340,36 @@ export function TerminalTool() {
     terminalSessionFinishedRef.current = false;
     persistedSessionSnapshotKeyRef.current = undefined;
     setSessionInfo(undefined);
-    runtime.terminal.reset();
+    resetTerminalIfReady();
 
     try {
       if (options.existingSessionId) {
         terminalSessionIdRef.current = options.existingSessionId;
-        setStatus({ phase: "opening", message: "Attaching terminal" });
+        setStatus({ phase: "waiting", message: "Waiting for terminal" });
         await attachTerminal(
-          currentMachine,
           options.existingSessionId,
           generation,
         );
         return;
       }
 
-      setStatus({ phase: "opening", message: "Opening terminal" });
+      setStatus({ phase: "waiting", message: "Waiting for terminal" });
 
       if (!options.launch?.command) {
         setStatus({
           phase: "error",
           message: "Terminal launch command is missing",
         });
-        runtime.terminal.writeln("Terminal launch command is missing.");
-        runtime.terminal.writeln("Open a terminal from the machine panel.");
+        const runtime = await terminalRuntime();
+        runtime?.terminal.writeln("Terminal launch command is missing.");
+        runtime?.terminal.writeln("Open a terminal from the machine panel.");
         return;
       }
 
-      fitTerminal();
-      const size = terminalSize(runtime.terminal);
-      const transport = await rpcSession.webTransport();
+      const size = terminalStartupSize();
+      const transportPromise = rpcSession.webTransport();
+      const runtimePromise = terminalRuntime();
+      const transport = await transportPromise;
       const session = await createTerminalSession(
         transport,
         {
@@ -341,8 +390,8 @@ export function TerminalTool() {
       terminalSessionIdRef.current = session.terminalSessionId;
       tabState.setTerminalSessionId(session.terminalSessionId);
       setSessionInfo(session);
+      await runtimePromise;
       await attachTerminal(
-        currentMachine,
         session.terminalSessionId,
         generation,
       );
@@ -361,11 +410,10 @@ export function TerminalTool() {
   }
 
   async function attachTerminal(
-    currentMachine: Machine,
     terminalSessionId: string,
     generation: number,
   ) {
-    const runtime = runtimeRef.current;
+    const runtime = await terminalRuntime();
     if (!runtime) return;
     const size = activeRef.current
       ? terminalSize(runtime.terminal)
@@ -403,6 +451,25 @@ export function TerminalTool() {
         message: "Terminal session ended.",
       });
     }
+  }
+
+  async function terminalRuntime(): Promise<TerminalRuntime | undefined> {
+    const runtime = runtimeRef.current;
+    if (runtime) return runtime;
+    const promise = xtermReadyPromiseRef.current;
+    if (!promise) return undefined;
+    return await promise;
+  }
+
+  function resetTerminalIfReady() {
+    runtimeRef.current?.terminal.reset();
+  }
+
+  function terminalStartupSize() {
+    const runtime = runtimeRef.current;
+    if (!runtime) return lastSizeRef.current ?? terminalDimensions;
+    fitTerminal();
+    return terminalSize(runtime.terminal);
   }
 
   function handleTerminalEvent(event: TerminalEvent) {
@@ -722,6 +789,16 @@ export function TerminalTool() {
     <section className={terminalToolClassName}>
       <div className={terminalSurfaceClassName}>
         <div ref={hostRef} className={terminalHostClassName} />
+        {status.phase === "waiting"
+          ? (
+            <div className={terminalWaitingNoticeClassName}>
+              <div>
+                <Loader2 size={16} className="animate-spin" />
+                <span>{status.message}</span>
+              </div>
+            </div>
+          )
+          : null}
         {terminalNotice?.presentation === "overlay"
           ? (
             <div className={terminalOverlayNoticeClassName}>
