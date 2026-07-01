@@ -247,10 +247,14 @@ async function* streamServerEvents<Request, Response, ErrorPayload>(
 
   const reader = stream.readable.getReader();
   let buffered: Uint8Array<ArrayBufferLike> = new Uint8Array();
+  let completed = false;
   try {
     while (true) {
       const { done, value } = await reader.read();
-      if (done) break;
+      if (done) {
+        completed = true;
+        break;
+      }
       buffered = concatBytes(buffered, value);
 
       const { messages, readBytes } = decodeReqResMessageSequencePrefix(
@@ -279,10 +283,12 @@ async function* streamServerEvents<Request, Response, ErrorPayload>(
       throw new Error("incomplete stream response message");
     }
   } finally {
-    try {
-      await reader.cancel();
-    } catch {
-      // The stream may already be closed by the server.
+    if (!completed) {
+      try {
+        await reader.cancel();
+      } catch {
+        // The stream may already be closed by the server.
+      }
     }
     try {
       reader.releaseLock();

@@ -1080,6 +1080,19 @@ async fn handle_reqres_stream(
             write_reqres_messages(&mut send, &responses).await
         }
         ReqResMessage::RequestUnary { proc_id, payload } if is_server_stream_proc(proc_id) => {
+            if reader.next().await?.is_some() {
+                write_reqres_message(
+                    &mut send,
+                    stream_generic_error_message(
+                        proc_id,
+                        RpcErrorCode::BadMessage,
+                        "server-stream request sequence may contain only one message",
+                    ),
+                )
+                .await?;
+                send.finish()?;
+                return Ok(());
+            }
             let shared_send = Arc::new(Mutex::new(send));
             dispatch_server_stream_rpc(proc_id, payload, shared_send.clone(), context).await?;
             shared_send.lock().await.finish()?;
