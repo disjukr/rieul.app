@@ -34,6 +34,7 @@
     "react/jsx-runtime": "npm:react@^19.0.0/jsx-runtime",
     "react-dom": "npm:react-dom@^19.0.0",
     "react-dom/client": "npm:react-dom@^19.0.0/client",
+    "rollup-plugin-visualizer": "npm:rollup-plugin-visualizer@^6.0.5",
     "unsaturated/now": "npm:unsaturated@^0.0.0/now",
     "unsaturated/store": "npm:unsaturated@^0.0.0/store",
     "unocss": "npm:unocss@66.7.0",
