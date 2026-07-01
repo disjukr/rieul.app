@@ -13,6 +13,7 @@ import {
   createNodesProc,
   createTerminalSessionProc,
   deletePathsProc,
+  getDaemonEnvironmentProc,
   getDaemonInfoProc,
   purgeTrashItemsProc,
   readFileProc,
@@ -40,6 +41,7 @@ import type {
   CompletePairingRes,
   CreateNodesReq,
   CreateTerminalSessionReq,
+  DaemonEnvironment,
   DaemonInfo,
   DeletePathsReq,
   DirectoryTableEvent,
@@ -207,4 +209,10 @@ export function purgeTrashItems(
   request: PurgeTrashItemsReq,
 ): Promise<BulkMutationRes> {
   return callUnary(transport, purgeTrashItemsProc, request);
+}
+
+export function getDaemonEnvironment(
+  transport: WebTransport,
+): Promise<DaemonEnvironment> {
+  return callUnary(transport, getDaemonEnvironmentProc, undefined);
 }

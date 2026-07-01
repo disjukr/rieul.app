@@ -89,6 +89,7 @@ Protocol proc id registry:
 | 20 | `SubscribeTrashItems`       |
 | 21 | `RestoreTrashItems`         |
 | 22 | `PurgeTrashItems`           |
+| 23 | `GetDaemonEnvironment`      |
 
 `GetDaemonInfo` returns daemon metadata: supported proc ids, daemon version, a
 human-readable OS name for the daemon host, daemon instance lifecycle fields,
@@ -102,6 +103,10 @@ the previous value to detect process-local state loss, such as terminal
 sessions. `supportedProcIds` is the daemon's implemented subset of the protocol
 registry for that process lifetime. Protected proc ids may still require session
 authentication before invocation.
+
+`GetDaemonEnvironment` returns daemon-host environment defaults such as the
+home directory path visible to the daemon process. These values are environment
+derived, not user-edited daemon config.
 
 A proc's `stream` attribute defines request and response cardinality:
 

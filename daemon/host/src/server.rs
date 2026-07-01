@@ -31,10 +31,10 @@ use wgo_daemon_core::pairing::{
 use wgo_daemon_core::rpc::{
     AttachTerminalSessionReq, AvailableShellsTableEvent, BulkMutationItemResult, BulkMutationRes,
     ClientInfo, ClientKey, ClientsTableEvent, CloseTerminalSessionReq, CompletePairingRequest,
-    CompletePairingResponse, CreateNodesReq, CreateTerminalSessionReq, DaemonInfo, DeleteMode,
-    DeletePathsReq, DirectoryEntryKey, DirectorySubscriptionCloseReason, DirectoryTableEvent,
-    FsEntry, ProcId, ProcStream, PurgeTrashItemsReq, ReadFileChunk, ReadFileReq, RenamePathsReq,
-    RenewClientCredentialResponse, RestoreTrashItemsReq, RootEntryKey,
+    CompletePairingResponse, CreateNodesReq, CreateTerminalSessionReq, DaemonEnvironment,
+    DaemonInfo, DeleteMode, DeletePathsReq, DirectoryEntryKey, DirectorySubscriptionCloseReason,
+    DirectoryTableEvent, FsEntry, ProcId, ProcStream, PurgeTrashItemsReq, ReadFileChunk,
+    ReadFileReq, RenamePathsReq, RenewClientCredentialResponse, RestoreTrashItemsReq, RootEntryKey,
     RootsSubscriptionCloseReason, RootsTableEvent, RpcErrorCode, RpcErrorPayload, RpcHandlerFuture,
     RpcHandlers, RpcRequest, RpcRequestDecodeError, RpcResponse, StartPairingRequest,
     StartPairingResponse, SubscribeDirectoryReq, TakeTerminalControlReq, TerminalEvent,
@@ -868,6 +868,7 @@ fn rpc_handlers() -> &'static HostRpcHandlers {
     HANDLERS.get_or_init(|| {
         RpcHandlers::new()
             .get_daemon_info(HostRpcHandler::get_daemon_info_rpc)
+            .get_daemon_environment(HostRpcHandler::get_daemon_environment_rpc)
             .start_pairing(HostRpcHandler::start_pairing_rpc)
             .complete_pairing(HostRpcHandler::complete_pairing_rpc)
             .renew_client_credential(HostRpcHandler::renew_client_credential_rpc)
@@ -2448,6 +2449,10 @@ impl HostRpcHandler {
         )
     }
 
+    async fn get_daemon_environment(&mut self, _: ()) -> Result<UnaryRpcOutcome> {
+        Ok(RpcResponse::GetDaemonEnvironment(DaemonEnvironment::current()).into())
+    }
+
     async fn start_pairing(&mut self, request: StartPairingRequest) -> Result<UnaryRpcOutcome> {
         let proc_id = ProcId::StartPairing.as_u64();
         let Some(confirmation_code) = normalize_confirmation_code(&request.confirmation_code)
@@ -2757,6 +2762,13 @@ impl HostRpcHandler {
         request: (),
     ) -> RpcHandlerFuture<'a, Result<UnaryRpcOutcome>> {
         Box::pin(self.get_daemon_info(request))
+    }
+
+    fn get_daemon_environment_rpc<'a>(
+        &'a mut self,
+        request: (),
+    ) -> RpcHandlerFuture<'a, Result<UnaryRpcOutcome>> {
+        Box::pin(self.get_daemon_environment(request))
     }
 
     fn start_pairing_rpc<'a>(
@@ -3427,6 +3439,38 @@ mod tests {
                 .iter()
                 .map(|proc| proc.as_u64())
                 .collect::<Vec<_>>()
+        );
+    }
+
+    #[tokio::test]
+    async fn get_daemon_environment_reports_home_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        let config_path = dir.path().join("wgo.yaml");
+        let credentials_path = client_credentials_path(&config_path);
+
+        let responses = handle_rpc_messages(
+            vec![request_message(ProcId::GetDaemonEnvironment, None)],
+            &config_path,
+            &credentials_path,
+            Arc::new(Mutex::new(SystemConfig::default())),
+            Arc::new(Mutex::new(ClientCredentials::default())),
+            test_pairing_challenge(),
+            Arc::new(Mutex::new(RpcSessionState {
+                session_id: 1,
+                authenticated_client_id: Some("test-client".to_string()),
+            })),
+            test_files(),
+            test_terminals(),
+            None,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(responses.len(), 1);
+        let environment = DaemonEnvironment::decode(payload(&responses[0])).unwrap();
+        assert_eq!(
+            environment.home_directory,
+            DaemonEnvironment::current().home_directory
         );
     }
 

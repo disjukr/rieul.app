@@ -16,9 +16,10 @@ pub use crate::generated::rpc::{
     AvailableShellsTableEvent, BulkMutationItemResult, BulkMutationRes, ClientInfo, ClientKey,
     ClientsTableEvent, CloseTerminalSessionError, CloseTerminalSessionReq, CompletePairingError,
     CompletePairingReq, CompletePairingRes, CreateNodeOp, CreateNodeSpec, CreateNodesReq,
-    CreateTerminalSessionError, CreateTerminalSessionReq, DaemonInfo, DeleteMode, DeletePathsReq,
-    DirectoryEntryKey, DirectorySubscriptionCloseReason, DirectoryTableEvent, FsEntry, FsEntryKind,
-    FsMutationError, FsMutationItemError, GetDaemonInfoError, ProcDefinition, ProcId, ProcStream,
+    CreateTerminalSessionError, CreateTerminalSessionReq, DaemonEnvironment, DaemonInfo,
+    DeleteMode, DeletePathsReq, DirectoryEntryKey, DirectorySubscriptionCloseReason,
+    DirectoryTableEvent, FsEntry, FsEntryKind, FsMutationError, FsMutationItemError,
+    GetDaemonEnvironmentError, GetDaemonInfoError, ProcDefinition, ProcId, ProcStream,
     PurgeTrashItemsReq, ReadFileChunk, ReadFileError, ReadFileReq, RenamePathOp, RenamePathsReq,
     RenewClientCredentialError, RenewClientCredentialRes, RestoreTrashItemsReq, RootEntryKey,
     RootsSubscriptionCloseReason, RootsTableEvent, RpcHandlerFn, RpcHandlerFuture, RpcHandlers,
@@ -72,6 +73,34 @@ impl DaemonInfo {
             server_time_ms: current_unix_ms(),
         }
     }
+}
+
+impl DaemonEnvironment {
+    pub fn current() -> Self {
+        Self {
+            home_directory: home_directory()
+                .map(|path| path.to_string_lossy().into_owned())
+                .unwrap_or_default(),
+        }
+    }
+}
+
+fn home_directory() -> Option<std::path::PathBuf> {
+    #[cfg(windows)]
+    {
+        if let Some(profile) = std::env::var_os("USERPROFILE") {
+            return Some(profile.into());
+        }
+        if let (Some(drive), Some(path)) =
+            (std::env::var_os("HOMEDRIVE"), std::env::var_os("HOMEPATH"))
+        {
+            let mut home = std::path::PathBuf::from(drive);
+            home.push(path);
+            return Some(home);
+        }
+    }
+
+    std::env::var_os("HOME").map(Into::into)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

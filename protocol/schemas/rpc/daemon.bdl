@@ -13,6 +13,14 @@
 proc GetDaemonInfo = void -> DaemonInfo throws GetDaemonInfoError
 
 @ description
+| Returns environment-derived daemon defaults. These values are sampled from the
+| daemon host environment and may differ across users, service accounts, and
+| daemon restarts.
+@ id - 23
+@ stream - unary
+proc GetDaemonEnvironment = void -> DaemonEnvironment throws GetDaemonEnvironmentError
+
+@ description
 | Subscribes to paired clients known to the daemon. The first response event is
 | ClientsTableEvent.Snapshot. Later Snapshot events replace the whole clients
 | table view; Patch events apply incremental table membership updates. Events
@@ -54,6 +62,15 @@ struct DaemonInfo {
   | Epoch millisecond timestamp sampled by the daemon while producing this
   | response.
   serverTimeMs: u53,
+}
+
+@ description - Environment-derived defaults visible to the daemon process.
+struct DaemonEnvironment {
+  @ id - 1
+  @ description
+  | Absolute home directory path for the daemon process environment. When the
+  | platform cannot provide a home directory, this is an empty string.
+  homeDirectory: string,
 }
 
 @ description - Public paired client metadata.
@@ -101,6 +118,15 @@ struct ClientKey {
 
 @ description - Method-level daemon info query errors.
 union GetDaemonInfoError {
+  @ id - 0
+  Failed(
+    @ id - 1
+    message: string,
+  ),
+}
+
+@ description - Method-level daemon environment query errors.
+union GetDaemonEnvironmentError {
   @ id - 0
   Failed(
     @ id - 1

@@ -25,6 +25,7 @@ export enum ProcId {
   SubscribeTrashItems = 20,
   RestoreTrashItems = 21,
   PurgeTrashItems = 22,
+  GetDaemonEnvironment = 23,
 }
 
 export interface CreateTerminalSessionReq {
@@ -426,6 +427,10 @@ export interface DaemonInfo {
   serverTimeMs: number;
 }
 
+export interface DaemonEnvironment {
+  homeDirectory: string;
+}
+
 export interface ClientInfo {
   clientId: string;
   label: string;
@@ -442,6 +447,8 @@ export interface ClientKey {
 }
 
 export type GetDaemonInfoError = { type: "failed"; message: string };
+
+export type GetDaemonEnvironmentError = { type: "failed"; message: string };
 
 export type SubscribeClientsError =
   | { type: "failed"; message: string }
@@ -632,6 +639,14 @@ export const procDefinitions: readonly ProcDefinition[] = [
     requestType: "PurgeTrashItemsReq",
     responseType: "BulkMutationRes",
     errorType: "FsMutationError",
+  },
+  {
+    id: 23,
+    name: "GetDaemonEnvironment",
+    stream: "unary",
+    requestType: "void",
+    responseType: "DaemonEnvironment",
+    errorType: "GetDaemonEnvironmentError",
   },
 ] as const;
 
@@ -999,6 +1014,22 @@ export const purgeTrashItemsProc: ProcCodec<
   decodeError: decodeFsMutationErrorValue,
 };
 
+export const getDaemonEnvironmentProc: ProcCodec<
+  undefined,
+  DaemonEnvironment,
+  GetDaemonEnvironmentError
+> = {
+  id: ProcId.GetDaemonEnvironment,
+  name: "GetDaemonEnvironment",
+  stream: "unary",
+  requestType: "void",
+  responseType: "DaemonEnvironment",
+  errorType: "GetDaemonEnvironmentError",
+  encodeRequest: encodeVoidValue,
+  decodeResponse: decodeDaemonEnvironmentValue,
+  decodeError: decodeGetDaemonEnvironmentErrorValue,
+};
+
 export const procs = {
   getDaemonInfo: getDaemonInfoProc,
   startPairing: startPairingProc,
@@ -1022,6 +1053,7 @@ export const procs = {
   subscribeTrashItems: subscribeTrashItemsProc,
   restoreTrashItems: restoreTrashItemsProc,
   purgeTrashItems: purgeTrashItemsProc,
+  getDaemonEnvironment: getDaemonEnvironmentProc,
 } as const;
 
 export function encodeCreateTerminalSessionReqValue(
@@ -4571,6 +4603,30 @@ export function decodeDaemonInfoValue(value: CborValue): DaemonInfo {
   };
 }
 
+export function encodeDaemonEnvironmentValue(
+  value: DaemonEnvironment,
+): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(
+    1,
+    text(required(value.homeDirectory, "DaemonEnvironment.homeDirectory")),
+  );
+  return fields;
+}
+
+export function decodeDaemonEnvironmentValue(
+  value: CborValue,
+): DaemonEnvironment {
+  const fields = expectMap(value);
+  return {
+    homeDirectory: fieldOrDefault(
+      fields.get(1),
+      (value) => textValue(value),
+      () => "",
+    ),
+  };
+}
+
 export function encodeClientInfoValue(value: ClientInfo): CborValue {
   const fields = new Map<number, CborValue>();
   fields.set(1, text(required(value.clientId, "ClientInfo.clientId")));
@@ -4715,6 +4771,41 @@ export function decodeGetDaemonInfoErrorValue(
       };
   }
   throw new Error(`unknown GetDaemonInfoError variant ${variantId}`);
+}
+
+export function encodeGetDaemonEnvironmentErrorValue(
+  value: GetDaemonEnvironmentError,
+): CborValue {
+  switch (value.type) {
+    case "failed": {
+      const fields = new Map<number, CborValue>();
+      fields.set(
+        1,
+        text(
+          required(value.message, "GetDaemonEnvironmentError.Failed.message"),
+        ),
+      );
+      return [0, fields];
+    }
+  }
+}
+
+export function decodeGetDaemonEnvironmentErrorValue(
+  value: CborValue,
+): GetDaemonEnvironmentError {
+  const [variantId, fields] = expectUnion(value);
+  switch (variantId) {
+    case 0:
+      return {
+        type: "failed",
+        message: fieldOrDefault(
+          fields.get(1),
+          (value) => textValue(value),
+          () => "",
+        ),
+      };
+  }
+  throw new Error(`unknown GetDaemonEnvironmentError variant ${variantId}`);
 }
 
 export function encodeSubscribeClientsErrorValue(
@@ -5230,6 +5321,12 @@ function defaultDaemonInfo(): DaemonInfo {
   };
 }
 
+function defaultDaemonEnvironment(): DaemonEnvironment {
+  return {
+    homeDirectory: "",
+  };
+}
+
 function defaultClientInfo(): ClientInfo {
   return {
     clientId: "",
@@ -5253,6 +5350,13 @@ function defaultClientKey(): ClientKey {
 }
 
 function defaultGetDaemonInfoError(): GetDaemonInfoError {
+  return {
+    type: "failed",
+    message: "",
+  };
+}
+
+function defaultGetDaemonEnvironmentError(): GetDaemonEnvironmentError {
   return {
     type: "failed",
     message: "",

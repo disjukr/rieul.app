@@ -55,6 +55,7 @@ const procNames = new Map<number, string>([
   [20, "SubscribeTrashItems"],
   [21, "RestoreTrashItems"],
   [22, "PurgeTrashItems"],
+  [23, "GetDaemonEnvironment"],
 ]);
 
 const daemonToolClassName = [
