@@ -17,6 +17,7 @@ import {
   subscribeClients,
   subscribeTerminalSessions,
 } from "../../../../protocol/generated/client.ts";
+import { procs } from "../../../../protocol/generated/rpc.ts";
 import type {
   ClientInfo,
   ClientsTableEvent,
@@ -32,31 +33,9 @@ import {
 } from "../../../../state/workbench.ts";
 import { Button } from "../../../ui/button.tsx";
 
-const procNames = new Map<number, string>([
-  [1, "GetDaemonInfo"],
-  [2, "StartPairing"],
-  [3, "CompletePairing"],
-  [4, "RenewClientCredential"],
-  [5, "SubscribeRoots"],
-  [6, "SubscribeDirectory"],
-  [7, "ReadFile"],
-  [8, "WriteFile"],
-  [9, "CreateNodes"],
-  [10, "RenamePaths"],
-  [11, "DeletePaths"],
-  [12, "CreateTerminalSession"],
-  [13, "SubscribeTerminalSessions"],
-  [14, "SubscribeAvailableShells"],
-  [15, "AttachTerminalSession"],
-  [16, "TakeTerminalControl"],
-  [17, "WriteTerminalInput"],
-  [18, "CloseTerminalSession"],
-  [19, "SubscribeClients"],
-  [20, "SubscribeTrashItems"],
-  [21, "RestoreTrashItems"],
-  [22, "PurgeTrashItems"],
-  [23, "GetDaemonEnvironment"],
-]);
+function procName(procId: number): string {
+  return procs[procId as keyof typeof procs]?.name ?? `Proc ${procId}`;
+}
 
 const daemonToolClassName = [
   "h-full min-h-0 overflow-auto bg-white px-[18px] py-[16px]",
@@ -754,7 +733,7 @@ function DaemonInfoView(
           {supportedProcIds.map((procId) => (
             <div key={procId}>
               <span>{procId}</span>
-              <span>{procNames.get(procId) ?? `Proc ${procId}`}</span>
+              <span>{procName(procId)}</span>
             </div>
           ))}
         </div>

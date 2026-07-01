@@ -370,32 +370,6 @@ function emitSchemaCodecTypeScript(
   }
 
   if (emitProcs) {
-    out.line();
-    out.line("export interface ProcDefinition {");
-    out.indent(() => {
-      out.line("id: number;");
-      out.line("name: string;");
-      out.line("stream: string;");
-      out.line("requestType: string;");
-      out.line("responseType: string;");
-      out.line("errorType: string;");
-    });
-    out.line("}");
-    out.line();
-    out.line("export const procDefinitions: readonly ProcDefinition[] = [");
-    out.indent(() => {
-      for (const proc of sortedProcs(schema)) {
-        out.line(
-          `{ id: ${proc.id}, name: "${proc.name}", stream: "${proc.stream}", requestType: "${
-            typeName(proc.requestType, named)
-          }", responseType: "${
-            typeName(proc.responseType, named)
-          }", errorType: "${typeName(proc.errorType, named)}" },`,
-        );
-      }
-    });
-    out.line("] as const;");
-
     emitProcCodecs(out, schema, named);
   }
 
@@ -542,7 +516,7 @@ function emitProcCodecs(
   out.line("export const procs = {");
   out.indent(() => {
     for (const proc of procs) {
-      out.line(`${lowerCamel(proc.name)}: ${procCodecName(proc)},`);
+      out.line(`[ProcId.${proc.name}]: ${procCodecName(proc)},`);
     }
   });
   out.line("} as const;");
