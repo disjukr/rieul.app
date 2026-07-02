@@ -24,6 +24,8 @@ import {
   subscribeAvailableShellsProc,
   subscribeClientsProc,
   subscribeDirectoryProc,
+  subscribeProcessDetailProc,
+  subscribeProcessesProc,
   subscribeRootsProc,
   subscribeTerminalSessionsProc,
   subscribeTrashItemsProc,
@@ -45,6 +47,8 @@ import type {
   DaemonInfo,
   DeletePathsReq,
   DirectoryTableEvent,
+  ProcessDetailEvent,
+  ProcessesTableEvent,
   PurgeTrashItemsReq,
   ReadFileChunk,
   ReadFileReq,
@@ -55,6 +59,7 @@ import type {
   StartPairingReq,
   StartPairingRes,
   SubscribeDirectoryReq,
+  SubscribeProcessDetailReq,
   TakeTerminalControlReq,
   TakeTerminalControlRes,
   TerminalEvent,
@@ -215,4 +220,17 @@ export function getDaemonEnvironment(
   transport: WebTransport,
 ): Promise<DaemonEnvironment> {
   return callUnary(transport, getDaemonEnvironmentProc, undefined);
+}
+
+export function subscribeProcesses(
+  transport: WebTransport,
+): AsyncGenerator<ProcessesTableEvent> {
+  return callServerStream(transport, subscribeProcessesProc, undefined);
+}
+
+export function subscribeProcessDetail(
+  transport: WebTransport,
+  request: SubscribeProcessDetailReq,
+): AsyncGenerator<ProcessDetailEvent> {
+  return callServerStream(transport, subscribeProcessDetailProc, request);
 }

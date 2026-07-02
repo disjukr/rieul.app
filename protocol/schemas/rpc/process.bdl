@@ -1,0 +1,272 @@
+# standard - wgo-rpc
+# description
+| Process RPC methods expose lightweight host process list metadata. The
+| process list is modeled as a reactive table. Detailed process information,
+| process control, and expensive metrics are intentionally outside this schema
+| and should be added as separate RPC methods later.
+
+@ description
+| Subscribes to lightweight host process rows visible to the daemon. The first
+| response event is ProcessesTableEvent.Snapshot. Later Snapshot events replace
+| the whole process table view; Patch events apply process creation, exit, and
+| lightweight metadata changes. PID reuse is treated as the current process for
+| that pid; this method does not attempt to provide stable identity across
+| process lifetimes.
+@ id - 24
+@ stream - server
+proc SubscribeProcesses = void -> ProcessesTableEvent throws SubscribeProcessesError
+
+@ description
+| Subscribes to detailed information for one process id. The first response
+| event is ProcessDetailEvent.Snapshot. Later events update only the section
+| that changed. ProcessInfo and ProcessMetadata are relatively stable compared
+| to ProcessResourceUsage, which is expected to change frequently. If the
+| process disappears, the stream emits Exited and then completes.
+@ id - 25
+@ stream - server
+proc SubscribeProcessDetail = SubscribeProcessDetailReq -> ProcessDetailEvent throws SubscribeProcessDetailError
+
+struct SubscribeProcessDetailReq {
+  @ id - 1
+  pid: u53,
+}
+
+@ description - Lightweight process table row.
+struct ProcessInfo {
+  @ id - 1
+  @ description - Host process id.
+  pid: u53,
+
+  @ id - 2
+  @ description
+  | Parent process id, when the host can report it. This may be absent for
+  | kernel or system roots, exited parents, permission limits, or platforms that
+  | cannot expose it.
+  ppid?: u53,
+
+  @ id - 3
+  @ description
+  | Best-effort process display name. This should be the executable or command
+  | name, not a full command line.
+  name: string,
+
+  @ id - 4
+  status: ProcessStatus,
+}
+
+@ description - Current detail view for an inspected process.
+struct ProcessDetail {
+  @ id - 1
+  info: ProcessInfo,
+
+  @ id - 2
+  metadata: ProcessMetadata,
+
+  @ id - 3
+  usage: ProcessResourceUsage,
+}
+
+@ description
+| Relatively stable best-effort metadata for an inspected process. These fields
+| can still change at runtime, but should usually change much less often than
+| ProcessResourceUsage.
+struct ProcessMetadata {
+  @ id - 1
+  @ description
+  | Best-effort command line. Empty means the daemon could not observe it.
+  command: string[],
+
+  @ id - 2
+  executablePath?: string,
+
+  @ id - 3
+  cwd?: string,
+
+  @ id - 4
+  startTimeUnix: u53,
+}
+
+@ description
+| Frequently changing best-effort resource usage for an inspected process.
+| Precise meanings can vary by OS and daemon permissions.
+struct ProcessResourceUsage {
+  @ id - 1
+  memoryBytes: u53,
+
+  @ id - 2
+  virtualMemoryBytes: u53,
+
+  @ id - 3
+  @ description - Sampled CPU usage percentage.
+  cpuUsagePercent: f64,
+
+  @ id - 4
+  accumulatedCpuTimeMs: u53,
+
+  @ id - 5
+  ioUsage: ProcessIoUsage,
+}
+
+@ description
+| Process IO counters from the daemon host. On some platforms this may include
+| non-disk IO reported by the OS process APIs.
+struct ProcessIoUsage {
+  @ id - 1
+  @ description
+  | Bytes read since the daemon's previous process refresh. With the current
+  | daemon implementation this is sampled about once per second.
+  readBytes: u53,
+
+  @ id - 2
+  @ description
+  | Bytes written since the daemon's previous process refresh. With the current
+  | daemon implementation this is sampled about once per second.
+  writtenBytes: u53,
+
+  @ id - 3
+  @ description
+  | Total bytes read according to the host OS process counters.
+  totalReadBytes: u53,
+
+  @ id - 4
+  @ description
+  | Total bytes written according to the host OS process counters.
+  totalWrittenBytes: u53,
+}
+
+@ description
+| Coarse process status for list display. Variants mirror sysinfo::ProcessStatus,
+| including Unknown(code).
+union ProcessStatus {
+  @ id - 1
+  Idle(),
+
+  @ id - 2
+  Run(),
+
+  @ id - 3
+  Sleep(),
+
+  @ id - 4
+  Stop(),
+
+  @ id - 5
+  Zombie(),
+
+  @ id - 6
+  Tracing(),
+
+  @ id - 7
+  Dead(),
+
+  @ id - 8
+  Wakekill(),
+
+  @ id - 9
+  Waking(),
+
+  @ id - 10
+  Parked(),
+
+  @ id - 11
+  LockBlocked(),
+
+  @ id - 12
+  UninterruptibleDiskSleep(),
+
+  @ id - 13
+  Suspended(),
+
+  @ id - 14
+  Unknown(
+    @ id - 1
+    code: u53,
+  ),
+}
+
+@ description
+| Reactive process table event. Snapshot replaces the whole subscribed process
+| table view. Patch applies membership changes to the current view. removePids
+| contains process ids that should be removed from the client's current table.
+union ProcessesTableEvent {
+  @ id - 1
+  Snapshot(
+    @ id - 1
+    rows: ProcessInfo[],
+  ),
+
+  @ id - 2
+  Patch(
+    @ id - 1
+    removePids: u53[],
+
+    @ id - 2
+    upserts: ProcessInfo[],
+  ),
+}
+
+@ description - Reactive detail event for one inspected process.
+union ProcessDetailEvent {
+  @ id - 1
+  Snapshot(
+    @ id - 1
+    detail: ProcessDetail,
+  ),
+
+  @ id - 2
+  InfoChanged(
+    @ id - 1
+    info: ProcessInfo,
+  ),
+
+  @ id - 3
+  MetadataChanged(
+    @ id - 1
+    metadata: ProcessMetadata,
+  ),
+
+  @ id - 4
+  UsageChanged(
+    @ id - 1
+    usage: ProcessResourceUsage,
+  ),
+
+  @ id - 5
+  Exited(),
+}
+
+@ description - Method-level process subscription start errors.
+union SubscribeProcessesError {
+  @ id - 0
+  Failed(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 1
+  PermissionDenied(
+    @ id - 1
+    message: string,
+  ),
+}
+
+@ description - Method-level process detail subscription start errors.
+union SubscribeProcessDetailError {
+  @ id - 0
+  Failed(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 1
+  NotFound(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 2
+  PermissionDenied(
+    @ id - 1
+    message: string,
+  ),
+}

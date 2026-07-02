@@ -3,6 +3,7 @@ import { useAtomValue } from "jotai";
 import { useBunja } from "bunja/react";
 import { Handle, useLayout } from "panecake";
 import {
+  Activity,
   Columns2,
   Copy,
   Folder,
@@ -346,6 +347,11 @@ export function WorkbenchPaneView(
     setPaneOverflowMenuOpen(false);
   }
 
+  function openProcessesTab() {
+    paneState.addProcessesTab();
+    setPaneOverflowMenuOpen(false);
+  }
+
   function openTerminalTab() {
     const shell = defaultShell;
     paneState.addTerminalTab(
@@ -591,6 +597,13 @@ export function WorkbenchPaneView(
                     >
                       <Terminal size={14} />
                       New terminal tab
+                    </FloatingMenuItem>
+                    <FloatingMenuItem
+                      className={paneOverflowMenuItemClassName}
+                      onClick={openProcessesTab}
+                    >
+                      <Activity size={14} />
+                      New processes tab
                     </FloatingMenuItem>
                     <FloatingMenuItem
                       className={className(

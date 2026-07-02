@@ -12,6 +12,10 @@ use anyhow::{bail, Context, Result};
 use notify::{Event, RecursiveMode, Watcher};
 use rustls::server::{ClientHello, ResolvesServerCert};
 use rustls::sign::CertifiedKey;
+use sysinfo::{
+    Pid as SysPid, Process as SysProcess, ProcessRefreshKind, ProcessStatus as SysProcessStatus,
+    ProcessesToUpdate, System as SysinfoSystem, UpdateKind,
+};
 use time::OffsetDateTime;
 use tokio::sync::{watch, Mutex};
 use tracing::{info, warn};
@@ -33,13 +37,15 @@ use wgo_daemon_core::rpc::{
     ClientInfo, ClientKey, ClientsTableEvent, CloseTerminalSessionReq, CompletePairingRequest,
     CompletePairingResponse, CreateNodesReq, CreateTerminalSessionReq, DaemonEnvironment,
     DaemonInfo, DeleteMode, DeletePathsReq, DirectoryEntryKey, DirectorySubscriptionCloseReason,
-    DirectoryTableEvent, FsEntry, ProcId, ProcStream, PurgeTrashItemsReq, ReadFileChunk,
-    ReadFileReq, RenamePathsReq, RenewClientCredentialResponse, RestoreTrashItemsReq, RootEntryKey,
+    DirectoryTableEvent, FsEntry, ProcId, ProcStream, ProcessDetail, ProcessDetailEvent,
+    ProcessInfo, ProcessIoUsage, ProcessMetadata, ProcessResourceUsage, ProcessStatus,
+    ProcessesTableEvent, PurgeTrashItemsReq, ReadFileChunk, ReadFileReq, RenamePathsReq,
+    RenewClientCredentialResponse, RestoreTrashItemsReq, RootEntryKey,
     RootsSubscriptionCloseReason, RootsTableEvent, RpcErrorCode, RpcErrorPayload, RpcHandlerFuture,
     RpcHandlers, RpcRequest, RpcRequestDecodeError, RpcResponse, StartPairingRequest,
-    StartPairingResponse, SubscribeDirectoryReq, TakeTerminalControlReq, TerminalEvent,
-    TerminalSessionsTableEvent, TrashItem, TrashItemsSubscriptionCloseReason, TrashItemsTableEvent,
-    WriteFileChunk, WriteFileReq, WriteTerminalInputReq,
+    StartPairingResponse, SubscribeDirectoryReq, SubscribeProcessDetailReq, TakeTerminalControlReq,
+    TerminalEvent, TerminalSessionsTableEvent, TrashItem, TrashItemsSubscriptionCloseReason,
+    TrashItemsTableEvent, WriteFileChunk, WriteFileReq, WriteTerminalInputReq, MAX_U53,
 };
 use wgo_daemon_core::traits::{BoxFutureResult, FileService, ServiceError, WriteFileChunkSource};
 use wgo_daemon_core::wire::{
@@ -56,6 +62,8 @@ const CERT_RELOAD_DEBOUNCE: Duration = Duration::from_millis(250);
 const CONFIG_STARTUP_RETRY_INTERVAL: Duration = Duration::from_secs(5);
 const SCHEDULED_CERT_REFRESH_INTERVAL: Duration = Duration::from_secs(60 * 60);
 const SUBSCRIPTION_DEBOUNCE: Duration = Duration::from_millis(150);
+const PROCESSES_SUBSCRIPTION_POLL_INTERVAL: Duration = Duration::from_secs(2);
+const PROCESS_DETAIL_SUBSCRIPTION_POLL_INTERVAL: Duration = Duration::from_secs(1);
 const ROOTS_SUBSCRIPTION_POLL_INTERVAL: Duration = Duration::from_secs(2);
 const TRASH_SUBSCRIPTION_POLL_INTERVAL: Duration = Duration::from_secs(2);
 const QUIC_MAX_IDLE_TIMEOUT: Duration = Duration::from_secs(120);
@@ -894,6 +902,8 @@ fn rpc_handlers() -> &'static HostRpcHandlers {
             .subscribe_trash_items(HostRpcHandler::subscribe_trash_items_rpc)
             .restore_trash_items(HostRpcHandler::restore_trash_items_rpc)
             .purge_trash_items(HostRpcHandler::purge_trash_items_rpc)
+            .subscribe_processes(HostRpcHandler::subscribe_processes_rpc)
+            .subscribe_process_detail(HostRpcHandler::subscribe_process_detail_rpc)
     })
 }
 
@@ -1525,6 +1535,24 @@ impl HostRpcHandler {
         )
         .await
     }
+
+    async fn subscribe_processes(&mut self, _: ()) -> Result<()> {
+        let send = self.response_stream();
+        let mut send = send.lock().await;
+        stream_processes_subscription(&mut send, ProcId::SubscribeProcesses.as_u64()).await
+    }
+
+    async fn subscribe_process_detail(&mut self, request: SubscribeProcessDetailReq) -> Result<()> {
+        let send = self.response_stream();
+        let mut send = send.lock().await;
+        stream_process_detail_subscription(
+            &mut send,
+            ProcId::SubscribeProcessDetail.as_u64(),
+            request.pid,
+        )
+        .await
+    }
+
     fn subscribe_roots_rpc<'a>(&'a mut self, request: ()) -> RpcHandlerFuture<'a, Result<()>> {
         Box::pin(self.subscribe_roots(request))
     }
@@ -1570,6 +1598,17 @@ impl HostRpcHandler {
         request: (),
     ) -> RpcHandlerFuture<'a, Result<()>> {
         Box::pin(self.subscribe_trash_items(request))
+    }
+
+    fn subscribe_processes_rpc<'a>(&'a mut self, request: ()) -> RpcHandlerFuture<'a, Result<()>> {
+        Box::pin(self.subscribe_processes(request))
+    }
+
+    fn subscribe_process_detail_rpc<'a>(
+        &'a mut self,
+        request: SubscribeProcessDetailReq,
+    ) -> RpcHandlerFuture<'a, Result<()>> {
+        Box::pin(self.subscribe_process_detail(request))
     }
 }
 
@@ -1912,6 +1951,110 @@ async fn stream_attached_terminal(
     }
 }
 
+async fn stream_processes_subscription(
+    send: &mut web_transport_quinn::SendStream,
+    _proc_id: u64,
+) -> Result<()> {
+    let mut system = SysinfoSystem::new();
+    let mut rows = process_rows_snapshot(&mut system);
+    write_reqres_message(
+        send,
+        stream_start_payload_message(ProcessesTableEvent::Snapshot { rows: rows.clone() }.encode()),
+    )
+    .await?;
+
+    let mut interval = tokio::time::interval(PROCESS_DETAIL_SUBSCRIPTION_POLL_INTERVAL);
+    loop {
+        interval.tick().await;
+        let next_rows = process_rows_snapshot(&mut system);
+        if let Some(event) = processes_patch(&rows, &next_rows) {
+            write_reqres_message(send, stream_chunk_payload_message(event.encode())).await?;
+            rows = next_rows;
+        }
+    }
+}
+
+async fn stream_process_detail_subscription(
+    send: &mut web_transport_quinn::SendStream,
+    proc_id: u64,
+    pid: u64,
+) -> Result<()> {
+    let mut system = SysinfoSystem::new();
+    let Some(mut detail) = process_detail_snapshot(&mut system, pid) else {
+        write_reqres_message(
+            send,
+            stream_error_message(proc_id, "not_found", "process not found"),
+        )
+        .await?;
+        return Ok(());
+    };
+
+    write_reqres_message(
+        send,
+        stream_start_payload_message(
+            ProcessDetailEvent::Snapshot {
+                detail: detail.clone(),
+            }
+            .encode(),
+        ),
+    )
+    .await?;
+
+    let mut interval = tokio::time::interval(PROCESSES_SUBSCRIPTION_POLL_INTERVAL);
+    loop {
+        interval.tick().await;
+        let Some(next_detail) = process_detail_snapshot(&mut system, pid) else {
+            write_reqres_message(
+                send,
+                stream_chunk_payload_message(ProcessDetailEvent::Exited.encode()),
+            )
+            .await?;
+            return Ok(());
+        };
+        if next_detail.info != detail.info {
+            write_reqres_message(
+                send,
+                stream_chunk_payload_message(
+                    ProcessDetailEvent::InfoChanged {
+                        info: next_detail.info.clone(),
+                    }
+                    .encode(),
+                ),
+            )
+            .await?;
+            detail.info = next_detail.info.clone();
+        }
+
+        if next_detail.metadata != detail.metadata {
+            write_reqres_message(
+                send,
+                stream_chunk_payload_message(
+                    ProcessDetailEvent::MetadataChanged {
+                        metadata: next_detail.metadata.clone(),
+                    }
+                    .encode(),
+                ),
+            )
+            .await?;
+            detail.metadata = next_detail.metadata.clone();
+        }
+
+        if next_detail.usage != detail.usage {
+            write_reqres_message(
+                send,
+                stream_chunk_payload_message(
+                    ProcessDetailEvent::UsageChanged {
+                        usage: next_detail.usage.clone(),
+                    }
+                    .encode(),
+                ),
+            )
+            .await?;
+            detail.usage = next_detail.usage;
+        }
+    }
+}
+
 async fn stream_roots_subscription(
     send: &mut web_transport_quinn::SendStream,
     files: SharedFileService,
@@ -2118,6 +2261,152 @@ fn create_subscription_watcher(
     })?;
     watcher.watch(path, RecursiveMode::NonRecursive)?;
     Ok((watcher, rx))
+}
+
+fn process_rows_snapshot(system: &mut SysinfoSystem) -> Vec<ProcessInfo> {
+    system.refresh_processes(ProcessesToUpdate::All, true);
+    let mut rows = system
+        .processes()
+        .values()
+        .map(process_info_from_sysinfo)
+        .collect::<Vec<_>>();
+    rows.sort_by_key(|row| row.pid);
+    rows
+}
+
+fn process_detail_snapshot(system: &mut SysinfoSystem, pid: u64) -> Option<ProcessDetail> {
+    let pid = u32::try_from(pid).ok().map(SysPid::from_u32)?;
+    system.refresh_processes_specifics(
+        ProcessesToUpdate::Some(&[pid]),
+        true,
+        process_detail_refresh_kind(),
+    );
+    system.process(pid).map(process_detail_from_sysinfo)
+}
+
+fn process_detail_refresh_kind() -> ProcessRefreshKind {
+    ProcessRefreshKind::nothing()
+        .with_cpu()
+        .with_disk_usage()
+        .with_memory()
+        .with_cwd(UpdateKind::Always)
+        .with_root(UpdateKind::OnlyIfNotSet)
+        .with_cmd(UpdateKind::OnlyIfNotSet)
+        .with_exe(UpdateKind::OnlyIfNotSet)
+}
+
+fn process_detail_from_sysinfo(process: &SysProcess) -> ProcessDetail {
+    ProcessDetail {
+        info: process_info_from_sysinfo(process),
+        metadata: process_metadata_from_sysinfo(process),
+        usage: process_resource_usage_from_sysinfo(process),
+    }
+}
+
+fn process_metadata_from_sysinfo(process: &SysProcess) -> ProcessMetadata {
+    ProcessMetadata {
+        command: process
+            .cmd()
+            .iter()
+            .map(|part| part.to_string_lossy().into_owned())
+            .collect(),
+        executable_path: process
+            .exe()
+            .map(|path| path.to_string_lossy().into_owned()),
+        cwd: process
+            .cwd()
+            .map(|path| path.to_string_lossy().into_owned()),
+        start_time_unix: u53_saturating(process.start_time()),
+    }
+}
+
+fn process_resource_usage_from_sysinfo(process: &SysProcess) -> ProcessResourceUsage {
+    let io_usage = process.disk_usage();
+    ProcessResourceUsage {
+        memory_bytes: u53_saturating(process.memory()),
+        virtual_memory_bytes: u53_saturating(process.virtual_memory()),
+        cpu_usage_percent: cpu_usage_percent(process.cpu_usage()),
+        accumulated_cpu_time_ms: u53_saturating(process.accumulated_cpu_time()),
+        io_usage: ProcessIoUsage {
+            read_bytes: u53_saturating(io_usage.read_bytes),
+            written_bytes: u53_saturating(io_usage.written_bytes),
+            total_read_bytes: u53_saturating(io_usage.total_read_bytes),
+            total_written_bytes: u53_saturating(io_usage.total_written_bytes),
+        },
+    }
+}
+
+fn process_info_from_sysinfo(process: &SysProcess) -> ProcessInfo {
+    ProcessInfo {
+        pid: u64::from(process.pid().as_u32()),
+        ppid: process.parent().map(|pid| u64::from(pid.as_u32())),
+        name: process.name().to_string_lossy().into_owned(),
+        status: process_status_from_sysinfo(process.status()),
+    }
+}
+
+fn process_status_from_sysinfo(status: SysProcessStatus) -> ProcessStatus {
+    match status {
+        SysProcessStatus::Idle => ProcessStatus::Idle,
+        SysProcessStatus::Run => ProcessStatus::Run,
+        SysProcessStatus::Sleep => ProcessStatus::Sleep,
+        SysProcessStatus::Stop => ProcessStatus::Stop,
+        SysProcessStatus::Zombie => ProcessStatus::Zombie,
+        SysProcessStatus::Tracing => ProcessStatus::Tracing,
+        SysProcessStatus::Dead => ProcessStatus::Dead,
+        SysProcessStatus::Wakekill => ProcessStatus::Wakekill,
+        SysProcessStatus::Waking => ProcessStatus::Waking,
+        SysProcessStatus::Parked => ProcessStatus::Parked,
+        SysProcessStatus::LockBlocked => ProcessStatus::LockBlocked,
+        SysProcessStatus::UninterruptibleDiskSleep => ProcessStatus::UninterruptibleDiskSleep,
+        SysProcessStatus::Suspended => ProcessStatus::Suspended,
+        SysProcessStatus::Unknown(code) => ProcessStatus::Unknown {
+            code: u64::from(code),
+        },
+    }
+}
+
+fn cpu_usage_percent(cpu_usage: f32) -> f64 {
+    if !cpu_usage.is_finite() || cpu_usage <= 0.0 {
+        return 0.0;
+    }
+    f64::from(cpu_usage)
+}
+
+fn u53_saturating(value: u64) -> u64 {
+    value.min(MAX_U53)
+}
+
+fn processes_patch(previous: &[ProcessInfo], next: &[ProcessInfo]) -> Option<ProcessesTableEvent> {
+    let previous_by_pid: BTreeMap<u64, &ProcessInfo> =
+        previous.iter().map(|entry| (entry.pid, entry)).collect();
+    let next_by_pid: BTreeMap<u64, &ProcessInfo> =
+        next.iter().map(|entry| (entry.pid, entry)).collect();
+
+    let remove_pids = previous_by_pid
+        .keys()
+        .filter(|pid| !next_by_pid.contains_key(pid))
+        .copied()
+        .collect::<Vec<_>>();
+    let upserts = next_by_pid
+        .iter()
+        .filter_map(|(pid, entry)| {
+            if previous_by_pid.get(pid).copied() == Some(*entry) {
+                None
+            } else {
+                Some((*entry).clone())
+            }
+        })
+        .collect::<Vec<_>>();
+
+    if remove_pids.is_empty() && upserts.is_empty() {
+        None
+    } else {
+        Some(ProcessesTableEvent::Patch {
+            remove_pids,
+            upserts,
+        })
+    }
 }
 
 fn roots_patch(previous: &[FsEntry], next: &[FsEntry]) -> Option<RootsTableEvent> {

@@ -2,10 +2,16 @@ export type CborValue =
   | null
   | boolean
   | number
+  | CborF64
   | string
   | Uint8Array
   | CborValue[]
   | Map<number, CborValue>;
+
+export interface CborF64 {
+  readonly type: "f64";
+  readonly value: number;
+}
 
 const MAX_SAFE_CBOR_INTEGER = Number.MAX_SAFE_INTEGER;
 const MAX_SAFE_NEGATIVE_ARGUMENT = Number.MAX_SAFE_INTEGER - 1;
@@ -60,6 +66,13 @@ export function decodeCborSequencePrefix(
   return items;
 }
 
+export function cborF64(value: number): CborF64 {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    throw new Error("expected finite f64");
+  }
+  return { type: "f64", value };
+}
+
 function encode(value: CborValue, out: number[]) {
   if (value === null) out.push(0xf6);
   else if (typeof value === "boolean") out.push(value ? 0xf5 : 0xf4);
@@ -94,9 +107,16 @@ function encode(value: CborValue, out: number[]) {
       encodeTypeValue(0, key, out);
       encode(item, out);
     }
+  } else if (isCborF64(value)) {
+    encodeFloat64(value.value, out);
   } else {
     throw new Error("unsupported CBOR value");
   }
+}
+
+function isCborF64(value: object): value is CborF64 {
+  return "type" in value && value.type === "f64" &&
+    "value" in value && typeof value.value === "number";
 }
 
 function encodeFloat64(value: number, out: number[]) {
@@ -168,7 +188,7 @@ function decode(bytes: Uint8Array, state: { offset: number }): CborValue {
         8,
       );
       state.offset += 8;
-      return view.getFloat64(0, false);
+      return cborF64(view.getFloat64(0, false));
     }
   }
   throw new Error("unsupported CBOR value");

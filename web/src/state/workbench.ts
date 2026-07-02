@@ -20,6 +20,7 @@ export interface WorkbenchTab {
   filesView?: WorkbenchFilesView;
   id: string;
   previousActiveTabId?: string;
+  processDetailPid?: number;
   title: string;
   tool: WorkbenchTool;
   terminalLaunch?: TerminalLaunchSpec;
@@ -38,6 +39,11 @@ export interface WorkbenchTerminalTabConfig {
 
 export interface WorkbenchFilesTabConfig {
   filesView?: WorkbenchFilesView;
+}
+
+export interface WorkbenchProcessesTabConfig {
+  processDetailPid?: number;
+  title?: string;
 }
 
 export interface WorkbenchTerminalSessionSnapshot {
@@ -195,6 +201,15 @@ export const workbenchBunja = bunja(() => {
     return addToolTab(paneId, "daemon");
   }
 
+  function addProcessesTab(
+    paneId: string,
+    config: WorkbenchProcessesTabConfig = {},
+  ): string {
+    const tab = createProcessesTab(config);
+    store.set(stateAtom, (current) => openTabInPane(current, paneId, tab));
+    return tab.id;
+  }
+
   function addTerminalTab(
     paneId: string,
     config: WorkbenchTerminalTabConfig = {},
@@ -338,6 +353,31 @@ export const workbenchBunja = bunja(() => {
               tabs: pane.tabs.map((tab) =>
                 tab.id === tabId && tab.tool === "daemon"
                   ? { ...tab, daemonClientsPageOpen }
+                  : tab
+              ),
+            }
+            : pane
+        ),
+      }),
+    );
+  }
+
+  function setProcessDetailPid(
+    paneId: string,
+    tabId: string,
+    processDetailPid: number | undefined,
+  ) {
+    store.set(
+      stateAtom,
+      (current) => ({
+        ...current,
+        panes: current.panes.map((pane) =>
+          pane.id === paneId
+            ? {
+              ...pane,
+              tabs: pane.tabs.map((tab) =>
+                tab.id === tabId && tab.tool === "processes"
+                  ? { ...tab, processDetailPid }
                   : tab
               ),
             }
@@ -532,6 +572,7 @@ export const workbenchBunja = bunja(() => {
     removePane,
     addDaemonTab,
     addFilesTab,
+    addProcessesTab,
     addTerminalTab,
     openFilesTab,
     openTerminalTab,
@@ -542,6 +583,7 @@ export const workbenchBunja = bunja(() => {
     moveTabToNewPane,
     setDaemonClientDetailId,
     setDaemonClientsPageOpen,
+    setProcessDetailPid,
     setTabDirty,
     setTerminalSessionSnapshot,
     setTerminalSessionId,
@@ -571,6 +613,12 @@ export const workbenchPaneBunja = bunja(() => {
 
   function addDaemonTab(): string {
     return workbench.addDaemonTab(paneId);
+  }
+
+  function addProcessesTab(
+    config: WorkbenchProcessesTabConfig = {},
+  ): string {
+    return workbench.addProcessesTab(paneId, config);
   }
 
   function addTerminalTab(config: WorkbenchTerminalTabConfig = {}) {
@@ -651,6 +699,13 @@ export const workbenchPaneBunja = bunja(() => {
     );
   }
 
+  function setProcessDetailPid(
+    tabId: string,
+    processDetailPid: number | undefined,
+  ) {
+    workbench.setProcessDetailPid(paneId, tabId, processDetailPid);
+  }
+
   function setTabDirty(tabId: string, dirty: boolean) {
     workbench.setTabDirty(paneId, tabId, dirty);
   }
@@ -663,6 +718,7 @@ export const workbenchPaneBunja = bunja(() => {
     addPane,
     addDaemonTab,
     addFilesTab,
+    addProcessesTab,
     addTerminalTab,
     removePane,
     focusPane,
@@ -673,6 +729,7 @@ export const workbenchPaneBunja = bunja(() => {
     moveTabToNewPane,
     setDaemonClientDetailId,
     setDaemonClientsPageOpen,
+    setProcessDetailPid,
     setTabDirty,
     setTerminalSessionSnapshot,
     setTerminalSessionId,
@@ -721,6 +778,10 @@ export const workbenchTabBunja = bunja(() => {
     pane.setDaemonClientsPageOpen(tabId, daemonClientsPageOpen);
   }
 
+  function setProcessDetailPid(processDetailPid: number | undefined) {
+    pane.setProcessDetailPid(tabId, processDetailPid);
+  }
+
   function setDirty(dirty: boolean) {
     pane.setTabDirty(tabId, dirty);
   }
@@ -736,6 +797,7 @@ export const workbenchTabBunja = bunja(() => {
     selectTab,
     setDaemonClientDetailId,
     setDaemonClientsPageOpen,
+    setProcessDetailPid,
     setDirty,
     setTerminalSessionSnapshot,
     setTerminalSessionId,
@@ -860,6 +922,17 @@ function titleForFilesView(filesView: WorkbenchFilesView): string {
     case "trash":
       return "Trash";
   }
+}
+
+function createProcessesTab(
+  config: WorkbenchProcessesTabConfig = {},
+): WorkbenchTab {
+  return {
+    id: `processes-${crypto.randomUUID()}`,
+    processDetailPid: config.processDetailPid,
+    title: config.title ?? "Processes",
+    tool: "processes",
+  };
 }
 
 function createTerminalTab(config: WorkbenchTerminalTabConfig): WorkbenchTab {

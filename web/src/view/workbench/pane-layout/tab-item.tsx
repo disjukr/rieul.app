@@ -1,7 +1,7 @@
 import React from "react";
 import { useAtomValue } from "jotai";
 import { useBunja } from "bunja/react";
-import { Folder, Info, Terminal, Trash2, X } from "lucide-react";
+import { Activity, Folder, Info, Terminal, Trash2, X } from "lucide-react";
 import {
   displayName,
   explorerNavigationBunja,
@@ -227,6 +227,9 @@ function WorkbenchTabIcon(
   }
   if (tab.tool === "terminal") {
     return <Terminal size={12} className={className} />;
+  }
+  if (tab.tool === "processes") {
+    return <Activity size={12} className={className} />;
   }
   if (tab.tool === "files" && trashActive) {
     return <Trash2 size={12} className={className} />;

@@ -90,6 +90,8 @@ Protocol proc id registry:
 | 21 | `RestoreTrashItems`         |
 | 22 | `PurgeTrashItems`           |
 | 23 | `GetDaemonEnvironment`      |
+| 24 | `SubscribeProcesses`        |
+| 25 | `SubscribeProcessDetail`    |
 
 `GetDaemonInfo` returns daemon metadata: supported proc ids, daemon version, a
 human-readable OS name for the daemon host, daemon instance lifecycle fields,

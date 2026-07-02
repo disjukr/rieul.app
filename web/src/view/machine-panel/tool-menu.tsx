@@ -53,7 +53,6 @@ const tools: {
     id: "processes",
     label: "Processes",
     Icon: Activity,
-    disabled: true,
   },
 ];
 

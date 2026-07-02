@@ -3,6 +3,7 @@ import { useBunja } from "bunja/react";
 import { workbenchTabBunja } from "../../../state/workbench.ts";
 import { DaemonTool } from "./daemon/index.tsx";
 import { FilesTool } from "./files/index.tsx";
+import { ProcessesTool } from "./processes/index.tsx";
 import { TerminalTool } from "./terminal/index.tsx";
 
 export function WorkbenchToolContent() {
@@ -15,6 +16,9 @@ export function WorkbenchToolContent() {
   }
   if (tab.tool === "files") {
     return <FilesTool />;
+  }
+  if (tab.tool === "processes") {
+    return <ProcessesTool />;
   }
   if (tab.tool === "terminal") {
     return <TerminalTool />;

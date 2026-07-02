@@ -32,15 +32,22 @@ import {
   workbenchTabBunja,
 } from "../../../../state/workbench.ts";
 import { Button } from "../../../ui/button.tsx";
+import {
+  PropertyList,
+  PropertyListItem,
+  PropertyValue,
+} from "../../../ui/property-list.tsx";
 
 function procName(procId: number): string {
   return procs[procId as keyof typeof procs]?.name ?? `Proc ${procId}`;
 }
 
 const daemonToolClassName = [
-  "h-full min-h-0 overflow-auto bg-white px-[18px] py-[16px]",
+  "grid h-full min-h-0 w-full [grid-template-rows:auto_minmax(0,1fr)]",
+  "overflow-hidden bg-white",
   "text-[#20242d]",
 ].join(" ");
+const daemonContentClassName = "min-h-0 overflow-auto px-[18px] py-[16px]";
 const statusPillClassName = [
   "inline-flex flex-[0_0_auto] items-center gap-[6px] min-w-0 rounded-[999px]",
   "bg-[#eef3fb] px-[9px] py-[4px] text-[12px] font-700 text-[#344054]",
@@ -49,7 +56,8 @@ const statusPillClassName = [
   "[&.offline]:bg-[#fff1f3] [&.offline]:text-[#b42318]",
 ].join(" ");
 const daemonHeaderClassName = [
-  "mb-[14px] flex min-w-0 items-center justify-between gap-[12px]",
+  "flex h-[28px] min-h-[28px] min-w-0 items-center justify-between gap-[12px]",
+  "overflow-hidden border-b border-b-[#d8dde7] bg-[#fbfcfe] px-[10px]",
 ].join(" ");
 const daemonBreadcrumbClassName = [
   "flex h-[28px] min-h-[28px] flex-[1_1_auto] min-w-0 items-center gap-[4px] overflow-hidden",
@@ -60,32 +68,14 @@ const daemonBreadcrumbClassName = [
   "[&_button]:overflow-hidden [&_button]:text-ellipsis",
   "[&_button]:whitespace-nowrap [&_button]:rounded-[6px]",
   "[&_button]:border-transparent [&_button]:bg-transparent",
-  "[&_button]:px-[8px] [&_button]:text-[13px] [&_button]:font-750",
+  "[&_button]:px-[8px] [&_button]:font-750",
   "[&_button]:text-[#344054] [&_button:hover]:bg-[#eef3fb]",
   "[&_span]:inline-flex [&_span]:h-[28px] [&_span]:min-w-0",
   "[&_span]:max-w-[240px] [&_span]:items-center [&_span]:overflow-hidden",
   "[&_span]:text-ellipsis [&_span]:whitespace-nowrap",
-  "[&_span]:px-[8px] [&_span]:text-[13px] [&_span]:font-750",
-  "[&_span]:text-[#20242d]",
+  "[&_span]:px-[8px] [&_span]:font-750 [&_span]:text-[#20242d]",
 ].join(" ");
 const daemonBreadcrumbMutedClassName = "text-[#667085]";
-const summaryGridClassName = [
-  "grid grid-cols-1 gap-[1px] overflow-hidden",
-  "@[640px]:grid-cols-2 @[960px]:grid-cols-3",
-  "border border-[#d8dde7] rounded-[8px] bg-[#d8dde7]",
-].join(" ");
-const summaryItemClassName = [
-  "grid min-w-0 gap-[8px] bg-[#fbfcfe] px-[16px] py-[14px]",
-  "[&_dt]:m-0 [&_dt]:text-[12px] [&_dt]:font-700 [&_dt]:text-[#667085]",
-  "[&_dd]:m-0 [&_dd]:min-w-0 [&_dd]:text-[14px]",
-  "[&_dd]:text-[#20242d] [&_dd]:[overflow-wrap:anywhere]",
-].join(" ");
-const infoValueClassName = [
-  "inline-block max-w-full rounded-[4px] border border-[#d8dde7]",
-  "bg-[#f4f6fa] px-[4px] py-[1px] font-mono text-[0.92em]",
-  "leading-[1.4] text-[#20242d] [overflow-wrap:anywhere]",
-].join(" ");
-const summaryValueWithNoteClassName = "grid justify-items-start gap-[7px]";
 const summaryNoteClassName = "text-[12px] text-[#667085]";
 const procSectionClassName = "mt-[18px] min-w-0";
 const procSectionTitleClassName =
@@ -156,19 +146,8 @@ const clientDetailSectionHeaderClassName = [
   "[&_span]:flex-[0_0_auto] [&_span]:text-[12px]",
   "[&_span]:font-650 [&_span]:text-[#667085]",
 ].join(" ");
-const clientInfoGridClassName = [
-  "m-0 grid min-w-0 grid-cols-1 gap-[1px] bg-[#edf0f5]",
-].join(" ");
-const clientInfoItemClassName = [
-  "grid min-w-0 gap-[5px] bg-white px-[12px] py-[10px]",
-  "[&_dt]:m-0 [&_dt]:text-[12px] [&_dt]:font-700 [&_dt]:text-[#667085]",
-  "[&_dd]:m-0 [&_dd]:min-w-0 [&_dd]:text-[13px]",
-  "[&_dd]:text-[#20242d] [&_dd]:[overflow-wrap:anywhere]",
-].join(" ");
 const clientIdValueClassName = "flex min-w-0 flex-wrap items-center gap-[7px]";
-const credentialExpiryValueClassName = "grid justify-items-start gap-[7px]";
 const credentialExpiryRemainingClassName = "text-[12px] text-[#667085]";
-const credentialCreatedValueClassName = credentialExpiryValueClassName;
 const credentialCreatedAgeClassName = credentialExpiryRemainingClassName;
 const renewCredentialButtonClassName = "!min-h-[28px] !px-[9px] !text-[12px]";
 const renewCredentialMessageClassName = "text-[12px] text-[#667085]";
@@ -457,38 +436,40 @@ export function DaemonTool() {
             </span>
           )}
       </div>
-      {daemonInfo.phase === "ready"
-        ? (
-          <DaemonInfoView
-            endpoint={machine?.baseUrl}
-            instanceId={daemonInfo.daemonInfo.instanceId}
-            os={daemonInfo.daemonInfo.os}
-            serverTimeMs={daemonServerTimeMs}
-            startedAtMs={daemonInfo.daemonInfo.startedAtMs}
-            supportedProcIds={daemonInfo.daemonInfo.supportedProcIds}
-            uptimeSeconds={daemonUptimeSeconds}
-            version={daemonInfo.daemonInfo.version}
-            clientsPageOpen={clientsPageOpen}
-            clientsState={clientsState}
-            clientDetailId={clientDetailId}
-            currentClientId={machine?.clientId}
-            terminalSessionsState={terminalSessionsState}
-            onOpenClient={openClientDetail}
-            onOpenClients={openClientsPage}
-            onCloseTerminalSession={closeSelectedTerminalSession}
-            onOpenTerminalSession={openTerminalSession}
-            onRenewCurrentClientCredential={renewSelectedClientCredential}
-          />
-        )
-        : (
-          <DaemonInfoStateView
-            hasMachine={machine !== undefined}
-            phase={daemonInfo.phase}
-            message={daemonInfo.phase === "error"
-              ? daemonInfo.message
-              : undefined}
-          />
-        )}
+      <div className={daemonContentClassName}>
+        {daemonInfo.phase === "ready"
+          ? (
+            <DaemonInfoView
+              endpoint={machine?.baseUrl}
+              instanceId={daemonInfo.daemonInfo.instanceId}
+              os={daemonInfo.daemonInfo.os}
+              serverTimeMs={daemonServerTimeMs}
+              startedAtMs={daemonInfo.daemonInfo.startedAtMs}
+              supportedProcIds={daemonInfo.daemonInfo.supportedProcIds}
+              uptimeSeconds={daemonUptimeSeconds}
+              version={daemonInfo.daemonInfo.version}
+              clientsPageOpen={clientsPageOpen}
+              clientsState={clientsState}
+              clientDetailId={clientDetailId}
+              currentClientId={machine?.clientId}
+              terminalSessionsState={terminalSessionsState}
+              onOpenClient={openClientDetail}
+              onOpenClients={openClientsPage}
+              onCloseTerminalSession={closeSelectedTerminalSession}
+              onOpenTerminalSession={openTerminalSession}
+              onRenewCurrentClientCredential={renewSelectedClientCredential}
+            />
+          )
+          : (
+            <DaemonInfoStateView
+              hasMachine={machine !== undefined}
+              phase={daemonInfo.phase}
+              message={daemonInfo.phase === "error"
+                ? daemonInfo.message
+                : undefined}
+            />
+          )}
+      </div>
     </section>
   );
 }
@@ -671,54 +652,32 @@ function DaemonInfoView(
 
   return (
     <>
-      <dl className={summaryGridClassName}>
-        <div className={summaryItemClassName}>
-          <dt>Endpoint</dt>
-          <dd>
-            <code className={infoValueClassName}>{endpoint ?? "Unknown"}</code>
-          </dd>
-        </div>
-        <div className={summaryItemClassName}>
-          <dt>Daemon version</dt>
-          <dd>
-            <code className={infoValueClassName}>{version}</code>
-          </dd>
-        </div>
-        <div className={summaryItemClassName}>
-          <dt>Machine OS</dt>
-          <dd>
-            <code className={infoValueClassName}>{os}</code>
-          </dd>
-        </div>
-        <div className={summaryItemClassName}>
-          <dt>Daemon instance ID</dt>
-          <dd className={summaryValueWithNoteClassName}>
-            <code className={infoValueClassName}>{instanceId}</code>
-            <span className={summaryNoteClassName}>
-              Changes every time the daemon starts.
-            </span>
-          </dd>
-        </div>
-        <div className={summaryItemClassName}>
-          <dt>Daemon time</dt>
-          <dd>
-            <code className={infoValueClassName}>
-              {formatDaemonTimestamp(serverTimeMs)}
-            </code>
-          </dd>
-        </div>
-        <div className={summaryItemClassName}>
-          <dt>Daemon started</dt>
-          <dd className={summaryValueWithNoteClassName}>
-            <code className={infoValueClassName}>
-              {formatDaemonTimestamp(startedAtMs)}
-            </code>
-            <span className={summaryNoteClassName}>
-              Uptime {formatDaemonUptime(uptimeSeconds)}
-            </span>
-          </dd>
-        </div>
-      </dl>
+      <PropertyList>
+        <PropertyListItem label="Endpoint">
+          <PropertyValue>{endpoint ?? "Unknown"}</PropertyValue>
+        </PropertyListItem>
+        <PropertyListItem label="Daemon version">
+          <PropertyValue>{version}</PropertyValue>
+        </PropertyListItem>
+        <PropertyListItem label="Machine OS">
+          <PropertyValue>{os}</PropertyValue>
+        </PropertyListItem>
+        <PropertyListItem label="Daemon instance ID">
+          <PropertyValue>{instanceId}</PropertyValue>
+          <span className={summaryNoteClassName}>
+            Changes every time the daemon starts.
+          </span>
+        </PropertyListItem>
+        <PropertyListItem label="Daemon time">
+          <PropertyValue>{formatDaemonTimestamp(serverTimeMs)}</PropertyValue>
+        </PropertyListItem>
+        <PropertyListItem label="Daemon started">
+          <PropertyValue>{formatDaemonTimestamp(startedAtMs)}</PropertyValue>
+          <span className={summaryNoteClassName}>
+            Uptime {formatDaemonUptime(uptimeSeconds)}
+          </span>
+        </PropertyListItem>
+      </PropertyList>
 
       <ClientsOverviewSection
         clientsState={clientsState}
@@ -1010,19 +969,13 @@ function ClientInformationSection(
       <header className={clientDetailSectionHeaderClassName}>
         <h2>Client information</h2>
       </header>
-      <dl className={clientInfoGridClassName}>
-        <div className={clientInfoItemClassName}>
-          <dt>Label</dt>
-          <dd>
-            <code className={infoValueClassName}>
-              {client.label || "Unnamed client"}
-            </code>
-          </dd>
-        </div>
-        <div className={clientInfoItemClassName}>
-          <dt>Client ID</dt>
-          <dd className={clientIdValueClassName}>
-            <code className={infoValueClassName}>{client.clientId}</code>
+      <PropertyList className="!border-0 !rounded-0 bg-[#edf0f5]">
+        <PropertyListItem label="Label">
+          <PropertyValue>{client.label || "Unnamed client"}</PropertyValue>
+        </PropertyListItem>
+        <PropertyListItem label="Client ID">
+          <div className={clientIdValueClassName}>
+            <PropertyValue>{client.clientId}</PropertyValue>
             {isCurrent
               ? (
                 <em className={clientInfoCurrentClientBadgeClassName}>
@@ -1030,58 +983,52 @@ function ClientInformationSection(
                 </em>
               )
               : null}
-          </dd>
-        </div>
-        <div className={clientInfoItemClassName}>
-          <dt>Credential created</dt>
-          <dd className={credentialCreatedValueClassName}>
-            <code className={infoValueClassName}>
-              {formatUnixTimestamp(client.createdAtUnix)}
-            </code>
-            <span className={credentialCreatedAgeClassName}>
-              {formatCredentialCreatedAge(client.createdAtUnix, nowMs)}
-            </span>
-          </dd>
-        </div>
-        <div className={clientInfoItemClassName}>
-          <dt>Credential expires</dt>
-          <dd className={credentialExpiryValueClassName}>
-            <code className={infoValueClassName}>
-              {formatUnixTimestamp(client.expiresAtUnix)}
-            </code>
-            <span className={credentialExpiryRemainingClassName}>
-              {formatCredentialExpiryRemaining(client.expiresAtUnix, nowMs)}
-            </span>
-            {isCurrent
-              ? (
-                <>
-                  <Button
-                    className={renewCredentialButtonClassName}
-                    disabled={renewPhase === "renewing"}
-                    onClick={renewNow}
-                  >
-                    {renewPhase === "renewing" ? "Renewing" : "Renew now"}
-                  </Button>
-                  {renewPhase === "renewed"
-                    ? (
-                      <span className={renewCredentialMessageClassName}>
-                        Renewal requested
-                      </span>
-                    )
-                    : null}
-                  {renewPhase === "error"
-                    ? (
-                      <span className={renewCredentialErrorClassName}>
-                        {renewError ?? "Renewal failed"}
-                      </span>
-                    )
-                    : null}
-                </>
-              )
-              : null}
-          </dd>
-        </div>
-      </dl>
+          </div>
+        </PropertyListItem>
+        <PropertyListItem label="Credential created">
+          <PropertyValue>
+            {formatUnixTimestamp(client.createdAtUnix)}
+          </PropertyValue>
+          <span className={credentialCreatedAgeClassName}>
+            {formatCredentialCreatedAge(client.createdAtUnix, nowMs)}
+          </span>
+        </PropertyListItem>
+        <PropertyListItem label="Credential expires">
+          <PropertyValue>
+            {formatUnixTimestamp(client.expiresAtUnix)}
+          </PropertyValue>
+          <span className={credentialExpiryRemainingClassName}>
+            {formatCredentialExpiryRemaining(client.expiresAtUnix, nowMs)}
+          </span>
+          {isCurrent
+            ? (
+              <>
+                <Button
+                  className={renewCredentialButtonClassName}
+                  disabled={renewPhase === "renewing"}
+                  onClick={renewNow}
+                >
+                  {renewPhase === "renewing" ? "Renewing" : "Renew now"}
+                </Button>
+                {renewPhase === "renewed"
+                  ? (
+                    <span className={renewCredentialMessageClassName}>
+                      Renewal requested
+                    </span>
+                  )
+                  : null}
+                {renewPhase === "error"
+                  ? (
+                    <span className={renewCredentialErrorClassName}>
+                      {renewError ?? "Renewal failed"}
+                    </span>
+                  )
+                  : null}
+              </>
+            )
+            : null}
+        </PropertyListItem>
+      </PropertyList>
     </section>
   );
 }

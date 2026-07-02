@@ -68,7 +68,7 @@ type TypeRef =
   | { kind: "array"; item: TypeRef }
   | { kind: "void" };
 
-type PrimitiveTypeName = "u53" | "i53" | "string" | "bool" | "bytes";
+type PrimitiveTypeName = "u53" | "i53" | "f64" | "string" | "bool" | "bytes";
 
 interface CliOptions {
   byteCodec: boolean;
@@ -76,7 +76,14 @@ interface CliOptions {
   schemaRoots: string[];
 }
 
-const primitiveTypes = new Set(["u53", "i53", "string", "bool", "bytes"]);
+const primitiveTypes = new Set([
+  "u53",
+  "i53",
+  "f64",
+  "string",
+  "bool",
+  "bytes",
+]);
 const rustKeywords = new Set([
   "as",
   "break",
@@ -380,10 +387,12 @@ function emitCodecError(out: Writer) {
     out.line("ExpectedArray,");
     out.line("ExpectedBool,");
     out.line("ExpectedBytes,");
+    out.line("ExpectedF64,");
     out.line("ExpectedInteger,");
     out.line("ExpectedMap,");
     out.line("ExpectedText,");
     out.line("IntegerOutOfRange(&'static str),");
+    out.line("NonFiniteFloat(&'static str),");
     out.line(
       "UnknownEnumVariant { type_name: &'static str, variant_id: u64 },",
     );
@@ -409,16 +418,42 @@ function emitCodecError(out: Writer) {
     out.indent(() => {
       out.line("match self {");
       out.indent(() => {
-        out.line("Self::Cbor(error) => write!(formatter, \"cbor error: {error}\"),");
-        out.line("Self::ExpectedArray => formatter.write_str(\"expected CBOR array\"),");
-        out.line("Self::ExpectedBool => formatter.write_str(\"expected CBOR bool\"),");
-        out.line("Self::ExpectedBytes => formatter.write_str(\"expected CBOR bytes\"),");
-        out.line("Self::ExpectedInteger => formatter.write_str(\"expected CBOR integer\"),");
-        out.line("Self::ExpectedMap => formatter.write_str(\"expected CBOR map\"),");
-        out.line("Self::ExpectedText => formatter.write_str(\"expected CBOR text\"),");
-        out.line("Self::IntegerOutOfRange(type_name) => write!(formatter, \"integer is out of range for {type_name}\"),");
-        out.line("Self::UnknownEnumVariant { type_name, variant_id } => write!(formatter, \"unknown {type_name} enum variant {variant_id}\"),");
-        out.line("Self::UnknownUnionVariant { type_name, variant_id } => write!(formatter, \"unknown {type_name} union variant {variant_id}\"),");
+        out.line(
+          'Self::Cbor(error) => write!(formatter, "cbor error: {error}"),',
+        );
+        out.line(
+          'Self::ExpectedArray => formatter.write_str("expected CBOR array"),',
+        );
+        out.line(
+          'Self::ExpectedBool => formatter.write_str("expected CBOR bool"),',
+        );
+        out.line(
+          'Self::ExpectedBytes => formatter.write_str("expected CBOR bytes"),',
+        );
+        out.line(
+          'Self::ExpectedF64 => formatter.write_str("expected CBOR f64"),',
+        );
+        out.line(
+          'Self::ExpectedInteger => formatter.write_str("expected CBOR integer"),',
+        );
+        out.line(
+          'Self::ExpectedMap => formatter.write_str("expected CBOR map"),',
+        );
+        out.line(
+          'Self::ExpectedText => formatter.write_str("expected CBOR text"),',
+        );
+        out.line(
+          'Self::IntegerOutOfRange(type_name) => write!(formatter, "integer is out of range for {type_name}"),',
+        );
+        out.line(
+          'Self::NonFiniteFloat(type_name) => write!(formatter, "non-finite float is out of range for {type_name}"),',
+        );
+        out.line(
+          'Self::UnknownEnumVariant { type_name, variant_id } => write!(formatter, "unknown {type_name} enum variant {variant_id}"),',
+        );
+        out.line(
+          'Self::UnknownUnionVariant { type_name, variant_id } => write!(formatter, "unknown {type_name} union variant {variant_id}"),',
+        );
       });
       out.line("}");
     });
@@ -436,6 +471,8 @@ function emitTypeDeclaration(
 ) {
   if (declaration.kind === "enum") {
     out.line("#[derive(Debug, Clone, Copy, PartialEq, Eq)]");
+  } else if (declarationUsesF64(declaration, named)) {
+    out.line("#[derive(Debug, Clone, PartialEq)]");
   } else {
     out.line("#[derive(Debug, Clone, PartialEq, Eq)]");
   }
@@ -485,6 +522,36 @@ function emitTypeDeclaration(
 function rustFieldType(field: FieldDeclaration): string {
   const type = rustType(field.type);
   return field.optional ? `Option<${type}>` : type;
+}
+
+function declarationUsesF64(
+  declaration: Exclude<Declaration, ProcDeclaration>,
+  named: Map<string, Declaration>,
+  seen = new Set<string>(),
+): boolean {
+  if (declaration.kind === "enum") return false;
+  if (declaration.kind === "struct") {
+    return declaration.fields.some((field) =>
+      typeUsesF64(field.type, named, seen)
+    );
+  }
+  return declaration.variants.some((variant) =>
+    variant.fields.some((field) => typeUsesF64(field.type, named, seen))
+  );
+}
+
+function typeUsesF64(
+  type: TypeRef,
+  named: Map<string, Declaration>,
+  seen = new Set<string>(),
+): boolean {
+  if (type.kind === "primitive") return type.name === "f64";
+  if (type.kind === "array") return typeUsesF64(type.item, named, seen);
+  if (type.kind !== "named") return false;
+  if (seen.has(type.path)) return false;
+  seen.add(type.path);
+  const declaration = getNamed(type, named);
+  return declarationUsesF64(declaration, named, seen);
 }
 
 function emitDefaultImpl(
@@ -732,7 +799,9 @@ function emitProcHelpers(
   out.line("}");
 
   out.line();
-  out.line(`pub static PROC_DEFINITIONS: [ProcDefinition; ${procs.length}] = [`);
+  out.line(
+    `pub static PROC_DEFINITIONS: [ProcDefinition; ${procs.length}] = [`,
+  );
   out.indent(() => {
     for (const proc of procs) {
       out.line("ProcDefinition {");
@@ -764,7 +833,9 @@ function emitProcHelpers(
     out.indent(() => {
       out.line("match value {");
       out.indent(() => {
-        for (const proc of procs) out.line(`${proc.id} => Some(Self::${proc.name}),`);
+        for (const proc of procs) {
+          out.line(`${proc.id} => Some(Self::${proc.name}),`);
+        }
         out.line("_ => None,");
       });
       out.line("}");
@@ -799,7 +870,11 @@ function emitProcHelpers(
   out.line("}");
 
   out.line();
-  out.line("#[derive(Debug, Clone, PartialEq, Eq)]");
+  out.line(
+    procs.some((proc) => typeUsesF64(proc.input, named))
+      ? "#[derive(Debug, Clone, PartialEq)]"
+      : "#[derive(Debug, Clone, PartialEq, Eq)]",
+  );
   out.line("pub enum RpcRequest {");
   out.indent(() => {
     for (const proc of procs) {
@@ -825,7 +900,9 @@ function emitProcHelpers(
       "pub fn decode(proc_id: u64, payload: Option<&[u8]>) -> Result<Self, RpcRequestDecodeError> {",
     );
     out.indent(() => {
-      out.line("let proc = ProcId::from_u64(proc_id).ok_or(RpcRequestDecodeError::UnknownProcId(proc_id))?;");
+      out.line(
+        "let proc = ProcId::from_u64(proc_id).ok_or(RpcRequestDecodeError::UnknownProcId(proc_id))?;",
+      );
       out.line("match proc {");
       out.indent(() => {
         for (const proc of procs) emitRpcRequestDecodeArm(out, proc);
@@ -838,7 +915,9 @@ function emitProcHelpers(
     out.indent(() => {
       out.line("match self {");
       out.indent(() => {
-        for (const proc of procs) emitProcMessageProcIdArm(out, "RpcRequest", proc, proc.input);
+        for (const proc of procs) {
+          emitProcMessageProcIdArm(out, "RpcRequest", proc, proc.input);
+        }
       });
       out.line("}");
     });
@@ -851,7 +930,11 @@ function emitProcHelpers(
   out.line("}");
 
   out.line();
-  out.line("#[derive(Debug, Clone, PartialEq, Eq)]");
+  out.line(
+    procs.some((proc) => typeUsesF64(proc.output, named))
+      ? "#[derive(Debug, Clone, PartialEq)]"
+      : "#[derive(Debug, Clone, PartialEq, Eq)]",
+  );
   out.line("pub enum RpcResponse {");
   out.indent(() => {
     for (const proc of procs) emitProcMessageVariant(out, proc, proc.output);
@@ -865,7 +948,9 @@ function emitProcHelpers(
     out.indent(() => {
       out.line("match self {");
       out.indent(() => {
-        for (const proc of procs) emitProcMessageProcIdArm(out, "RpcResponse", proc, proc.output);
+        for (const proc of procs) {
+          emitProcMessageProcIdArm(out, "RpcResponse", proc, proc.output);
+        }
       });
       out.line("}");
     });
@@ -920,7 +1005,9 @@ function emitRpcRequestDecodeArm(out: Writer, proc: ProcDeclaration) {
     );
     out.line("};");
     out.line(
-      `let value = ${typeName(proc.input)}::decode(payload).map_err(|source| RpcRequestDecodeError::MalformedPayload { proc, source })?;`,
+      `let value = ${
+        typeName(proc.input)
+      }::decode(payload).map_err(|source| RpcRequestDecodeError::MalformedPayload { proc, source })?;`,
     );
     out.line(`Ok(Self::${proc.name}(value))`);
   });
@@ -954,8 +1041,12 @@ function emitRpcHandlerHelpers(out: Writer, procs: ProcDeclaration[]) {
   const clientStreamProcs = procs.filter((proc) => proc.stream === "client");
 
   out.line();
-  out.line("pub type RpcHandlerFuture<'a, O> = std::pin::Pin<Box<dyn std::future::Future<Output = O> + Send + 'a>>;");
-  out.line("pub type RpcHandlerFn<H, I, O> = for<'a> fn(&'a mut H, I) -> RpcHandlerFuture<'a, O>;");
+  out.line(
+    "pub type RpcHandlerFuture<'a, O> = std::pin::Pin<Box<dyn std::future::Future<Output = O> + Send + 'a>>;",
+  );
+  out.line(
+    "pub type RpcHandlerFn<H, I, O> = for<'a> fn(&'a mut H, I) -> RpcHandlerFuture<'a, O>;",
+  );
 
   out.line();
   out.line("pub struct RpcHandlers<H, UO, SO, CO> {");
@@ -1000,7 +1091,11 @@ function emitRpcHandlerHelpers(out: Writer, procs: ProcDeclaration[]) {
     out.line();
     for (const proc of procs) {
       const field = fieldName(proc.name);
-      out.line(`pub fn ${field}(mut self, handler: ${rpcHandlerFnType(proc)}) -> Self {`);
+      out.line(
+        `pub fn ${field}(mut self, handler: ${
+          rpcHandlerFnType(proc)
+        }) -> Self {`,
+      );
       out.indent(() => {
         out.line(`self.enable(ProcId::${proc.name});`);
         out.line(`self.${field} = Some(handler);`);
@@ -1019,15 +1114,27 @@ function emitRpcHandlerHelpers(out: Writer, procs: ProcDeclaration[]) {
     out.line();
     out.line("pub fn is_supported_proc_id(&self, proc_id: u64) -> bool {");
     out.indent(() => {
-      out.line("ProcId::from_u64(proc_id).is_some_and(|proc| self.is_supported(proc))");
+      out.line(
+        "ProcId::from_u64(proc_id).is_some_and(|proc| self.is_supported(proc))",
+      );
     });
     out.line("}");
     out.line();
     emitRpcHandlersDispatch(out, "dispatch_unary", "UO", unaryProcs);
     out.line();
-    emitRpcHandlersDispatch(out, "dispatch_server_stream", "SO", serverStreamProcs);
+    emitRpcHandlersDispatch(
+      out,
+      "dispatch_server_stream",
+      "SO",
+      serverStreamProcs,
+    );
     out.line();
-    emitRpcHandlersDispatch(out, "dispatch_client_stream", "CO", clientStreamProcs);
+    emitRpcHandlersDispatch(
+      out,
+      "dispatch_client_stream",
+      "CO",
+      clientStreamProcs,
+    );
   });
   out.line("}");
 }
@@ -1044,7 +1151,9 @@ function rpcHandlerOutputType(proc: ProcDeclaration): string {
 }
 
 function rpcHandlerFnType(proc: ProcDeclaration): string {
-  return `RpcHandlerFn<H, ${rpcRequestType(proc)}, ${rpcHandlerOutputType(proc)}>`;
+  return `RpcHandlerFn<H, ${rpcRequestType(proc)}, ${
+    rpcHandlerOutputType(proc)
+  }>`;
 }
 
 function emitRpcHandlersDispatch(
@@ -1053,7 +1162,9 @@ function emitRpcHandlersDispatch(
   output: string,
   procs: ProcDeclaration[],
 ) {
-  out.line(`pub async fn ${name}(&self, handler: &mut H, request: RpcRequest) -> Option<${output}> {`);
+  out.line(
+    `pub async fn ${name}(&self, handler: &mut H, request: RpcRequest) -> Option<${output}> {`,
+  );
   out.indent(() => {
     out.line("match request {");
     out.indent(() => {
@@ -1078,7 +1189,9 @@ function emitMethodErrorPayloadHelper(
   procs: ProcDeclaration[],
   named: Map<string, Declaration>,
 ) {
-  out.line("pub fn method_error_payload(self, code: &str, message: &str) -> Option<Vec<u8>> {");
+  out.line(
+    "pub fn method_error_payload(self, code: &str, message: &str) -> Option<Vec<u8>> {",
+  );
   out.indent(() => {
     out.line("let variant_id = self.method_error_variant(code)?;");
     out.line("Some(");
@@ -1086,7 +1199,9 @@ function emitMethodErrorPayloadHelper(
       out.line("Value::Array(vec![");
       out.indent(() => {
         out.line("Value::U64(variant_id),");
-        out.line("Value::Map(BTreeMap::from([(1, Value::Text(message.to_string()))])),");
+        out.line(
+          "Value::Map(BTreeMap::from([(1, Value::Text(message.to_string()))])),",
+        );
       });
       out.line("])");
       out.line(".encode(),");
@@ -1273,6 +1388,7 @@ function rustType(type: TypeRef): string {
   if (type.kind === "primitive") {
     if (type.name === "u53") return "u64";
     if (type.name === "i53") return "i64";
+    if (type.name === "f64") return "f64";
     if (type.name === "string") return "String";
     if (type.name === "bool") return "bool";
     if (type.name === "bytes") return "Vec<u8>";
@@ -1294,6 +1410,7 @@ function encodeExpr(
   if (type.kind === "primitive") {
     if (type.name === "u53") return `encode_u53(*${valueExpr})`;
     if (type.name === "i53") return `encode_i53(*${valueExpr})`;
+    if (type.name === "f64") return `encode_f64(*${valueExpr})`;
     if (type.name === "string") {
       return `Ok::<Value, CodecError>(Value::Text((*${valueExpr}).clone()))`;
     }
@@ -1321,6 +1438,7 @@ function decodeExpr(
   if (type.kind === "primitive") {
     if (type.name === "u53") return `expect_u64(${valueExpr})`;
     if (type.name === "i53") return `expect_i64(${valueExpr})`;
+    if (type.name === "f64") return `expect_f64(${valueExpr})`;
     if (type.name === "string") return `expect_text(${valueExpr})`;
     if (type.name === "bool") return `expect_bool(${valueExpr})`;
     if (type.name === "bytes") return `expect_bytes(${valueExpr})`;
@@ -1342,6 +1460,7 @@ function defaultExpr(type: TypeRef, named: Map<string, Declaration>): string {
     if (type.name === "string") return "String::new()";
     if (type.name === "bool") return "false";
     if (type.name === "bytes") return "Vec::new()";
+    if (type.name === "f64") return "0.0";
     return "0";
   }
   const declaration = getNamed(type, named);
@@ -1376,6 +1495,17 @@ function emitRuntimeHelpers(out: Writer) {
     );
     out.line("}");
     out.line("Ok(Value::I64(value))");
+  });
+  out.line("}");
+  out.line();
+  out.line("fn encode_f64(value: f64) -> Result<Value, CodecError> {");
+  out.indent(() => {
+    out.line("if !value.is_finite() {");
+    out.indent(() =>
+      out.line('return Err(CodecError::NonFiniteFloat("f64"));')
+    );
+    out.line("}");
+    out.line("Ok(Value::F64(value))");
   });
   out.line("}");
   out.line();
@@ -1502,6 +1632,15 @@ function emitRuntimeHelpers(out: Writer) {
   });
   out.line("}");
   out.line();
+  out.line("fn expect_f64(value: &Value) -> Result<f64, CodecError> {");
+  out.indent(() => {
+    out.line(
+      "let Value::F64(value) = value else { return Err(CodecError::ExpectedF64); };",
+    );
+    out.line("Ok(*value)");
+  });
+  out.line("}");
+  out.line();
   out.line("fn expect_text(value: &Value) -> Result<String, CodecError> {");
   out.indent(() => {
     out.line(
@@ -1591,7 +1730,9 @@ function requiredProcStream(
     stream !== "unary" && stream !== "server" && stream !== "client" &&
     stream !== "bidi"
   ) {
-    throw new Error(`${label} requires @ stream to be unary, server, client, or bidi`);
+    throw new Error(
+      `${label} requires @ stream to be unary, server, client, or bidi`,
+    );
   }
   return stream;
 }
