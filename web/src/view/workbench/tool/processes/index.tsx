@@ -47,11 +47,11 @@ interface ProcessDetailState {
 }
 
 const processesToolClassName = [
-  "grid h-full min-h-0 w-full [grid-template-rows:auto_minmax(0,1fr)]",
+  "flex h-full min-h-0 w-full flex-col",
   "overflow-hidden bg-white text-[#20242d]",
 ].join(" ");
 const processesContentClassName =
-  "grid min-h-0 min-w-0 [grid-template-rows:minmax(0,1fr)_auto]";
+  "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden";
 const emptyWorkspaceClassName = [
   "grid content-center justify-items-center w-full h-full gap-[10px]",
   "min-h-0 bg-white text-[#667085]",
@@ -59,7 +59,7 @@ const emptyWorkspaceClassName = [
   "[&_p]:m-0 [&_p]:max-w-[360px] [&_p]:text-center [&_p]:leading-[1.45]",
 ].join(" ");
 const processTableClassName = [
-  "grid min-h-0 min-w-0 overflow-auto leading-[1.6]",
+  "grid min-h-0 min-w-0 flex-1 overflow-auto leading-[1.6]",
   "[grid-template-columns:minmax(72px,96px)_minmax(72px,96px)_minmax(180px,1fr)_minmax(104px,132px)]",
   "auto-rows-[2rem] bg-white",
 ].join(" ");
@@ -87,8 +87,9 @@ const processesFooterClassName = [
   "flex h-[2rem] min-h-[2rem] items-center justify-end border-t border-t-[#d8dde7]",
   "bg-[#fbfcfe] px-[8px] leading-[1.6] text-[#667085]",
 ].join(" ");
-const processDetailScrollClassName =
-  "grid min-h-0 content-start gap-[14px] overflow-auto px-[18px] py-[16px]";
+const processDetailScrollClassName = "min-h-0 flex-1 overflow-auto";
+const processDetailBodyClassName =
+  "grid min-w-0 content-start gap-[14px] px-[18px] py-[16px]";
 const processDetailNoteClassName = "text-[12px] text-[#667085]";
 const processDetailFooterClassName = [
   "flex h-[2rem] min-h-[2rem] items-center justify-end border-t border-t-[#d8dde7]",
@@ -486,35 +487,39 @@ function ProcessDetailSummary({ detail }: ProcessDetailSummaryProps) {
   const { info, metadata, usage } = detail;
   return (
     <div className={processDetailScrollClassName}>
-      <PropertyList>
-        <ProcessDetailItem label="Name" value={info.name || "(unnamed)"} />
-        <ProcessDetailItem label="PID" value={String(info.pid)} />
-        <ProcessDetailItem
-          label="PPID"
-          value={info.ppid === undefined ? "None" : String(info.ppid)}
-        />
-        <ProcessDetailItem
-          label="Status"
-          value={processStatusLabel(info.status)}
-        />
-        <ProcessDetailItem
-          label="Started"
-          note={`Uptime ${formatProcessUptime(metadata.startTimeUnix, nowMs)}`}
-          value={formatUnixTimestamp(metadata.startTimeUnix)}
-        />
-        <ProcessDetailItem
-          label="Command"
-          value={metadata.command.length === 0
-            ? "Unknown"
-            : metadata.command.join(" ")}
-        />
-        <ProcessDetailItem
-          label="Executable"
-          value={metadata.executablePath ?? "Unknown"}
-        />
-        <ProcessDetailItem label="CWD" value={metadata.cwd ?? "Unknown"} />
-      </PropertyList>
-      <ProcessResourceUsageTable usage={usage} />
+      <div className={processDetailBodyClassName}>
+        <PropertyList>
+          <ProcessDetailItem label="Name" value={info.name || "(unnamed)"} />
+          <ProcessDetailItem label="PID" value={String(info.pid)} />
+          <ProcessDetailItem
+            label="PPID"
+            value={info.ppid === undefined ? "None" : String(info.ppid)}
+          />
+          <ProcessDetailItem
+            label="Status"
+            value={processStatusLabel(info.status)}
+          />
+          <ProcessDetailItem
+            label="Started"
+            note={`Uptime ${
+              formatProcessUptime(metadata.startTimeUnix, nowMs)
+            }`}
+            value={formatUnixTimestamp(metadata.startTimeUnix)}
+          />
+          <ProcessDetailItem
+            label="Command"
+            value={metadata.command.length === 0
+              ? "Unknown"
+              : metadata.command.join(" ")}
+          />
+          <ProcessDetailItem
+            label="Executable"
+            value={metadata.executablePath ?? "Unknown"}
+          />
+          <ProcessDetailItem label="CWD" value={metadata.cwd ?? "Unknown"} />
+        </PropertyList>
+        <ProcessResourceUsageTable usage={usage} />
+      </div>
     </div>
   );
 }

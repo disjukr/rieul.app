@@ -4,6 +4,7 @@ import { useBunja } from "bunja/react";
 import { Handle, useLayout } from "panecake";
 import {
   Activity,
+  AppWindow,
   Columns2,
   Copy,
   Folder,
@@ -352,6 +353,11 @@ export function WorkbenchPaneView(
     setPaneOverflowMenuOpen(false);
   }
 
+  function openWindowsTab() {
+    paneState.addWindowsTab();
+    setPaneOverflowMenuOpen(false);
+  }
+
   function openTerminalTab() {
     const shell = defaultShell;
     paneState.addTerminalTab(
@@ -604,6 +610,13 @@ export function WorkbenchPaneView(
                     >
                       <Activity size={14} />
                       New processes tab
+                    </FloatingMenuItem>
+                    <FloatingMenuItem
+                      className={paneOverflowMenuItemClassName}
+                      onClick={openWindowsTab}
+                    >
+                      <AppWindow size={14} />
+                      New windows tab
                     </FloatingMenuItem>
                     <FloatingMenuItem
                       className={className(

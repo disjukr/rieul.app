@@ -1,0 +1,200 @@
+# standard - wgo-rpc
+# description
+| Window RPC methods expose desktop window metadata visible to the daemon's
+| active user context. Window information is modeled as reactive tables.
+| Implementations are best-effort across operating systems, desktop sessions,
+| compositor policies, and daemon permissions. Lightweight list rows avoid
+| geometry and detailed state; expensive or platform-specific fields belong in
+| the detail subscription.
+
+@ description
+| Subscribes to lightweight desktop window rows visible to the daemon. The
+| first response event is WindowsTableEvent.Snapshot. Later Snapshot events
+| replace the whole window table view; Patch events apply window creation,
+| close, focus, and lightweight metadata changes. Window ids are opaque and
+| valid only while the row remains in the subscribed table view.
+@ id - 26
+@ stream - server
+proc SubscribeWindows = void -> WindowsTableEvent throws SubscribeWindowsError
+
+@ description
+| Subscribes to detailed information for one desktop window id. The first
+| response event is WindowDetailEvent.Snapshot. Later events update only the
+| section that changed. If the window disappears, the stream emits Closed and
+| then completes.
+@ id - 27
+@ stream - server
+proc SubscribeWindowDetail = SubscribeWindowDetailReq -> WindowDetailEvent throws SubscribeWindowDetailError
+
+struct SubscribeWindowDetailReq {
+  @ id - 1
+  windowId: string,
+}
+
+@ description - Lightweight desktop window table row.
+struct WindowInfo {
+  @ id - 1
+  @ description
+  | Opaque OS/session-defined window id. Clients must not parse this value or
+  | assume it remains valid after the row is removed.
+  windowId: string,
+
+  @ id - 2
+  @ description
+  | Best-effort window title. This may be absent or redacted depending on
+  | platform policy and permissions.
+  title?: string,
+
+  @ id - 3
+  @ description
+  | Owning process id, when the host can report it. This may be absent on
+  | platforms or compositors that do not expose process identity for windows.
+  processId?: u53,
+
+  @ id - 4
+  @ description
+  | Whether the window is currently focused/active, when the host can report it.
+  focused?: bool,
+}
+
+@ description - Current detail view for an inspected desktop window.
+struct WindowDetail {
+  @ id - 1
+  info: WindowInfo,
+
+  @ id - 2
+  state: WindowState,
+
+  @ id - 3
+  bounds?: WindowBounds,
+}
+
+@ description
+| Best-effort desktop window state. Fields are optional because host APIs vary
+| significantly. Absence means the daemon cannot currently determine that
+| state; it is not equivalent to false.
+struct WindowState {
+  @ id - 1
+  visible?: bool,
+
+  @ id - 2
+  minimized?: bool,
+
+  @ id - 3
+  maximized?: bool,
+}
+
+@ description - Best-effort desktop coordinate bounds for a window.
+struct WindowBounds {
+  @ id - 1
+  x: i53,
+
+  @ id - 2
+  y: i53,
+
+  @ id - 3
+  width: u53,
+
+  @ id - 4
+  height: u53,
+}
+
+@ description
+| Reactive window table event. Snapshot replaces the whole subscribed window
+| table view. Patch applies membership changes to the current view. removes
+| contains opaque window ids that should be removed from the client's current
+| table.
+union WindowsTableEvent {
+  @ id - 1
+  Snapshot(
+    @ id - 1
+    rows: WindowInfo[],
+  ),
+
+  @ id - 2
+  Patch(
+    @ id - 1
+    removes: string[],
+
+    @ id - 2
+    upserts: WindowInfo[],
+  ),
+}
+
+@ description - Reactive detail event for one inspected desktop window.
+union WindowDetailEvent {
+  @ id - 1
+  Snapshot(
+    @ id - 1
+    detail: WindowDetail,
+  ),
+
+  @ id - 2
+  InfoChanged(
+    @ id - 1
+    info: WindowInfo,
+  ),
+
+  @ id - 3
+  StateChanged(
+    @ id - 1
+    state: WindowState,
+  ),
+
+  @ id - 4
+  BoundsChanged(
+    @ id - 1
+    bounds?: WindowBounds,
+  ),
+
+  @ id - 5
+  Closed(),
+}
+
+@ description - Method-level window subscription start errors.
+union SubscribeWindowsError {
+  @ id - 0
+  Failed(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 1
+  Unsupported(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 2
+  PermissionDenied(
+    @ id - 1
+    message: string,
+  ),
+}
+
+@ description - Method-level window detail subscription start errors.
+union SubscribeWindowDetailError {
+  @ id - 0
+  Failed(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 1
+  NotFound(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 2
+  Unsupported(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 3
+  PermissionDenied(
+    @ id - 1
+    message: string,
+  ),
+}

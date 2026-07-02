@@ -7,8 +7,10 @@ $TmpDir = Join-Path $RepoRoot "tmp\dev"
 $ConfigPath = Join-Path $TmpDir "system-wgo.yaml"
 $SystemPidFile = Join-Path $TmpDir "system.pid"
 $UserPidFile = Join-Path $TmpDir "user.pid"
+$GuiPidFile = Join-Path $TmpDir "gui.pid"
 $SystemExe = Join-Path $RepoRoot "target\debug\wgo-windows-system.exe"
 $UserExe = Join-Path $RepoRoot "target\debug\wgo-windows-user.exe"
+$GuiExe = Join-Path $RepoRoot "target\debug\wgo-windows-gui.exe"
 
 function Stop-ProcessTree {
   param(
@@ -113,6 +115,11 @@ Stop-DevDaemon `
   -Label "user daemon" `
   -ExecutablePath $UserExe `
   -PidFile $UserPidFile
+Stop-DevDaemon `
+  -Label "gui daemon" `
+  -ExecutablePath $GuiExe `
+  -PidFile $GuiPidFile `
+  -RequiredCommandLinePart $ConfigPath
 
 if ($StoppedProcessCount -eq 0) {
   Write-Host "No matching dev daemons found."

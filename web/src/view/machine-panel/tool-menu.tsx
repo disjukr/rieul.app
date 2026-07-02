@@ -6,6 +6,7 @@ import {
 } from "react";
 import {
   Activity,
+  AppWindow,
   ChevronDown,
   Folder,
   HardDrive,
@@ -48,6 +49,11 @@ const tools: {
     id: "terminal",
     label: "Terminal",
     Icon: Terminal,
+  },
+  {
+    id: "windows",
+    label: "Windows",
+    Icon: AppWindow,
   },
   {
     id: "processes",

@@ -43,11 +43,15 @@ use wgo_daemon_core::rpc::{
     RenewClientCredentialResponse, RestoreTrashItemsReq, RootEntryKey,
     RootsSubscriptionCloseReason, RootsTableEvent, RpcErrorCode, RpcErrorPayload, RpcHandlerFuture,
     RpcHandlers, RpcRequest, RpcRequestDecodeError, RpcResponse, StartPairingRequest,
-    StartPairingResponse, SubscribeDirectoryReq, SubscribeProcessDetailReq, TakeTerminalControlReq,
-    TerminalEvent, TerminalSessionsTableEvent, TrashItem, TrashItemsSubscriptionCloseReason,
-    TrashItemsTableEvent, WriteFileChunk, WriteFileReq, WriteTerminalInputReq, MAX_U53,
+    StartPairingResponse, SubscribeDirectoryReq, SubscribeProcessDetailReq,
+    SubscribeWindowDetailReq, TakeTerminalControlReq, TerminalEvent, TerminalSessionsTableEvent,
+    TrashItem, TrashItemsSubscriptionCloseReason, TrashItemsTableEvent, WindowDetail,
+    WindowDetailEvent, WindowInfo, WindowsTableEvent, WriteFileChunk, WriteFileReq,
+    WriteTerminalInputReq, MAX_U53,
 };
-use wgo_daemon_core::traits::{BoxFutureResult, FileService, ServiceError, WriteFileChunkSource};
+use wgo_daemon_core::traits::{
+    BoxFutureResult, FileService, ServiceError, WindowService, WriteFileChunkSource,
+};
 use wgo_daemon_core::wire::{
     DatagramMessage, PairedSecretCredential, ReqResMessage, RpcErrorKind, SessionAuthErrorCode,
     MAX_MESSAGE_SEQUENCE_SIZE, PAIRED_SECRET_AUTH_MECHANISM,
@@ -64,6 +68,7 @@ const SCHEDULED_CERT_REFRESH_INTERVAL: Duration = Duration::from_secs(60 * 60);
 const SUBSCRIPTION_DEBOUNCE: Duration = Duration::from_millis(150);
 const PROCESSES_SUBSCRIPTION_POLL_INTERVAL: Duration = Duration::from_secs(2);
 const PROCESS_DETAIL_SUBSCRIPTION_POLL_INTERVAL: Duration = Duration::from_secs(1);
+const WINDOWS_SUBSCRIPTION_POLL_INTERVAL: Duration = Duration::from_secs(1);
 const ROOTS_SUBSCRIPTION_POLL_INTERVAL: Duration = Duration::from_secs(2);
 const TRASH_SUBSCRIPTION_POLL_INTERVAL: Duration = Duration::from_secs(2);
 const QUIC_MAX_IDLE_TIMEOUT: Duration = Duration::from_secs(120);
@@ -78,6 +83,7 @@ type PairingAttemptId = u64;
 type SharedPairingChallenge = Arc<Mutex<PairingState>>;
 type SharedRpcSessionState = Arc<Mutex<RpcSessionState>>;
 type SharedFileService = Arc<dyn FileService>;
+type SharedWindowService = Arc<dyn WindowService>;
 type SharedPairingNotifier = Arc<dyn PairingNotifier>;
 type SharedTerminalManager = Arc<TerminalManager>;
 type SharedTrashEvents = watch::Sender<u64>;
@@ -144,6 +150,7 @@ pub async fn run_system_server(
     listen_override: Option<SocketAddr>,
     config_path: PathBuf,
     files: SharedFileService,
+    windows: Option<SharedWindowService>,
     pairing_notifier: Option<SharedPairingNotifier>,
     log_label: &'static str,
 ) -> Result<()> {
@@ -153,6 +160,7 @@ pub async fn run_system_server(
             listen_override,
             config_path.clone(),
             files.clone(),
+            windows.clone(),
             pairing_notifier.clone(),
             log_label,
         )
@@ -176,6 +184,7 @@ async fn run_system_server_once(
     listen_override: Option<SocketAddr>,
     config_path: PathBuf,
     files: SharedFileService,
+    windows: Option<SharedWindowService>,
     pairing_notifier: Option<SharedPairingNotifier>,
     log_label: &'static str,
 ) -> Result<()> {
@@ -214,6 +223,7 @@ async fn run_system_server_once(
         let client_credentials_events = client_credentials_events.clone();
         let pairing_challenge = pairing_challenge.clone();
         let files = files.clone();
+        let windows = windows.clone();
         let terminals = terminals.clone();
         let trash_events = trash_events.clone();
         let pairing_notifier = pairing_notifier.clone();
@@ -227,6 +237,7 @@ async fn run_system_server_once(
                 client_credentials_events,
                 pairing_challenge,
                 files,
+                windows,
                 terminals,
                 trash_events,
                 pairing_notifier,
@@ -753,6 +764,7 @@ async fn handle_request(
     client_credentials_events: SharedClientCredentialsEvents,
     pairing_challenge: SharedPairingChallenge,
     files: SharedFileService,
+    windows: Option<SharedWindowService>,
     terminals: SharedTerminalManager,
     trash_events: SharedTrashEvents,
     pairing_notifier: Option<SharedPairingNotifier>,
@@ -770,6 +782,7 @@ async fn handle_request(
                 client_credentials_events,
                 pairing_challenge,
                 files,
+                windows,
                 terminals,
                 trash_events,
                 pairing_notifier,
@@ -798,6 +811,7 @@ async fn run_rpc_session(
     client_credentials_events: SharedClientCredentialsEvents,
     pairing_challenge: SharedPairingChallenge,
     files: SharedFileService,
+    windows: Option<SharedWindowService>,
     terminals: SharedTerminalManager,
     trash_events: SharedTrashEvents,
     pairing_notifier: Option<SharedPairingNotifier>,
@@ -818,6 +832,7 @@ async fn run_rpc_session(
                 let pairing_challenge = pairing_challenge.clone();
                 let session_state = session_state.clone();
                 let files = files.clone();
+                let windows = windows.clone();
                 let terminals = terminals.clone();
                 let trash_events = trash_events.clone();
                 let pairing_notifier = pairing_notifier.clone();
@@ -834,6 +849,7 @@ async fn run_rpc_session(
                             pairing_challenge,
                             session_state,
                             files,
+                            windows,
                             terminals,
                             trash_events,
                             pairing_notifier,
@@ -878,7 +894,7 @@ type HostRpcHandlers =
 fn rpc_handlers() -> &'static HostRpcHandlers {
     static HANDLERS: OnceLock<HostRpcHandlers> = OnceLock::new();
     HANDLERS.get_or_init(|| {
-        RpcHandlers::new()
+        let handlers = RpcHandlers::new()
             .get_daemon_info(HostRpcHandler::get_daemon_info_rpc)
             .get_daemon_environment(HostRpcHandler::get_daemon_environment_rpc)
             .start_pairing(HostRpcHandler::start_pairing_rpc)
@@ -903,8 +919,21 @@ fn rpc_handlers() -> &'static HostRpcHandlers {
             .restore_trash_items(HostRpcHandler::restore_trash_items_rpc)
             .purge_trash_items(HostRpcHandler::purge_trash_items_rpc)
             .subscribe_processes(HostRpcHandler::subscribe_processes_rpc)
-            .subscribe_process_detail(HostRpcHandler::subscribe_process_detail_rpc)
+            .subscribe_process_detail(HostRpcHandler::subscribe_process_detail_rpc);
+        register_platform_window_rpc_handlers(handlers)
     })
+}
+
+#[cfg(windows)]
+fn register_platform_window_rpc_handlers(handlers: HostRpcHandlers) -> HostRpcHandlers {
+    handlers
+        .subscribe_windows(HostRpcHandler::subscribe_windows_rpc)
+        .subscribe_window_detail(HostRpcHandler::subscribe_window_detail_rpc)
+}
+
+#[cfg(not(windows))]
+fn register_platform_window_rpc_handlers(handlers: HostRpcHandlers) -> HostRpcHandlers {
+    handlers
 }
 
 fn is_server_stream_proc(proc_id: u64) -> bool {
@@ -1002,6 +1031,7 @@ async fn handle_reqres_messages(
         pairing_challenge,
         session_state,
         files,
+        None,
         terminals,
         trash_events,
         pairing_notifier,
@@ -1020,6 +1050,7 @@ async fn handle_reqres_messages_with_events(
     pairing_challenge: SharedPairingChallenge,
     session_state: SharedRpcSessionState,
     files: SharedFileService,
+    windows: Option<SharedWindowService>,
     terminals: SharedTerminalManager,
     trash_events: SharedTrashEvents,
     pairing_notifier: Option<SharedPairingNotifier>,
@@ -1033,6 +1064,7 @@ async fn handle_reqres_messages_with_events(
         pairing_challenge,
         session_state,
         files,
+        windows,
         terminals,
         trash_events,
         pairing_notifier,
@@ -1051,6 +1083,7 @@ async fn handle_reqres_stream(
     pairing_challenge: SharedPairingChallenge,
     session_state: SharedRpcSessionState,
     files: SharedFileService,
+    windows: Option<SharedWindowService>,
     terminals: SharedTerminalManager,
     trash_events: SharedTrashEvents,
     pairing_notifier: Option<SharedPairingNotifier>,
@@ -1064,6 +1097,7 @@ async fn handle_reqres_stream(
         pairing_challenge,
         session_state,
         files,
+        windows,
         terminals,
         trash_events,
         pairing_notifier,
@@ -1169,6 +1203,7 @@ struct HostRpcContext {
     pairing_challenge: SharedPairingChallenge,
     session_state: SharedRpcSessionState,
     files: SharedFileService,
+    windows: Option<SharedWindowService>,
     terminals: SharedTerminalManager,
     trash_events: SharedTrashEvents,
     pairing_notifier: Option<SharedPairingNotifier>,
@@ -1383,6 +1418,7 @@ struct HostRpcHandler {
     pairing_challenge: SharedPairingChallenge,
     session_state: SharedRpcSessionState,
     files: SharedFileService,
+    windows: Option<SharedWindowService>,
     terminals: SharedTerminalManager,
     trash_events: SharedTrashEvents,
     pairing_notifier: Option<SharedPairingNotifier>,
@@ -1421,6 +1457,7 @@ impl HostRpcHandler {
             pairing_challenge: context.pairing_challenge,
             session_state: context.session_state,
             files: context.files,
+            windows: context.windows,
             terminals: context.terminals,
             trash_events: context.trash_events,
             pairing_notifier: context.pairing_notifier,
@@ -1553,6 +1590,46 @@ impl HostRpcHandler {
         .await
     }
 
+    async fn subscribe_windows(&mut self, _: ()) -> Result<()> {
+        let send = self.response_stream();
+        let mut send = send.lock().await;
+        let Some(windows) = self.windows.clone() else {
+            write_reqres_message(
+                &mut send,
+                stream_service_error_message(
+                    ProcId::SubscribeWindows.as_u64(),
+                    ServiceError::Unsupported,
+                ),
+            )
+            .await?;
+            return Ok(());
+        };
+        stream_windows_subscription(&mut send, windows, ProcId::SubscribeWindows.as_u64()).await
+    }
+
+    async fn subscribe_window_detail(&mut self, request: SubscribeWindowDetailReq) -> Result<()> {
+        let send = self.response_stream();
+        let mut send = send.lock().await;
+        let Some(windows) = self.windows.clone() else {
+            write_reqres_message(
+                &mut send,
+                stream_service_error_message(
+                    ProcId::SubscribeWindowDetail.as_u64(),
+                    ServiceError::Unsupported,
+                ),
+            )
+            .await?;
+            return Ok(());
+        };
+        stream_window_detail_subscription(
+            &mut send,
+            windows,
+            ProcId::SubscribeWindowDetail.as_u64(),
+            request.window_id,
+        )
+        .await
+    }
+
     fn subscribe_roots_rpc<'a>(&'a mut self, request: ()) -> RpcHandlerFuture<'a, Result<()>> {
         Box::pin(self.subscribe_roots(request))
     }
@@ -1609,6 +1686,17 @@ impl HostRpcHandler {
         request: SubscribeProcessDetailReq,
     ) -> RpcHandlerFuture<'a, Result<()>> {
         Box::pin(self.subscribe_process_detail(request))
+    }
+
+    fn subscribe_windows_rpc<'a>(&'a mut self, request: ()) -> RpcHandlerFuture<'a, Result<()>> {
+        Box::pin(self.subscribe_windows(request))
+    }
+
+    fn subscribe_window_detail_rpc<'a>(
+        &'a mut self,
+        request: SubscribeWindowDetailReq,
+    ) -> RpcHandlerFuture<'a, Result<()>> {
+        Box::pin(self.subscribe_window_detail(request))
     }
 }
 
@@ -2055,6 +2143,125 @@ async fn stream_process_detail_subscription(
     }
 }
 
+async fn stream_windows_subscription(
+    send: &mut web_transport_quinn::SendStream,
+    windows: SharedWindowService,
+    proc_id: u64,
+) -> Result<()> {
+    let details = match windows.windows().await {
+        Ok(details) => details,
+        Err(err) => {
+            write_reqres_message(send, stream_service_error_message(proc_id, err)).await?;
+            return Ok(());
+        }
+    };
+    let mut rows = window_info_rows(&details);
+    write_reqres_message(
+        send,
+        stream_start_payload_message(WindowsTableEvent::Snapshot { rows: rows.clone() }.encode()),
+    )
+    .await?;
+
+    let mut interval = tokio::time::interval(WINDOWS_SUBSCRIPTION_POLL_INTERVAL);
+    loop {
+        interval.tick().await;
+        let next_details = match windows.windows().await {
+            Ok(details) => details,
+            Err(err) => {
+                write_reqres_message(send, stream_service_error_message(proc_id, err)).await?;
+                return Ok(());
+            }
+        };
+        let next_rows = window_info_rows(&next_details);
+        if let Some(event) = windows_patch(&rows, &next_rows) {
+            write_reqres_message(send, stream_chunk_payload_message(event.encode())).await?;
+            rows = next_rows;
+        }
+    }
+}
+
+async fn stream_window_detail_subscription(
+    send: &mut web_transport_quinn::SendStream,
+    windows: SharedWindowService,
+    proc_id: u64,
+    window_id: String,
+) -> Result<()> {
+    let Some(mut detail) = window_detail_snapshot(&windows, &window_id).await? else {
+        write_reqres_message(
+            send,
+            stream_error_message(proc_id, "not_found", "window not found"),
+        )
+        .await?;
+        return Ok(());
+    };
+
+    write_reqres_message(
+        send,
+        stream_start_payload_message(
+            WindowDetailEvent::Snapshot {
+                detail: detail.clone(),
+            }
+            .encode(),
+        ),
+    )
+    .await?;
+
+    let mut interval = tokio::time::interval(WINDOWS_SUBSCRIPTION_POLL_INTERVAL);
+    loop {
+        interval.tick().await;
+        let Some(next_detail) = window_detail_snapshot(&windows, &window_id).await? else {
+            write_reqres_message(
+                send,
+                stream_chunk_payload_message(WindowDetailEvent::Closed.encode()),
+            )
+            .await?;
+            return Ok(());
+        };
+
+        if next_detail.info != detail.info {
+            write_reqres_message(
+                send,
+                stream_chunk_payload_message(
+                    WindowDetailEvent::InfoChanged {
+                        info: next_detail.info.clone(),
+                    }
+                    .encode(),
+                ),
+            )
+            .await?;
+            detail.info = next_detail.info.clone();
+        }
+
+        if next_detail.state != detail.state {
+            write_reqres_message(
+                send,
+                stream_chunk_payload_message(
+                    WindowDetailEvent::StateChanged {
+                        state: next_detail.state.clone(),
+                    }
+                    .encode(),
+                ),
+            )
+            .await?;
+            detail.state = next_detail.state.clone();
+        }
+
+        if next_detail.bounds != detail.bounds {
+            write_reqres_message(
+                send,
+                stream_chunk_payload_message(
+                    WindowDetailEvent::BoundsChanged {
+                        bounds: next_detail.bounds.clone(),
+                    }
+                    .encode(),
+                ),
+            )
+            .await?;
+            detail.bounds = next_detail.bounds.clone();
+        }
+    }
+}
+
 async fn stream_roots_subscription(
     send: &mut web_transport_quinn::SendStream,
     files: SharedFileService,
@@ -2363,6 +2570,54 @@ fn process_status_from_sysinfo(status: SysProcessStatus) -> ProcessStatus {
         SysProcessStatus::Unknown(code) => ProcessStatus::Unknown {
             code: u64::from(code),
         },
+    }
+}
+
+fn window_info_rows(details: &[WindowDetail]) -> Vec<WindowInfo> {
+    details.iter().map(|detail| detail.info.clone()).collect()
+}
+
+async fn window_detail_snapshot(
+    windows: &SharedWindowService,
+    window_id: &str,
+) -> Result<Option<WindowDetail>, ServiceError> {
+    Ok(windows
+        .windows()
+        .await?
+        .into_iter()
+        .find(|detail| detail.info.window_id == window_id))
+}
+
+fn windows_patch(previous: &[WindowInfo], next: &[WindowInfo]) -> Option<WindowsTableEvent> {
+    let previous_by_id: BTreeMap<&str, &WindowInfo> = previous
+        .iter()
+        .map(|entry| (entry.window_id.as_str(), entry))
+        .collect();
+    let next_by_id: BTreeMap<&str, &WindowInfo> = next
+        .iter()
+        .map(|entry| (entry.window_id.as_str(), entry))
+        .collect();
+
+    let removes = previous_by_id
+        .keys()
+        .filter(|id| !next_by_id.contains_key(**id))
+        .map(|id| (*id).to_string())
+        .collect::<Vec<_>>();
+    let upserts = next_by_id
+        .iter()
+        .filter_map(|(id, entry)| {
+            if previous_by_id.get(id).copied() == Some(*entry) {
+                None
+            } else {
+                Some((*entry).clone())
+            }
+        })
+        .collect::<Vec<_>>();
+
+    if removes.is_empty() && upserts.is_empty() {
+        None
+    } else {
+        Some(WindowsTableEvent::Patch { removes, upserts })
     }
 }
 
@@ -2675,6 +2930,7 @@ async fn handle_rpc_messages_with_events(
         pairing_challenge,
         session_state,
         files,
+        windows: None,
         terminals,
         trash_events,
         pairing_notifier,

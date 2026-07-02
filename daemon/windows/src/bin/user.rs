@@ -2,13 +2,11 @@
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use std::path::PathBuf;
-use wgo_daemon_core::config::windows_program_data_config_path;
-use wgo_windows_daemon::tray::run_pairing_tray;
+use wgo_windows_daemon::window_agent::run_window_agent;
 
 #[derive(Debug, Parser)]
 #[command(name = "wgo-windows-user")]
-#[command(about = "Windows user tray daemon for whats-going-on")]
+#[command(about = "Windows user-session data agent for whats-going-on")]
 struct Args {
     #[command(subcommand)]
     command: Option<Command>,
@@ -16,10 +14,7 @@ struct Args {
 
 #[derive(Debug, Subcommand)]
 enum Command {
-    Run {
-        #[arg(long)]
-        config: Option<PathBuf>,
-    },
+    Run,
 }
 
 fn main() -> Result<()> {
@@ -27,12 +22,7 @@ fn main() -> Result<()> {
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .init();
 
-    match Args::parse()
-        .command
-        .unwrap_or(Command::Run { config: None })
-    {
-        Command::Run { config } => {
-            run_pairing_tray(config.unwrap_or_else(windows_program_data_config_path))
-        }
+    match Args::parse().command.unwrap_or(Command::Run) {
+        Command::Run => run_window_agent(),
     }
 }

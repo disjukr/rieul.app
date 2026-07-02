@@ -2,8 +2,8 @@ use std::future::Future;
 use std::pin::Pin;
 
 use crate::rpc::{
-    CreateNodeOp, DeleteMode, FsEntry, ReadFileReq, TrashItem, WriteFileChunk, WriteFileResult,
-    WriteFileStart,
+    CreateNodeOp, DeleteMode, FsEntry, ReadFileReq, TrashItem, WindowDetail, WriteFileChunk,
+    WriteFileResult, WriteFileStart,
 };
 
 pub type BoxFutureResult<'a, T> =
@@ -48,4 +48,8 @@ pub trait FileService: Send + Sync {
     fn trash_items(&self) -> BoxFutureResult<'_, Vec<TrashItem>>;
     fn restore_trash_item(&self, item_id: String) -> BoxFutureResult<'_, ()>;
     fn purge_trash_item(&self, item_id: String) -> BoxFutureResult<'_, ()>;
+}
+
+pub trait WindowService: Send + Sync {
+    fn windows(&self) -> BoxFutureResult<'_, Vec<WindowDetail>>;
 }

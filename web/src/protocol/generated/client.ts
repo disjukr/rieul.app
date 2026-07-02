@@ -29,6 +29,8 @@ import {
   subscribeRootsProc,
   subscribeTerminalSessionsProc,
   subscribeTrashItemsProc,
+  subscribeWindowDetailProc,
+  subscribeWindowsProc,
   takeTerminalControlProc,
   writeFileProc,
   writeTerminalInputProc,
@@ -60,12 +62,15 @@ import type {
   StartPairingRes,
   SubscribeDirectoryReq,
   SubscribeProcessDetailReq,
+  SubscribeWindowDetailReq,
   TakeTerminalControlReq,
   TakeTerminalControlRes,
   TerminalEvent,
   TerminalSessionInfo,
   TerminalSessionsTableEvent,
   TrashItemsTableEvent,
+  WindowDetailEvent,
+  WindowsTableEvent,
   WriteFileReq,
   WriteFileResult,
   WriteTerminalInputReq,
@@ -233,4 +238,17 @@ export function subscribeProcessDetail(
   request: SubscribeProcessDetailReq,
 ): AsyncGenerator<ProcessDetailEvent> {
   return callServerStream(transport, subscribeProcessDetailProc, request);
+}
+
+export function subscribeWindows(
+  transport: WebTransport,
+): AsyncGenerator<WindowsTableEvent> {
+  return callServerStream(transport, subscribeWindowsProc, undefined);
+}
+
+export function subscribeWindowDetail(
+  transport: WebTransport,
+  request: SubscribeWindowDetailReq,
+): AsyncGenerator<WindowDetailEvent> {
+  return callServerStream(transport, subscribeWindowDetailProc, request);
 }

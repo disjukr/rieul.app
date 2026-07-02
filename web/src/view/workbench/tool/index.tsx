@@ -5,6 +5,7 @@ import { DaemonTool } from "./daemon/index.tsx";
 import { FilesTool } from "./files/index.tsx";
 import { ProcessesTool } from "./processes/index.tsx";
 import { TerminalTool } from "./terminal/index.tsx";
+import { WindowsTool } from "./windows/index.tsx";
 
 export function WorkbenchToolContent() {
   const tabState = useBunja(workbenchTabBunja);
@@ -22,6 +23,9 @@ export function WorkbenchToolContent() {
   }
   if (tab.tool === "terminal") {
     return <TerminalTool />;
+  }
+  if (tab.tool === "windows") {
+    return <WindowsTool />;
   }
   return null;
 }

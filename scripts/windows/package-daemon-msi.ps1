@@ -119,6 +119,7 @@ function New-DaemonMsiSource {
     [string]$Manufacturer,
     [string]$SystemExe,
     [string]$UserExe,
+    [string]$GuiExe,
     [string]$Icon
   )
 
@@ -126,6 +127,7 @@ function New-DaemonMsiSource {
   $manufacturerText = ConvertTo-XmlEscapedText $Manufacturer
   $systemExePath = ConvertTo-WixSourcePath $SystemExe
   $userExePath = ConvertTo-WixSourcePath $UserExe
+  $guiExePath = ConvertTo-WixSourcePath $GuiExe
   $iconPath = ConvertTo-WixSourcePath $Icon
 
   $source = @"
@@ -172,7 +174,7 @@ function New-DaemonMsiSource {
 
     <SetProperty
       Id="WixUnelevatedShellExecTarget"
-      Value="[#UserTrayExe]"
+      Value="[#GuiExe]"
       Before="LaunchWgoTrayApp"
       Sequence="execute"
       Condition="NOT Installed" />
@@ -209,14 +211,24 @@ function New-DaemonMsiSource {
             Wait="yes" />
         </Component>
 
-        <Component Id="UserTrayComponent" Guid="{6F43D08E-426E-4F73-A947-06987D99CDA3}" Bitness="always64">
-          <File Id="UserTrayExe" Source="$userExePath" KeyPath="yes" />
+        <Component Id="UserAgentComponent" Guid="{6F43D08E-426E-4F73-A947-06987D99CDA3}" Bitness="always64">
+          <File Id="UserAgentExe" Source="$userExePath" KeyPath="yes" />
           <RegistryValue
             Root="HKLM"
             Key="Software\Microsoft\Windows\CurrentVersion\Run"
-            Name="Whats Going On"
+            Name="Whats Going On User"
             Type="string"
             Value="&quot;[INSTALLFOLDER]wgo-windows-user.exe&quot;" />
+        </Component>
+
+        <Component Id="GuiComponent" Guid="{D9899A91-9F60-4A7F-BDC9-42B9EF3826E2}" Bitness="always64">
+          <File Id="GuiExe" Source="$guiExePath" KeyPath="yes" />
+          <RegistryValue
+            Root="HKLM"
+            Key="Software\Microsoft\Windows\CurrentVersion\Run"
+            Name="Whats Going On GUI"
+            Type="string"
+            Value="&quot;[INSTALLFOLDER]wgo-windows-gui.exe&quot;" />
         </Component>
       </Directory>
     </StandardDirectory>
@@ -227,7 +239,7 @@ function New-DaemonMsiSource {
           <Shortcut
             Id="StartMenuShortcut"
             Name="Whats Going On"
-            Target="[INSTALLFOLDER]wgo-windows-user.exe"
+            Target="[INSTALLFOLDER]wgo-windows-gui.exe"
             WorkingDirectory="INSTALLFOLDER"
             Icon="WgoTrayIcon.ico" />
           <RemoveFolder Id="RemoveProgramMenuAppFolder" On="uninstall" />
@@ -244,7 +256,8 @@ function New-DaemonMsiSource {
 
     <Feature Id="MainFeature" Title="Whats Going On Daemon" Level="1">
       <ComponentRef Id="SystemDaemonComponent" />
-      <ComponentRef Id="UserTrayComponent" />
+      <ComponentRef Id="UserAgentComponent" />
+      <ComponentRef Id="GuiComponent" />
       <ComponentRef Id="StartMenuShortcutComponent" />
     </Feature>
   </Package>
@@ -271,6 +284,7 @@ $MsiPath = Join-Path $OutDir "$PackageBaseName.msi"
 $ReleaseDir = Join-Path $RepoRoot "target\release"
 $SystemExe = Join-Path $ReleaseDir "wgo-windows-system.exe"
 $UserExe = Join-Path $ReleaseDir "wgo-windows-user.exe"
+$GuiExe = Join-Path $ReleaseDir "wgo-windows-gui.exe"
 $Icon = Join-Path $RepoRoot "daemon\windows\assets\tray.ico"
 
 if (-not $SkipBuild) {
@@ -288,6 +302,9 @@ if (-not (Test-Path -LiteralPath $SystemExe)) {
 if (-not (Test-Path -LiteralPath $UserExe)) {
   throw "Missing release binary: $UserExe"
 }
+if (-not (Test-Path -LiteralPath $GuiExe)) {
+  throw "Missing release binary: $GuiExe"
+}
 if (-not (Test-Path -LiteralPath $Icon)) {
   throw "Missing tray icon: $Icon"
 }
@@ -303,6 +320,7 @@ New-DaemonMsiSource `
   -Manufacturer $Manufacturer `
   -SystemExe $SystemExe `
   -UserExe $UserExe `
+  -GuiExe $GuiExe `
   -Icon $Icon
 
 if (Test-Path -LiteralPath $MsiPath) {

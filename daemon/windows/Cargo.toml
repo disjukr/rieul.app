@@ -18,6 +18,10 @@ path = "src/bin/system.rs"
 name = "wgo-windows-user"
 path = "src/bin/user.rs"
 
+[[bin]]
+name = "wgo-windows-gui"
+path = "src/bin/gui.rs"
+
 [dependencies]
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
@@ -38,6 +42,7 @@ web-transport-quinn = { version = "0.11", default-features = true }
 windows-service = "0.8.1"
 windows = { version = "0.62", features = [
   "Win32_Foundation",
+  "Win32_Graphics_Dwm",
   "Win32_Graphics_Gdi",
   "Win32_Security",
   "Win32_System_DataExchange",

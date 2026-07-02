@@ -29,10 +29,12 @@ pub use crate::generated::rpc::{
     SubscribeAvailableShellsError, SubscribeClientsError, SubscribeDirectoryError,
     SubscribeDirectoryReq, SubscribeProcessDetailError, SubscribeProcessDetailReq,
     SubscribeProcessesError, SubscribeRootsError, SubscribeTrashItemsError,
+    SubscribeWindowDetailError, SubscribeWindowDetailReq, SubscribeWindowsError,
     TakeTerminalControlError, TakeTerminalControlReq, TakeTerminalControlRes, TerminalEvent,
     TerminalExit, TerminalLaunchSpec, TerminalSessionCloseReason, TerminalSessionInfo,
     TerminalSessionKey, TerminalSessionsTableEvent, TrashItem, TrashItemSize,
-    TrashItemsSubscriptionCloseReason, TrashItemsTableEvent, WriteFileError, WriteFileMode,
+    TrashItemsSubscriptionCloseReason, TrashItemsTableEvent, WindowBounds, WindowDetail,
+    WindowDetailEvent, WindowInfo, WindowState, WindowsTableEvent, WriteFileError, WriteFileMode,
     WriteFileResult, WriteTerminalInputError, PROC_DEFINITIONS,
 };
 

@@ -10,7 +10,12 @@ import { copyExplorerNavigationState } from "./explorer.ts";
 import { copyFileViewerState } from "./file-viewer.ts";
 import { MachineIdScope } from "./machine.tsx";
 
-export type WorkbenchTool = "daemon" | "files" | "processes" | "terminal";
+export type WorkbenchTool =
+  | "daemon"
+  | "files"
+  | "processes"
+  | "terminal"
+  | "windows";
 export type WorkbenchFilesView = "roots" | "home" | "trash";
 
 export interface WorkbenchTab {
@@ -27,6 +32,7 @@ export interface WorkbenchTab {
   terminalLastKnownCwd?: string;
   terminalLastKnownTitle?: string;
   terminalSessionId?: string;
+  windowDetailId?: string;
 }
 
 export interface WorkbenchTerminalTabConfig {
@@ -44,6 +50,11 @@ export interface WorkbenchFilesTabConfig {
 export interface WorkbenchProcessesTabConfig {
   processDetailPid?: number;
   title?: string;
+}
+
+export interface WorkbenchWindowsTabConfig {
+  title?: string;
+  windowDetailId?: string;
 }
 
 export interface WorkbenchTerminalSessionSnapshot {
@@ -206,6 +217,15 @@ export const workbenchBunja = bunja(() => {
     config: WorkbenchProcessesTabConfig = {},
   ): string {
     const tab = createProcessesTab(config);
+    store.set(stateAtom, (current) => openTabInPane(current, paneId, tab));
+    return tab.id;
+  }
+
+  function addWindowsTab(
+    paneId: string,
+    config: WorkbenchWindowsTabConfig = {},
+  ): string {
+    const tab = createWindowsTab(config);
     store.set(stateAtom, (current) => openTabInPane(current, paneId, tab));
     return tab.id;
   }
@@ -378,6 +398,31 @@ export const workbenchBunja = bunja(() => {
               tabs: pane.tabs.map((tab) =>
                 tab.id === tabId && tab.tool === "processes"
                   ? { ...tab, processDetailPid }
+                  : tab
+              ),
+            }
+            : pane
+        ),
+      }),
+    );
+  }
+
+  function setWindowDetailId(
+    paneId: string,
+    tabId: string,
+    windowDetailId: string | undefined,
+  ) {
+    store.set(
+      stateAtom,
+      (current) => ({
+        ...current,
+        panes: current.panes.map((pane) =>
+          pane.id === paneId
+            ? {
+              ...pane,
+              tabs: pane.tabs.map((tab) =>
+                tab.id === tabId && tab.tool === "windows"
+                  ? { ...tab, windowDetailId }
                   : tab
               ),
             }
@@ -573,6 +618,7 @@ export const workbenchBunja = bunja(() => {
     addDaemonTab,
     addFilesTab,
     addProcessesTab,
+    addWindowsTab,
     addTerminalTab,
     openFilesTab,
     openTerminalTab,
@@ -584,6 +630,7 @@ export const workbenchBunja = bunja(() => {
     setDaemonClientDetailId,
     setDaemonClientsPageOpen,
     setProcessDetailPid,
+    setWindowDetailId,
     setTabDirty,
     setTerminalSessionSnapshot,
     setTerminalSessionId,
@@ -619,6 +666,10 @@ export const workbenchPaneBunja = bunja(() => {
     config: WorkbenchProcessesTabConfig = {},
   ): string {
     return workbench.addProcessesTab(paneId, config);
+  }
+
+  function addWindowsTab(config: WorkbenchWindowsTabConfig = {}): string {
+    return workbench.addWindowsTab(paneId, config);
   }
 
   function addTerminalTab(config: WorkbenchTerminalTabConfig = {}) {
@@ -706,6 +757,13 @@ export const workbenchPaneBunja = bunja(() => {
     workbench.setProcessDetailPid(paneId, tabId, processDetailPid);
   }
 
+  function setWindowDetailId(
+    tabId: string,
+    windowDetailId: string | undefined,
+  ) {
+    workbench.setWindowDetailId(paneId, tabId, windowDetailId);
+  }
+
   function setTabDirty(tabId: string, dirty: boolean) {
     workbench.setTabDirty(paneId, tabId, dirty);
   }
@@ -719,6 +777,7 @@ export const workbenchPaneBunja = bunja(() => {
     addDaemonTab,
     addFilesTab,
     addProcessesTab,
+    addWindowsTab,
     addTerminalTab,
     removePane,
     focusPane,
@@ -730,6 +789,7 @@ export const workbenchPaneBunja = bunja(() => {
     setDaemonClientDetailId,
     setDaemonClientsPageOpen,
     setProcessDetailPid,
+    setWindowDetailId,
     setTabDirty,
     setTerminalSessionSnapshot,
     setTerminalSessionId,
@@ -782,6 +842,10 @@ export const workbenchTabBunja = bunja(() => {
     pane.setProcessDetailPid(tabId, processDetailPid);
   }
 
+  function setWindowDetailId(windowDetailId: string | undefined) {
+    pane.setWindowDetailId(tabId, windowDetailId);
+  }
+
   function setDirty(dirty: boolean) {
     pane.setTabDirty(tabId, dirty);
   }
@@ -798,6 +862,7 @@ export const workbenchTabBunja = bunja(() => {
     setDaemonClientDetailId,
     setDaemonClientsPageOpen,
     setProcessDetailPid,
+    setWindowDetailId,
     setDirty,
     setTerminalSessionSnapshot,
     setTerminalSessionId,
@@ -935,6 +1000,17 @@ function createProcessesTab(
   };
 }
 
+function createWindowsTab(
+  config: WorkbenchWindowsTabConfig = {},
+): WorkbenchTab {
+  return {
+    id: `windows-${crypto.randomUUID()}`,
+    title: config.title ?? "Windows",
+    tool: "windows",
+    windowDetailId: config.windowDetailId,
+  };
+}
+
 function createTerminalTab(config: WorkbenchTerminalTabConfig): WorkbenchTab {
   return {
     id: `terminal-${crypto.randomUUID()}`,
@@ -965,6 +1041,8 @@ function titleForTool(tool: WorkbenchTool): string {
       return "Processes";
     case "terminal":
       return "Terminal";
+    case "windows":
+      return "Windows";
   }
 }
 

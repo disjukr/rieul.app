@@ -28,7 +28,61 @@ export enum ProcId {
   GetDaemonEnvironment = 23,
   SubscribeProcesses = 24,
   SubscribeProcessDetail = 25,
+  SubscribeWindows = 26,
+  SubscribeWindowDetail = 27,
 }
+
+export interface SubscribeWindowDetailReq {
+  windowId: string;
+}
+
+export interface WindowInfo {
+  windowId: string;
+  title?: string;
+  processId?: number;
+  focused?: boolean;
+}
+
+export interface WindowDetail {
+  info: WindowInfo;
+  state: WindowState;
+  bounds?: WindowBounds;
+}
+
+export interface WindowState {
+  visible?: boolean;
+  minimized?: boolean;
+  maximized?: boolean;
+}
+
+export interface WindowBounds {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export type WindowsTableEvent =
+  | { type: "snapshot"; rows: WindowInfo[] }
+  | { type: "patch"; removes: string[]; upserts: WindowInfo[] };
+
+export type WindowDetailEvent =
+  | { type: "snapshot"; detail: WindowDetail }
+  | { type: "infoChanged"; info: WindowInfo }
+  | { type: "stateChanged"; state: WindowState }
+  | { type: "boundsChanged"; bounds?: WindowBounds }
+  | { type: "closed" };
+
+export type SubscribeWindowsError =
+  | { type: "failed"; message: string }
+  | { type: "unsupported"; message: string }
+  | { type: "permissionDenied"; message: string };
+
+export type SubscribeWindowDetailError =
+  | { type: "failed"; message: string }
+  | { type: "notFound"; message: string }
+  | { type: "unsupported"; message: string }
+  | { type: "permissionDenied"; message: string };
 
 export interface CreateTerminalSessionReq {
   cols: number;
@@ -943,6 +997,38 @@ export const subscribeProcessDetailProc: ProcCodec<
   decodeError: decodeSubscribeProcessDetailErrorValue,
 };
 
+export const subscribeWindowsProc: ProcCodec<
+  undefined,
+  WindowsTableEvent,
+  SubscribeWindowsError
+> = {
+  id: ProcId.SubscribeWindows,
+  name: "SubscribeWindows",
+  stream: "server",
+  requestType: "void",
+  responseType: "WindowsTableEvent",
+  errorType: "SubscribeWindowsError",
+  encodeRequest: encodeVoidValue,
+  decodeResponse: decodeWindowsTableEventValue,
+  decodeError: decodeSubscribeWindowsErrorValue,
+};
+
+export const subscribeWindowDetailProc: ProcCodec<
+  SubscribeWindowDetailReq,
+  WindowDetailEvent,
+  SubscribeWindowDetailError
+> = {
+  id: ProcId.SubscribeWindowDetail,
+  name: "SubscribeWindowDetail",
+  stream: "server",
+  requestType: "SubscribeWindowDetailReq",
+  responseType: "WindowDetailEvent",
+  errorType: "SubscribeWindowDetailError",
+  encodeRequest: encodeSubscribeWindowDetailReqValue,
+  decodeResponse: decodeWindowDetailEventValue,
+  decodeError: decodeSubscribeWindowDetailErrorValue,
+};
+
 export const procs = {
   [ProcId.GetDaemonInfo]: getDaemonInfoProc,
   [ProcId.StartPairing]: startPairingProc,
@@ -969,7 +1055,464 @@ export const procs = {
   [ProcId.GetDaemonEnvironment]: getDaemonEnvironmentProc,
   [ProcId.SubscribeProcesses]: subscribeProcessesProc,
   [ProcId.SubscribeProcessDetail]: subscribeProcessDetailProc,
+  [ProcId.SubscribeWindows]: subscribeWindowsProc,
+  [ProcId.SubscribeWindowDetail]: subscribeWindowDetailProc,
 } as const;
+
+export function encodeSubscribeWindowDetailReqValue(
+  value: SubscribeWindowDetailReq,
+): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(
+    1,
+    text(required(value.windowId, "SubscribeWindowDetailReq.windowId")),
+  );
+  return fields;
+}
+
+export function decodeSubscribeWindowDetailReqValue(
+  value: CborValue,
+): SubscribeWindowDetailReq {
+  const fields = expectMap(value);
+  return {
+    windowId: fieldOrDefault(
+      fields.get(1),
+      (value) => textValue(value),
+      () => "",
+    ),
+  };
+}
+
+export function encodeWindowInfoValue(value: WindowInfo): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, text(required(value.windowId, "WindowInfo.windowId")));
+  if (value.title !== undefined) fields.set(2, text(value.title));
+  if (value.processId !== undefined) fields.set(3, u53(value.processId));
+  if (value.focused !== undefined) fields.set(4, bool(value.focused));
+  return fields;
+}
+
+export function decodeWindowInfoValue(value: CborValue): WindowInfo {
+  const fields = expectMap(value);
+  return {
+    windowId: fieldOrDefault(
+      fields.get(1),
+      (value) => textValue(value),
+      () => "",
+    ),
+    title: optionalField(fields.get(2), (value) => textValue(value)),
+    processId: optionalField(fields.get(3), (value) => integer(value)),
+    focused: optionalField(fields.get(4), (value) => boolValue(value)),
+  };
+}
+
+export function encodeWindowDetailValue(value: WindowDetail): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(
+    1,
+    encodeWindowInfoValue(required(value.info, "WindowDetail.info")),
+  );
+  fields.set(
+    2,
+    encodeWindowStateValue(required(value.state, "WindowDetail.state")),
+  );
+  if (value.bounds !== undefined) {
+    fields.set(3, encodeWindowBoundsValue(value.bounds));
+  }
+  return fields;
+}
+
+export function decodeWindowDetailValue(value: CborValue): WindowDetail {
+  const fields = expectMap(value);
+  return {
+    info: fieldOrDefault(
+      fields.get(1),
+      (value) => decodeWindowInfoValue(value),
+      () => defaultWindowInfo(),
+    ),
+    state: fieldOrDefault(
+      fields.get(2),
+      (value) => decodeWindowStateValue(value),
+      () => defaultWindowState(),
+    ),
+    bounds: optionalField(
+      fields.get(3),
+      (value) => decodeWindowBoundsValue(value),
+    ),
+  };
+}
+
+export function encodeWindowStateValue(value: WindowState): CborValue {
+  const fields = new Map<number, CborValue>();
+  if (value.visible !== undefined) fields.set(1, bool(value.visible));
+  if (value.minimized !== undefined) fields.set(2, bool(value.minimized));
+  if (value.maximized !== undefined) fields.set(3, bool(value.maximized));
+  return fields;
+}
+
+export function decodeWindowStateValue(value: CborValue): WindowState {
+  const fields = expectMap(value);
+  return {
+    visible: optionalField(fields.get(1), (value) => boolValue(value)),
+    minimized: optionalField(fields.get(2), (value) => boolValue(value)),
+    maximized: optionalField(fields.get(3), (value) => boolValue(value)),
+  };
+}
+
+export function encodeWindowBoundsValue(value: WindowBounds): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, i53(required(value.x, "WindowBounds.x")));
+  fields.set(2, i53(required(value.y, "WindowBounds.y")));
+  fields.set(3, u53(required(value.width, "WindowBounds.width")));
+  fields.set(4, u53(required(value.height, "WindowBounds.height")));
+  return fields;
+}
+
+export function decodeWindowBoundsValue(value: CborValue): WindowBounds {
+  const fields = expectMap(value);
+  return {
+    x: fieldOrDefault(fields.get(1), (value) => integer(value), () => 0),
+    y: fieldOrDefault(fields.get(2), (value) => integer(value), () => 0),
+    width: fieldOrDefault(fields.get(3), (value) => integer(value), () => 0),
+    height: fieldOrDefault(fields.get(4), (value) => integer(value), () => 0),
+  };
+}
+
+export function encodeWindowsTableEventValue(
+  value: WindowsTableEvent,
+): CborValue {
+  switch (value.type) {
+    case "snapshot": {
+      const fields = new Map<number, CborValue>();
+      fields.set(
+        1,
+        required(value.rows, "WindowsTableEvent.Snapshot.rows").map((item) =>
+          encodeWindowInfoValue(item)
+        ),
+      );
+      return [1, fields];
+    }
+    case "patch": {
+      const fields = new Map<number, CborValue>();
+      fields.set(
+        1,
+        required(value.removes, "WindowsTableEvent.Patch.removes").map((item) =>
+          text(item)
+        ),
+      );
+      fields.set(
+        2,
+        required(value.upserts, "WindowsTableEvent.Patch.upserts").map((item) =>
+          encodeWindowInfoValue(item)
+        ),
+      );
+      return [2, fields];
+    }
+  }
+}
+
+export function decodeWindowsTableEventValue(
+  value: CborValue,
+): WindowsTableEvent {
+  const [variantId, fields] = expectUnion(value);
+  switch (variantId) {
+    case 1:
+      return {
+        type: "snapshot",
+        rows: fieldOrDefault(
+          fields.get(1),
+          (value) => array(value).map((item) => decodeWindowInfoValue(item)),
+          () => [],
+        ),
+      };
+    case 2:
+      return {
+        type: "patch",
+        removes: fieldOrDefault(
+          fields.get(1),
+          (value) => array(value).map((item) => textValue(item)),
+          () => [],
+        ),
+        upserts: fieldOrDefault(
+          fields.get(2),
+          (value) => array(value).map((item) => decodeWindowInfoValue(item)),
+          () => [],
+        ),
+      };
+  }
+  throw new Error(`unknown WindowsTableEvent variant ${variantId}`);
+}
+
+export function encodeWindowDetailEventValue(
+  value: WindowDetailEvent,
+): CborValue {
+  switch (value.type) {
+    case "snapshot": {
+      const fields = new Map<number, CborValue>();
+      fields.set(
+        1,
+        encodeWindowDetailValue(
+          required(value.detail, "WindowDetailEvent.Snapshot.detail"),
+        ),
+      );
+      return [1, fields];
+    }
+    case "infoChanged": {
+      const fields = new Map<number, CborValue>();
+      fields.set(
+        1,
+        encodeWindowInfoValue(
+          required(value.info, "WindowDetailEvent.InfoChanged.info"),
+        ),
+      );
+      return [2, fields];
+    }
+    case "stateChanged": {
+      const fields = new Map<number, CborValue>();
+      fields.set(
+        1,
+        encodeWindowStateValue(
+          required(value.state, "WindowDetailEvent.StateChanged.state"),
+        ),
+      );
+      return [3, fields];
+    }
+    case "boundsChanged": {
+      const fields = new Map<number, CborValue>();
+      if (value.bounds !== undefined) {
+        fields.set(1, encodeWindowBoundsValue(value.bounds));
+      }
+      return [4, fields];
+    }
+    case "closed": {
+      const fields = new Map<number, CborValue>();
+      return [5, fields];
+    }
+  }
+}
+
+export function decodeWindowDetailEventValue(
+  value: CborValue,
+): WindowDetailEvent {
+  const [variantId, fields] = expectUnion(value);
+  switch (variantId) {
+    case 1:
+      return {
+        type: "snapshot",
+        detail: fieldOrDefault(
+          fields.get(1),
+          (value) => decodeWindowDetailValue(value),
+          () => defaultWindowDetail(),
+        ),
+      };
+    case 2:
+      return {
+        type: "infoChanged",
+        info: fieldOrDefault(
+          fields.get(1),
+          (value) => decodeWindowInfoValue(value),
+          () => defaultWindowInfo(),
+        ),
+      };
+    case 3:
+      return {
+        type: "stateChanged",
+        state: fieldOrDefault(
+          fields.get(1),
+          (value) => decodeWindowStateValue(value),
+          () => defaultWindowState(),
+        ),
+      };
+    case 4:
+      return {
+        type: "boundsChanged",
+        bounds: optionalField(
+          fields.get(1),
+          (value) => decodeWindowBoundsValue(value),
+        ),
+      };
+    case 5:
+      return {
+        type: "closed",
+      };
+  }
+  throw new Error(`unknown WindowDetailEvent variant ${variantId}`);
+}
+
+export function encodeSubscribeWindowsErrorValue(
+  value: SubscribeWindowsError,
+): CborValue {
+  switch (value.type) {
+    case "failed": {
+      const fields = new Map<number, CborValue>();
+      fields.set(
+        1,
+        text(required(value.message, "SubscribeWindowsError.Failed.message")),
+      );
+      return [0, fields];
+    }
+    case "unsupported": {
+      const fields = new Map<number, CborValue>();
+      fields.set(
+        1,
+        text(
+          required(value.message, "SubscribeWindowsError.Unsupported.message"),
+        ),
+      );
+      return [1, fields];
+    }
+    case "permissionDenied": {
+      const fields = new Map<number, CborValue>();
+      fields.set(
+        1,
+        text(
+          required(
+            value.message,
+            "SubscribeWindowsError.PermissionDenied.message",
+          ),
+        ),
+      );
+      return [2, fields];
+    }
+  }
+}
+
+export function decodeSubscribeWindowsErrorValue(
+  value: CborValue,
+): SubscribeWindowsError {
+  const [variantId, fields] = expectUnion(value);
+  switch (variantId) {
+    case 0:
+      return {
+        type: "failed",
+        message: fieldOrDefault(
+          fields.get(1),
+          (value) => textValue(value),
+          () => "",
+        ),
+      };
+    case 1:
+      return {
+        type: "unsupported",
+        message: fieldOrDefault(
+          fields.get(1),
+          (value) => textValue(value),
+          () => "",
+        ),
+      };
+    case 2:
+      return {
+        type: "permissionDenied",
+        message: fieldOrDefault(
+          fields.get(1),
+          (value) => textValue(value),
+          () => "",
+        ),
+      };
+  }
+  throw new Error(`unknown SubscribeWindowsError variant ${variantId}`);
+}
+
+export function encodeSubscribeWindowDetailErrorValue(
+  value: SubscribeWindowDetailError,
+): CborValue {
+  switch (value.type) {
+    case "failed": {
+      const fields = new Map<number, CborValue>();
+      fields.set(
+        1,
+        text(
+          required(value.message, "SubscribeWindowDetailError.Failed.message"),
+        ),
+      );
+      return [0, fields];
+    }
+    case "notFound": {
+      const fields = new Map<number, CborValue>();
+      fields.set(
+        1,
+        text(
+          required(
+            value.message,
+            "SubscribeWindowDetailError.NotFound.message",
+          ),
+        ),
+      );
+      return [1, fields];
+    }
+    case "unsupported": {
+      const fields = new Map<number, CborValue>();
+      fields.set(
+        1,
+        text(
+          required(
+            value.message,
+            "SubscribeWindowDetailError.Unsupported.message",
+          ),
+        ),
+      );
+      return [2, fields];
+    }
+    case "permissionDenied": {
+      const fields = new Map<number, CborValue>();
+      fields.set(
+        1,
+        text(
+          required(
+            value.message,
+            "SubscribeWindowDetailError.PermissionDenied.message",
+          ),
+        ),
+      );
+      return [3, fields];
+    }
+  }
+}
+
+export function decodeSubscribeWindowDetailErrorValue(
+  value: CborValue,
+): SubscribeWindowDetailError {
+  const [variantId, fields] = expectUnion(value);
+  switch (variantId) {
+    case 0:
+      return {
+        type: "failed",
+        message: fieldOrDefault(
+          fields.get(1),
+          (value) => textValue(value),
+          () => "",
+        ),
+      };
+    case 1:
+      return {
+        type: "notFound",
+        message: fieldOrDefault(
+          fields.get(1),
+          (value) => textValue(value),
+          () => "",
+        ),
+      };
+    case 2:
+      return {
+        type: "unsupported",
+        message: fieldOrDefault(
+          fields.get(1),
+          (value) => textValue(value),
+          () => "",
+        ),
+      };
+    case 3:
+      return {
+        type: "permissionDenied",
+        message: fieldOrDefault(
+          fields.get(1),
+          (value) => textValue(value),
+          () => "",
+        ),
+      };
+  }
+  throw new Error(`unknown SubscribeWindowDetailError variant ${variantId}`);
+}
 
 export function encodeCreateTerminalSessionReqValue(
   value: CreateTerminalSessionReq,
@@ -5444,6 +5987,66 @@ export function decodeSubscribeClientsErrorValue(
       };
   }
   throw new Error(`unknown SubscribeClientsError variant ${variantId}`);
+}
+
+function defaultSubscribeWindowDetailReq(): SubscribeWindowDetailReq {
+  return {
+    windowId: "",
+  };
+}
+
+function defaultWindowInfo(): WindowInfo {
+  return {
+    windowId: "",
+  };
+}
+
+function defaultWindowDetail(): WindowDetail {
+  return {
+    info: defaultWindowInfo(),
+    state: defaultWindowState(),
+  };
+}
+
+function defaultWindowState(): WindowState {
+  return {};
+}
+
+function defaultWindowBounds(): WindowBounds {
+  return {
+    x: 0,
+    y: 0,
+    width: 0,
+    height: 0,
+  };
+}
+
+function defaultWindowsTableEvent(): WindowsTableEvent {
+  return {
+    type: "snapshot",
+    rows: [],
+  };
+}
+
+function defaultWindowDetailEvent(): WindowDetailEvent {
+  return {
+    type: "snapshot",
+    detail: defaultWindowDetail(),
+  };
+}
+
+function defaultSubscribeWindowsError(): SubscribeWindowsError {
+  return {
+    type: "failed",
+    message: "",
+  };
+}
+
+function defaultSubscribeWindowDetailError(): SubscribeWindowDetailError {
+  return {
+    type: "failed",
+    message: "",
+  };
 }
 
 function defaultCreateTerminalSessionReq(): CreateTerminalSessionReq {

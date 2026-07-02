@@ -4,3 +4,5 @@ pub mod pairing_ui;
 #[cfg(windows)]
 pub mod service;
 pub mod tray;
+pub mod window_agent;
+pub mod windows;

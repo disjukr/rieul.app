@@ -169,8 +169,8 @@ function New-AppxManifest {
   </Resources>
   <Applications>
     <Application
-      Id="WgoUser"
-      Executable="wgo-windows-user.exe"
+      Id="WgoGui"
+      Executable="wgo-windows-gui.exe"
       EntryPoint="Windows.FullTrustApplication">
       <uap:VisualElements
         DisplayName="Whats Going On"
@@ -181,10 +181,10 @@ function New-AppxManifest {
       <Extensions>
         <desktop:Extension
           Category="windows.startupTask"
-          Executable="wgo-windows-user.exe"
+          Executable="wgo-windows-gui.exe"
           EntryPoint="Windows.FullTrustApplication">
           <desktop:StartupTask
-            TaskId="WgoUserTray"
+            TaskId="WgoGui"
             Enabled="true"
             DisplayName="Whats Going On" />
         </desktop:Extension>
@@ -198,6 +198,28 @@ function New-AppxManifest {
             StartAccount="localSystem"
             Arguments="service run" />
         </desktop7:Extension>
+      </Extensions>
+    </Application>
+    <Application
+      Id="WgoUser"
+      Executable="wgo-windows-user.exe"
+      EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements
+        DisplayName="Whats Going On User Agent"
+        Description="User-session data agent for Whats Going On"
+        BackgroundColor="transparent"
+        Square44x44Logo="Assets\Square44x44Logo.png"
+        Square150x150Logo="Assets\Square150x150Logo.png" />
+      <Extensions>
+        <desktop:Extension
+          Category="windows.startupTask"
+          Executable="wgo-windows-user.exe"
+          EntryPoint="Windows.FullTrustApplication">
+          <desktop:StartupTask
+            TaskId="WgoUserAgent"
+            Enabled="true"
+            DisplayName="Whats Going On User Agent" />
+        </desktop:Extension>
       </Extensions>
     </Application>
   </Applications>
@@ -262,6 +284,7 @@ if ($SkipSign) {
 $ReleaseDir = Join-Path $RepoRoot "target\release"
 $SystemExe = Join-Path $ReleaseDir "wgo-windows-system.exe"
 $UserExe = Join-Path $ReleaseDir "wgo-windows-user.exe"
+$GuiExe = Join-Path $ReleaseDir "wgo-windows-gui.exe"
 
 if (-not $SkipBuild) {
   Push-Location $RepoRoot
@@ -278,6 +301,9 @@ if (-not (Test-Path -LiteralPath $SystemExe)) {
 if (-not (Test-Path -LiteralPath $UserExe)) {
   throw "Missing release binary: $UserExe"
 }
+if (-not (Test-Path -LiteralPath $GuiExe)) {
+  throw "Missing release binary: $GuiExe"
+}
 
 if (Test-Path -LiteralPath $StagingDir) {
   Remove-Item -LiteralPath $StagingDir -Recurse -Force
@@ -288,6 +314,7 @@ New-Item -ItemType Directory -Force -Path $AssetsDir | Out-Null
 
 Copy-Item -LiteralPath $SystemExe -Destination (Join-Path $StagingDir "wgo-windows-system.exe")
 Copy-Item -LiteralPath $UserExe -Destination (Join-Path $StagingDir "wgo-windows-user.exe")
+Copy-Item -LiteralPath $GuiExe -Destination (Join-Path $StagingDir "wgo-windows-gui.exe")
 
 $LogoSvgPath = Join-Path $RepoRoot "wgo.svg"
 if (-not (Test-Path -LiteralPath $LogoSvgPath)) {

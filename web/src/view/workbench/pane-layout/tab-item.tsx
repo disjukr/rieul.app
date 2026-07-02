@@ -1,7 +1,15 @@
 import React from "react";
 import { useAtomValue } from "jotai";
 import { useBunja } from "bunja/react";
-import { Activity, Folder, Info, Terminal, Trash2, X } from "lucide-react";
+import {
+  Activity,
+  AppWindow,
+  Folder,
+  Info,
+  Terminal,
+  Trash2,
+  X,
+} from "lucide-react";
 import {
   displayName,
   explorerNavigationBunja,
@@ -231,6 +239,9 @@ function WorkbenchTabIcon(
   if (tab.tool === "processes") {
     return <Activity size={12} className={className} />;
   }
+  if (tab.tool === "windows") {
+    return <AppWindow size={12} className={className} />;
+  }
   if (tab.tool === "files" && trashActive) {
     return <Trash2 size={12} className={className} />;
   }
@@ -254,6 +265,12 @@ function useWorkbenchTabLabel(
     return openedFile
       ? displayName(openedFile)
       : folderNameFromPath(currentPath);
+  }
+  if (tab.tool === "processes") {
+    return tab.processDetailPid === undefined ? "Processes" : tab.title;
+  }
+  if (tab.tool === "windows") {
+    return tab.windowDetailId === undefined ? "Windows" : tab.title;
   }
   return tab.title;
 }

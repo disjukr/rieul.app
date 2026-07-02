@@ -11,12 +11,16 @@ $LogDir = Join-Path $RepoRoot "tmp\log"
 $ConfigPath = Join-Path $TmpDir "system-wgo.yaml"
 $SystemPidFile = Join-Path $TmpDir "system.pid"
 $UserPidFile = Join-Path $TmpDir "user.pid"
+$GuiPidFile = Join-Path $TmpDir "gui.pid"
 $SystemOutLog = Join-Path $LogDir "system.out.log"
 $SystemErrLog = Join-Path $LogDir "system.err.log"
 $UserOutLog = Join-Path $LogDir "user.out.log"
 $UserErrLog = Join-Path $LogDir "user.err.log"
+$GuiOutLog = Join-Path $LogDir "gui.out.log"
+$GuiErrLog = Join-Path $LogDir "gui.err.log"
 $SystemExe = Join-Path $RepoRoot "target\debug\wgo-windows-system.exe"
 $UserExe = Join-Path $RepoRoot "target\debug\wgo-windows-user.exe"
+$GuiExe = Join-Path $RepoRoot "target\debug\wgo-windows-gui.exe"
 
 New-Item -ItemType Directory -Force -Path $TmpDir | Out-Null
 New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
@@ -114,6 +118,11 @@ Stop-PreviousDaemon `
   -Label "user daemon" `
   -ExecutablePath $UserExe `
   -PidFile $UserPidFile
+Stop-PreviousDaemon `
+  -Label "gui daemon" `
+  -ExecutablePath $GuiExe `
+  -PidFile $GuiPidFile `
+  -RequiredCommandLinePart $ConfigPath
 
 if (-not $SkipBuild) {
   Push-Location $RepoRoot
@@ -129,6 +138,9 @@ if (-not (Test-Path $SystemExe)) {
 }
 if (-not (Test-Path $UserExe)) {
   throw "Missing $UserExe. Run without -SkipBuild first."
+}
+if (-not (Test-Path $GuiExe)) {
+  throw "Missing $GuiExe. Run without -SkipBuild first."
 }
 
 $children = @()
@@ -221,7 +233,7 @@ try {
   Write-Host "Starting wgo Windows user daemon"
   $user = Start-Process `
     -FilePath $UserExe `
-    -ArgumentList @("run", "--config", $ConfigPath) `
+    -ArgumentList @("run") `
     -WorkingDirectory $RepoRoot `
     -PassThru `
     -RedirectStandardOutput $UserOutLog `
@@ -236,13 +248,32 @@ try {
     Stderr = $UserErrLog
   }
 
+  Write-Host "Starting wgo Windows GUI daemon"
+  $gui = Start-Process `
+    -FilePath $GuiExe `
+    -ArgumentList @("run", "--config", $ConfigPath) `
+    -WorkingDirectory $RepoRoot `
+    -PassThru `
+    -RedirectStandardOutput $GuiOutLog `
+    -RedirectStandardError $GuiErrLog `
+    -WindowStyle Hidden
+  $children += $gui
+  Set-Content -LiteralPath $GuiPidFile -Value $gui.Id -Encoding ASCII
+  $childPidFiles[$gui.Id] = $GuiPidFile
+  $childLogs[$gui.Id] = @{
+    Name = "gui daemon"
+    Stdout = $GuiOutLog
+    Stderr = $GuiErrLog
+  }
+
   Write-Host ""
   Write-Host "System daemon pid=$($system.Id)"
   Write-Host "User daemon pid=$($user.Id)"
+  Write-Host "GUI daemon pid=$($gui.Id)"
   Write-Host "Dev config: $ConfigPath"
   Write-Host "Logs: $LogDir"
   Write-Host "WebTransport endpoints: https://$Listen/rpc and https://$Listen/moqt"
-  Write-Host "Press Ctrl+C or close this script to stop both daemons."
+  Write-Host "Press Ctrl+C or close this script to stop dev daemons."
 
   while ($true) {
     foreach ($child in $children) {
