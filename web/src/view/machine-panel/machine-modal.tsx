@@ -19,16 +19,16 @@ const machineModalClassName = [
   "rounded-[8px] bg-white [box-shadow:0_24px_72px_rgb(32_36_45_/_28%)]",
 ].join(" ");
 const modalHeadClassName = [
-  "flex items-center justify-between gap-[12px] border-b border-b-[#e4e8ef]",
+  "flex items-center justify-between gap-[0.5rem] border-b border-b-[#e4e8ef]",
   "px-[16px] py-[14px]",
-  "[&_div]:grid [&_div]:gap-[2px] [&_div]:min-w-0",
+  "[&_div]:grid [&_div]:gap-[0.5rem] [&_div]:min-w-0",
   "[&_span]:text-[#667085] [&_span]:text-[12px] [&_span]:font-700",
   "[&_h2]:m-0 [&_h2]:text-[#20242d] [&_h2]:text-[18px] [&_h2]:tracking-[0]",
 ].join(" ");
 const iconButtonClassName = "!w-[36px] !min-w-[36px] !p-0";
 const machineModalFormClassName = [
-  "grid gap-[12px] p-[16px]",
-  "[&_label]:grid [&_label]:gap-[6px] [&_label]:min-w-0",
+  "grid gap-[0.5rem] p-[16px]",
+  "[&_label]:grid [&_label]:gap-[0.5rem] [&_label]:min-w-0",
   "[&_label_span]:text-[#475467] [&_label_span]:text-[12px] [&_label_span]:font-700",
   "[&_input]:min-w-0 [&_input]:min-h-[34px] [&_input]:border [&_input]:border-[#c7ceda]",
   "[&_input]:rounded-[6px] [&_input]:bg-white [&_input]:px-[10px] [&_input]:text-[#20242d]",
@@ -36,7 +36,7 @@ const machineModalFormClassName = [
   "[&_input:focus]:outline-[#4f8cff] [&_input:focus]:outline-offset-1",
 ].join(" ");
 const modalMachineSummaryClassName = [
-  "grid gap-[2px] min-w-0 border border-[#d8dde7] rounded-[8px]",
+  "grid gap-[0.5rem] min-w-0 border border-[#d8dde7] rounded-[8px]",
   "bg-[#f7f8fb] p-[10px]",
   "[&_strong]:min-w-0 [&_strong]:overflow-hidden [&_strong]:text-ellipsis",
   "[&_strong]:whitespace-nowrap [&_strong]:text-[#20242d] [&_strong]:text-[13px]",
@@ -44,18 +44,18 @@ const modalMachineSummaryClassName = [
   "[&_span]:whitespace-nowrap [&_span]:text-[#667085] [&_span]:text-[12px]",
 ].join(" ");
 const fieldErrorClassName = "text-[#b42318] text-[12px]";
-const modalActionsClassName = "flex justify-end gap-[8px]";
+const modalActionsClassName = "flex justify-end gap-[0.5rem]";
 const modalWarningClassName = "m-0 text-[#475467] text-[13px]";
 const dangerActionClassName = [
   "border-[#f6c2bd] bg-[#fff4f2] text-[#b42318]",
   "hover:border-[#f04438] hover:bg-[#fff2f0] hover:text-[#912018]",
 ].join(" ");
 const pairingControlClassName = [
-  "flex items-center justify-between gap-[12px] rounded-[8px]",
+  "flex items-center justify-between gap-[0.5rem] rounded-[8px]",
   "border border-[#d8dde7] bg-[#f7f8fb] px-[10px] py-[8px]",
 ].join(" ");
 const pairingStepClassName = [
-  "grid min-h-[174px] place-items-center gap-[10px] rounded-[8px]",
+  "grid min-h-[174px] place-items-center gap-[0.5rem] rounded-[8px]",
   "border border-[#d8dde7] bg-white px-[16px] py-[18px] text-center",
 ].join(" ");
 const confirmationCodeClassName = [
@@ -337,7 +337,7 @@ function PairingRestartControl(
 ) {
   return (
     <div className={pairingControlClassName}>
-      <span className="flex min-w-0 items-center gap-[4px] text-[#475467] text-[12px]">
+      <span className="flex min-w-0 items-center gap-[0.5rem] text-[#475467] text-[12px]">
         <span className="shrink-0">Pairing to</span>
         <strong className="min-w-0 truncate font-700 text-[#20242d]">
           {machineName}
@@ -361,7 +361,7 @@ function PairingConfirmationStep(
 ) {
   return (
     <section className={pairingStepClassName}>
-      <div className="grid justify-items-center gap-[8px]">
+      <div className="grid justify-items-center gap-[0.5rem]">
         <span className="text-[#475467] text-[12px] font-700">
           Confirmation code
         </span>
@@ -374,7 +374,7 @@ function PairingConfirmationStep(
       </p>
       {isRequestingPairingCode
         ? (
-          <div className="flex items-center gap-[6px] text-[#475467] text-[12px]">
+          <div className="flex items-center gap-[0.5rem] text-[#475467] text-[12px]">
             <Loader2 size={14} className="animate-spin" />
             Waiting for confirmation
           </div>

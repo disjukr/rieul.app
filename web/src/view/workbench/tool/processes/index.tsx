@@ -2,13 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useAtomValue } from "jotai";
 import { useBunja } from "bunja/react";
 import { nowBunja } from "unsaturated/now";
-import {
-  Activity,
-  ChevronRight,
-  HardDrive,
-  KeyRound,
-  Loader2,
-} from "lucide-react";
+import { Activity, HardDrive, KeyRound, Loader2 } from "lucide-react";
 import {
   subscribeProcessDetail,
   subscribeProcesses,
@@ -29,6 +23,7 @@ import {
   workbenchTabBunja,
 } from "../../../../state/workbench.ts";
 import { Button } from "../../../ui/button.tsx";
+import { Breadcrumb } from "../../../ui/breadcrumb.tsx";
 import {
   PropertyList,
   PropertyListItem,
@@ -63,24 +58,6 @@ const emptyWorkspaceClassName = [
   "[&_h2]:m-0 [&_h2]:text-[#303642] [&_h2]:text-[18px] [&_h2]:tracking-[0]",
   "[&_p]:m-0 [&_p]:max-w-[360px] [&_p]:text-center [&_p]:leading-[1.45]",
 ].join(" ");
-const processesBreadcrumbClassName = [
-  "flex h-[28px] min-h-[28px] flex-[0_0_auto] min-w-0 items-center gap-[4px]",
-  "overflow-hidden border-b border-b-[#d8dde7] bg-[#fbfcfe] px-[10px]",
-  "[&_svg]:flex-[0_0_auto] [&_svg]:text-[#98a2b3]",
-  "[&_button]:inline-flex [&_button]:appearance-none [&_button]:cursor-pointer",
-  "[&_button]:items-center [&_button]:[font-family:inherit]",
-  "[&_button]:h-[28px] [&_button]:min-w-0 [&_button]:max-w-[180px]",
-  "[&_button]:overflow-hidden [&_button]:text-ellipsis",
-  "[&_button]:whitespace-nowrap [&_button]:rounded-[6px]",
-  "[&_button]:border-transparent [&_button]:bg-transparent",
-  "[&_button]:px-[8px] [&_button]:font-750",
-  "[&_button]:text-[#344054] [&_button:hover]:bg-[#eef3fb]",
-  "[&_span]:inline-flex [&_span]:h-[28px] [&_span]:min-w-0",
-  "[&_span]:max-w-[240px] [&_span]:items-center [&_span]:overflow-hidden",
-  "[&_span]:text-ellipsis [&_span]:whitespace-nowrap",
-  "[&_span]:px-[8px] [&_span]:font-750 [&_span]:text-[#20242d]",
-].join(" ");
-const processesBreadcrumbMutedClassName = "text-[#667085]";
 const processTableClassName = [
   "grid min-h-0 min-w-0 overflow-auto leading-[1.6]",
   "[grid-template-columns:minmax(72px,96px)_minmax(72px,96px)_minmax(180px,1fr)_minmax(104px,132px)]",
@@ -100,6 +77,7 @@ const processCellClassName = [
   "flex min-w-0 items-center overflow-hidden px-[8px]",
   "text-ellipsis whitespace-nowrap text-[#303642]",
 ].join(" ");
+const processFirstColumnClassName = "pl-[1rem]";
 const processPidCellClassName =
   `${processCellClassName} font-mono text-[#475467]`;
 const processMetaCellClassName = `${processCellClassName} text-[#667085]`;
@@ -200,23 +178,20 @@ function ProcessesBreadcrumb(
   { selectedPid, onOpenRoot }: ProcessesBreadcrumbProps,
 ) {
   return (
-    <nav className={processesBreadcrumbClassName} aria-label="Process location">
-      {selectedPid === undefined
-        ? <span>Processes</span>
-        : (
-          <button type="button" onClick={onOpenRoot}>
-            Processes
-          </button>
-        )}
-      <ChevronRight size={14} />
-      <span
-        className={selectedPid === undefined
-          ? processesBreadcrumbMutedClassName
-          : undefined}
-      >
-        {selectedPid === undefined ? "Overview" : `PID ${selectedPid}`}
-      </span>
-    </nav>
+    <Breadcrumb
+      ariaLabel="Process location"
+      className="flex-[0_0_auto] border-b border-b-[#d8dde7] bg-[#fbfcfe] px-[0.5rem]"
+      items={[
+        {
+          label: "Processes",
+          onClick: selectedPid === undefined ? undefined : onOpenRoot,
+        },
+        {
+          label: selectedPid === undefined ? "Overview" : `PID ${selectedPid}`,
+          muted: selectedPid === undefined,
+        },
+      ]}
+    />
   );
 }
 
@@ -330,7 +305,10 @@ function ProcessListView(
         role="grid"
         aria-label="Processes"
       >
-        <div className={processHeadClassName} role="columnheader">
+        <div
+          className={`${processHeadClassName} ${processFirstColumnClassName}`}
+          role="columnheader"
+        >
           PID
         </div>
         <div className={processHeadClassName} role="columnheader">
@@ -355,7 +333,11 @@ function ProcessListView(
               role="row"
               onDoubleClick={() => onOpenProcess(process)}
             >
-              <span className={processPidCellClassName}>{process.pid}</span>
+              <span
+                className={`${processPidCellClassName} ${processFirstColumnClassName}`}
+              >
+                {process.pid}
+              </span>
               <span className={processPidCellClassName}>
                 {process.ppid ?? ""}
               </span>

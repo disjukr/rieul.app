@@ -62,16 +62,16 @@ const SHELL_MENU_TRIGGER_GAP = 0;
 const FILES_MENU_WIDTH = 176;
 
 const toolMenuClassName =
-  "grid content-start gap-0 min-h-0 overflow-visible px-[8px] py-[12px]";
+  "grid content-start gap-0 min-h-0 overflow-visible px-[0.5rem] py-[1rem]";
 const toolItemFrameClassName = "h-[48px] box-border py-[2px]";
 const toolItemRowClassName = [
   "relative grid h-[48px] box-border py-[2px]",
   "[grid-template-columns:minmax(0,1fr)_36px]",
 ].join(" ");
 const toolItemClassName = [
-  "inline-flex appearance-none items-center justify-start gap-[8px]",
-  "w-full h-full min-h-0 border-0 rounded-[6px]",
-  "cursor-pointer bg-transparent px-[10px] text-left text-[#475467] [font-family:inherit]",
+  "inline-flex appearance-none items-center justify-start gap-[0.5rem]",
+  "w-full h-full min-h-0 border-0 rounded-[0.5rem]",
+  "cursor-pointer bg-transparent px-[0.5rem] text-left text-[#475467] [font-family:inherit]",
   "hover:bg-[#eef3fb] hover:text-[#20242d]",
   "[&.active]:bg-[#eef3fb] [&.active]:text-[#20242d]",
   "disabled:opacity-56",
@@ -80,21 +80,21 @@ const toolItemClassName = [
 ].join(" ");
 const terminalMainButtonClassName = [
   toolItemClassName,
-  "rounded-r-[3px]",
+  "rounded-r-[0.25rem]",
 ].join(" ");
 const terminalDropdownButtonClassName = [
   "inline-flex appearance-none items-center justify-center",
-  "h-full min-h-0 w-[36px] min-w-[36px] p-0 rounded-l-[3px] rounded-r-[6px]",
+  "h-full min-h-0 w-[36px] min-w-[36px] p-0 rounded-l-[0.25re,] rounded-r-[0.5rem]",
   "cursor-pointer border-0 bg-transparent text-[#475467] [font-family:inherit]",
   "hover:bg-[#eef3fb] hover:text-[#20242d]",
   "[&.active]:bg-[#eef3fb] [&.active]:text-[#20242d]",
 ].join(" ");
 const shellMenuItemClassName = [
-  "!grid min-w-0 grid-cols-[minmax(0,1fr)_auto] !gap-[8px]",
+  "!grid min-w-0 grid-cols-[minmax(0,1fr)_auto] !gap-[0.5rem]",
 ].join(" ");
 const shellMenuDefaultItemClassName = "bg-[#eef3fb]";
 const shellMenuItemLabelClassName =
-  "flex min-w-0 items-center gap-[6px] text-left";
+  "flex min-w-0 items-center gap-[0.5rem] text-left";
 const shellMenuShellNameClassName =
   "block min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-left";
 const shellMenuDefaultBadgeClassName = [

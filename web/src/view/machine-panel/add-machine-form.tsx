@@ -3,16 +3,16 @@ import { Plus } from "lucide-react";
 import { Button } from "../ui/button.tsx";
 
 const machineModalFormClassName = [
-  "grid gap-[12px] p-[16px]",
-  "[&_label]:grid [&_label]:gap-[6px] [&_label]:min-w-0",
-  "[&_label_span]:text-[#475467] [&_label_span]:text-[12px] [&_label_span]:font-700",
+  "grid gap-[0.5rem] p-[16px]",
+  "[&_label]:grid [&_label]:gap-[0.5rem] [&_label]:min-w-0",
+  "[&_label_span]:text-[#475467] [&_label_span]:text-[1rem] [&_label_span]:font-700",
   "[&_input]:min-w-0 [&_input]:min-h-[34px] [&_input]:border [&_input]:border-[#c7ceda]",
-  "[&_input]:rounded-[6px] [&_input]:bg-white [&_input]:px-[10px] [&_input]:text-[#20242d]",
+  "[&_input]:rounded-[0.5rem] [&_input]:bg-white [&_input]:px-[1rem] [&_input]:text-[#20242d]",
   "[&_input]:[font:inherit] [&_input:focus]:outline [&_input:focus]:outline-2",
   "[&_input:focus]:outline-[#4f8cff] [&_input:focus]:outline-offset-1",
 ].join(" ");
-const fieldErrorClassName = "text-[#b42318] text-[12px]";
-const modalActionsClassName = "flex justify-end gap-[8px]";
+const fieldErrorClassName = "text-[#b42318] text-[1rem]";
+const modalActionsClassName = "flex justify-end gap-[0.5rem]";
 
 interface AddMachineFormProps {
   baseUrl: string;

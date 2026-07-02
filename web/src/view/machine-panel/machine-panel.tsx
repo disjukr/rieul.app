@@ -41,16 +41,16 @@ const machinePanelInnerClassName = [
   "[grid-template-rows:auto_minmax(0,1fr)]",
 ].join(" ");
 const machinePanelSummaryClassName =
-  "grid h-[48px] min-h-[48px] border-b border-b-[#d8dde7] px-[8px] py-0";
+  "grid h-[48px] min-h-[48px] border-b border-b-[#d8dde7] px-[0.5rem]";
 const machineTitleClassName = [
   "flex items-center min-w-0",
   "[&_h1]:flex [&_h1]:items-center [&_h1]:m-0 [&_h1]:min-w-0",
 ].join(" ");
 const machineTitleButtonClassName = [
-  "machine-title-button inline-flex appearance-none items-center justify-start gap-[0.5em]",
+  "machine-title-button inline-flex appearance-none items-center justify-start gap-[0.5rem]",
   "h-[48px] max-w-full min-h-[48px] overflow-visible",
   "cursor-pointer border-0 rounded-[6px] bg-transparent text-[#20242d]",
-  "px-[8px] text-[1.25rem] font-700 leading-none tracking-[0] [font-family:inherit]",
+  "px-[0.5rem] text-[1.25rem] font-700 leading-none tracking-[0] [font-family:inherit]",
   "hover:bg-[#eef2f7] [&_svg]:flex-[0_0_auto]",
 ].join(" ");
 const machineTitleTextClassName = [

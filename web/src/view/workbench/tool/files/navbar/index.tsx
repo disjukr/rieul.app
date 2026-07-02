@@ -12,12 +12,12 @@ import { Button } from "../../../../ui/button.tsx";
 import { PathCrumbs } from "./path-crumbs.tsx";
 
 const pathToolbarClassName = [
-  "grid [grid-template-columns:auto_minmax(0,1fr)] gap-[4px]",
+  "grid [grid-template-columns:auto_minmax(0,1fr)] gap-[0.5rem]",
   "relative items-center h-[2em] min-h-[2em] box-border overflow-visible",
-  "border-b border-b-[#d8dde7] bg-white px-0 py-0 leading-[1.6]",
+  "border-b border-b-[#d8dde7] bg-white px-[0.5rem] py-0 leading-[1.6]",
 ].join(" ");
 const pathToolbarButtonGroupClassName =
-  "inline-flex h-[2rem] items-center box-border p-[2px]";
+  "inline-flex h-[2rem] items-center box-border py-[2px]";
 const pathToolbarButtonClassName = [
   "!w-[2em] !min-w-[2em] !h-full !min-h-0 !box-border !p-0",
 ].join(" ");

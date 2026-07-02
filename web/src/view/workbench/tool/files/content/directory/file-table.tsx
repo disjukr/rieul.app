@@ -60,7 +60,9 @@ const fileCellBaseClassName = [
   "file-cell flex items-center min-w-0 overflow-hidden text-[#303642]",
   "px-[8px] text-ellipsis whitespace-nowrap",
 ].join(" ");
-const fileNameCellClassName = `${fileCellBaseClassName} name gap-[6px]`;
+const fileFirstColumnClassName = "pl-[1rem]";
+const fileNameCellClassName =
+  `${fileCellBaseClassName} ${fileFirstColumnClassName} name gap-[6px]`;
 const fileMetaCellClassName = `${fileCellBaseClassName} text-[#667085]`;
 const fileNameClassName =
   "min-w-0 overflow-hidden text-ellipsis whitespace-nowrap leading-[1.6]";
@@ -130,7 +132,10 @@ export function FileTable(
       aria-label="Files"
       onContextMenu={openFolderContextMenu}
     >
-      <div className={`${fileHeadClassName} name`} data-file-table-head>
+      <div
+        className={`${fileHeadClassName} ${fileFirstColumnClassName} name`}
+        data-file-table-head
+      >
         Name
       </div>
       <div className={`${fileHeadClassName} kind`} data-file-table-head>

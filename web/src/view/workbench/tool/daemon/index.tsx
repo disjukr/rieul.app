@@ -32,6 +32,7 @@ import {
   workbenchTabBunja,
 } from "../../../../state/workbench.ts";
 import { Button } from "../../../ui/button.tsx";
+import { Breadcrumb, type BreadcrumbItem } from "../../../ui/breadcrumb.tsx";
 import {
   PropertyList,
   PropertyListItem,
@@ -47,42 +48,25 @@ const daemonToolClassName = [
   "overflow-hidden bg-white",
   "text-[#20242d]",
 ].join(" ");
-const daemonContentClassName = "min-h-0 overflow-auto px-[18px] py-[16px]";
+const daemonContentClassName = "min-h-0 overflow-auto p-[1rem]";
 const statusPillClassName = [
-  "inline-flex flex-[0_0_auto] items-center gap-[6px] min-w-0 rounded-[999px]",
-  "bg-[#eef3fb] px-[9px] py-[4px] text-[12px] font-700 text-[#344054]",
+  "inline-flex flex-[0_0_auto] items-center gap-[0.5rem] min-w-0 rounded-[999px]",
+  "bg-[#eef3fb] px-[9px] py-[4px] text-[1rem] font-700 text-[#344054]",
   "[&_svg]:flex-[0_0_auto]",
   "[&.reachable]:bg-[#ecfdf3] [&.reachable]:text-[#027a48]",
   "[&.offline]:bg-[#fff1f3] [&.offline]:text-[#b42318]",
 ].join(" ");
 const daemonHeaderClassName = [
-  "flex h-[28px] min-h-[28px] min-w-0 items-center justify-between gap-[12px]",
-  "overflow-hidden border-b border-b-[#d8dde7] bg-[#fbfcfe] px-[10px]",
+  "flex h-[2rem] min-h-[2rem] min-w-0 items-center justify-between gap-[1rem]",
+  "overflow-hidden border-b border-b-[#d8dde7] bg-[#fbfcfe] px-[0.5rem]",
 ].join(" ");
-const daemonBreadcrumbClassName = [
-  "flex h-[28px] min-h-[28px] flex-[1_1_auto] min-w-0 items-center gap-[4px] overflow-hidden",
-  "[&_svg]:flex-[0_0_auto] [&_svg]:text-[#98a2b3]",
-  "[&_button]:inline-flex [&_button]:appearance-none [&_button]:cursor-pointer",
-  "[&_button]:items-center [&_button]:[font-family:inherit]",
-  "[&_button]:h-[28px] [&_button]:min-w-0 [&_button]:max-w-[180px]",
-  "[&_button]:overflow-hidden [&_button]:text-ellipsis",
-  "[&_button]:whitespace-nowrap [&_button]:rounded-[6px]",
-  "[&_button]:border-transparent [&_button]:bg-transparent",
-  "[&_button]:px-[8px] [&_button]:font-750",
-  "[&_button]:text-[#344054] [&_button:hover]:bg-[#eef3fb]",
-  "[&_span]:inline-flex [&_span]:h-[28px] [&_span]:min-w-0",
-  "[&_span]:max-w-[240px] [&_span]:items-center [&_span]:overflow-hidden",
-  "[&_span]:text-ellipsis [&_span]:whitespace-nowrap",
-  "[&_span]:px-[8px] [&_span]:font-750 [&_span]:text-[#20242d]",
-].join(" ");
-const daemonBreadcrumbMutedClassName = "text-[#667085]";
-const summaryNoteClassName = "text-[12px] text-[#667085]";
+const summaryNoteClassName = "text-[#667085]";
 const procSectionClassName = "mt-[18px] min-w-0";
 const procSectionTitleClassName =
-  "mb-[8px] text-[12px] font-800 uppercase text-[#667085]";
+  "mb-[8px] text-[1rem] font-800 uppercase text-[#667085]";
 const sectionTitleButtonClassName = [
-  "mb-[8px] inline-flex h-[24px] appearance-none items-center gap-[3px] rounded-[6px]",
-  "cursor-pointer border-transparent bg-transparent px-[4px] text-[12px]",
+  "mb-[8px] inline-flex h-[24px] appearance-none items-center gap-[3px] rounded-[0.5rem]",
+  "cursor-pointer border-transparent bg-transparent px-[4px] text-[1rem]",
   "font-800 uppercase text-[#667085] [font-family:inherit]",
   "hover:bg-[#eef3fb] hover:text-[#344054]",
   "[&_svg]:flex-[0_0_auto]",
@@ -90,10 +74,10 @@ const sectionTitleButtonClassName = [
 const clientsSectionClassName = "mt-[18px] min-w-0";
 const clientOverviewCardClassName = [
   "min-w-0 rounded-[8px] border border-[#d8dde7] bg-[#fbfcfe]",
-  "grid gap-[8px] px-[12px] py-[10px] text-[13px] text-[#667085]",
+  "grid gap-[8px] px-[1rem] py-[1rem] text-[13px] text-[#667085]",
 ].join(" ");
 const clientOverviewCurrentButtonClassName = [
-  "grid min-w-0 appearance-none gap-[3px] rounded-[6px] px-[8px] py-[7px] text-left",
+  "grid min-w-0 appearance-none gap-[3px] rounded-[0.5rem] px-[8px] py-[7px] text-left",
   "cursor-pointer text-[#344054] hover:bg-[#eef3fb]",
   "[font-family:inherit]",
   "[&_strong]:min-w-0 [&_strong]:overflow-hidden [&_strong]:text-ellipsis",
@@ -102,19 +86,19 @@ const clientOverviewCurrentButtonClassName = [
   "[&_span]:whitespace-nowrap [&_span]:text-[11px] [&_span]:text-[#667085]",
 ].join(" ");
 const clientOverviewMetaClassName =
-  "px-[8px] text-[12px] font-650 text-[#667085]";
+  "px-[8px] text-[1rem] font-650 text-[#667085]";
 const clientOverviewMetaButtonClassName = [
   "inline min-h-0 appearance-none justify-self-start gap-0 border-0 rounded-0",
-  "cursor-pointer bg-transparent p-0 text-left text-[12px] font-650 text-[#667085]",
+  "cursor-pointer bg-transparent p-0 text-left text-[1rem] font-650 text-[#667085]",
   "[font-family:inherit]",
   "hover:border-transparent hover:bg-transparent hover:text-[#344054]",
 ].join(" ");
 const clientListClassName = [
-  "grid content-start gap-[6px] min-w-0 rounded-[8px]",
-  "border border-[#d8dde7] bg-[#fbfcfe] p-[6px]",
+  "grid content-start gap-[0.5rem] min-w-0 rounded-[8px]",
+  "border border-[#d8dde7] bg-[#fbfcfe] p-[0.5rem]",
 ].join(" ");
 const clientButtonClassName = [
-  "grid min-w-0 appearance-none gap-[3px] rounded-[6px] px-[10px] py-[8px] text-left",
+  "grid min-w-0 appearance-none gap-[3px] rounded-[0.5rem] px-[1rem] py-[8px] text-left",
   "cursor-pointer text-[#344054] hover:bg-[#eef3fb]",
   "[font-family:inherit]",
   "[&.selected]:bg-[#e8eef7] [&.selected]:text-[#20242d]",
@@ -123,63 +107,62 @@ const clientButtonClassName = [
   "[&_span]:min-w-0 [&_span]:overflow-hidden [&_span]:text-ellipsis",
   "[&_span]:whitespace-nowrap [&_span]:text-[11px] [&_span]:text-[#667085]",
 ].join(" ");
-const clientNameRowClassName = "flex min-w-0 items-center gap-[6px]";
+const clientNameRowClassName = "flex min-w-0 items-center gap-[0.5rem]";
 const currentClientBadgeClassName = [
-  "flex-[0_0_auto] rounded-[999px] bg-[#dff6e7] px-[6px] py-[1px]",
-  "text-[10px] not-italic font-800 text-[#027a48]",
+  "flex-[0_0_auto] rounded-[999px] bg-[#dff6e7] px-[0.5rem] py-[1px]",
+  "text-[1rem] not-italic font-800 text-[#027a48]",
 ].join(" ");
 const clientInfoCurrentClientBadgeClassName = [
-  "flex-[0_0_auto] rounded-[999px] bg-[#dff6e7] px-[6px] py-[1px]",
-  "text-[10px] not-italic text-[#027a48]",
+  "flex-[0_0_auto] rounded-[999px] bg-[#dff6e7] px-[0.5rem] py-[1px]",
+  "text-[1rem] not-italic text-[#027a48]",
 ].join(" ");
 const clientDetailPageClassName = "grid min-w-0 gap-[14px]";
 const clientDetailSectionClassName = [
   "min-w-0 overflow-hidden rounded-[8px] border border-[#d8dde7] bg-white",
 ].join(" ");
 const clientDetailSectionHeaderClassName = [
-  "flex min-h-[38px] min-w-0 items-center justify-between gap-[10px]",
-  "border-b border-b-[#edf0f5] bg-[#fbfcfe] px-[12px] py-[9px]",
+  "flex min-h-[48px] min-w-0 items-center justify-between gap-[1rem]",
+  "border-b border-b-[#d8dde7] bg-[#fbfcfe] px-[1rem] py-[9px]",
   "[&_h2]:m-0 [&_h2]:min-w-0 [&_h2]:overflow-hidden",
   "[&_h2]:text-ellipsis [&_h2]:whitespace-nowrap",
-  "[&_h2]:text-[12px] [&_h2]:font-800 [&_h2]:uppercase",
+  "[&_h2]:text-[1rem] [&_h2]:font-800 [&_h2]:uppercase",
   "[&_h2]:text-[#667085]",
-  "[&_span]:flex-[0_0_auto] [&_span]:text-[12px]",
+  "[&_span]:flex-[0_0_auto] [&_span]:text-[1rem]",
   "[&_span]:font-650 [&_span]:text-[#667085]",
 ].join(" ");
 const clientIdValueClassName = "flex min-w-0 flex-wrap items-center gap-[7px]";
-const credentialExpiryRemainingClassName = "text-[12px] text-[#667085]";
+const credentialExpiryRemainingClassName = "text-[1rem] text-[#667085]";
 const credentialCreatedAgeClassName = credentialExpiryRemainingClassName;
-const renewCredentialButtonClassName = "!min-h-[28px] !px-[9px] !text-[12px]";
-const renewCredentialMessageClassName = "text-[12px] text-[#667085]";
-const renewCredentialErrorClassName = "text-[12px] text-[#b42318]";
+const renewCredentialButtonClassName = "!min-h-[28px] !px-[9px] !text-[1rem]";
+const renewCredentialMessageClassName = "text-[1rem] text-[#667085]";
+const renewCredentialErrorClassName = "text-[1rem] text-[#b42318]";
 const terminalSessionListClassName = [
   "grid min-w-0",
   "[&_article]:grid [&_article]:min-w-0",
   "[&_article]:grid-cols-[minmax(0,1fr)_auto_auto]",
-  "[&_article]:gap-x-[12px] [&_article]:gap-y-[4px]",
+  "[&_article]:gap-x-[1rem] [&_article]:gap-y-[4px]",
   "[&_article]:items-center",
   "[&_article]:border-b [&_article]:border-b-[#edf0f5]",
-  "[&_article]:px-[12px] [&_article]:py-[10px]",
+  "[&_article]:px-[1rem] [&_article]:py-[1rem]",
   "[&_article:last-child]:border-b-0",
   "[&_strong]:min-w-0 [&_strong]:overflow-hidden [&_strong]:text-ellipsis",
-  "[&_strong]:whitespace-nowrap [&_strong]:text-[13px] [&_strong]:font-750",
-  "[&_span]:text-[12px] [&_span]:text-[#667085]",
+  "[&_strong]:whitespace-nowrap [&_strong]:font-750",
+  "[&_span]:text-[#667085]",
   "[&_small]:col-span-3 [&_small]:min-w-0 [&_small]:[overflow-wrap:anywhere]",
-  "[&_small]:text-[12px] [&_small]:text-[#667085]",
+  "[&_small]:text-[1rem] [&_small]:text-[#667085]",
 ].join(" ");
 const terminalSessionActionsClassName =
-  "flex min-w-0 items-center justify-end gap-[6px]";
+  "flex min-w-0 items-center justify-end gap-[0.5rem]";
 const terminalSessionCloseButtonClassName =
-  "!min-h-[28px] !px-[9px] !text-[12px]";
-const clientDetailStateClassName =
-  "px-[12px] py-[11px] text-[13px] text-[#667085]";
+  "!min-h-[24px] !px-[1rem] !text-[1rem]";
+const clientDetailStateClassName = "p-[1rem] text-[#667085]";
 const procTableClassName = [
   "grid overflow-hidden border border-[#d8dde7] rounded-[8px]",
   "bg-white",
   "[&_div]:grid [&_div]:grid-cols-[72px_minmax(0,1fr)]",
   "[&_div]:min-w-0 [&_div]:border-b [&_div]:border-b-[#edf0f5]",
   "[&_div:last-child]:border-b-0",
-  "[&_span]:min-w-0 [&_span]:px-[12px] [&_span]:py-[8px]",
+  "[&_span]:min-w-0 [&_span]:px-[1rem] [&_span]:py-[8px]",
   "[&_span]:text-[13px] [&_span]:[overflow-wrap:anywhere]",
   "[&_span:first-child]:bg-[#fbfcfe] [&_span:first-child]:font-700",
   "[&_span:first-child]:text-[#667085]",
@@ -499,40 +482,29 @@ function DaemonBreadcrumb(
   }: DaemonBreadcrumbProps,
 ) {
   const clientLabel = clientDetailId || "Client detail";
+  const items: BreadcrumbItem[] = [
+    {
+      label: "Daemon",
+      onClick: clientsPageOpen ? onOpenRoot : undefined,
+    },
+  ];
+  if (clientDetailId) {
+    items.push(
+      { label: "Clients", onClick: onOpenClients },
+      { label: clientLabel, title: clientLabel },
+    );
+  } else if (clientsPageOpen) {
+    items.push({ label: "Clients" });
+  } else {
+    items.push({ label: "Overview", muted: true });
+  }
+
   return (
-    <nav className={daemonBreadcrumbClassName} aria-label="Daemon location">
-      {clientsPageOpen
-        ? (
-          <button type="button" onClick={onOpenRoot}>
-            Daemon
-          </button>
-        )
-        : <span>Daemon</span>}
-      {clientDetailId
-        ? (
-          <>
-            <ChevronRight size={14} />
-            <button type="button" onClick={onOpenClients}>
-              Clients
-            </button>
-            <ChevronRight size={14} />
-            <span title={clientLabel}>{clientLabel}</span>
-          </>
-        )
-        : clientsPageOpen
-        ? (
-          <>
-            <ChevronRight size={14} />
-            <span>Clients</span>
-          </>
-        )
-        : (
-          <>
-            <ChevronRight size={14} />
-            <span className={daemonBreadcrumbMutedClassName}>Overview</span>
-          </>
-        )}
-    </nav>
+    <Breadcrumb
+      ariaLabel="Daemon location"
+      className="flex-[1_1_auto]"
+      items={items}
+    />
   );
 }
 
@@ -1149,7 +1121,7 @@ interface InlineStateProps {
 
 function InlineState({ message }: InlineStateProps) {
   return (
-    <div className="min-w-0 rounded-[8px] border border-[#d8dde7] bg-[#fbfcfe] px-[12px] py-[10px] text-[13px] text-[#667085]">
+    <div className="min-w-0 rounded-[8px] border border-[#d8dde7] bg-[#fbfcfe] px-[1rem] py-[1rem] text-[13px] text-[#667085]">
       {message}
     </div>
   );

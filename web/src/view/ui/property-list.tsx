@@ -2,28 +2,33 @@ import type { HTMLAttributes, ReactNode } from "react";
 import { className as joinClassName } from "../class-name.ts";
 
 const propertyListClassName = [
-  "@container m-0 grid min-w-0 grid-cols-1 gap-[1px] overflow-hidden",
-  "rounded-[8px] border border-[#d8dde7] bg-[#d8dde7]",
+  "@container m-0 grid min-w-0 grid-cols-1 overflow-hidden",
+  "rounded-[0.5rem] border border-[#d8dde7] bg-white",
+  "[&>div+div>dt]:shadow-[inset_0_1px_0_#d8dde7]",
+  "@[520px]:[&>div+div>dd]:[box-shadow:inset_1px_0_0_#d8dde7,inset_0_1px_0_#d8dde7]",
 ].join(" ");
 
 const propertyListItemClassName = [
-  "grid min-w-0 gap-[1px] bg-[#d8dde7]",
+  "grid min-w-0 bg-white",
   "@[520px]:grid-cols-[minmax(120px,180px)_minmax(0,1fr)]",
-  "[&_dt]:m-0 [&_dt]:min-w-0 [&_dt]:bg-[#fbfcfe]",
-  "[&_dt]:px-[14px] [&_dt]:py-[10px] [&_dt]:text-[12px]",
+  "[&_dt]:m-0 [&_dt]:box-border [&_dt]:min-w-0 [&_dt]:bg-[#fbfcfe]",
+  "[&_dt]:px-[1rem] [&_dt]:py-[0.5rem] [&_dt]:text-[12px]",
   "[&_dt]:font-700 [&_dt]:text-[#667085]",
+  "@[520px]:[&_dt]:py-[1rem]",
+  "[&_dd]:shadow-[inset_0_1px_0_#d8dde7]",
+  "@[520px]:[&_dd]:shadow-[inset_1px_0_0_#d8dde7]",
 ].join(" ");
 
 const propertyListItemWhiteClassName = "[&_dt]:!bg-white";
 const propertyListValueCellClassName = [
   "m-0 box-border grid min-w-0 w-full self-stretch justify-self-stretch",
-  "justify-items-start gap-[7px] bg-white px-[14px] py-[10px]",
-  "text-[14px] text-[#20242d] [overflow-wrap:anywhere]",
+  "justify-items-start gap-[7px] bg-white p-[1rem]",
+  "text-[1rem] text-[#20242d] [overflow-wrap:anywhere]",
 ].join(" ");
 
 const propertyValueClassName = [
-  "inline-block max-w-full rounded-[4px] border border-[#d8dde7]",
-  "bg-[#f4f6fa] px-[4px] py-[1px] font-mono text-[0.92em]",
+  "inline-block max-w-full rounded-[0.25rem] border border-[#d8dde7]",
+  "bg-[#f4f6fa] px-[0.5rem] font-mono",
   "leading-[1.4] text-[#20242d] [overflow-wrap:anywhere]",
 ].join(" ");
 
