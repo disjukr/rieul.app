@@ -11,12 +11,26 @@ const machinePanelMinWidth = 212;
 const machinePanelMaxWidth = 420;
 const machinePanelTransitionMs = 180;
 const minimumWorkbenchWidth = 360;
-const machineRailWidth = 64;
+const machineRailWidth = 48;
 const machinePanelCollapsedStorageKey = "wgo.machine-panel-collapsed.v1";
+const machinePanelWidthStorageKey = "wgo.machine-panel-width.v1";
+
+type MachinePanelWidthUpdate = number | ((width: number) => number);
 
 export const layoutBunja = bunja(() => {
   const store = bunja.use(JotaiStoreScope);
-  const machinePanelWidthAtom = atom(264);
+  const storedMachinePanelWidthAtom = atomWithStorage(
+    machinePanelWidthStorageKey,
+    264,
+  );
+  const machinePanelWidthAtom = atom(
+    (get) => clampMachinePanelWidth(get(storedMachinePanelWidthAtom)),
+    (get, set, update: MachinePanelWidthUpdate) => {
+      const current = get(storedMachinePanelWidthAtom);
+      const next = typeof update === "function" ? update(current) : update;
+      set(storedMachinePanelWidthAtom, clampMachinePanelWidth(next));
+    },
+  );
   const machinePanelCollapsedAtom = atomWithStorage(
     machinePanelCollapsedStorageKey,
     false,

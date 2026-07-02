@@ -25,12 +25,12 @@ interface MachineRailProps {
 }
 
 const machineRailClassName = [
-  "[grid-row:1/-1] grid [grid-template-rows:72px_minmax(0,1fr)_auto]",
+  "[grid-column:1] [grid-row:2] grid [grid-template-rows:48px_minmax(0,1fr)_auto]",
   "justify-items-center gap-0 min-h-0 overflow-hidden bg-[#242832] p-0",
 ].join(" ");
 const railBrandClassName = [
-  "flex items-center justify-center w-[48px] h-[72px] overflow-visible",
-  "[&_img]:block [&_img]:w-[46px] [&_img]:h-[46px] [&_img]:object-contain",
+  "flex items-center justify-center w-[48px] h-[48px] overflow-visible",
+  "[&_img]:block [&_img]:w-[48px] [&_img]:h-[48px] [&_img]:object-contain",
 ].join(" ");
 const railListClassName = [
   "grid content-start justify-items-center gap-0",

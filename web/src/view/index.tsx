@@ -16,7 +16,7 @@ import { className } from "./class-name.ts";
 const appShellClassName = [
   "app-shell grid h-full min-h-0 overflow-hidden bg-[#242832]",
   "[grid-template-columns:48px_var(--machine-panel-width,264px)_minmax(0,1fr)]",
-  "[grid-template-rows:auto_minmax(0,1fr)]",
+  "[grid-template-rows:2em_minmax(0,1fr)]",
   "[&.machine-panel-transitioning]:[transition:grid-template-columns_180ms_ease]",
   "max-[980px]:[grid-template-columns:48px_var(--machine-panel-width,236px)_minmax(0,1fr)]",
   "max-[680px]:[grid-template-columns:48px_var(--machine-panel-width,212px)_minmax(0,1fr)]",

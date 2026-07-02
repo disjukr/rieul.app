@@ -1,5 +1,5 @@
 import React from "react";
-import { ChevronDown, WifiOff } from "lucide-react";
+import { ChevronDown, Loader2, Wifi, WifiOff } from "lucide-react";
 import type { AvailableShellInfo } from "../../protocol/generated/rpc.ts";
 import type { Machine } from "../../state/machines.ts";
 import type { ConnectionState } from "../../state/types.ts";
@@ -47,7 +47,7 @@ const machineTitleClassName = [
   "[&_h1]:flex [&_h1]:items-center [&_h1]:m-0 [&_h1]:min-w-0",
 ].join(" ");
 const machineTitleButtonClassName = [
-  "machine-title-button inline-flex appearance-none items-center justify-start gap-[5px]",
+  "machine-title-button inline-flex appearance-none items-center justify-start gap-[0.5em]",
   "h-[48px] max-w-full min-h-[48px] overflow-visible",
   "cursor-pointer border-0 rounded-[6px] bg-transparent text-[#20242d]",
   "px-[8px] text-[1.25rem] font-700 leading-none tracking-[0] [font-family:inherit]",
@@ -57,8 +57,7 @@ const machineTitleTextClassName = [
   "machine-title-text block flex-[1_1_auto] min-w-0 overflow-hidden",
   "leading-[1.25] text-ellipsis whitespace-nowrap",
 ].join(" ");
-const machineTitleConnectionIndicatorClassName =
-  "flex-[0_0_auto] text-[#d92d20] [stroke-width:2.4]";
+const machineTitleStatusIconClassName = "flex-[0_0_auto] [stroke-width:2.4]";
 const machinePanelResizerClassName = [
   "absolute top-0 right-[-4px] bottom-0 z-[8] w-[8px] cursor-col-resize touch-none",
   "after:content-[''] after:absolute after:top-0 after:bottom-0 after:left-[3px]",
@@ -100,7 +99,10 @@ export function MachinePanel(
                 ? (
                   <button
                     type="button"
-                    className={machineTitleButtonClassName}
+                    className={[
+                      machineTitleButtonClassName,
+                      connection.phase === "idle" ? "checking" : "",
+                    ].filter(Boolean).join(" ")}
                     onMouseDown={(event) => event.stopPropagation()}
                     onClick={(event) => onOpenMachineMenu(event, machine)}
                     title="Machine actions"
@@ -110,15 +112,7 @@ export function MachinePanel(
                     <span className={machineTitleTextClassName}>
                       {machine.name}
                     </span>
-                    {connection.phase === "offline"
-                      ? (
-                        <WifiOff
-                          size={14}
-                          className={machineTitleConnectionIndicatorClassName}
-                          aria-hidden="true"
-                        />
-                      )
-                      : null}
+                    <MachineTitleStatus connection={connection} />
                     <ChevronDown size={16} />
                   </button>
                 )
@@ -149,4 +143,37 @@ export function MachinePanel(
       />
     </aside>
   );
+}
+
+interface MachineTitleStatusProps {
+  connection: ConnectionState;
+}
+
+function MachineTitleStatus({ connection }: MachineTitleStatusProps) {
+  switch (connection.phase) {
+    case "reachable":
+      return (
+        <Wifi
+          size={14}
+          className={`${machineTitleStatusIconClassName} text-[#16a34a]`}
+          aria-label="Connected"
+        />
+      );
+    case "idle":
+      return (
+        <Loader2
+          size={14}
+          className={`${machineTitleStatusIconClassName} animate-spin text-[#d68a00]`}
+          aria-label="Connecting"
+        />
+      );
+    case "offline":
+      return (
+        <WifiOff
+          size={14}
+          className={`${machineTitleStatusIconClassName} text-[#d92d20]`}
+          aria-label="Unconnected"
+        />
+      );
+  }
 }
