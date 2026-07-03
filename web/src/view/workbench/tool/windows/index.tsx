@@ -337,7 +337,7 @@ function WindowListView(
           : state.rows.map((window) => (
             <div
               key={window.windowId}
-              className={windowRowClassName}
+              className={`${windowRowClassName} !cursor-pointer`}
               role="row"
               onDoubleClick={() => onOpenWindow(window)}
             >

@@ -67,6 +67,7 @@ async fn main() -> Result<()> {
                 config.unwrap_or_else(macos_system_config_path),
                 Arc::new(MacFileService::default()),
                 None,
+                None,
                 Some(Arc::new(MacUserPairingNotifier)),
                 "macOS system daemon",
             )

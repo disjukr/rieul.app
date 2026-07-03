@@ -30,6 +30,7 @@ export enum ProcId {
   SubscribeProcessDetail = 25,
   SubscribeWindows = 26,
   SubscribeWindowDetail = 27,
+  SubscribeProcessResourcesInUse = 28,
 }
 
 export interface SubscribeWindowDetailReq {
@@ -248,6 +249,10 @@ export interface SubscribeProcessDetailReq {
   pid: number;
 }
 
+export interface SubscribeProcessResourcesInUseReq {
+  pid: number;
+}
+
 export interface ProcessInfo {
   pid: number;
   ppid?: number;
@@ -310,6 +315,34 @@ export type ProcessDetailEvent =
   | { type: "usageChanged"; usage: ProcessResourceUsage }
   | { type: "exited" };
 
+export interface ProcessResourceInUseInfo {
+  resourceId: string;
+  kind: ProcessResourceInUseKind;
+  name?: string;
+  access?: ProcessResourceInUseAccess;
+  deleted?: boolean;
+}
+
+export enum ProcessResourceInUseKind {
+  File = 1,
+  Directory = 2,
+  Device = 3,
+  NamedPipe = 4,
+  AnonymousPipe = 5,
+  Other = 6,
+}
+
+export interface ProcessResourceInUseAccess {
+  read?: boolean;
+  write?: boolean;
+  execute?: boolean;
+}
+
+export type ProcessResourcesInUseTableEvent =
+  | { type: "snapshot"; rows: ProcessResourceInUseInfo[] }
+  | { type: "patch"; removes: string[]; upserts: ProcessResourceInUseInfo[] }
+  | { type: "exited" };
+
 export type SubscribeProcessesError =
   | { type: "failed"; message: string }
   | { type: "permissionDenied"; message: string };
@@ -318,6 +351,12 @@ export type SubscribeProcessDetailError =
   | { type: "failed"; message: string }
   | { type: "notFound"; message: string }
   | { type: "permissionDenied"; message: string };
+
+export type SubscribeProcessResourcesInUseError =
+  | { type: "failed"; message: string }
+  | { type: "notFound"; message: string }
+  | { type: "permissionDenied"; message: string }
+  | { type: "unsupported"; message: string };
 
 export interface StartPairingReq {
   confirmationCode: string;
@@ -1029,6 +1068,22 @@ export const subscribeWindowDetailProc: ProcCodec<
   decodeError: decodeSubscribeWindowDetailErrorValue,
 };
 
+export const subscribeProcessResourcesInUseProc: ProcCodec<
+  SubscribeProcessResourcesInUseReq,
+  ProcessResourcesInUseTableEvent,
+  SubscribeProcessResourcesInUseError
+> = {
+  id: ProcId.SubscribeProcessResourcesInUse,
+  name: "SubscribeProcessResourcesInUse",
+  stream: "server",
+  requestType: "SubscribeProcessResourcesInUseReq",
+  responseType: "ProcessResourcesInUseTableEvent",
+  errorType: "SubscribeProcessResourcesInUseError",
+  encodeRequest: encodeSubscribeProcessResourcesInUseReqValue,
+  decodeResponse: decodeProcessResourcesInUseTableEventValue,
+  decodeError: decodeSubscribeProcessResourcesInUseErrorValue,
+};
+
 export const procs = {
   [ProcId.GetDaemonInfo]: getDaemonInfoProc,
   [ProcId.StartPairing]: startPairingProc,
@@ -1057,6 +1112,7 @@ export const procs = {
   [ProcId.SubscribeProcessDetail]: subscribeProcessDetailProc,
   [ProcId.SubscribeWindows]: subscribeWindowsProc,
   [ProcId.SubscribeWindowDetail]: subscribeWindowDetailProc,
+  [ProcId.SubscribeProcessResourcesInUse]: subscribeProcessResourcesInUseProc,
 } as const;
 
 export function encodeSubscribeWindowDetailReqValue(
@@ -3098,6 +3154,26 @@ export function decodeSubscribeProcessDetailReqValue(
   };
 }
 
+export function encodeSubscribeProcessResourcesInUseReqValue(
+  value: SubscribeProcessResourcesInUseReq,
+): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(
+    1,
+    u53(required(value.pid, "SubscribeProcessResourcesInUseReq.pid")),
+  );
+  return fields;
+}
+
+export function decodeSubscribeProcessResourcesInUseReqValue(
+  value: CborValue,
+): SubscribeProcessResourcesInUseReq {
+  const fields = expectMap(value);
+  return {
+    pid: fieldOrDefault(fields.get(1), (value) => integer(value), () => 0),
+  };
+}
+
 export function encodeProcessInfoValue(value: ProcessInfo): CborValue {
   const fields = new Map<number, CborValue>();
   fields.set(1, u53(required(value.pid, "ProcessInfo.pid")));
@@ -3615,6 +3691,167 @@ export function decodeProcessDetailEventValue(
   throw new Error(`unknown ProcessDetailEvent variant ${variantId}`);
 }
 
+export function encodeProcessResourceInUseInfoValue(
+  value: ProcessResourceInUseInfo,
+): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(
+    1,
+    text(required(value.resourceId, "ProcessResourceInUseInfo.resourceId")),
+  );
+  fields.set(
+    2,
+    encodeProcessResourceInUseKindValue(
+      required(value.kind, "ProcessResourceInUseInfo.kind"),
+    ),
+  );
+  if (value.name !== undefined) fields.set(3, text(value.name));
+  if (value.access !== undefined) {
+    fields.set(4, encodeProcessResourceInUseAccessValue(value.access));
+  }
+  if (value.deleted !== undefined) fields.set(5, bool(value.deleted));
+  return fields;
+}
+
+export function decodeProcessResourceInUseInfoValue(
+  value: CborValue,
+): ProcessResourceInUseInfo {
+  const fields = expectMap(value);
+  return {
+    resourceId: fieldOrDefault(
+      fields.get(1),
+      (value) => textValue(value),
+      () => "",
+    ),
+    kind: fieldOrDefault(
+      fields.get(2),
+      (value) => decodeProcessResourceInUseKindValue(value),
+      () => ProcessResourceInUseKind.File,
+    ),
+    name: optionalField(fields.get(3), (value) => textValue(value)),
+    access: optionalField(
+      fields.get(4),
+      (value) => decodeProcessResourceInUseAccessValue(value),
+    ),
+    deleted: optionalField(fields.get(5), (value) => boolValue(value)),
+  };
+}
+
+export function encodeProcessResourceInUseKindValue(
+  value: ProcessResourceInUseKind,
+): CborValue {
+  return integer(value);
+}
+
+export function decodeProcessResourceInUseKindValue(
+  value: CborValue,
+): ProcessResourceInUseKind {
+  const id = integer(value);
+  if (![1, 2, 3, 4, 5, 6].includes(id)) {
+    throw new Error(`unknown ProcessResourceInUseKind variant ${id}`);
+  }
+  return id as ProcessResourceInUseKind;
+}
+
+export function encodeProcessResourceInUseAccessValue(
+  value: ProcessResourceInUseAccess,
+): CborValue {
+  const fields = new Map<number, CborValue>();
+  if (value.read !== undefined) fields.set(1, bool(value.read));
+  if (value.write !== undefined) fields.set(2, bool(value.write));
+  if (value.execute !== undefined) fields.set(3, bool(value.execute));
+  return fields;
+}
+
+export function decodeProcessResourceInUseAccessValue(
+  value: CborValue,
+): ProcessResourceInUseAccess {
+  const fields = expectMap(value);
+  return {
+    read: optionalField(fields.get(1), (value) => boolValue(value)),
+    write: optionalField(fields.get(2), (value) => boolValue(value)),
+    execute: optionalField(fields.get(3), (value) => boolValue(value)),
+  };
+}
+
+export function encodeProcessResourcesInUseTableEventValue(
+  value: ProcessResourcesInUseTableEvent,
+): CborValue {
+  switch (value.type) {
+    case "snapshot": {
+      const fields = new Map<number, CborValue>();
+      fields.set(
+        1,
+        required(value.rows, "ProcessResourcesInUseTableEvent.Snapshot.rows")
+          .map((item) => encodeProcessResourceInUseInfoValue(item)),
+      );
+      return [1, fields];
+    }
+    case "patch": {
+      const fields = new Map<number, CborValue>();
+      fields.set(
+        1,
+        required(value.removes, "ProcessResourcesInUseTableEvent.Patch.removes")
+          .map((item) => text(item)),
+      );
+      fields.set(
+        2,
+        required(value.upserts, "ProcessResourcesInUseTableEvent.Patch.upserts")
+          .map((item) => encodeProcessResourceInUseInfoValue(item)),
+      );
+      return [2, fields];
+    }
+    case "exited": {
+      const fields = new Map<number, CborValue>();
+      return [3, fields];
+    }
+  }
+}
+
+export function decodeProcessResourcesInUseTableEventValue(
+  value: CborValue,
+): ProcessResourcesInUseTableEvent {
+  const [variantId, fields] = expectUnion(value);
+  switch (variantId) {
+    case 1:
+      return {
+        type: "snapshot",
+        rows: fieldOrDefault(
+          fields.get(1),
+          (value) =>
+            array(value).map((item) =>
+              decodeProcessResourceInUseInfoValue(item)
+            ),
+          () => [],
+        ),
+      };
+    case 2:
+      return {
+        type: "patch",
+        removes: fieldOrDefault(
+          fields.get(1),
+          (value) => array(value).map((item) => textValue(item)),
+          () => [],
+        ),
+        upserts: fieldOrDefault(
+          fields.get(2),
+          (value) =>
+            array(value).map((item) =>
+              decodeProcessResourceInUseInfoValue(item)
+            ),
+          () => [],
+        ),
+      };
+    case 3:
+      return {
+        type: "exited",
+      };
+  }
+  throw new Error(
+    `unknown ProcessResourcesInUseTableEvent variant ${variantId}`,
+  );
+}
+
 export function encodeSubscribeProcessesErrorValue(
   value: SubscribeProcessesError,
 ): CborValue {
@@ -3747,6 +3984,112 @@ export function decodeSubscribeProcessDetailErrorValue(
       };
   }
   throw new Error(`unknown SubscribeProcessDetailError variant ${variantId}`);
+}
+
+export function encodeSubscribeProcessResourcesInUseErrorValue(
+  value: SubscribeProcessResourcesInUseError,
+): CborValue {
+  switch (value.type) {
+    case "failed": {
+      const fields = new Map<number, CborValue>();
+      fields.set(
+        1,
+        text(
+          required(
+            value.message,
+            "SubscribeProcessResourcesInUseError.Failed.message",
+          ),
+        ),
+      );
+      return [0, fields];
+    }
+    case "notFound": {
+      const fields = new Map<number, CborValue>();
+      fields.set(
+        1,
+        text(
+          required(
+            value.message,
+            "SubscribeProcessResourcesInUseError.NotFound.message",
+          ),
+        ),
+      );
+      return [1, fields];
+    }
+    case "permissionDenied": {
+      const fields = new Map<number, CborValue>();
+      fields.set(
+        1,
+        text(
+          required(
+            value.message,
+            "SubscribeProcessResourcesInUseError.PermissionDenied.message",
+          ),
+        ),
+      );
+      return [2, fields];
+    }
+    case "unsupported": {
+      const fields = new Map<number, CborValue>();
+      fields.set(
+        1,
+        text(
+          required(
+            value.message,
+            "SubscribeProcessResourcesInUseError.Unsupported.message",
+          ),
+        ),
+      );
+      return [3, fields];
+    }
+  }
+}
+
+export function decodeSubscribeProcessResourcesInUseErrorValue(
+  value: CborValue,
+): SubscribeProcessResourcesInUseError {
+  const [variantId, fields] = expectUnion(value);
+  switch (variantId) {
+    case 0:
+      return {
+        type: "failed",
+        message: fieldOrDefault(
+          fields.get(1),
+          (value) => textValue(value),
+          () => "",
+        ),
+      };
+    case 1:
+      return {
+        type: "notFound",
+        message: fieldOrDefault(
+          fields.get(1),
+          (value) => textValue(value),
+          () => "",
+        ),
+      };
+    case 2:
+      return {
+        type: "permissionDenied",
+        message: fieldOrDefault(
+          fields.get(1),
+          (value) => textValue(value),
+          () => "",
+        ),
+      };
+    case 3:
+      return {
+        type: "unsupported",
+        message: fieldOrDefault(
+          fields.get(1),
+          (value) => textValue(value),
+          () => "",
+        ),
+      };
+  }
+  throw new Error(
+    `unknown SubscribeProcessResourcesInUseError variant ${variantId}`,
+  );
 }
 
 export function encodeStartPairingReqValue(value: StartPairingReq): CborValue {
@@ -6225,6 +6568,12 @@ function defaultSubscribeProcessDetailReq(): SubscribeProcessDetailReq {
   };
 }
 
+function defaultSubscribeProcessResourcesInUseReq(): SubscribeProcessResourcesInUseReq {
+  return {
+    pid: 0,
+  };
+}
+
 function defaultProcessInfo(): ProcessInfo {
   return {
     pid: 0,
@@ -6287,6 +6636,24 @@ function defaultProcessDetailEvent(): ProcessDetailEvent {
   };
 }
 
+function defaultProcessResourceInUseInfo(): ProcessResourceInUseInfo {
+  return {
+    resourceId: "",
+    kind: ProcessResourceInUseKind.File,
+  };
+}
+
+function defaultProcessResourceInUseAccess(): ProcessResourceInUseAccess {
+  return {};
+}
+
+function defaultProcessResourcesInUseTableEvent(): ProcessResourcesInUseTableEvent {
+  return {
+    type: "snapshot",
+    rows: [],
+  };
+}
+
 function defaultSubscribeProcessesError(): SubscribeProcessesError {
   return {
     type: "failed",
@@ -6295,6 +6662,13 @@ function defaultSubscribeProcessesError(): SubscribeProcessesError {
 }
 
 function defaultSubscribeProcessDetailError(): SubscribeProcessDetailError {
+  return {
+    type: "failed",
+    message: "",
+  };
+}
+
+function defaultSubscribeProcessResourcesInUseError(): SubscribeProcessResourcesInUseError {
   return {
     type: "failed",
     message: "",

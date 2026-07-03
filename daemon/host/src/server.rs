@@ -5,7 +5,7 @@ use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, OnceLock, RwLock};
+use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use anyhow::{bail, Context, Result};
@@ -38,19 +38,21 @@ use wgo_daemon_core::rpc::{
     CompletePairingResponse, CreateNodesReq, CreateTerminalSessionReq, DaemonEnvironment,
     DaemonInfo, DeleteMode, DeletePathsReq, DirectoryEntryKey, DirectorySubscriptionCloseReason,
     DirectoryTableEvent, FsEntry, ProcId, ProcStream, ProcessDetail, ProcessDetailEvent,
-    ProcessInfo, ProcessIoUsage, ProcessMetadata, ProcessResourceUsage, ProcessStatus,
-    ProcessesTableEvent, PurgeTrashItemsReq, ReadFileChunk, ReadFileReq, RenamePathsReq,
-    RenewClientCredentialResponse, RestoreTrashItemsReq, RootEntryKey,
-    RootsSubscriptionCloseReason, RootsTableEvent, RpcErrorCode, RpcErrorPayload, RpcHandlerFuture,
-    RpcHandlers, RpcRequest, RpcRequestDecodeError, RpcResponse, StartPairingRequest,
-    StartPairingResponse, SubscribeDirectoryReq, SubscribeProcessDetailReq,
+    ProcessInfo, ProcessIoUsage, ProcessMetadata, ProcessResourceInUseInfo, ProcessResourceUsage,
+    ProcessResourcesInUseTableEvent, ProcessStatus, ProcessesTableEvent, PurgeTrashItemsReq,
+    ReadFileChunk, ReadFileReq, RenamePathsReq, RenewClientCredentialResponse,
+    RestoreTrashItemsReq, RootEntryKey, RootsSubscriptionCloseReason, RootsTableEvent,
+    RpcErrorCode, RpcErrorPayload, RpcHandlerFuture, RpcHandlers, RpcRequest,
+    RpcRequestDecodeError, RpcResponse, StartPairingRequest, StartPairingResponse,
+    SubscribeDirectoryReq, SubscribeProcessDetailReq, SubscribeProcessResourcesInUseReq,
     SubscribeWindowDetailReq, TakeTerminalControlReq, TerminalEvent, TerminalSessionsTableEvent,
     TrashItem, TrashItemsSubscriptionCloseReason, TrashItemsTableEvent, WindowDetail,
     WindowDetailEvent, WindowInfo, WindowsTableEvent, WriteFileChunk, WriteFileReq,
     WriteTerminalInputReq, MAX_U53,
 };
 use wgo_daemon_core::traits::{
-    BoxFutureResult, FileService, ServiceError, WindowService, WriteFileChunkSource,
+    BoxFutureResult, FileService, ProcessResourcesInUseService, ServiceError, WindowService,
+    WriteFileChunkSource,
 };
 use wgo_daemon_core::wire::{
     DatagramMessage, PairedSecretCredential, ReqResMessage, RpcErrorKind, SessionAuthErrorCode,
@@ -68,6 +70,7 @@ const SCHEDULED_CERT_REFRESH_INTERVAL: Duration = Duration::from_secs(60 * 60);
 const SUBSCRIPTION_DEBOUNCE: Duration = Duration::from_millis(150);
 const PROCESSES_SUBSCRIPTION_POLL_INTERVAL: Duration = Duration::from_secs(2);
 const PROCESS_DETAIL_SUBSCRIPTION_POLL_INTERVAL: Duration = Duration::from_secs(1);
+const PROCESS_RESOURCES_IN_USE_SUBSCRIPTION_POLL_INTERVAL: Duration = Duration::from_secs(2);
 const WINDOWS_SUBSCRIPTION_POLL_INTERVAL: Duration = Duration::from_secs(1);
 const ROOTS_SUBSCRIPTION_POLL_INTERVAL: Duration = Duration::from_secs(2);
 const TRASH_SUBSCRIPTION_POLL_INTERVAL: Duration = Duration::from_secs(2);
@@ -84,6 +87,8 @@ type SharedPairingChallenge = Arc<Mutex<PairingState>>;
 type SharedRpcSessionState = Arc<Mutex<RpcSessionState>>;
 type SharedFileService = Arc<dyn FileService>;
 type SharedWindowService = Arc<dyn WindowService>;
+type SharedProcessResourcesInUseService = Arc<dyn ProcessResourcesInUseService>;
+type SharedHostRpcHandlers = Arc<HostRpcHandlers>;
 type SharedPairingNotifier = Arc<dyn PairingNotifier>;
 type SharedTerminalManager = Arc<TerminalManager>;
 type SharedTrashEvents = watch::Sender<u64>;
@@ -151,6 +156,7 @@ pub async fn run_system_server(
     config_path: PathBuf,
     files: SharedFileService,
     windows: Option<SharedWindowService>,
+    process_resources_in_use: Option<SharedProcessResourcesInUseService>,
     pairing_notifier: Option<SharedPairingNotifier>,
     log_label: &'static str,
 ) -> Result<()> {
@@ -161,6 +167,7 @@ pub async fn run_system_server(
             config_path.clone(),
             files.clone(),
             windows.clone(),
+            process_resources_in_use.clone(),
             pairing_notifier.clone(),
             log_label,
         )
@@ -185,6 +192,7 @@ async fn run_system_server_once(
     config_path: PathBuf,
     files: SharedFileService,
     windows: Option<SharedWindowService>,
+    process_resources_in_use: Option<SharedProcessResourcesInUseService>,
     pairing_notifier: Option<SharedPairingNotifier>,
     log_label: &'static str,
 ) -> Result<()> {
@@ -201,6 +209,10 @@ async fn run_system_server_once(
     let pairing_challenge = Arc::new(Mutex::new(PairingState::default()));
     let terminals = Arc::new(TerminalManager::new(shell_integration_dir(&config_path)));
     let (trash_events, _) = watch::channel(0);
+    let rpc_handlers = Arc::new(build_rpc_handlers(
+        windows.as_ref(),
+        process_resources_in_use.as_ref(),
+    ));
 
     let resolver = Arc::new(ReloadingCertResolver::new(certificate.certified_key));
     let mut server = build_reloadable_server(addr, provider.clone(), resolver.clone())?;
@@ -224,6 +236,8 @@ async fn run_system_server_once(
         let pairing_challenge = pairing_challenge.clone();
         let files = files.clone();
         let windows = windows.clone();
+        let process_resources_in_use = process_resources_in_use.clone();
+        let rpc_handlers = rpc_handlers.clone();
         let terminals = terminals.clone();
         let trash_events = trash_events.clone();
         let pairing_notifier = pairing_notifier.clone();
@@ -238,6 +252,8 @@ async fn run_system_server_once(
                 pairing_challenge,
                 files,
                 windows,
+                process_resources_in_use,
+                rpc_handlers,
                 terminals,
                 trash_events,
                 pairing_notifier,
@@ -765,6 +781,8 @@ async fn handle_request(
     pairing_challenge: SharedPairingChallenge,
     files: SharedFileService,
     windows: Option<SharedWindowService>,
+    process_resources_in_use: Option<SharedProcessResourcesInUseService>,
+    rpc_handlers: SharedHostRpcHandlers,
     terminals: SharedTerminalManager,
     trash_events: SharedTrashEvents,
     pairing_notifier: Option<SharedPairingNotifier>,
@@ -783,6 +801,8 @@ async fn handle_request(
                 pairing_challenge,
                 files,
                 windows,
+                process_resources_in_use,
+                rpc_handlers,
                 terminals,
                 trash_events,
                 pairing_notifier,
@@ -812,6 +832,8 @@ async fn run_rpc_session(
     pairing_challenge: SharedPairingChallenge,
     files: SharedFileService,
     windows: Option<SharedWindowService>,
+    process_resources_in_use: Option<SharedProcessResourcesInUseService>,
+    rpc_handlers: SharedHostRpcHandlers,
     terminals: SharedTerminalManager,
     trash_events: SharedTrashEvents,
     pairing_notifier: Option<SharedPairingNotifier>,
@@ -833,6 +855,8 @@ async fn run_rpc_session(
                 let session_state = session_state.clone();
                 let files = files.clone();
                 let windows = windows.clone();
+                let process_resources_in_use = process_resources_in_use.clone();
+                let rpc_handlers = rpc_handlers.clone();
                 let terminals = terminals.clone();
                 let trash_events = trash_events.clone();
                 let pairing_notifier = pairing_notifier.clone();
@@ -850,6 +874,8 @@ async fn run_rpc_session(
                             session_state,
                             files,
                             windows,
+                            process_resources_in_use,
+                            rpc_handlers,
                             terminals,
                             trash_events,
                             pairing_notifier,
@@ -891,48 +917,47 @@ fn handle_wire_datagram(bytes: &[u8]) -> Option<Vec<u8>> {
 type HostRpcHandlers =
     RpcHandlers<HostRpcHandler, Result<UnaryRpcOutcome>, Result<()>, Result<Vec<ReqResMessage>>>;
 
-fn rpc_handlers() -> &'static HostRpcHandlers {
-    static HANDLERS: OnceLock<HostRpcHandlers> = OnceLock::new();
-    HANDLERS.get_or_init(|| {
-        let handlers = RpcHandlers::new()
-            .get_daemon_info(HostRpcHandler::get_daemon_info_rpc)
-            .get_daemon_environment(HostRpcHandler::get_daemon_environment_rpc)
-            .start_pairing(HostRpcHandler::start_pairing_rpc)
-            .complete_pairing(HostRpcHandler::complete_pairing_rpc)
-            .renew_client_credential(HostRpcHandler::renew_client_credential_rpc)
-            .subscribe_roots(HostRpcHandler::subscribe_roots_rpc)
-            .subscribe_directory(HostRpcHandler::subscribe_directory_rpc)
-            .read_file(HostRpcHandler::read_file_rpc)
-            .write_file(HostRpcHandler::write_file_rpc)
-            .create_nodes(HostRpcHandler::create_nodes_rpc)
-            .rename_paths(HostRpcHandler::rename_paths_rpc)
-            .delete_paths(HostRpcHandler::delete_paths_rpc)
-            .create_terminal_session(HostRpcHandler::create_terminal_session_rpc)
-            .subscribe_terminal_sessions(HostRpcHandler::subscribe_terminal_sessions_rpc)
-            .subscribe_available_shells(HostRpcHandler::subscribe_available_shells_rpc)
-            .attach_terminal_session(HostRpcHandler::attach_terminal_session_rpc)
-            .take_terminal_control(HostRpcHandler::take_terminal_control_rpc)
-            .write_terminal_input(HostRpcHandler::write_terminal_input_rpc)
-            .close_terminal_session(HostRpcHandler::close_terminal_session_rpc)
-            .subscribe_clients(HostRpcHandler::subscribe_clients_rpc)
-            .subscribe_trash_items(HostRpcHandler::subscribe_trash_items_rpc)
-            .restore_trash_items(HostRpcHandler::restore_trash_items_rpc)
-            .purge_trash_items(HostRpcHandler::purge_trash_items_rpc)
-            .subscribe_processes(HostRpcHandler::subscribe_processes_rpc)
-            .subscribe_process_detail(HostRpcHandler::subscribe_process_detail_rpc);
-        register_platform_window_rpc_handlers(handlers)
-    })
-}
+fn build_rpc_handlers(
+    windows: Option<&SharedWindowService>,
+    process_resources_in_use: Option<&SharedProcessResourcesInUseService>,
+) -> HostRpcHandlers {
+    let mut handlers = RpcHandlers::new()
+        .get_daemon_info(HostRpcHandler::get_daemon_info_rpc)
+        .get_daemon_environment(HostRpcHandler::get_daemon_environment_rpc)
+        .start_pairing(HostRpcHandler::start_pairing_rpc)
+        .complete_pairing(HostRpcHandler::complete_pairing_rpc)
+        .renew_client_credential(HostRpcHandler::renew_client_credential_rpc)
+        .subscribe_roots(HostRpcHandler::subscribe_roots_rpc)
+        .subscribe_directory(HostRpcHandler::subscribe_directory_rpc)
+        .read_file(HostRpcHandler::read_file_rpc)
+        .write_file(HostRpcHandler::write_file_rpc)
+        .create_nodes(HostRpcHandler::create_nodes_rpc)
+        .rename_paths(HostRpcHandler::rename_paths_rpc)
+        .delete_paths(HostRpcHandler::delete_paths_rpc)
+        .create_terminal_session(HostRpcHandler::create_terminal_session_rpc)
+        .subscribe_terminal_sessions(HostRpcHandler::subscribe_terminal_sessions_rpc)
+        .subscribe_available_shells(HostRpcHandler::subscribe_available_shells_rpc)
+        .attach_terminal_session(HostRpcHandler::attach_terminal_session_rpc)
+        .take_terminal_control(HostRpcHandler::take_terminal_control_rpc)
+        .write_terminal_input(HostRpcHandler::write_terminal_input_rpc)
+        .close_terminal_session(HostRpcHandler::close_terminal_session_rpc)
+        .subscribe_clients(HostRpcHandler::subscribe_clients_rpc)
+        .subscribe_trash_items(HostRpcHandler::subscribe_trash_items_rpc)
+        .restore_trash_items(HostRpcHandler::restore_trash_items_rpc)
+        .purge_trash_items(HostRpcHandler::purge_trash_items_rpc)
+        .subscribe_processes(HostRpcHandler::subscribe_processes_rpc)
+        .subscribe_process_detail(HostRpcHandler::subscribe_process_detail_rpc);
 
-#[cfg(windows)]
-fn register_platform_window_rpc_handlers(handlers: HostRpcHandlers) -> HostRpcHandlers {
-    handlers
-        .subscribe_windows(HostRpcHandler::subscribe_windows_rpc)
-        .subscribe_window_detail(HostRpcHandler::subscribe_window_detail_rpc)
-}
-
-#[cfg(not(windows))]
-fn register_platform_window_rpc_handlers(handlers: HostRpcHandlers) -> HostRpcHandlers {
+    if process_resources_in_use.is_some() {
+        handlers = handlers.subscribe_process_resources_in_use(
+            HostRpcHandler::subscribe_process_resources_in_use_rpc,
+        );
+    }
+    if windows.is_some() {
+        handlers = handlers
+            .subscribe_windows(HostRpcHandler::subscribe_windows_rpc)
+            .subscribe_window_detail(HostRpcHandler::subscribe_window_detail_rpc);
+    }
     handlers
 }
 
@@ -1055,6 +1080,7 @@ async fn handle_reqres_messages_with_events(
     trash_events: SharedTrashEvents,
     pairing_notifier: Option<SharedPairingNotifier>,
 ) -> Result<Vec<ReqResMessage>> {
+    let rpc_handlers = Arc::new(build_rpc_handlers(windows.as_ref(), None));
     let context = HostRpcContext {
         config_path: config_path.to_path_buf(),
         credentials_path: credentials_path.to_path_buf(),
@@ -1065,6 +1091,8 @@ async fn handle_reqres_messages_with_events(
         session_state,
         files,
         windows,
+        process_resources_in_use: None,
+        rpc_handlers,
         terminals,
         trash_events,
         pairing_notifier,
@@ -1084,6 +1112,8 @@ async fn handle_reqres_stream(
     session_state: SharedRpcSessionState,
     files: SharedFileService,
     windows: Option<SharedWindowService>,
+    process_resources_in_use: Option<SharedProcessResourcesInUseService>,
+    rpc_handlers: SharedHostRpcHandlers,
     terminals: SharedTerminalManager,
     trash_events: SharedTrashEvents,
     pairing_notifier: Option<SharedPairingNotifier>,
@@ -1098,6 +1128,8 @@ async fn handle_reqres_stream(
         session_state,
         files,
         windows,
+        process_resources_in_use,
+        rpc_handlers,
         terminals,
         trash_events,
         pairing_notifier,
@@ -1204,6 +1236,8 @@ struct HostRpcContext {
     session_state: SharedRpcSessionState,
     files: SharedFileService,
     windows: Option<SharedWindowService>,
+    process_resources_in_use: Option<SharedProcessResourcesInUseService>,
+    rpc_handlers: SharedHostRpcHandlers,
     terminals: SharedTerminalManager,
     trash_events: SharedTrashEvents,
     pairing_notifier: Option<SharedPairingNotifier>,
@@ -1354,8 +1388,9 @@ async fn dispatch_server_stream_rpc(
         }
     };
     let request_proc_id = request.proc_id().as_u64();
+    let rpc_handlers = context.rpc_handlers.clone();
     let mut handler = HostRpcHandler::new(context, Some(send.clone()), None);
-    let Some(result) = rpc_handlers()
+    let Some(result) = rpc_handlers
         .dispatch_server_stream(&mut handler, request)
         .await
     else {
@@ -1395,8 +1430,9 @@ async fn dispatch_client_stream_rpc(
         Err(err) => return Ok(vec![rpc_request_decode_error_message(proc_id, err)]),
     };
     let request_proc_id = request.proc_id().as_u64();
+    let rpc_handlers = context.rpc_handlers.clone();
     let mut handler = HostRpcHandler::new(context, None, Some(request_stream));
-    let Some(result) = rpc_handlers()
+    let Some(result) = rpc_handlers
         .dispatch_client_stream(&mut handler, request)
         .await
     else {
@@ -1419,6 +1455,8 @@ struct HostRpcHandler {
     session_state: SharedRpcSessionState,
     files: SharedFileService,
     windows: Option<SharedWindowService>,
+    process_resources_in_use: Option<SharedProcessResourcesInUseService>,
+    rpc_handlers: SharedHostRpcHandlers,
     terminals: SharedTerminalManager,
     trash_events: SharedTrashEvents,
     pairing_notifier: Option<SharedPairingNotifier>,
@@ -1458,6 +1496,8 @@ impl HostRpcHandler {
             session_state: context.session_state,
             files: context.files,
             windows: context.windows,
+            process_resources_in_use: context.process_resources_in_use,
+            rpc_handlers: context.rpc_handlers,
             terminals: context.terminals,
             trash_events: context.trash_events,
             pairing_notifier: context.pairing_notifier,
@@ -1590,6 +1630,32 @@ impl HostRpcHandler {
         .await
     }
 
+    async fn subscribe_process_resources_in_use(
+        &mut self,
+        request: SubscribeProcessResourcesInUseReq,
+    ) -> Result<()> {
+        let send = self.response_stream();
+        let mut send = send.lock().await;
+        let Some(process_resources_in_use) = self.process_resources_in_use.clone() else {
+            write_reqres_message(
+                &mut send,
+                stream_service_error_message(
+                    ProcId::SubscribeProcessResourcesInUse.as_u64(),
+                    ServiceError::Unsupported,
+                ),
+            )
+            .await?;
+            return Ok(());
+        };
+        stream_process_resources_in_use_subscription(
+            &mut send,
+            process_resources_in_use,
+            ProcId::SubscribeProcessResourcesInUse.as_u64(),
+            request.pid,
+        )
+        .await
+    }
+
     async fn subscribe_windows(&mut self, _: ()) -> Result<()> {
         let send = self.response_stream();
         let mut send = send.lock().await;
@@ -1686,6 +1752,13 @@ impl HostRpcHandler {
         request: SubscribeProcessDetailReq,
     ) -> RpcHandlerFuture<'a, Result<()>> {
         Box::pin(self.subscribe_process_detail(request))
+    }
+
+    fn subscribe_process_resources_in_use_rpc<'a>(
+        &'a mut self,
+        request: SubscribeProcessResourcesInUseReq,
+    ) -> RpcHandlerFuture<'a, Result<()>> {
+        Box::pin(self.subscribe_process_resources_in_use(request))
     }
 
     fn subscribe_windows_rpc<'a>(&'a mut self, request: ()) -> RpcHandlerFuture<'a, Result<()>> {
@@ -2139,6 +2212,52 @@ async fn stream_process_detail_subscription(
             )
             .await?;
             detail.usage = next_detail.usage;
+        }
+    }
+}
+
+async fn stream_process_resources_in_use_subscription(
+    send: &mut web_transport_quinn::SendStream,
+    service: SharedProcessResourcesInUseService,
+    proc_id: u64,
+    pid: u64,
+) -> Result<()> {
+    let mut rows = match service.resources_in_use(pid).await {
+        Ok(rows) => rows,
+        Err(err) => {
+            write_reqres_message(send, stream_service_error_message(proc_id, err)).await?;
+            return Ok(());
+        }
+    };
+    write_reqres_message(
+        send,
+        stream_start_payload_message(
+            ProcessResourcesInUseTableEvent::Snapshot { rows: rows.clone() }.encode(),
+        ),
+    )
+    .await?;
+
+    let mut interval = tokio::time::interval(PROCESS_RESOURCES_IN_USE_SUBSCRIPTION_POLL_INTERVAL);
+    loop {
+        interval.tick().await;
+        let next_rows = match service.resources_in_use(pid).await {
+            Ok(rows) => rows,
+            Err(ServiceError::NotFound) => {
+                write_reqres_message(
+                    send,
+                    stream_chunk_payload_message(ProcessResourcesInUseTableEvent::Exited.encode()),
+                )
+                .await?;
+                return Ok(());
+            }
+            Err(err) => {
+                write_reqres_message(send, stream_service_error_message(proc_id, err)).await?;
+                return Ok(());
+            }
+        };
+        if let Some(event) = process_resources_in_use_patch(&rows, &next_rows) {
+            write_reqres_message(send, stream_chunk_payload_message(event.encode())).await?;
+            rows = next_rows;
         }
     }
 }
@@ -2664,6 +2783,42 @@ fn processes_patch(previous: &[ProcessInfo], next: &[ProcessInfo]) -> Option<Pro
     }
 }
 
+fn process_resources_in_use_patch(
+    previous: &[ProcessResourceInUseInfo],
+    next: &[ProcessResourceInUseInfo],
+) -> Option<ProcessResourcesInUseTableEvent> {
+    let previous_by_id: BTreeMap<&str, &ProcessResourceInUseInfo> = previous
+        .iter()
+        .map(|entry| (entry.resource_id.as_str(), entry))
+        .collect();
+    let next_by_id: BTreeMap<&str, &ProcessResourceInUseInfo> = next
+        .iter()
+        .map(|entry| (entry.resource_id.as_str(), entry))
+        .collect();
+
+    let removes = previous_by_id
+        .keys()
+        .filter(|id| !next_by_id.contains_key(**id))
+        .map(|id| (*id).to_string())
+        .collect::<Vec<_>>();
+    let upserts = next_by_id
+        .iter()
+        .filter_map(|(id, entry)| {
+            if previous_by_id.get(id).copied() == Some(*entry) {
+                None
+            } else {
+                Some((*entry).clone())
+            }
+        })
+        .collect::<Vec<_>>();
+
+    if removes.is_empty() && upserts.is_empty() {
+        None
+    } else {
+        Some(ProcessResourcesInUseTableEvent::Patch { removes, upserts })
+    }
+}
+
 fn roots_patch(previous: &[FsEntry], next: &[FsEntry]) -> Option<RootsTableEvent> {
     let previous_by_path: BTreeMap<&str, &FsEntry> = previous
         .iter()
@@ -2921,6 +3076,7 @@ async fn handle_rpc_messages_with_events(
     trash_events: SharedTrashEvents,
     pairing_notifier: Option<SharedPairingNotifier>,
 ) -> Result<Vec<ReqResMessage>> {
+    let rpc_handlers = Arc::new(build_rpc_handlers(None, None));
     let context = HostRpcContext {
         config_path: config_path.to_path_buf(),
         credentials_path: credentials_path.to_path_buf(),
@@ -2931,6 +3087,8 @@ async fn handle_rpc_messages_with_events(
         session_state,
         files,
         windows: None,
+        process_resources_in_use: None,
+        rpc_handlers,
         terminals,
         trash_events,
         pairing_notifier,
@@ -2951,8 +3109,9 @@ async fn dispatch_unary_rpc(
         Err(err) => return Ok(vec![rpc_request_decode_error_message(proc_id, err)]),
     };
     let request_proc_id = request.proc_id().as_u64();
+    let rpc_handlers = context.rpc_handlers.clone();
     let mut handler = HostRpcHandler::new(context, None, None);
-    let Some(outcome) = rpc_handlers().dispatch_unary(&mut handler, request).await else {
+    let Some(outcome) = rpc_handlers.dispatch_unary(&mut handler, request).await else {
         return Ok(vec![error_message(
             request_proc_id,
             "not_implemented",
@@ -2992,7 +3151,7 @@ impl HostRpcHandler {
     async fn get_daemon_info(&mut self, _: ()) -> Result<UnaryRpcOutcome> {
         Ok(
             RpcResponse::GetDaemonInfo(DaemonInfo::current_with_supported_procs(
-                rpc_handlers().supported_procs(),
+                self.rpc_handlers.supported_procs(),
             ))
             .into(),
         )
@@ -3981,9 +4140,10 @@ mod tests {
             ReqResMessage::ResponseUnaryOk { .. }
         ));
         let daemon_info = DaemonInfo::decode(payload(&responses[0])).unwrap();
+        let expected_handlers = build_rpc_handlers(None, None);
         assert_eq!(
             daemon_info.supported_proc_ids,
-            rpc_handlers()
+            expected_handlers
                 .supported_procs()
                 .iter()
                 .map(|proc| proc.as_u64())

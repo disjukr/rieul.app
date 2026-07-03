@@ -2,8 +2,8 @@ use std::future::Future;
 use std::pin::Pin;
 
 use crate::rpc::{
-    CreateNodeOp, DeleteMode, FsEntry, ReadFileReq, TrashItem, WindowDetail, WriteFileChunk,
-    WriteFileResult, WriteFileStart,
+    CreateNodeOp, DeleteMode, FsEntry, ProcessResourceInUseInfo, ReadFileReq, TrashItem,
+    WindowDetail, WriteFileChunk, WriteFileResult, WriteFileStart,
 };
 
 pub type BoxFutureResult<'a, T> =
@@ -52,4 +52,8 @@ pub trait FileService: Send + Sync {
 
 pub trait WindowService: Send + Sync {
     fn windows(&self) -> BoxFutureResult<'_, Vec<WindowDetail>>;
+}
+
+pub trait ProcessResourcesInUseService: Send + Sync {
+    fn resources_in_use(&self, pid: u64) -> BoxFutureResult<'_, Vec<ProcessResourceInUseInfo>>;
 }

@@ -65,33 +65,36 @@ contract use the generic wire/envelope error payload.
 
 Protocol proc id registry:
 
-| id | proc                        |
-| -: | --------------------------- |
-|  1 | `GetDaemonInfo`             |
-|  2 | `StartPairing`              |
-|  3 | `CompletePairing`           |
-|  4 | `RenewClientCredential`     |
-|  5 | `SubscribeRoots`            |
-|  6 | `SubscribeDirectory`        |
-|  7 | `ReadFile`                  |
-|  8 | `WriteFile`                 |
-|  9 | `CreateNodes`               |
-| 10 | `RenamePaths`               |
-| 11 | `DeletePaths`               |
-| 12 | `CreateTerminalSession`     |
-| 13 | `SubscribeTerminalSessions` |
-| 14 | `SubscribeAvailableShells`  |
-| 15 | `AttachTerminalSession`     |
-| 16 | `TakeTerminalControl`       |
-| 17 | `WriteTerminalInput`        |
-| 18 | `CloseTerminalSession`      |
-| 19 | `SubscribeClients`          |
-| 20 | `SubscribeTrashItems`       |
-| 21 | `RestoreTrashItems`         |
-| 22 | `PurgeTrashItems`           |
-| 23 | `GetDaemonEnvironment`      |
-| 24 | `SubscribeProcesses`        |
-| 25 | `SubscribeProcessDetail`    |
+| id | proc                             |
+| -: | -------------------------------- |
+|  1 | `GetDaemonInfo`                  |
+|  2 | `StartPairing`                   |
+|  3 | `CompletePairing`                |
+|  4 | `RenewClientCredential`          |
+|  5 | `SubscribeRoots`                 |
+|  6 | `SubscribeDirectory`             |
+|  7 | `ReadFile`                       |
+|  8 | `WriteFile`                      |
+|  9 | `CreateNodes`                    |
+| 10 | `RenamePaths`                    |
+| 11 | `DeletePaths`                    |
+| 12 | `CreateTerminalSession`          |
+| 13 | `SubscribeTerminalSessions`      |
+| 14 | `SubscribeAvailableShells`       |
+| 15 | `AttachTerminalSession`          |
+| 16 | `TakeTerminalControl`            |
+| 17 | `WriteTerminalInput`             |
+| 18 | `CloseTerminalSession`           |
+| 19 | `SubscribeClients`               |
+| 20 | `SubscribeTrashItems`            |
+| 21 | `RestoreTrashItems`              |
+| 22 | `PurgeTrashItems`                |
+| 23 | `GetDaemonEnvironment`           |
+| 24 | `SubscribeProcesses`             |
+| 25 | `SubscribeProcessDetail`         |
+| 26 | `SubscribeWindows`               |
+| 27 | `SubscribeWindowDetail`          |
+| 28 | `SubscribeProcessResourcesInUse` |
 
 `GetDaemonInfo` returns daemon metadata: supported proc ids, daemon version, a
 human-readable OS name for the daemon host, daemon instance lifecycle fields,
@@ -106,8 +109,8 @@ sessions. `supportedProcIds` is the daemon's implemented subset of the protocol
 registry for that process lifetime. Protected proc ids may still require session
 authentication before invocation.
 
-`GetDaemonEnvironment` returns daemon-host environment defaults such as the
-home directory path visible to the daemon process. These values are environment
+`GetDaemonEnvironment` returns daemon-host environment defaults such as the home
+directory path visible to the daemon process. These values are environment
 derived, not user-edited daemon config.
 
 A proc's `stream` attribute defines request and response cardinality:

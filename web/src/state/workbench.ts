@@ -17,6 +17,7 @@ export type WorkbenchTool =
   | "terminal"
   | "windows";
 export type WorkbenchFilesView = "roots" | "home" | "trash";
+export type WorkbenchProcessPage = "detail" | "heldResources";
 
 export interface WorkbenchTab {
   daemonClientDetailId?: string;
@@ -26,6 +27,7 @@ export interface WorkbenchTab {
   id: string;
   previousActiveTabId?: string;
   processDetailPid?: number;
+  processPage?: WorkbenchProcessPage;
   title: string;
   tool: WorkbenchTool;
   terminalLaunch?: TerminalLaunchSpec;
@@ -49,6 +51,7 @@ export interface WorkbenchFilesTabConfig {
 
 export interface WorkbenchProcessesTabConfig {
   processDetailPid?: number;
+  processPage?: WorkbenchProcessPage;
   title?: string;
 }
 
@@ -397,7 +400,39 @@ export const workbenchBunja = bunja(() => {
               ...pane,
               tabs: pane.tabs.map((tab) =>
                 tab.id === tabId && tab.tool === "processes"
-                  ? { ...tab, processDetailPid }
+                  ? {
+                    ...tab,
+                    processDetailPid,
+                    processPage: processDetailPid === undefined
+                      ? undefined
+                      : "detail",
+                  }
+                  : tab
+              ),
+            }
+            : pane
+        ),
+      }),
+    );
+  }
+
+  function setProcessPage(
+    paneId: string,
+    tabId: string,
+    processPage: WorkbenchProcessPage,
+  ) {
+    store.set(
+      stateAtom,
+      (current) => ({
+        ...current,
+        panes: current.panes.map((pane) =>
+          pane.id === paneId
+            ? {
+              ...pane,
+              tabs: pane.tabs.map((tab) =>
+                tab.id === tabId && tab.tool === "processes" &&
+                  tab.processDetailPid !== undefined
+                  ? { ...tab, processPage }
                   : tab
               ),
             }
@@ -630,6 +665,7 @@ export const workbenchBunja = bunja(() => {
     setDaemonClientDetailId,
     setDaemonClientsPageOpen,
     setProcessDetailPid,
+    setProcessPage,
     setWindowDetailId,
     setTabDirty,
     setTerminalSessionSnapshot,
@@ -757,6 +793,10 @@ export const workbenchPaneBunja = bunja(() => {
     workbench.setProcessDetailPid(paneId, tabId, processDetailPid);
   }
 
+  function setProcessPage(tabId: string, processPage: WorkbenchProcessPage) {
+    workbench.setProcessPage(paneId, tabId, processPage);
+  }
+
   function setWindowDetailId(
     tabId: string,
     windowDetailId: string | undefined,
@@ -789,6 +829,7 @@ export const workbenchPaneBunja = bunja(() => {
     setDaemonClientDetailId,
     setDaemonClientsPageOpen,
     setProcessDetailPid,
+    setProcessPage,
     setWindowDetailId,
     setTabDirty,
     setTerminalSessionSnapshot,
@@ -842,6 +883,10 @@ export const workbenchTabBunja = bunja(() => {
     pane.setProcessDetailPid(tabId, processDetailPid);
   }
 
+  function setProcessPage(processPage: WorkbenchProcessPage) {
+    pane.setProcessPage(tabId, processPage);
+  }
+
   function setWindowDetailId(windowDetailId: string | undefined) {
     pane.setWindowDetailId(tabId, windowDetailId);
   }
@@ -862,6 +907,7 @@ export const workbenchTabBunja = bunja(() => {
     setDaemonClientDetailId,
     setDaemonClientsPageOpen,
     setProcessDetailPid,
+    setProcessPage,
     setWindowDetailId,
     setDirty,
     setTerminalSessionSnapshot,
@@ -995,6 +1041,9 @@ function createProcessesTab(
   return {
     id: `processes-${crypto.randomUUID()}`,
     processDetailPid: config.processDetailPid,
+    processPage: config.processDetailPid === undefined
+      ? undefined
+      : config.processPage ?? "detail",
     title: config.title ?? "Processes",
     tool: "processes",
   };

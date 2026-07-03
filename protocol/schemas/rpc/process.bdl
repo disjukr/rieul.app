@@ -26,7 +26,25 @@ proc SubscribeProcesses = void -> ProcessesTableEvent throws SubscribeProcessesE
 @ stream - server
 proc SubscribeProcessDetail = SubscribeProcessDetailReq -> ProcessDetailEvent throws SubscribeProcessDetailError
 
+@ description
+| Subscribes to file-system and pipe-like resources currently in use by one
+| process. The first response event is ProcessResourcesInUseTableEvent.Snapshot.
+| Later Patch events apply resource acquisition, release, and best-effort
+| metadata changes.
+| This method intentionally excludes TCP, UDP, Unix-domain, and other sockets;
+| network endpoints should be exposed by a separate RPC. Implementations are
+| best-effort because host APIs, daemon privileges, and OS object models differ
+| significantly.
+@ id - 28
+@ stream - server
+proc SubscribeProcessResourcesInUse = SubscribeProcessResourcesInUseReq -> ProcessResourcesInUseTableEvent throws SubscribeProcessResourcesInUseError
+
 struct SubscribeProcessDetailReq {
+  @ id - 1
+  pid: u53,
+}
+
+struct SubscribeProcessResourcesInUseReq {
   @ id - 1
   pid: u53,
 }
@@ -235,6 +253,94 @@ union ProcessDetailEvent {
   Exited(),
 }
 
+@ description
+| One resource-in-use row for a process. Resource identity is subscription-local:
+| clients must not parse resourceId or assume it remains valid after removal.
+struct ProcessResourceInUseInfo {
+  @ id - 1
+  resourceId: string,
+
+  @ id - 2
+  kind: ProcessResourceInUseKind,
+
+  @ id - 3
+  @ description
+  | Best-effort display path or OS object name. For File and Directory rows,
+  | this is expected to be a filesystem path when present. For pipe-like or
+  | device rows, it may be a platform-specific object name such as pipe:[123]
+  | or \\.\pipe\example. Anonymous resources may have no name.
+  name?: string,
+
+  @ id - 4
+  access?: ProcessResourceInUseAccess,
+
+  @ id - 5
+  @ description
+  | True when the host reports that the underlying filesystem entry was removed
+  | while the process still holds it open.
+  deleted?: bool,
+}
+
+@ description
+| Coarse resource-in-use kind. Sockets are deliberately absent; subscribe to a
+| future network endpoint RPC instead.
+enum ProcessResourceInUseKind {
+  @ id - 1
+  File,
+
+  @ id - 2
+  Directory,
+
+  @ id - 3
+  Device,
+
+  @ id - 4
+  NamedPipe,
+
+  @ id - 5
+  AnonymousPipe,
+
+  @ id - 6
+  Other,
+}
+
+@ description - Best-effort access mode observed for one resource in use.
+struct ProcessResourceInUseAccess {
+  @ id - 1
+  read?: bool,
+
+  @ id - 2
+  write?: bool,
+
+  @ id - 3
+  execute?: bool,
+}
+
+@ description
+| Reactive process resources-in-use table event. Snapshot replaces the whole
+| subscribed view. Patch applies membership and metadata changes. removes
+| contains opaque resource ids that should be removed from the client's current
+| table. If the process exits, the stream emits Exited and then completes.
+union ProcessResourcesInUseTableEvent {
+  @ id - 1
+  Snapshot(
+    @ id - 1
+    rows: ProcessResourceInUseInfo[],
+  ),
+
+  @ id - 2
+  Patch(
+    @ id - 1
+    removes: string[],
+
+    @ id - 2
+    upserts: ProcessResourceInUseInfo[],
+  ),
+
+  @ id - 3
+  Exited(),
+}
+
 @ description - Method-level process subscription start errors.
 union SubscribeProcessesError {
   @ id - 0
@@ -266,6 +372,33 @@ union SubscribeProcessDetailError {
 
   @ id - 2
   PermissionDenied(
+    @ id - 1
+    message: string,
+  ),
+}
+
+@ description - Method-level process resources-in-use subscription start errors.
+union SubscribeProcessResourcesInUseError {
+  @ id - 0
+  Failed(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 1
+  NotFound(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 2
+  PermissionDenied(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 3
+  Unsupported(
     @ id - 1
     message: string,
   ),

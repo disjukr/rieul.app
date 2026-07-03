@@ -525,20 +525,36 @@ export function writeExplorerFileNavigationState(
   currentPath: string | undefined,
   openedFile: FsEntry,
 ) {
+  writeExplorerNavigationState(machineId, paneScopeId, {
+    type: "file",
+    directoryPath: currentPath,
+    entry: openedFile,
+  });
+}
+
+export function writeExplorerDirectoryNavigationState(
+  machineId: string | undefined,
+  paneScopeId: string,
+  path: string,
+) {
+  writeExplorerNavigationState(machineId, paneScopeId, locationFromPath(path));
+}
+
+function writeExplorerNavigationState(
+  machineId: string | undefined,
+  paneScopeId: string,
+  location: ExplorerLocation,
+) {
   try {
     const storage = globalThis.localStorage;
     const targetKey = explorerNavigationStorageKey(machineId, paneScopeId);
     const state: ExplorerNavigationState = {
       history: [],
-      location: {
-        type: "file",
-        directoryPath: currentPath,
-        entry: openedFile,
-      },
+      location,
     };
     storage.setItem(targetKey, JSON.stringify(state));
   } catch {
-    // Opening a file should still work even if persisted tab state is unavailable.
+    // Opening a path should still work even if persisted tab state is unavailable.
   }
 }
 
@@ -723,7 +739,7 @@ function pathRoot(path: string): { root: string; separator: "\\" | "/" } {
   return { root: path, separator: path.includes("/") ? "/" : "\\" };
 }
 
-function parentPath(path: string): string | undefined {
+export function parentPath(path: string): string | undefined {
   const { root } = pathRoot(path);
   const trimmed = path.replace(/[\\/]+$/g, "");
   if (trimmed === root.replace(/[\\/]+$/g, "")) return undefined;

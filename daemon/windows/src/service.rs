@@ -19,6 +19,7 @@ use windows_service::service_manager::{ServiceManager, ServiceManagerAccess};
 
 use crate::fs::WindowsFileService;
 use crate::ipc::{UserSessionWindowService, UserTrayPairingNotifier};
+use crate::process_resources::WindowsProcessResourcesInUseService;
 use std::sync::Arc;
 use wgo_daemon_host::server::run_system_server;
 
@@ -252,6 +253,7 @@ fn run_server_until_shutdown(
                 options.config_path,
                 Arc::new(WindowsFileService),
                 Some(Arc::new(UserSessionWindowService)),
+                Some(Arc::new(WindowsProcessResourcesInUseService)),
                 Some(Arc::new(UserTrayPairingNotifier)),
                 "Windows system service",
             ) => result,
