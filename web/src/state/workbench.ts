@@ -17,7 +17,11 @@ export type WorkbenchTool =
   | "terminal"
   | "windows";
 export type WorkbenchFilesView = "roots" | "home" | "trash";
-export type WorkbenchProcessPage = "detail" | "heldResources" | "heldSockets";
+export type WorkbenchProcessPage =
+  | "detail"
+  | "heldResources"
+  | "heldSockets"
+  | "modules";
 
 export interface WorkbenchTab {
   daemonClientDetailId?: string;

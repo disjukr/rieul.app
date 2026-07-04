@@ -38,21 +38,22 @@ use wgo_daemon_core::rpc::{
     CompletePairingResponse, CreateNodesReq, CreateTerminalSessionReq, DaemonEnvironment,
     DaemonInfo, DeleteMode, DeletePathsReq, DirectoryEntryKey, DirectorySubscriptionCloseReason,
     DirectoryTableEvent, FsEntry, ProcId, ProcStream, ProcessDetail, ProcessDetailEvent,
-    ProcessInfo, ProcessIoUsage, ProcessMetadata, ProcessResourceInUseInfo, ProcessResourceUsage,
-    ProcessResourcesInUseTableEvent, ProcessSocketInUseInfo, ProcessSocketsInUseTableEvent,
-    ProcessStatus, ProcessesTableEvent, PurgeTrashItemsReq, ReadFileChunk, ReadFileReq,
-    RenamePathsReq, RenewClientCredentialResponse, RestoreTrashItemsReq, RootEntryKey,
-    RootsSubscriptionCloseReason, RootsTableEvent, RpcErrorCode, RpcErrorPayload, RpcHandlerFuture,
-    RpcHandlers, RpcRequest, RpcRequestDecodeError, RpcResponse, StartPairingRequest,
-    StartPairingResponse, SubscribeDirectoryReq, SubscribeProcessDetailReq,
+    ProcessInfo, ProcessIoUsage, ProcessMetadata, ProcessModuleInfo, ProcessModulesTableEvent,
+    ProcessResourceInUseInfo, ProcessResourceUsage, ProcessResourcesInUseTableEvent,
+    ProcessSocketInUseInfo, ProcessSocketsInUseTableEvent, ProcessStatus, ProcessesTableEvent,
+    PurgeTrashItemsReq, ReadFileChunk, ReadFileReq, RenamePathsReq, RenewClientCredentialResponse,
+    RestoreTrashItemsReq, RootEntryKey, RootsSubscriptionCloseReason, RootsTableEvent,
+    RpcErrorCode, RpcErrorPayload, RpcHandlerFuture, RpcHandlers, RpcRequest,
+    RpcRequestDecodeError, RpcResponse, StartPairingRequest, StartPairingResponse,
+    SubscribeDirectoryReq, SubscribeProcessDetailReq, SubscribeProcessModulesReq,
     SubscribeProcessResourcesInUseReq, SubscribeProcessSocketsInUseReq, SubscribeWindowDetailReq,
     TakeTerminalControlReq, TerminalEvent, TerminalSessionsTableEvent, TrashItem,
     TrashItemsSubscriptionCloseReason, TrashItemsTableEvent, WindowDetail, WindowDetailEvent,
     WindowInfo, WindowsTableEvent, WriteFileChunk, WriteFileReq, WriteTerminalInputReq, MAX_U53,
 };
 use wgo_daemon_core::traits::{
-    BoxFutureResult, FileService, ProcessResourcesInUseService, ProcessSocketsInUseService,
-    ServiceError, WindowService, WriteFileChunkSource,
+    BoxFutureResult, FileService, ProcessModulesService, ProcessResourcesInUseService,
+    ProcessSocketsInUseService, ServiceError, WindowService, WriteFileChunkSource,
 };
 use wgo_daemon_core::wire::{
     DatagramMessage, PairedSecretCredential, ReqResMessage, RpcErrorKind, SessionAuthErrorCode,
@@ -72,6 +73,7 @@ const PROCESSES_SUBSCRIPTION_POLL_INTERVAL: Duration = Duration::from_secs(2);
 const PROCESS_DETAIL_SUBSCRIPTION_POLL_INTERVAL: Duration = Duration::from_secs(1);
 const PROCESS_RESOURCES_IN_USE_SUBSCRIPTION_POLL_INTERVAL: Duration = Duration::from_secs(2);
 const PROCESS_SOCKETS_IN_USE_SUBSCRIPTION_POLL_INTERVAL: Duration = Duration::from_secs(2);
+const PROCESS_MODULES_SUBSCRIPTION_POLL_INTERVAL: Duration = Duration::from_secs(2);
 const WINDOWS_SUBSCRIPTION_POLL_INTERVAL: Duration = Duration::from_secs(1);
 const ROOTS_SUBSCRIPTION_POLL_INTERVAL: Duration = Duration::from_secs(2);
 const TRASH_SUBSCRIPTION_POLL_INTERVAL: Duration = Duration::from_secs(2);
@@ -90,6 +92,7 @@ type SharedFileService = Arc<dyn FileService>;
 type SharedWindowService = Arc<dyn WindowService>;
 type SharedProcessResourcesInUseService = Arc<dyn ProcessResourcesInUseService>;
 type SharedProcessSocketsInUseService = Arc<dyn ProcessSocketsInUseService>;
+type SharedProcessModulesService = Arc<dyn ProcessModulesService>;
 type SharedHostRpcHandlers = Arc<HostRpcHandlers>;
 type SharedPairingNotifier = Arc<dyn PairingNotifier>;
 type SharedTerminalManager = Arc<TerminalManager>;
@@ -160,6 +163,7 @@ pub async fn run_system_server(
     windows: Option<SharedWindowService>,
     process_resources_in_use: Option<SharedProcessResourcesInUseService>,
     process_sockets_in_use: Option<SharedProcessSocketsInUseService>,
+    process_modules: Option<SharedProcessModulesService>,
     pairing_notifier: Option<SharedPairingNotifier>,
     log_label: &'static str,
 ) -> Result<()> {
@@ -172,6 +176,7 @@ pub async fn run_system_server(
             windows.clone(),
             process_resources_in_use.clone(),
             process_sockets_in_use.clone(),
+            process_modules.clone(),
             pairing_notifier.clone(),
             log_label,
         )
@@ -198,6 +203,7 @@ async fn run_system_server_once(
     windows: Option<SharedWindowService>,
     process_resources_in_use: Option<SharedProcessResourcesInUseService>,
     process_sockets_in_use: Option<SharedProcessSocketsInUseService>,
+    process_modules: Option<SharedProcessModulesService>,
     pairing_notifier: Option<SharedPairingNotifier>,
     log_label: &'static str,
 ) -> Result<()> {
@@ -218,6 +224,7 @@ async fn run_system_server_once(
         windows.as_ref(),
         process_resources_in_use.as_ref(),
         process_sockets_in_use.as_ref(),
+        process_modules.as_ref(),
     ));
 
     let resolver = Arc::new(ReloadingCertResolver::new(certificate.certified_key));
@@ -244,6 +251,7 @@ async fn run_system_server_once(
         let windows = windows.clone();
         let process_resources_in_use = process_resources_in_use.clone();
         let process_sockets_in_use = process_sockets_in_use.clone();
+        let process_modules = process_modules.clone();
         let rpc_handlers = rpc_handlers.clone();
         let terminals = terminals.clone();
         let trash_events = trash_events.clone();
@@ -261,6 +269,7 @@ async fn run_system_server_once(
                 windows,
                 process_resources_in_use,
                 process_sockets_in_use,
+                process_modules,
                 rpc_handlers,
                 terminals,
                 trash_events,
@@ -791,6 +800,7 @@ async fn handle_request(
     windows: Option<SharedWindowService>,
     process_resources_in_use: Option<SharedProcessResourcesInUseService>,
     process_sockets_in_use: Option<SharedProcessSocketsInUseService>,
+    process_modules: Option<SharedProcessModulesService>,
     rpc_handlers: SharedHostRpcHandlers,
     terminals: SharedTerminalManager,
     trash_events: SharedTrashEvents,
@@ -812,6 +822,7 @@ async fn handle_request(
                 windows,
                 process_resources_in_use,
                 process_sockets_in_use,
+                process_modules,
                 rpc_handlers,
                 terminals,
                 trash_events,
@@ -844,6 +855,7 @@ async fn run_rpc_session(
     windows: Option<SharedWindowService>,
     process_resources_in_use: Option<SharedProcessResourcesInUseService>,
     process_sockets_in_use: Option<SharedProcessSocketsInUseService>,
+    process_modules: Option<SharedProcessModulesService>,
     rpc_handlers: SharedHostRpcHandlers,
     terminals: SharedTerminalManager,
     trash_events: SharedTrashEvents,
@@ -868,6 +880,7 @@ async fn run_rpc_session(
                 let windows = windows.clone();
                 let process_resources_in_use = process_resources_in_use.clone();
                 let process_sockets_in_use = process_sockets_in_use.clone();
+                let process_modules = process_modules.clone();
                 let rpc_handlers = rpc_handlers.clone();
                 let terminals = terminals.clone();
                 let trash_events = trash_events.clone();
@@ -888,6 +901,7 @@ async fn run_rpc_session(
                             windows,
                             process_resources_in_use,
                             process_sockets_in_use,
+                            process_modules,
                             rpc_handlers,
                             terminals,
                             trash_events,
@@ -934,6 +948,7 @@ fn build_rpc_handlers(
     windows: Option<&SharedWindowService>,
     process_resources_in_use: Option<&SharedProcessResourcesInUseService>,
     process_sockets_in_use: Option<&SharedProcessSocketsInUseService>,
+    process_modules: Option<&SharedProcessModulesService>,
 ) -> HostRpcHandlers {
     let mut handlers = RpcHandlers::new()
         .get_daemon_info(HostRpcHandler::get_daemon_info_rpc)
@@ -970,6 +985,10 @@ fn build_rpc_handlers(
     if process_sockets_in_use.is_some() {
         handlers = handlers
             .subscribe_process_sockets_in_use(HostRpcHandler::subscribe_process_sockets_in_use_rpc);
+    }
+    if process_modules.is_some() {
+        handlers =
+            handlers.subscribe_process_modules(HostRpcHandler::subscribe_process_modules_rpc);
     }
     if windows.is_some() {
         handlers = handlers
@@ -1098,7 +1117,7 @@ async fn handle_reqres_messages_with_events(
     trash_events: SharedTrashEvents,
     pairing_notifier: Option<SharedPairingNotifier>,
 ) -> Result<Vec<ReqResMessage>> {
-    let rpc_handlers = Arc::new(build_rpc_handlers(windows.as_ref(), None, None));
+    let rpc_handlers = Arc::new(build_rpc_handlers(windows.as_ref(), None, None, None));
     let context = HostRpcContext {
         config_path: config_path.to_path_buf(),
         credentials_path: credentials_path.to_path_buf(),
@@ -1111,6 +1130,7 @@ async fn handle_reqres_messages_with_events(
         windows,
         process_resources_in_use: None,
         process_sockets_in_use: None,
+        process_modules: None,
         rpc_handlers,
         terminals,
         trash_events,
@@ -1133,6 +1153,7 @@ async fn handle_reqres_stream(
     windows: Option<SharedWindowService>,
     process_resources_in_use: Option<SharedProcessResourcesInUseService>,
     process_sockets_in_use: Option<SharedProcessSocketsInUseService>,
+    process_modules: Option<SharedProcessModulesService>,
     rpc_handlers: SharedHostRpcHandlers,
     terminals: SharedTerminalManager,
     trash_events: SharedTrashEvents,
@@ -1150,6 +1171,7 @@ async fn handle_reqres_stream(
         windows,
         process_resources_in_use,
         process_sockets_in_use,
+        process_modules,
         rpc_handlers,
         terminals,
         trash_events,
@@ -1259,6 +1281,7 @@ struct HostRpcContext {
     windows: Option<SharedWindowService>,
     process_resources_in_use: Option<SharedProcessResourcesInUseService>,
     process_sockets_in_use: Option<SharedProcessSocketsInUseService>,
+    process_modules: Option<SharedProcessModulesService>,
     rpc_handlers: SharedHostRpcHandlers,
     terminals: SharedTerminalManager,
     trash_events: SharedTrashEvents,
@@ -1479,6 +1502,7 @@ struct HostRpcHandler {
     windows: Option<SharedWindowService>,
     process_resources_in_use: Option<SharedProcessResourcesInUseService>,
     process_sockets_in_use: Option<SharedProcessSocketsInUseService>,
+    process_modules: Option<SharedProcessModulesService>,
     rpc_handlers: SharedHostRpcHandlers,
     terminals: SharedTerminalManager,
     trash_events: SharedTrashEvents,
@@ -1521,6 +1545,7 @@ impl HostRpcHandler {
             windows: context.windows,
             process_resources_in_use: context.process_resources_in_use,
             process_sockets_in_use: context.process_sockets_in_use,
+            process_modules: context.process_modules,
             rpc_handlers: context.rpc_handlers,
             terminals: context.terminals,
             trash_events: context.trash_events,
@@ -1706,6 +1731,32 @@ impl HostRpcHandler {
         .await
     }
 
+    async fn subscribe_process_modules(
+        &mut self,
+        request: SubscribeProcessModulesReq,
+    ) -> Result<()> {
+        let send = self.response_stream();
+        let mut send = send.lock().await;
+        let Some(process_modules) = self.process_modules.clone() else {
+            write_reqres_message(
+                &mut send,
+                stream_service_error_message(
+                    ProcId::SubscribeProcessModules.as_u64(),
+                    ServiceError::Unsupported,
+                ),
+            )
+            .await?;
+            return Ok(());
+        };
+        stream_process_modules_subscription(
+            &mut send,
+            process_modules,
+            ProcId::SubscribeProcessModules.as_u64(),
+            request.pid,
+        )
+        .await
+    }
+
     async fn subscribe_windows(&mut self, _: ()) -> Result<()> {
         let send = self.response_stream();
         let mut send = send.lock().await;
@@ -1816,6 +1867,13 @@ impl HostRpcHandler {
         request: SubscribeProcessSocketsInUseReq,
     ) -> RpcHandlerFuture<'a, Result<()>> {
         Box::pin(self.subscribe_process_sockets_in_use(request))
+    }
+
+    fn subscribe_process_modules_rpc<'a>(
+        &'a mut self,
+        request: SubscribeProcessModulesReq,
+    ) -> RpcHandlerFuture<'a, Result<()>> {
+        Box::pin(self.subscribe_process_modules(request))
     }
 
     fn subscribe_windows_rpc<'a>(&'a mut self, request: ()) -> RpcHandlerFuture<'a, Result<()>> {
@@ -2359,6 +2417,52 @@ async fn stream_process_sockets_in_use_subscription(
             }
         };
         if let Some(event) = process_sockets_in_use_patch(&rows, &next_rows) {
+            write_reqres_message(send, stream_chunk_payload_message(event.encode())).await?;
+            rows = next_rows;
+        }
+    }
+}
+
+async fn stream_process_modules_subscription(
+    send: &mut web_transport_quinn::SendStream,
+    service: SharedProcessModulesService,
+    proc_id: u64,
+    pid: u64,
+) -> Result<()> {
+    let mut rows = match service.modules(pid).await {
+        Ok(rows) => rows,
+        Err(err) => {
+            write_reqres_message(send, stream_service_error_message(proc_id, err)).await?;
+            return Ok(());
+        }
+    };
+    write_reqres_message(
+        send,
+        stream_start_payload_message(
+            ProcessModulesTableEvent::Snapshot { rows: rows.clone() }.encode(),
+        ),
+    )
+    .await?;
+
+    let mut interval = tokio::time::interval(PROCESS_MODULES_SUBSCRIPTION_POLL_INTERVAL);
+    loop {
+        interval.tick().await;
+        let next_rows = match service.modules(pid).await {
+            Ok(rows) => rows,
+            Err(ServiceError::NotFound) => {
+                write_reqres_message(
+                    send,
+                    stream_chunk_payload_message(ProcessModulesTableEvent::Exited.encode()),
+                )
+                .await?;
+                return Ok(());
+            }
+            Err(err) => {
+                write_reqres_message(send, stream_service_error_message(proc_id, err)).await?;
+                return Ok(());
+            }
+        };
+        if let Some(event) = process_modules_patch(&rows, &next_rows) {
             write_reqres_message(send, stream_chunk_payload_message(event.encode())).await?;
             rows = next_rows;
         }
@@ -2958,6 +3062,42 @@ fn process_sockets_in_use_patch(
     }
 }
 
+fn process_modules_patch(
+    previous: &[ProcessModuleInfo],
+    next: &[ProcessModuleInfo],
+) -> Option<ProcessModulesTableEvent> {
+    let previous_by_id: BTreeMap<&str, &ProcessModuleInfo> = previous
+        .iter()
+        .map(|entry| (entry.module_id.as_str(), entry))
+        .collect();
+    let next_by_id: BTreeMap<&str, &ProcessModuleInfo> = next
+        .iter()
+        .map(|entry| (entry.module_id.as_str(), entry))
+        .collect();
+
+    let removes = previous_by_id
+        .keys()
+        .filter(|id| !next_by_id.contains_key(**id))
+        .map(|id| (*id).to_string())
+        .collect::<Vec<_>>();
+    let upserts = next_by_id
+        .iter()
+        .filter_map(|(id, entry)| {
+            if previous_by_id.get(id).copied() == Some(*entry) {
+                None
+            } else {
+                Some((*entry).clone())
+            }
+        })
+        .collect::<Vec<_>>();
+
+    if removes.is_empty() && upserts.is_empty() {
+        None
+    } else {
+        Some(ProcessModulesTableEvent::Patch { removes, upserts })
+    }
+}
+
 fn roots_patch(previous: &[FsEntry], next: &[FsEntry]) -> Option<RootsTableEvent> {
     let previous_by_path: BTreeMap<&str, &FsEntry> = previous
         .iter()
@@ -3215,7 +3355,7 @@ async fn handle_rpc_messages_with_events(
     trash_events: SharedTrashEvents,
     pairing_notifier: Option<SharedPairingNotifier>,
 ) -> Result<Vec<ReqResMessage>> {
-    let rpc_handlers = Arc::new(build_rpc_handlers(None, None, None));
+    let rpc_handlers = Arc::new(build_rpc_handlers(None, None, None, None));
     let context = HostRpcContext {
         config_path: config_path.to_path_buf(),
         credentials_path: credentials_path.to_path_buf(),
@@ -3228,6 +3368,7 @@ async fn handle_rpc_messages_with_events(
         windows: None,
         process_resources_in_use: None,
         process_sockets_in_use: None,
+        process_modules: None,
         rpc_handlers,
         terminals,
         trash_events,
@@ -4280,7 +4421,7 @@ mod tests {
             ReqResMessage::ResponseUnaryOk { .. }
         ));
         let daemon_info = DaemonInfo::decode(payload(&responses[0])).unwrap();
-        let expected_handlers = build_rpc_handlers(None, None, None);
+        let expected_handlers = build_rpc_handlers(None, None, None, None);
         assert_eq!(
             daemon_info.supported_proc_ids,
             expected_handlers

@@ -51,6 +51,17 @@ proc SubscribeProcessResourcesInUse = SubscribeProcessResourcesInUseReq -> Proce
 @ stream - server
 proc SubscribeProcessSocketsInUse = SubscribeProcessSocketsInUseReq -> ProcessSocketsInUseTableEvent throws SubscribeProcessSocketsInUseError
 
+@ description
+| Subscribes to executable images and dynamic libraries currently loaded by one
+| process. The first response event is ProcessModulesTableEvent.Snapshot. Later
+| Patch events apply module load, unload, and best-effort metadata changes.
+| Implementations are best-effort because module enumeration depends on daemon
+| privileges, target architecture, and OS loader APIs. Module identity is
+| subscription-local and should not be parsed by clients.
+@ id - 30
+@ stream - server
+proc SubscribeProcessModules = SubscribeProcessModulesReq -> ProcessModulesTableEvent throws SubscribeProcessModulesError
+
 struct SubscribeProcessDetailReq {
   @ id - 1
   pid: u53,
@@ -62,6 +73,11 @@ struct SubscribeProcessResourcesInUseReq {
 }
 
 struct SubscribeProcessSocketsInUseReq {
+  @ id - 1
+  pid: u53,
+}
+
+struct SubscribeProcessModulesReq {
   @ id - 1
   pid: u53,
 }
@@ -446,6 +462,81 @@ union ProcessSocketsInUseTableEvent {
   Exited(),
 }
 
+@ description
+| One module loaded by a process. A module can be the process executable, a
+| dynamic library, or an OS-specific loaded image. moduleId is opaque and
+| subscription-local; clients must not parse it or assume it remains stable
+| after removal.
+struct ProcessModuleInfo {
+  @ id - 1
+  moduleId: string,
+
+  @ id - 2
+  @ description
+  | Best-effort display name, usually the basename of the loaded image path.
+  name: string,
+
+  @ id - 3
+  @ description - Best-effort absolute filesystem path to the loaded image.
+  path?: string,
+
+  @ id - 4
+  kind: ProcessModuleKind,
+
+  @ id - 5
+  @ description
+  | Module base address formatted as a lowercase hexadecimal string without a
+  | 0x prefix, for example 7ffb12340000. It is a string because protocol
+  | integers are limited to 53-bit exact values.
+  baseAddress?: string,
+
+  @ id - 6
+  @ description - Size of the loaded image mapping, when the host reports it.
+  sizeBytes?: u53,
+
+  @ id - 7
+  @ description
+  | Best-effort file version string from platform metadata, when cheap and
+  | available.
+  version?: string,
+}
+
+enum ProcessModuleKind {
+  @ id - 1
+  Executable,
+
+  @ id - 2
+  DynamicLibrary,
+
+  @ id - 3
+  Unknown,
+}
+
+@ description
+| Reactive process module table event. Snapshot replaces the whole subscribed
+| view. Patch applies membership and metadata changes. removes contains opaque
+| module ids that should be removed from the client's current table. If the
+| process exits, the stream emits Exited and then completes.
+union ProcessModulesTableEvent {
+  @ id - 1
+  Snapshot(
+    @ id - 1
+    rows: ProcessModuleInfo[],
+  ),
+
+  @ id - 2
+  Patch(
+    @ id - 1
+    removes: string[],
+
+    @ id - 2
+    upserts: ProcessModuleInfo[],
+  ),
+
+  @ id - 3
+  Exited(),
+}
+
 @ description - Method-level process subscription start errors.
 union SubscribeProcessesError {
   @ id - 0
@@ -511,6 +602,33 @@ union SubscribeProcessResourcesInUseError {
 
 @ description - Method-level process sockets-in-use subscription start errors.
 union SubscribeProcessSocketsInUseError {
+  @ id - 0
+  Failed(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 1
+  NotFound(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 2
+  PermissionDenied(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 3
+  Unsupported(
+    @ id - 1
+    message: string,
+  ),
+}
+
+@ description - Method-level process module subscription start errors.
+union SubscribeProcessModulesError {
   @ id - 0
   Failed(
     @ id - 1

@@ -69,6 +69,7 @@ async fn main() -> Result<()> {
                 None,
                 None,
                 None,
+                None,
                 Some(Arc::new(MacUserPairingNotifier)),
                 "macOS system daemon",
             )

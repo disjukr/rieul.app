@@ -19,6 +19,7 @@ use windows_service::service_manager::{ServiceManager, ServiceManagerAccess};
 
 use crate::fs::WindowsFileService;
 use crate::ipc::{UserSessionWindowService, UserTrayPairingNotifier};
+use crate::process_modules::WindowsProcessModulesService;
 use crate::process_resources::WindowsProcessResourcesInUseService;
 use crate::process_sockets::WindowsProcessSocketsInUseService;
 use std::sync::Arc;
@@ -256,6 +257,7 @@ fn run_server_until_shutdown(
                 Some(Arc::new(UserSessionWindowService)),
                 Some(Arc::new(WindowsProcessResourcesInUseService)),
                 Some(Arc::new(WindowsProcessSocketsInUseService)),
+                Some(Arc::new(WindowsProcessModulesService)),
                 Some(Arc::new(UserTrayPairingNotifier)),
                 "Windows system service",
             ) => result,

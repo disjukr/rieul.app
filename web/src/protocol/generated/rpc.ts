@@ -32,6 +32,7 @@ export enum ProcId {
   SubscribeWindowDetail = 27,
   SubscribeProcessResourcesInUse = 28,
   SubscribeProcessSocketsInUse = 29,
+  SubscribeProcessModules = 30,
 }
 
 export interface SubscribeWindowDetailReq {
@@ -258,6 +259,10 @@ export interface SubscribeProcessSocketsInUseReq {
   pid: number;
 }
 
+export interface SubscribeProcessModulesReq {
+  pid: number;
+}
+
 export interface ProcessInfo {
   pid: number;
   ppid?: number;
@@ -372,6 +377,27 @@ export type ProcessSocketsInUseTableEvent =
   | { type: "patch"; removes: string[]; upserts: ProcessSocketInUseInfo[] }
   | { type: "exited" };
 
+export interface ProcessModuleInfo {
+  moduleId: string;
+  name: string;
+  path?: string;
+  kind: ProcessModuleKind;
+  baseAddress?: string;
+  sizeBytes?: number;
+  version?: string;
+}
+
+export enum ProcessModuleKind {
+  Executable = 1,
+  DynamicLibrary = 2,
+  Unknown = 3,
+}
+
+export type ProcessModulesTableEvent =
+  | { type: "snapshot"; rows: ProcessModuleInfo[] }
+  | { type: "patch"; removes: string[]; upserts: ProcessModuleInfo[] }
+  | { type: "exited" };
+
 export type SubscribeProcessesError =
   | { type: "failed"; message: string }
   | { type: "permissionDenied"; message: string };
@@ -388,6 +414,12 @@ export type SubscribeProcessResourcesInUseError =
   | { type: "unsupported"; message: string };
 
 export type SubscribeProcessSocketsInUseError =
+  | { type: "failed"; message: string }
+  | { type: "notFound"; message: string }
+  | { type: "permissionDenied"; message: string }
+  | { type: "unsupported"; message: string };
+
+export type SubscribeProcessModulesError =
   | { type: "failed"; message: string }
   | { type: "notFound"; message: string }
   | { type: "permissionDenied"; message: string }
@@ -1135,6 +1167,22 @@ export const subscribeProcessSocketsInUseProc: ProcCodec<
   decodeError: decodeSubscribeProcessSocketsInUseErrorValue,
 };
 
+export const subscribeProcessModulesProc: ProcCodec<
+  SubscribeProcessModulesReq,
+  ProcessModulesTableEvent,
+  SubscribeProcessModulesError
+> = {
+  id: ProcId.SubscribeProcessModules,
+  name: "SubscribeProcessModules",
+  stream: "server",
+  requestType: "SubscribeProcessModulesReq",
+  responseType: "ProcessModulesTableEvent",
+  errorType: "SubscribeProcessModulesError",
+  encodeRequest: encodeSubscribeProcessModulesReqValue,
+  decodeResponse: decodeProcessModulesTableEventValue,
+  decodeError: decodeSubscribeProcessModulesErrorValue,
+};
+
 export const procs = {
   [ProcId.GetDaemonInfo]: getDaemonInfoProc,
   [ProcId.StartPairing]: startPairingProc,
@@ -1165,6 +1213,7 @@ export const procs = {
   [ProcId.SubscribeWindowDetail]: subscribeWindowDetailProc,
   [ProcId.SubscribeProcessResourcesInUse]: subscribeProcessResourcesInUseProc,
   [ProcId.SubscribeProcessSocketsInUse]: subscribeProcessSocketsInUseProc,
+  [ProcId.SubscribeProcessModules]: subscribeProcessModulesProc,
 } as const;
 
 export function encodeSubscribeWindowDetailReqValue(
@@ -3246,6 +3295,23 @@ export function decodeSubscribeProcessSocketsInUseReqValue(
   };
 }
 
+export function encodeSubscribeProcessModulesReqValue(
+  value: SubscribeProcessModulesReq,
+): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, u53(required(value.pid, "SubscribeProcessModulesReq.pid")));
+  return fields;
+}
+
+export function decodeSubscribeProcessModulesReqValue(
+  value: CborValue,
+): SubscribeProcessModulesReq {
+  const fields = expectMap(value);
+  return {
+    pid: fieldOrDefault(fields.get(1), (value) => integer(value), () => 0),
+  };
+}
+
 export function encodeProcessInfoValue(value: ProcessInfo): CborValue {
   const fields = new Map<number, CborValue>();
   fields.set(1, u53(required(value.pid, "ProcessInfo.pid")));
@@ -4144,6 +4210,139 @@ export function decodeProcessSocketsInUseTableEventValue(
   throw new Error(`unknown ProcessSocketsInUseTableEvent variant ${variantId}`);
 }
 
+export function encodeProcessModuleInfoValue(
+  value: ProcessModuleInfo,
+): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, text(required(value.moduleId, "ProcessModuleInfo.moduleId")));
+  fields.set(2, text(required(value.name, "ProcessModuleInfo.name")));
+  if (value.path !== undefined) fields.set(3, text(value.path));
+  fields.set(
+    4,
+    encodeProcessModuleKindValue(
+      required(value.kind, "ProcessModuleInfo.kind"),
+    ),
+  );
+  if (value.baseAddress !== undefined) fields.set(5, text(value.baseAddress));
+  if (value.sizeBytes !== undefined) fields.set(6, u53(value.sizeBytes));
+  if (value.version !== undefined) fields.set(7, text(value.version));
+  return fields;
+}
+
+export function decodeProcessModuleInfoValue(
+  value: CborValue,
+): ProcessModuleInfo {
+  const fields = expectMap(value);
+  return {
+    moduleId: fieldOrDefault(
+      fields.get(1),
+      (value) => textValue(value),
+      () => "",
+    ),
+    name: fieldOrDefault(fields.get(2), (value) => textValue(value), () => ""),
+    path: optionalField(fields.get(3), (value) => textValue(value)),
+    kind: fieldOrDefault(
+      fields.get(4),
+      (value) => decodeProcessModuleKindValue(value),
+      () => ProcessModuleKind.Executable,
+    ),
+    baseAddress: optionalField(fields.get(5), (value) => textValue(value)),
+    sizeBytes: optionalField(fields.get(6), (value) => integer(value)),
+    version: optionalField(fields.get(7), (value) => textValue(value)),
+  };
+}
+
+export function encodeProcessModuleKindValue(
+  value: ProcessModuleKind,
+): CborValue {
+  return integer(value);
+}
+
+export function decodeProcessModuleKindValue(
+  value: CborValue,
+): ProcessModuleKind {
+  const id = integer(value);
+  if (![1, 2, 3].includes(id)) {
+    throw new Error(`unknown ProcessModuleKind variant ${id}`);
+  }
+  return id as ProcessModuleKind;
+}
+
+export function encodeProcessModulesTableEventValue(
+  value: ProcessModulesTableEvent,
+): CborValue {
+  switch (value.type) {
+    case "snapshot": {
+      const fields = new Map<number, CborValue>();
+      fields.set(
+        1,
+        required(value.rows, "ProcessModulesTableEvent.Snapshot.rows").map((
+          item,
+        ) => encodeProcessModuleInfoValue(item)),
+      );
+      return [1, fields];
+    }
+    case "patch": {
+      const fields = new Map<number, CborValue>();
+      fields.set(
+        1,
+        required(value.removes, "ProcessModulesTableEvent.Patch.removes").map((
+          item,
+        ) => text(item)),
+      );
+      fields.set(
+        2,
+        required(value.upserts, "ProcessModulesTableEvent.Patch.upserts").map((
+          item,
+        ) => encodeProcessModuleInfoValue(item)),
+      );
+      return [2, fields];
+    }
+    case "exited": {
+      const fields = new Map<number, CborValue>();
+      return [3, fields];
+    }
+  }
+}
+
+export function decodeProcessModulesTableEventValue(
+  value: CborValue,
+): ProcessModulesTableEvent {
+  const [variantId, fields] = expectUnion(value);
+  switch (variantId) {
+    case 1:
+      return {
+        type: "snapshot",
+        rows: fieldOrDefault(
+          fields.get(1),
+          (value) =>
+            array(value).map((item) => decodeProcessModuleInfoValue(item)),
+          () => [],
+        ),
+      };
+    case 2:
+      return {
+        type: "patch",
+        removes: fieldOrDefault(
+          fields.get(1),
+          (value) => array(value).map((item) => textValue(item)),
+          () => [],
+        ),
+        upserts: fieldOrDefault(
+          fields.get(2),
+          (value) =>
+            array(value).map((item) => decodeProcessModuleInfoValue(item)),
+          () => [],
+        ),
+      };
+    case 3:
+      return {
+        type: "exited",
+      };
+  }
+  throw new Error(`unknown ProcessModulesTableEvent variant ${variantId}`);
+}
+
 export function encodeSubscribeProcessesErrorValue(
   value: SubscribeProcessesError,
 ): CborValue {
@@ -4488,6 +4687,110 @@ export function decodeSubscribeProcessSocketsInUseErrorValue(
   throw new Error(
     `unknown SubscribeProcessSocketsInUseError variant ${variantId}`,
   );
+}
+
+export function encodeSubscribeProcessModulesErrorValue(
+  value: SubscribeProcessModulesError,
+): CborValue {
+  switch (value.type) {
+    case "failed": {
+      const fields = new Map<number, CborValue>();
+      fields.set(
+        1,
+        text(
+          required(
+            value.message,
+            "SubscribeProcessModulesError.Failed.message",
+          ),
+        ),
+      );
+      return [0, fields];
+    }
+    case "notFound": {
+      const fields = new Map<number, CborValue>();
+      fields.set(
+        1,
+        text(
+          required(
+            value.message,
+            "SubscribeProcessModulesError.NotFound.message",
+          ),
+        ),
+      );
+      return [1, fields];
+    }
+    case "permissionDenied": {
+      const fields = new Map<number, CborValue>();
+      fields.set(
+        1,
+        text(
+          required(
+            value.message,
+            "SubscribeProcessModulesError.PermissionDenied.message",
+          ),
+        ),
+      );
+      return [2, fields];
+    }
+    case "unsupported": {
+      const fields = new Map<number, CborValue>();
+      fields.set(
+        1,
+        text(
+          required(
+            value.message,
+            "SubscribeProcessModulesError.Unsupported.message",
+          ),
+        ),
+      );
+      return [3, fields];
+    }
+  }
+}
+
+export function decodeSubscribeProcessModulesErrorValue(
+  value: CborValue,
+): SubscribeProcessModulesError {
+  const [variantId, fields] = expectUnion(value);
+  switch (variantId) {
+    case 0:
+      return {
+        type: "failed",
+        message: fieldOrDefault(
+          fields.get(1),
+          (value) => textValue(value),
+          () => "",
+        ),
+      };
+    case 1:
+      return {
+        type: "notFound",
+        message: fieldOrDefault(
+          fields.get(1),
+          (value) => textValue(value),
+          () => "",
+        ),
+      };
+    case 2:
+      return {
+        type: "permissionDenied",
+        message: fieldOrDefault(
+          fields.get(1),
+          (value) => textValue(value),
+          () => "",
+        ),
+      };
+    case 3:
+      return {
+        type: "unsupported",
+        message: fieldOrDefault(
+          fields.get(1),
+          (value) => textValue(value),
+          () => "",
+        ),
+      };
+  }
+  throw new Error(`unknown SubscribeProcessModulesError variant ${variantId}`);
 }
 
 export function encodeStartPairingReqValue(value: StartPairingReq): CborValue {
@@ -6978,6 +7281,12 @@ function defaultSubscribeProcessSocketsInUseReq(): SubscribeProcessSocketsInUseR
   };
 }
 
+function defaultSubscribeProcessModulesReq(): SubscribeProcessModulesReq {
+  return {
+    pid: 0,
+  };
+}
+
 function defaultProcessInfo(): ProcessInfo {
   return {
     pid: 0,
@@ -7085,6 +7394,21 @@ function defaultProcessSocketsInUseTableEvent(): ProcessSocketsInUseTableEvent {
   };
 }
 
+function defaultProcessModuleInfo(): ProcessModuleInfo {
+  return {
+    moduleId: "",
+    name: "",
+    kind: ProcessModuleKind.Executable,
+  };
+}
+
+function defaultProcessModulesTableEvent(): ProcessModulesTableEvent {
+  return {
+    type: "snapshot",
+    rows: [],
+  };
+}
+
 function defaultSubscribeProcessesError(): SubscribeProcessesError {
   return {
     type: "failed",
@@ -7107,6 +7431,13 @@ function defaultSubscribeProcessResourcesInUseError(): SubscribeProcessResources
 }
 
 function defaultSubscribeProcessSocketsInUseError(): SubscribeProcessSocketsInUseError {
+  return {
+    type: "failed",
+    message: "",
+  };
+}
+
+function defaultSubscribeProcessModulesError(): SubscribeProcessModulesError {
   return {
     type: "failed",
     message: "",

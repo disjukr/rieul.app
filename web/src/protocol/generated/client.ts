@@ -26,6 +26,7 @@ import {
   subscribeDirectoryProc,
   subscribeProcessDetailProc,
   subscribeProcessesProc,
+  subscribeProcessModulesProc,
   subscribeProcessResourcesInUseProc,
   subscribeProcessSocketsInUseProc,
   subscribeRootsProc,
@@ -53,6 +54,7 @@ import type {
   DirectoryTableEvent,
   ProcessDetailEvent,
   ProcessesTableEvent,
+  ProcessModulesTableEvent,
   ProcessResourcesInUseTableEvent,
   ProcessSocketsInUseTableEvent,
   PurgeTrashItemsReq,
@@ -66,6 +68,7 @@ import type {
   StartPairingRes,
   SubscribeDirectoryReq,
   SubscribeProcessDetailReq,
+  SubscribeProcessModulesReq,
   SubscribeProcessResourcesInUseReq,
   SubscribeProcessSocketsInUseReq,
   SubscribeWindowDetailReq,
@@ -275,4 +278,11 @@ export function subscribeProcessSocketsInUse(
   request: SubscribeProcessSocketsInUseReq,
 ): AsyncGenerator<ProcessSocketsInUseTableEvent> {
   return callServerStream(transport, subscribeProcessSocketsInUseProc, request);
+}
+
+export function subscribeProcessModules(
+  transport: WebTransport,
+  request: SubscribeProcessModulesReq,
+): AsyncGenerator<ProcessModulesTableEvent> {
+  return callServerStream(transport, subscribeProcessModulesProc, request);
 }

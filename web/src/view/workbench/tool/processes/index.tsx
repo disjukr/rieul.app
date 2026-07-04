@@ -13,6 +13,7 @@ import {
 import {
   subscribeProcessDetail,
   subscribeProcesses,
+  subscribeProcessModules,
   subscribeProcessResourcesInUse,
   subscribeProcessSocketsInUse,
 } from "../../../../protocol/generated/client.ts";
@@ -23,6 +24,9 @@ import {
   type ProcessDetailEvent,
   type ProcessesTableEvent,
   type ProcessInfo,
+  type ProcessModuleInfo,
+  ProcessModuleKind,
+  type ProcessModulesTableEvent,
   type ProcessResourceInUseInfo,
   ProcessResourceInUseKind,
   type ProcessResourcesInUseTableEvent,
@@ -80,6 +84,12 @@ interface ProcessSocketsInUseState {
   rows: ProcessSocketInUseInfo[];
 }
 
+interface ProcessModulesState {
+  message?: string;
+  phase: "idle" | "loading" | "ready" | "exited" | "error" | "unsupported";
+  rows: ProcessModuleInfo[];
+}
+
 const processesToolClassName = [
   "flex h-full min-h-0 w-full flex-col",
   "overflow-hidden bg-white text-[#20242d]",
@@ -111,6 +121,11 @@ const processSocketTableEmptyClassName = [
   "grid min-h-0 min-w-0 flex-1 overflow-auto leading-[1.6]",
   "[grid-template-columns:minmax(96px,120px)_minmax(180px,1fr)_minmax(180px,1fr)_minmax(96px,120px)]",
   "[grid-template-rows:2rem_minmax(0,1fr)] bg-white",
+].join(" ");
+const processModuleTableClassName = [
+  "grid min-h-0 min-w-0 flex-1 overflow-auto leading-[1.6]",
+  "[grid-template-columns:minmax(180px,1fr)_minmax(120px,148px)_minmax(136px,168px)_minmax(96px,120px)_minmax(240px,2fr)]",
+  "auto-rows-[2rem] bg-white",
 ].join(" ");
 const processHeadClassName = [
   "sticky top-0 z-[1] flex h-[2rem] box-border items-center",
@@ -192,6 +207,10 @@ export function ProcessesTool() {
     daemonInfo.daemonInfo.supportedProcIds.includes(
       ProcId.SubscribeProcessSocketsInUse,
     );
+  const processModulesSupported = daemonInfo.phase === "ready" &&
+    daemonInfo.daemonInfo.supportedProcIds.includes(
+      ProcId.SubscribeProcessModules,
+    );
 
   if (!machine) {
     return (
@@ -265,6 +284,24 @@ export function ProcessesTool() {
             supported={processSocketsInUseSupported}
           />
         )
+        : selectedPage === "modules"
+        ? (
+          <ProcessModulesView
+            daemonInfoPhase={daemonInfo.phase}
+            machineId={machine.id}
+            onOpenModulePath={(module) => {
+              const tabId = paneState.addFilesTab();
+              writeProcessModuleFilesNavigationState(
+                machine.id,
+                tabId,
+                module,
+              );
+            }}
+            pid={selectedPid}
+            rpcSession={rpcSession}
+            supported={processModulesSupported}
+          />
+        )
         : (
           <ProcessDetailView
             daemonInfoPhase={daemonInfo.phase}
@@ -281,8 +318,15 @@ export function ProcessesTool() {
                 processPage: "heldSockets",
                 title: tab?.title ?? `PID ${selectedPid}`,
               })}
+            onShowModules={() =>
+              paneState.addProcessesTab({
+                processDetailPid: selectedPid,
+                processPage: "modules",
+                title: tab?.title ?? `PID ${selectedPid}`,
+              })}
             pid={selectedPid}
             rpcSession={rpcSession}
+            modulesSupported={processModulesSupported}
             resourcesSupported={processResourcesInUseSupported}
             socketsSupported={processSocketsInUseSupported}
             supported={processDetailSupported}
@@ -293,7 +337,7 @@ export function ProcessesTool() {
 }
 
 interface ProcessesBreadcrumbProps {
-  selectedPage?: "detail" | "heldResources" | "heldSockets";
+  selectedPage?: "detail" | "heldResources" | "heldSockets" | "modules";
   selectedPid?: number;
   onOpenProcess: () => void;
   onOpenRoot: () => void;
@@ -319,7 +363,8 @@ function ProcessesBreadcrumb(
     items.push({
       label: `PID ${selectedPid}`,
       onClick:
-        selectedPage === "heldResources" || selectedPage === "heldSockets"
+        selectedPage === "heldResources" || selectedPage === "heldSockets" ||
+          selectedPage === "modules"
           ? onOpenProcess
           : undefined,
     });
@@ -327,6 +372,8 @@ function ProcessesBreadcrumb(
       items.push({ label: "Resources in use" });
     } else if (selectedPage === "heldSockets") {
       items.push({ label: "Sockets in use" });
+    } else if (selectedPage === "modules") {
+      items.push({ label: "Modules" });
     }
   }
 
@@ -509,10 +556,12 @@ function ProcessListView(
 interface ProcessDetailViewProps {
   daemonInfoPhase: string;
   machineId: string;
+  onShowModules: () => void;
   onShowResourcesInUse: () => void;
   onShowSocketsInUse: () => void;
   pid: number;
   rpcSession: ProcessesRpcSession;
+  modulesSupported: boolean;
   resourcesSupported: boolean;
   socketsSupported: boolean;
   supported: boolean;
@@ -522,10 +571,12 @@ function ProcessDetailView(
   {
     daemonInfoPhase,
     machineId,
+    onShowModules,
     onShowResourcesInUse,
     onShowSocketsInUse,
     pid,
     rpcSession,
+    modulesSupported,
     resourcesSupported,
     socketsSupported,
     supported,
@@ -623,8 +674,10 @@ function ProcessDetailView(
     <div className={processesContentClassName}>
       <ProcessDetailSummary
         detail={state.detail}
+        onShowModules={onShowModules}
         onShowResourcesInUse={onShowResourcesInUse}
         onShowSocketsInUse={onShowSocketsInUse}
+        modulesSupported={modulesSupported}
         resourcesSupported={resourcesSupported}
         socketsSupported={socketsSupported}
       />
@@ -639,8 +692,10 @@ function ProcessDetailView(
 
 interface ProcessDetailSummaryProps {
   detail: ProcessDetail;
+  onShowModules: () => void;
   onShowResourcesInUse: () => void;
   onShowSocketsInUse: () => void;
+  modulesSupported: boolean;
   resourcesSupported: boolean;
   socketsSupported: boolean;
 }
@@ -648,8 +703,10 @@ interface ProcessDetailSummaryProps {
 function ProcessDetailSummary(
   {
     detail,
+    onShowModules,
     onShowResourcesInUse,
     onShowSocketsInUse,
+    modulesSupported,
     resourcesSupported,
     socketsSupported,
   }: ProcessDetailSummaryProps,
@@ -710,6 +767,16 @@ function ProcessDetailSummary(
           >
             <ExternalLink size={14} />
             Sockets in use
+          </Button>
+          <Button
+            disabled={!modulesSupported}
+            onClick={onShowModules}
+            title={modulesSupported
+              ? "Show executable images and dynamic libraries loaded by this process"
+              : "This daemon does not support module subscriptions"}
+          >
+            <ExternalLink size={14} />
+            Modules
           </Button>
         </div>
         <ProcessResourceUsageTable usage={usage} />
@@ -1111,6 +1178,198 @@ function ProcessSocketsInUseView(
   );
 }
 
+interface ProcessModulesViewProps {
+  daemonInfoPhase: string;
+  machineId: string;
+  onOpenModulePath: (module: ProcessModuleInfo) => void;
+  pid: number;
+  rpcSession: ProcessesRpcSession;
+  supported: boolean;
+}
+
+function ProcessModulesView(
+  {
+    daemonInfoPhase,
+    machineId,
+    onOpenModulePath,
+    pid,
+    rpcSession,
+    supported,
+  }: ProcessModulesViewProps,
+) {
+  const rowsRef = useRef<ProcessModuleInfo[]>([]);
+  const [state, setState] = useState<ProcessModulesState>({
+    phase: "idle",
+    rows: [],
+  });
+
+  useEffect(() => {
+    if (daemonInfoPhase === "error") {
+      rowsRef.current = [];
+      setState({
+        message: "Daemon info unavailable",
+        phase: "error",
+        rows: [],
+      });
+      return;
+    }
+    if (daemonInfoPhase !== "ready") {
+      rowsRef.current = [];
+      setState({ phase: "loading", rows: [] });
+      return;
+    }
+    if (!supported) {
+      rowsRef.current = [];
+      setState({
+        message: "This daemon does not support process module subscriptions.",
+        phase: "unsupported",
+        rows: [],
+      });
+      return;
+    }
+
+    let cancelled = false;
+    let iterator: AsyncGenerator<ProcessModulesTableEvent> | undefined;
+    setState((current) => ({ ...current, phase: "loading" }));
+
+    void (async () => {
+      try {
+        const transport = await rpcSession.webTransport();
+        if (cancelled) return;
+        iterator = subscribeProcessModules(transport, { pid });
+        for await (const event of iterator) {
+          if (cancelled) return;
+          if (event.type === "exited") {
+            setState((current) => ({ ...current, phase: "exited" }));
+            return;
+          }
+          const rows = applyProcessModulesEvent(rowsRef.current, event);
+          rowsRef.current = rows;
+          setState({ phase: "ready", rows });
+        }
+      } catch (err) {
+        if (cancelled) return;
+        rowsRef.current = [];
+        setState({
+          message: err instanceof Error ? err.message : String(err),
+          phase: "error",
+          rows: [],
+        });
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      void iterator?.return(undefined);
+    };
+  }, [daemonInfoPhase, machineId, pid, rpcSession, supported]);
+
+  if (state.phase === "loading" || daemonInfoPhase !== "ready") {
+    return (
+      <section className={emptyWorkspaceClassName}>
+        <Loader2 size={24} className="animate-spin" />
+        <h2>Loading modules</h2>
+      </section>
+    );
+  }
+
+  if (state.phase === "unsupported" || state.phase === "error") {
+    return (
+      <section className={emptyWorkspaceClassName}>
+        <Activity size={28} />
+        <h2>
+          {state.phase === "unsupported"
+            ? "Modules unavailable"
+            : "Failed to load modules"}
+        </h2>
+        {state.message ? <p>{state.message}</p> : null}
+      </section>
+    );
+  }
+
+  return (
+    <div className={processesContentClassName}>
+      <div
+        className={processModuleTableClassName}
+        role="grid"
+        aria-label="Process modules"
+      >
+        <div
+          className={`${processHeadClassName} ${processFirstColumnClassName}`}
+          role="columnheader"
+        >
+          Name
+        </div>
+        <div className={processHeadClassName} role="columnheader">
+          Kind
+        </div>
+        <div className={processHeadClassName} role="columnheader">
+          Base address
+        </div>
+        <div className={processHeadClassName} role="columnheader">
+          Size
+        </div>
+        <div className={processHeadClassName} role="columnheader">
+          Path
+        </div>
+        {state.rows.length === 0
+          ? (
+            <div className={`${processCellClassName} [grid-column:1/-1]`}>
+              No modules
+            </div>
+          )
+          : state.rows.map((module) => {
+            const canOpen = module.path !== undefined && module.path.length > 0;
+            return (
+              <div
+                key={module.moduleId}
+                className={`${processRowClassName} ${
+                  canOpen ? "!cursor-pointer" : ""
+                }`}
+                role="row"
+                title={module.path ?? module.name}
+                onDoubleClick={canOpen
+                  ? () => onOpenModulePath(module)
+                  : undefined}
+              >
+                <span
+                  className={`${processCellClassName} ${processFirstColumnClassName}`}
+                >
+                  <span className={processNameClassName}>
+                    {module.name}
+                  </span>
+                </span>
+                <span className={processMetaCellClassName}>
+                  {processModuleKindLabel(module.kind)}
+                </span>
+                <span className={processMetaCellClassName}>
+                  {module.baseAddress ?? ""}
+                </span>
+                <span className={processMetaCellClassName}>
+                  {module.sizeBytes === undefined
+                    ? ""
+                    : formatBytes(module.sizeBytes)}
+                </span>
+                <span className={processCellClassName}>
+                  <span className={processNameClassName}>
+                    {module.path ?? ""}
+                  </span>
+                </span>
+              </div>
+            );
+          })}
+      </div>
+      <footer className={processesFooterClassName}>
+        {state.phase === "exited"
+          ? "Process exited"
+          : `${state.rows.length} ${
+            state.rows.length === 1 ? "module" : "modules"
+          }`}
+      </footer>
+    </div>
+  );
+}
+
 interface ProcessResourceInUseDetailProps {
   onClose: () => void;
   resource: ProcessResourceInUseInfo;
@@ -1293,6 +1552,27 @@ function applyProcessSocketsInUseEvent(
   return sortedProcessSocketsInUse([...rowsById.values()]);
 }
 
+function applyProcessModulesEvent(
+  currentRows: ProcessModuleInfo[],
+  event: ProcessModulesTableEvent,
+): ProcessModuleInfo[] {
+  if (event.type === "snapshot") {
+    return sortedProcessModules(event.rows);
+  }
+  if (event.type === "exited") {
+    return currentRows;
+  }
+
+  const rowsById = new Map(currentRows.map((row) => [row.moduleId, row]));
+  for (const moduleId of event.removes) {
+    rowsById.delete(moduleId);
+  }
+  for (const row of event.upserts) {
+    rowsById.set(row.moduleId, row);
+  }
+  return sortedProcessModules([...rowsById.values()]);
+}
+
 function sortedProcesses(rows: ProcessInfo[]): ProcessInfo[] {
   return [...rows].sort((a, b) => a.pid - b.pid);
 }
@@ -1324,6 +1604,15 @@ function sortedProcessSocketsInUse(
   );
 }
 
+function sortedProcessModules(rows: ProcessModuleInfo[]): ProcessModuleInfo[] {
+  return [...rows].sort((a, b) =>
+    processModuleKindSortKey(a.kind) - processModuleKindSortKey(b.kind) ||
+    a.name.localeCompare(b.name) ||
+    (a.path ?? "").localeCompare(b.path ?? "") ||
+    a.moduleId.localeCompare(b.moduleId)
+  );
+}
+
 function isPathProcessResource(resource: ProcessResourceInUseInfo): boolean {
   if (!resource.name || resource.deleted) return false;
   return resource.kind === ProcessResourceInUseKind.File ||
@@ -1346,11 +1635,25 @@ function writeProcessResourceFilesNavigationState(
     machineId,
     tabId,
     parentPath(resource.name),
-    processResourceFileEntry(resource.name),
+    processPathFileEntry(resource.name),
   );
 }
 
-function processResourceFileEntry(path: string): FsEntry {
+function writeProcessModuleFilesNavigationState(
+  machineId: string | undefined,
+  tabId: string,
+  module: ProcessModuleInfo,
+) {
+  if (!module.path) return;
+  writeExplorerFileNavigationState(
+    machineId,
+    tabId,
+    parentPath(module.path),
+    processPathFileEntry(module.path),
+  );
+}
+
+function processPathFileEntry(path: string): FsEntry {
   return {
     kind: FsEntryKind.File,
     name: pathBaseName(path),
@@ -1446,6 +1749,28 @@ function socketEndpointLabel(endpoint: SocketEndpoint | undefined): string {
 function socketListeningLabel(listening: boolean | undefined): string {
   if (listening === undefined) return "Unknown";
   return listening ? "Yes" : "No";
+}
+
+function processModuleKindLabel(kind: ProcessModuleKind): string {
+  switch (kind) {
+    case ProcessModuleKind.Executable:
+      return "Executable";
+    case ProcessModuleKind.DynamicLibrary:
+      return "Dynamic library";
+    case ProcessModuleKind.Unknown:
+      return "Unknown";
+  }
+}
+
+function processModuleKindSortKey(kind: ProcessModuleKind): number {
+  switch (kind) {
+    case ProcessModuleKind.Executable:
+      return 0;
+    case ProcessModuleKind.DynamicLibrary:
+      return 1;
+    case ProcessModuleKind.Unknown:
+      return 2;
+  }
 }
 
 function processResourceInUseAccessLabel(
