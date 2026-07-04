@@ -14,6 +14,7 @@ import {
   subscribeProcessDetail,
   subscribeProcesses,
   subscribeProcessResourcesInUse,
+  subscribeProcessSocketsInUse,
 } from "../../../../protocol/generated/client.ts";
 import {
   type FsEntry,
@@ -25,8 +26,11 @@ import {
   type ProcessResourceInUseInfo,
   ProcessResourceInUseKind,
   type ProcessResourcesInUseTableEvent,
+  type ProcessSocketInUseInfo,
+  type ProcessSocketsInUseTableEvent,
   ProcessStatus,
   ProcId,
+  type SocketEndpoint,
 } from "../../../../protocol/generated/rpc.ts";
 import { machineModalBunja } from "../../../../state/machine-modal.ts";
 import { machineStoreBunja } from "../../../../state/machine-store.ts";
@@ -70,6 +74,12 @@ interface ProcessResourcesInUseState {
   rows: ProcessResourceInUseInfo[];
 }
 
+interface ProcessSocketsInUseState {
+  message?: string;
+  phase: "idle" | "loading" | "ready" | "exited" | "error" | "unsupported";
+  rows: ProcessSocketInUseInfo[];
+}
+
 const processesToolClassName = [
   "flex h-full min-h-0 w-full flex-col",
   "overflow-hidden bg-white text-[#20242d]",
@@ -92,6 +102,16 @@ const processResourceTableClassName = [
   "[grid-template-columns:minmax(180px,1fr)_minmax(136px,168px)_minmax(96px,120px)_minmax(120px,168px)]",
   "auto-rows-[2rem] bg-white",
 ].join(" ");
+const processSocketTableClassName = [
+  "grid min-h-0 min-w-0 flex-1 overflow-auto leading-[1.6]",
+  "[grid-template-columns:minmax(96px,120px)_minmax(180px,1fr)_minmax(180px,1fr)_minmax(96px,120px)]",
+  "auto-rows-[2rem] bg-white",
+].join(" ");
+const processSocketTableEmptyClassName = [
+  "grid min-h-0 min-w-0 flex-1 overflow-auto leading-[1.6]",
+  "[grid-template-columns:minmax(96px,120px)_minmax(180px,1fr)_minmax(180px,1fr)_minmax(96px,120px)]",
+  "[grid-template-rows:2rem_minmax(0,1fr)] bg-white",
+].join(" ");
 const processHeadClassName = [
   "sticky top-0 z-[1] flex h-[2rem] box-border items-center",
   "border-b border-b-[#d8dde7] bg-[#f6f8fb] px-[8px]",
@@ -112,6 +132,11 @@ const processPidCellClassName =
 const processMetaCellClassName = `${processCellClassName} text-[#667085]`;
 const processNameClassName =
   "min-w-0 overflow-hidden text-ellipsis whitespace-nowrap";
+const processSocketEmptyCellClassName = [
+  "col-start-1 col-end-[-1] flex min-h-0 min-w-0 flex-col",
+  "items-center justify-center gap-1 px-[1rem] py-[0.5rem] text-center",
+  "text-[#303642]",
+].join(" ");
 const processesFooterClassName = [
   "flex h-[2rem] min-h-[2rem] items-center justify-end border-t border-t-[#d8dde7]",
   "bg-[#fbfcfe] px-[8px] leading-[1.6] text-[#667085]",
@@ -162,6 +187,10 @@ export function ProcessesTool() {
   const processResourcesInUseSupported = daemonInfo.phase === "ready" &&
     daemonInfo.daemonInfo.supportedProcIds.includes(
       ProcId.SubscribeProcessResourcesInUse,
+    );
+  const processSocketsInUseSupported = daemonInfo.phase === "ready" &&
+    daemonInfo.daemonInfo.supportedProcIds.includes(
+      ProcId.SubscribeProcessSocketsInUse,
     );
 
   if (!machine) {
@@ -226,6 +255,16 @@ export function ProcessesTool() {
             supported={processResourcesInUseSupported}
           />
         )
+        : selectedPage === "heldSockets"
+        ? (
+          <ProcessSocketsInUseView
+            daemonInfoPhase={daemonInfo.phase}
+            machineId={machine.id}
+            pid={selectedPid}
+            rpcSession={rpcSession}
+            supported={processSocketsInUseSupported}
+          />
+        )
         : (
           <ProcessDetailView
             daemonInfoPhase={daemonInfo.phase}
@@ -236,9 +275,16 @@ export function ProcessesTool() {
                 processPage: "heldResources",
                 title: tab?.title ?? `PID ${selectedPid}`,
               })}
+            onShowSocketsInUse={() =>
+              paneState.addProcessesTab({
+                processDetailPid: selectedPid,
+                processPage: "heldSockets",
+                title: tab?.title ?? `PID ${selectedPid}`,
+              })}
             pid={selectedPid}
             rpcSession={rpcSession}
             resourcesSupported={processResourcesInUseSupported}
+            socketsSupported={processSocketsInUseSupported}
             supported={processDetailSupported}
           />
         )}
@@ -247,7 +293,7 @@ export function ProcessesTool() {
 }
 
 interface ProcessesBreadcrumbProps {
-  selectedPage?: "detail" | "heldResources";
+  selectedPage?: "detail" | "heldResources" | "heldSockets";
   selectedPid?: number;
   onOpenProcess: () => void;
   onOpenRoot: () => void;
@@ -272,10 +318,15 @@ function ProcessesBreadcrumb(
   } else {
     items.push({
       label: `PID ${selectedPid}`,
-      onClick: selectedPage === "heldResources" ? onOpenProcess : undefined,
+      onClick:
+        selectedPage === "heldResources" || selectedPage === "heldSockets"
+          ? onOpenProcess
+          : undefined,
     });
     if (selectedPage === "heldResources") {
       items.push({ label: "Resources in use" });
+    } else if (selectedPage === "heldSockets") {
+      items.push({ label: "Sockets in use" });
     }
   }
 
@@ -459,9 +510,11 @@ interface ProcessDetailViewProps {
   daemonInfoPhase: string;
   machineId: string;
   onShowResourcesInUse: () => void;
+  onShowSocketsInUse: () => void;
   pid: number;
   rpcSession: ProcessesRpcSession;
   resourcesSupported: boolean;
+  socketsSupported: boolean;
   supported: boolean;
 }
 
@@ -470,9 +523,11 @@ function ProcessDetailView(
     daemonInfoPhase,
     machineId,
     onShowResourcesInUse,
+    onShowSocketsInUse,
     pid,
     rpcSession,
     resourcesSupported,
+    socketsSupported,
     supported,
   }: ProcessDetailViewProps,
 ) {
@@ -569,7 +624,9 @@ function ProcessDetailView(
       <ProcessDetailSummary
         detail={state.detail}
         onShowResourcesInUse={onShowResourcesInUse}
+        onShowSocketsInUse={onShowSocketsInUse}
         resourcesSupported={resourcesSupported}
+        socketsSupported={socketsSupported}
       />
       <footer className={processDetailFooterClassName}>
         {state.phase === "exited"
@@ -583,14 +640,18 @@ function ProcessDetailView(
 interface ProcessDetailSummaryProps {
   detail: ProcessDetail;
   onShowResourcesInUse: () => void;
+  onShowSocketsInUse: () => void;
   resourcesSupported: boolean;
+  socketsSupported: boolean;
 }
 
 function ProcessDetailSummary(
   {
     detail,
     onShowResourcesInUse,
+    onShowSocketsInUse,
     resourcesSupported,
+    socketsSupported,
   }: ProcessDetailSummaryProps,
 ) {
   const now = useBunja(nowBunja);
@@ -639,6 +700,16 @@ function ProcessDetailSummary(
           >
             <ExternalLink size={14} />
             Resources in use
+          </Button>
+          <Button
+            disabled={!socketsSupported}
+            onClick={onShowSocketsInUse}
+            title={socketsSupported
+              ? "Show sockets currently in use by this process"
+              : "This daemon does not support socket usage subscriptions"}
+          >
+            <ExternalLink size={14} />
+            Sockets in use
           </Button>
         </div>
         <ProcessResourceUsageTable usage={usage} />
@@ -859,6 +930,187 @@ function ProcessResourcesInUseView(
   );
 }
 
+interface ProcessSocketsInUseViewProps {
+  daemonInfoPhase: string;
+  machineId: string;
+  pid: number;
+  rpcSession: ProcessesRpcSession;
+  supported: boolean;
+}
+
+function ProcessSocketsInUseView(
+  {
+    daemonInfoPhase,
+    machineId,
+    pid,
+    rpcSession,
+    supported,
+  }: ProcessSocketsInUseViewProps,
+) {
+  const rowsRef = useRef<ProcessSocketInUseInfo[]>([]);
+  const [state, setState] = useState<ProcessSocketsInUseState>({
+    phase: "idle",
+    rows: [],
+  });
+
+  useEffect(() => {
+    if (daemonInfoPhase === "error") {
+      rowsRef.current = [];
+      setState({
+        message: "Daemon info unavailable",
+        phase: "error",
+        rows: [],
+      });
+      return;
+    }
+    if (daemonInfoPhase !== "ready") {
+      rowsRef.current = [];
+      setState({ phase: "loading", rows: [] });
+      return;
+    }
+    if (!supported) {
+      rowsRef.current = [];
+      setState({
+        message:
+          "This daemon does not support process socket usage subscriptions.",
+        phase: "unsupported",
+        rows: [],
+      });
+      return;
+    }
+
+    let cancelled = false;
+    let iterator: AsyncGenerator<ProcessSocketsInUseTableEvent> | undefined;
+    setState((current) => ({ ...current, phase: "loading" }));
+
+    void (async () => {
+      try {
+        const transport = await rpcSession.webTransport();
+        if (cancelled) return;
+        iterator = subscribeProcessSocketsInUse(transport, { pid });
+        for await (const event of iterator) {
+          if (cancelled) return;
+          if (event.type === "exited") {
+            setState((current) => ({ ...current, phase: "exited" }));
+            return;
+          }
+          const rows = applyProcessSocketsInUseEvent(rowsRef.current, event);
+          rowsRef.current = rows;
+          setState({ phase: "ready", rows });
+        }
+      } catch (err) {
+        if (cancelled) return;
+        rowsRef.current = [];
+        setState({
+          message: err instanceof Error ? err.message : String(err),
+          phase: "error",
+          rows: [],
+        });
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      void iterator?.return(undefined);
+    };
+  }, [daemonInfoPhase, machineId, pid, rpcSession, supported]);
+
+  if (state.phase === "loading" || daemonInfoPhase !== "ready") {
+    return (
+      <section className={emptyWorkspaceClassName}>
+        <Loader2 size={24} className="animate-spin" />
+        <h2>Loading sockets in use</h2>
+      </section>
+    );
+  }
+
+  if (state.phase === "unsupported" || state.phase === "error") {
+    return (
+      <section className={emptyWorkspaceClassName}>
+        <Activity size={28} />
+        <h2>
+          {state.phase === "unsupported"
+            ? "Sockets in use unavailable"
+            : "Failed to load sockets in use"}
+        </h2>
+        {state.message ? <p>{state.message}</p> : null}
+      </section>
+    );
+  }
+
+  return (
+    <div className={processesContentClassName}>
+      <div
+        className={state.rows.length === 0
+          ? processSocketTableEmptyClassName
+          : processSocketTableClassName}
+        role="grid"
+        aria-label="Process sockets in use"
+      >
+        <div
+          className={`${processHeadClassName} ${processFirstColumnClassName}`}
+          role="columnheader"
+        >
+          Kind
+        </div>
+        <div className={processHeadClassName} role="columnheader">
+          Local
+        </div>
+        <div className={processHeadClassName} role="columnheader">
+          Remote
+        </div>
+        <div className={processHeadClassName} role="columnheader">
+          Listening
+        </div>
+        {state.rows.length === 0
+          ? (
+            <div className={processSocketEmptyCellClassName}>
+              <span>No sockets in use by PID {pid}</span>
+              <span className="text-slate-500">
+                Multi-process apps may keep sockets in a separate network
+                service process.
+              </span>
+            </div>
+          )
+          : state.rows.map((socket) => (
+            <div
+              key={socket.socketId}
+              className={processRowClassName}
+              role="row"
+              title={socket.socketId}
+            >
+              <span
+                className={`${processMetaCellClassName} ${processFirstColumnClassName}`}
+              >
+                {processSocketInUseKindLabel(socket.kind)}
+              </span>
+              <span className={processCellClassName}>
+                <span className={processNameClassName}>
+                  {socketEndpointLabel(socket.localEndpoint)}
+                </span>
+              </span>
+              <span className={processCellClassName}>
+                <span className={processNameClassName}>
+                  {socketEndpointLabel(socket.remoteEndpoint)}
+                </span>
+              </span>
+              <span className={processMetaCellClassName}>
+                {socketListeningLabel(socket.listening)}
+              </span>
+            </div>
+          ))}
+      </div>
+      <footer className={processesFooterClassName}>
+        {state.phase === "exited"
+          ? "Process exited"
+          : `${state.rows.length} ${
+            state.rows.length === 1 ? "socket" : "sockets"
+          }`}
+      </footer>
+    </div>
+  );
+}
+
 interface ProcessResourceInUseDetailProps {
   onClose: () => void;
   resource: ProcessResourceInUseInfo;
@@ -1020,6 +1272,27 @@ function applyProcessResourcesInUseEvent(
   return sortedProcessResourcesInUse([...rowsById.values()]);
 }
 
+function applyProcessSocketsInUseEvent(
+  currentRows: ProcessSocketInUseInfo[],
+  event: ProcessSocketsInUseTableEvent,
+): ProcessSocketInUseInfo[] {
+  if (event.type === "snapshot") {
+    return sortedProcessSocketsInUse(event.rows);
+  }
+  if (event.type === "exited") {
+    return currentRows;
+  }
+
+  const rowsById = new Map(currentRows.map((row) => [row.socketId, row]));
+  for (const socketId of event.removes) {
+    rowsById.delete(socketId);
+  }
+  for (const row of event.upserts) {
+    rowsById.set(row.socketId, row);
+  }
+  return sortedProcessSocketsInUse([...rowsById.values()]);
+}
+
 function sortedProcesses(rows: ProcessInfo[]): ProcessInfo[] {
   return [...rows].sort((a, b) => a.pid - b.pid);
 }
@@ -1032,6 +1305,22 @@ function sortedProcessResourcesInUse(
       processResourceInUseKindLabel(b.kind),
     ) || (a.name ?? "").localeCompare(b.name ?? "") ||
     a.resourceId.localeCompare(b.resourceId)
+  );
+}
+
+function sortedProcessSocketsInUse(
+  rows: ProcessSocketInUseInfo[],
+): ProcessSocketInUseInfo[] {
+  return [...rows].sort((a, b) =>
+    processSocketInUseKindLabel(a.kind).localeCompare(
+      processSocketInUseKindLabel(b.kind),
+    ) || socketEndpointLabel(a.localEndpoint).localeCompare(
+      socketEndpointLabel(b.localEndpoint),
+    ) ||
+    socketEndpointLabel(a.remoteEndpoint).localeCompare(
+      socketEndpointLabel(b.remoteEndpoint),
+    ) ||
+    a.socketId.localeCompare(b.socketId)
   );
 }
 
@@ -1123,6 +1412,40 @@ function processResourceInUseKindLabel(kind: ProcessResourceInUseKind): string {
     case ProcessResourceInUseKind.Other:
       return "Other";
   }
+}
+
+function processSocketInUseKindLabel(
+  kind: ProcessSocketInUseInfo["kind"],
+): string {
+  switch (kind.type) {
+    case "tcp":
+      return "TCP";
+    case "udp":
+      return "UDP";
+    case "unix":
+      return "Unix";
+    case "raw":
+      return "Raw";
+    case "unknown":
+      return "Unknown";
+  }
+}
+
+function socketEndpointLabel(endpoint: SocketEndpoint | undefined): string {
+  if (!endpoint) return "";
+  switch (endpoint.type) {
+    case "ip":
+      return endpoint.port === undefined
+        ? endpoint.address
+        : `${endpoint.address}:${endpoint.port}`;
+    case "unix":
+      return endpoint.path ?? endpoint.name ?? "";
+  }
+}
+
+function socketListeningLabel(listening: boolean | undefined): string {
+  if (listening === undefined) return "Unknown";
+  return listening ? "Yes" : "No";
 }
 
 function processResourceInUseAccessLabel(

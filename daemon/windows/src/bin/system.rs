@@ -12,6 +12,7 @@ use wgo_daemon_host::server::run_system_server;
 use wgo_windows_daemon::fs::WindowsFileService;
 use wgo_windows_daemon::ipc::{UserSessionWindowService, UserTrayPairingNotifier};
 use wgo_windows_daemon::process_resources::WindowsProcessResourcesInUseService;
+use wgo_windows_daemon::process_sockets::WindowsProcessSocketsInUseService;
 
 #[derive(Debug, Parser)]
 #[command(name = "wgo-windows-system")]
@@ -119,6 +120,7 @@ fn run_system_server_blocking(listen: Option<SocketAddr>, config_path: PathBuf) 
         Arc::new(WindowsFileService),
         Some(Arc::new(UserSessionWindowService)),
         Some(Arc::new(WindowsProcessResourcesInUseService)),
+        Some(Arc::new(WindowsProcessSocketsInUseService)),
         Some(Arc::new(UserTrayPairingNotifier)),
         "Windows system daemon",
     ))

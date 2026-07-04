@@ -95,6 +95,7 @@ Protocol proc id registry:
 | 26 | `SubscribeWindows`               |
 | 27 | `SubscribeWindowDetail`          |
 | 28 | `SubscribeProcessResourcesInUse` |
+| 29 | `SubscribeProcessSocketsInUse`   |
 
 `GetDaemonInfo` returns daemon metadata: supported proc ids, daemon version, a
 human-readable OS name for the daemon host, daemon instance lifecycle fields,

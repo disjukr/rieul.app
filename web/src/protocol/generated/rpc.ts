@@ -31,6 +31,7 @@ export enum ProcId {
   SubscribeWindows = 26,
   SubscribeWindowDetail = 27,
   SubscribeProcessResourcesInUse = 28,
+  SubscribeProcessSocketsInUse = 29,
 }
 
 export interface SubscribeWindowDetailReq {
@@ -253,6 +254,10 @@ export interface SubscribeProcessResourcesInUseReq {
   pid: number;
 }
 
+export interface SubscribeProcessSocketsInUseReq {
+  pid: number;
+}
+
 export interface ProcessInfo {
   pid: number;
   ppid?: number;
@@ -343,6 +348,30 @@ export type ProcessResourcesInUseTableEvent =
   | { type: "patch"; removes: string[]; upserts: ProcessResourceInUseInfo[] }
   | { type: "exited" };
 
+export interface ProcessSocketInUseInfo {
+  socketId: string;
+  kind: ProcessSocketInUseKind;
+  localEndpoint?: SocketEndpoint;
+  remoteEndpoint?: SocketEndpoint;
+  listening?: boolean;
+}
+
+export type ProcessSocketInUseKind =
+  | { type: "tcp" }
+  | { type: "udp" }
+  | { type: "unix" }
+  | { type: "raw" }
+  | { type: "unknown" };
+
+export type SocketEndpoint =
+  | { type: "ip"; address: string; port?: number }
+  | { type: "unix"; path?: string; name?: string };
+
+export type ProcessSocketsInUseTableEvent =
+  | { type: "snapshot"; rows: ProcessSocketInUseInfo[] }
+  | { type: "patch"; removes: string[]; upserts: ProcessSocketInUseInfo[] }
+  | { type: "exited" };
+
 export type SubscribeProcessesError =
   | { type: "failed"; message: string }
   | { type: "permissionDenied"; message: string };
@@ -353,6 +382,12 @@ export type SubscribeProcessDetailError =
   | { type: "permissionDenied"; message: string };
 
 export type SubscribeProcessResourcesInUseError =
+  | { type: "failed"; message: string }
+  | { type: "notFound"; message: string }
+  | { type: "permissionDenied"; message: string }
+  | { type: "unsupported"; message: string };
+
+export type SubscribeProcessSocketsInUseError =
   | { type: "failed"; message: string }
   | { type: "notFound"; message: string }
   | { type: "permissionDenied"; message: string }
@@ -1084,6 +1119,22 @@ export const subscribeProcessResourcesInUseProc: ProcCodec<
   decodeError: decodeSubscribeProcessResourcesInUseErrorValue,
 };
 
+export const subscribeProcessSocketsInUseProc: ProcCodec<
+  SubscribeProcessSocketsInUseReq,
+  ProcessSocketsInUseTableEvent,
+  SubscribeProcessSocketsInUseError
+> = {
+  id: ProcId.SubscribeProcessSocketsInUse,
+  name: "SubscribeProcessSocketsInUse",
+  stream: "server",
+  requestType: "SubscribeProcessSocketsInUseReq",
+  responseType: "ProcessSocketsInUseTableEvent",
+  errorType: "SubscribeProcessSocketsInUseError",
+  encodeRequest: encodeSubscribeProcessSocketsInUseReqValue,
+  decodeResponse: decodeProcessSocketsInUseTableEventValue,
+  decodeError: decodeSubscribeProcessSocketsInUseErrorValue,
+};
+
 export const procs = {
   [ProcId.GetDaemonInfo]: getDaemonInfoProc,
   [ProcId.StartPairing]: startPairingProc,
@@ -1113,6 +1164,7 @@ export const procs = {
   [ProcId.SubscribeWindows]: subscribeWindowsProc,
   [ProcId.SubscribeWindowDetail]: subscribeWindowDetailProc,
   [ProcId.SubscribeProcessResourcesInUse]: subscribeProcessResourcesInUseProc,
+  [ProcId.SubscribeProcessSocketsInUse]: subscribeProcessSocketsInUseProc,
 } as const;
 
 export function encodeSubscribeWindowDetailReqValue(
@@ -3174,6 +3226,26 @@ export function decodeSubscribeProcessResourcesInUseReqValue(
   };
 }
 
+export function encodeSubscribeProcessSocketsInUseReqValue(
+  value: SubscribeProcessSocketsInUseReq,
+): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(
+    1,
+    u53(required(value.pid, "SubscribeProcessSocketsInUseReq.pid")),
+  );
+  return fields;
+}
+
+export function decodeSubscribeProcessSocketsInUseReqValue(
+  value: CborValue,
+): SubscribeProcessSocketsInUseReq {
+  const fields = expectMap(value);
+  return {
+    pid: fieldOrDefault(fields.get(1), (value) => integer(value), () => 0),
+  };
+}
+
 export function encodeProcessInfoValue(value: ProcessInfo): CborValue {
   const fields = new Map<number, CborValue>();
   fields.set(1, u53(required(value.pid, "ProcessInfo.pid")));
@@ -3852,6 +3924,226 @@ export function decodeProcessResourcesInUseTableEventValue(
   );
 }
 
+export function encodeProcessSocketInUseInfoValue(
+  value: ProcessSocketInUseInfo,
+): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(
+    1,
+    text(required(value.socketId, "ProcessSocketInUseInfo.socketId")),
+  );
+  fields.set(
+    2,
+    encodeProcessSocketInUseKindValue(
+      required(value.kind, "ProcessSocketInUseInfo.kind"),
+    ),
+  );
+  if (value.localEndpoint !== undefined) {
+    fields.set(3, encodeSocketEndpointValue(value.localEndpoint));
+  }
+  if (value.remoteEndpoint !== undefined) {
+    fields.set(4, encodeSocketEndpointValue(value.remoteEndpoint));
+  }
+  if (value.listening !== undefined) fields.set(5, bool(value.listening));
+  return fields;
+}
+
+export function decodeProcessSocketInUseInfoValue(
+  value: CborValue,
+): ProcessSocketInUseInfo {
+  const fields = expectMap(value);
+  return {
+    socketId: fieldOrDefault(
+      fields.get(1),
+      (value) => textValue(value),
+      () => "",
+    ),
+    kind: fieldOrDefault(
+      fields.get(2),
+      (value) => decodeProcessSocketInUseKindValue(value),
+      () => defaultProcessSocketInUseKind(),
+    ),
+    localEndpoint: optionalField(
+      fields.get(3),
+      (value) => decodeSocketEndpointValue(value),
+    ),
+    remoteEndpoint: optionalField(
+      fields.get(4),
+      (value) => decodeSocketEndpointValue(value),
+    ),
+    listening: optionalField(fields.get(5), (value) => boolValue(value)),
+  };
+}
+
+export function encodeProcessSocketInUseKindValue(
+  value: ProcessSocketInUseKind,
+): CborValue {
+  switch (value.type) {
+    case "tcp": {
+      const fields = new Map<number, CborValue>();
+      return [1, fields];
+    }
+    case "udp": {
+      const fields = new Map<number, CborValue>();
+      return [2, fields];
+    }
+    case "unix": {
+      const fields = new Map<number, CborValue>();
+      return [3, fields];
+    }
+    case "raw": {
+      const fields = new Map<number, CborValue>();
+      return [4, fields];
+    }
+    case "unknown": {
+      const fields = new Map<number, CborValue>();
+      return [5, fields];
+    }
+  }
+}
+
+export function decodeProcessSocketInUseKindValue(
+  value: CborValue,
+): ProcessSocketInUseKind {
+  const [variantId, fields] = expectUnion(value);
+  switch (variantId) {
+    case 1:
+      return {
+        type: "tcp",
+      };
+    case 2:
+      return {
+        type: "udp",
+      };
+    case 3:
+      return {
+        type: "unix",
+      };
+    case 4:
+      return {
+        type: "raw",
+      };
+    case 5:
+      return {
+        type: "unknown",
+      };
+  }
+  throw new Error(`unknown ProcessSocketInUseKind variant ${variantId}`);
+}
+
+export function encodeSocketEndpointValue(value: SocketEndpoint): CborValue {
+  switch (value.type) {
+    case "ip": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.address, "SocketEndpoint.Ip.address")));
+      if (value.port !== undefined) fields.set(2, u53(value.port));
+      return [1, fields];
+    }
+    case "unix": {
+      const fields = new Map<number, CborValue>();
+      if (value.path !== undefined) fields.set(1, text(value.path));
+      if (value.name !== undefined) fields.set(2, text(value.name));
+      return [2, fields];
+    }
+  }
+}
+
+export function decodeSocketEndpointValue(value: CborValue): SocketEndpoint {
+  const [variantId, fields] = expectUnion(value);
+  switch (variantId) {
+    case 1:
+      return {
+        type: "ip",
+        address: fieldOrDefault(
+          fields.get(1),
+          (value) => textValue(value),
+          () => "",
+        ),
+        port: optionalField(fields.get(2), (value) => integer(value)),
+      };
+    case 2:
+      return {
+        type: "unix",
+        path: optionalField(fields.get(1), (value) => textValue(value)),
+        name: optionalField(fields.get(2), (value) => textValue(value)),
+      };
+  }
+  throw new Error(`unknown SocketEndpoint variant ${variantId}`);
+}
+
+export function encodeProcessSocketsInUseTableEventValue(
+  value: ProcessSocketsInUseTableEvent,
+): CborValue {
+  switch (value.type) {
+    case "snapshot": {
+      const fields = new Map<number, CborValue>();
+      fields.set(
+        1,
+        required(value.rows, "ProcessSocketsInUseTableEvent.Snapshot.rows").map(
+          (item) => encodeProcessSocketInUseInfoValue(item),
+        ),
+      );
+      return [1, fields];
+    }
+    case "patch": {
+      const fields = new Map<number, CborValue>();
+      fields.set(
+        1,
+        required(value.removes, "ProcessSocketsInUseTableEvent.Patch.removes")
+          .map((item) => text(item)),
+      );
+      fields.set(
+        2,
+        required(value.upserts, "ProcessSocketsInUseTableEvent.Patch.upserts")
+          .map((item) => encodeProcessSocketInUseInfoValue(item)),
+      );
+      return [2, fields];
+    }
+    case "exited": {
+      const fields = new Map<number, CborValue>();
+      return [3, fields];
+    }
+  }
+}
+
+export function decodeProcessSocketsInUseTableEventValue(
+  value: CborValue,
+): ProcessSocketsInUseTableEvent {
+  const [variantId, fields] = expectUnion(value);
+  switch (variantId) {
+    case 1:
+      return {
+        type: "snapshot",
+        rows: fieldOrDefault(
+          fields.get(1),
+          (value) =>
+            array(value).map((item) => decodeProcessSocketInUseInfoValue(item)),
+          () => [],
+        ),
+      };
+    case 2:
+      return {
+        type: "patch",
+        removes: fieldOrDefault(
+          fields.get(1),
+          (value) => array(value).map((item) => textValue(item)),
+          () => [],
+        ),
+        upserts: fieldOrDefault(
+          fields.get(2),
+          (value) =>
+            array(value).map((item) => decodeProcessSocketInUseInfoValue(item)),
+          () => [],
+        ),
+      };
+    case 3:
+      return {
+        type: "exited",
+      };
+  }
+  throw new Error(`unknown ProcessSocketsInUseTableEvent variant ${variantId}`);
+}
+
 export function encodeSubscribeProcessesErrorValue(
   value: SubscribeProcessesError,
 ): CborValue {
@@ -4089,6 +4381,112 @@ export function decodeSubscribeProcessResourcesInUseErrorValue(
   }
   throw new Error(
     `unknown SubscribeProcessResourcesInUseError variant ${variantId}`,
+  );
+}
+
+export function encodeSubscribeProcessSocketsInUseErrorValue(
+  value: SubscribeProcessSocketsInUseError,
+): CborValue {
+  switch (value.type) {
+    case "failed": {
+      const fields = new Map<number, CborValue>();
+      fields.set(
+        1,
+        text(
+          required(
+            value.message,
+            "SubscribeProcessSocketsInUseError.Failed.message",
+          ),
+        ),
+      );
+      return [0, fields];
+    }
+    case "notFound": {
+      const fields = new Map<number, CborValue>();
+      fields.set(
+        1,
+        text(
+          required(
+            value.message,
+            "SubscribeProcessSocketsInUseError.NotFound.message",
+          ),
+        ),
+      );
+      return [1, fields];
+    }
+    case "permissionDenied": {
+      const fields = new Map<number, CborValue>();
+      fields.set(
+        1,
+        text(
+          required(
+            value.message,
+            "SubscribeProcessSocketsInUseError.PermissionDenied.message",
+          ),
+        ),
+      );
+      return [2, fields];
+    }
+    case "unsupported": {
+      const fields = new Map<number, CborValue>();
+      fields.set(
+        1,
+        text(
+          required(
+            value.message,
+            "SubscribeProcessSocketsInUseError.Unsupported.message",
+          ),
+        ),
+      );
+      return [3, fields];
+    }
+  }
+}
+
+export function decodeSubscribeProcessSocketsInUseErrorValue(
+  value: CborValue,
+): SubscribeProcessSocketsInUseError {
+  const [variantId, fields] = expectUnion(value);
+  switch (variantId) {
+    case 0:
+      return {
+        type: "failed",
+        message: fieldOrDefault(
+          fields.get(1),
+          (value) => textValue(value),
+          () => "",
+        ),
+      };
+    case 1:
+      return {
+        type: "notFound",
+        message: fieldOrDefault(
+          fields.get(1),
+          (value) => textValue(value),
+          () => "",
+        ),
+      };
+    case 2:
+      return {
+        type: "permissionDenied",
+        message: fieldOrDefault(
+          fields.get(1),
+          (value) => textValue(value),
+          () => "",
+        ),
+      };
+    case 3:
+      return {
+        type: "unsupported",
+        message: fieldOrDefault(
+          fields.get(1),
+          (value) => textValue(value),
+          () => "",
+        ),
+      };
+  }
+  throw new Error(
+    `unknown SubscribeProcessSocketsInUseError variant ${variantId}`,
   );
 }
 
@@ -6574,6 +6972,12 @@ function defaultSubscribeProcessResourcesInUseReq(): SubscribeProcessResourcesIn
   };
 }
 
+function defaultSubscribeProcessSocketsInUseReq(): SubscribeProcessSocketsInUseReq {
+  return {
+    pid: 0,
+  };
+}
+
 function defaultProcessInfo(): ProcessInfo {
   return {
     pid: 0,
@@ -6654,6 +7058,33 @@ function defaultProcessResourcesInUseTableEvent(): ProcessResourcesInUseTableEve
   };
 }
 
+function defaultProcessSocketInUseInfo(): ProcessSocketInUseInfo {
+  return {
+    socketId: "",
+    kind: defaultProcessSocketInUseKind(),
+  };
+}
+
+function defaultProcessSocketInUseKind(): ProcessSocketInUseKind {
+  return {
+    type: "tcp",
+  };
+}
+
+function defaultSocketEndpoint(): SocketEndpoint {
+  return {
+    type: "ip",
+    address: "",
+  };
+}
+
+function defaultProcessSocketsInUseTableEvent(): ProcessSocketsInUseTableEvent {
+  return {
+    type: "snapshot",
+    rows: [],
+  };
+}
+
 function defaultSubscribeProcessesError(): SubscribeProcessesError {
   return {
     type: "failed",
@@ -6669,6 +7100,13 @@ function defaultSubscribeProcessDetailError(): SubscribeProcessDetailError {
 }
 
 function defaultSubscribeProcessResourcesInUseError(): SubscribeProcessResourcesInUseError {
+  return {
+    type: "failed",
+    message: "",
+  };
+}
+
+function defaultSubscribeProcessSocketsInUseError(): SubscribeProcessSocketsInUseError {
   return {
     type: "failed",
     message: "",

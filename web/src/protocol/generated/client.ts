@@ -27,6 +27,7 @@ import {
   subscribeProcessDetailProc,
   subscribeProcessesProc,
   subscribeProcessResourcesInUseProc,
+  subscribeProcessSocketsInUseProc,
   subscribeRootsProc,
   subscribeTerminalSessionsProc,
   subscribeTrashItemsProc,
@@ -53,6 +54,7 @@ import type {
   ProcessDetailEvent,
   ProcessesTableEvent,
   ProcessResourcesInUseTableEvent,
+  ProcessSocketsInUseTableEvent,
   PurgeTrashItemsReq,
   ReadFileChunk,
   ReadFileReq,
@@ -65,6 +67,7 @@ import type {
   SubscribeDirectoryReq,
   SubscribeProcessDetailReq,
   SubscribeProcessResourcesInUseReq,
+  SubscribeProcessSocketsInUseReq,
   SubscribeWindowDetailReq,
   TakeTerminalControlReq,
   TakeTerminalControlRes,
@@ -265,4 +268,11 @@ export function subscribeProcessResourcesInUse(
     subscribeProcessResourcesInUseProc,
     request,
   );
+}
+
+export function subscribeProcessSocketsInUse(
+  transport: WebTransport,
+  request: SubscribeProcessSocketsInUseReq,
+): AsyncGenerator<ProcessSocketsInUseTableEvent> {
+  return callServerStream(transport, subscribeProcessSocketsInUseProc, request);
 }

@@ -68,6 +68,7 @@ async fn main() -> Result<()> {
                 Arc::new(MacFileService::default()),
                 None,
                 None,
+                None,
                 Some(Arc::new(MacUserPairingNotifier)),
                 "macOS system daemon",
             )

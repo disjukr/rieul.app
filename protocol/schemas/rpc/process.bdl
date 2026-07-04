@@ -39,12 +39,29 @@ proc SubscribeProcessDetail = SubscribeProcessDetailReq -> ProcessDetailEvent th
 @ stream - server
 proc SubscribeProcessResourcesInUse = SubscribeProcessResourcesInUseReq -> ProcessResourcesInUseTableEvent throws SubscribeProcessResourcesInUseError
 
+@ description
+| Subscribes to socket resources currently in use by one process. The first
+| response event is ProcessSocketsInUseTableEvent.Snapshot. Later Patch events
+| apply socket acquisition, release, and best-effort endpoint changes.
+| Listening is a daemon-observed role, not a TCP-only state: for TCP it means
+| LISTEN, and for UDP it means a bound unconnected socket that can receive
+| inbound traffic from non-fixed remote peers, such as a QUIC/WebTransport
+| server socket.
+@ id - 29
+@ stream - server
+proc SubscribeProcessSocketsInUse = SubscribeProcessSocketsInUseReq -> ProcessSocketsInUseTableEvent throws SubscribeProcessSocketsInUseError
+
 struct SubscribeProcessDetailReq {
   @ id - 1
   pid: u53,
 }
 
 struct SubscribeProcessResourcesInUseReq {
+  @ id - 1
+  pid: u53,
+}
+
+struct SubscribeProcessSocketsInUseReq {
   @ id - 1
   pid: u53,
 }
@@ -341,6 +358,94 @@ union ProcessResourcesInUseTableEvent {
   Exited(),
 }
 
+@ description
+| One socket-in-use row for a process. Socket identity is subscription-local:
+| clients must not parse socketId or assume it remains valid after removal.
+struct ProcessSocketInUseInfo {
+  @ id - 1
+  socketId: string,
+
+  @ id - 2
+  kind: ProcessSocketInUseKind,
+
+  @ id - 3
+  localEndpoint?: SocketEndpoint,
+
+  @ id - 4
+  remoteEndpoint?: SocketEndpoint,
+
+  @ id - 5
+  @ description
+  | True when the daemon can determine this socket is open for inbound traffic
+  | from non-fixed remote peers on its local endpoint. For TCP this means
+  | LISTEN. For UDP this means a bound unconnected socket such as a
+  | QUIC/WebTransport server socket. False means the daemon can determine it is
+  | not a listener. Absent means unknown.
+  listening?: bool,
+}
+
+union ProcessSocketInUseKind {
+  @ id - 1
+  Tcp(),
+
+  @ id - 2
+  Udp(),
+
+  @ id - 3
+  Unix(),
+
+  @ id - 4
+  Raw(),
+
+  @ id - 5
+  Unknown(),
+}
+
+union SocketEndpoint {
+  @ id - 1
+  Ip(
+    @ id - 1
+    address: string,
+
+    @ id - 2
+    port?: u53,
+  ),
+
+  @ id - 2
+  Unix(
+    @ id - 1
+    path?: string,
+
+    @ id - 2
+    name?: string,
+  ),
+}
+
+@ description
+| Reactive process sockets-in-use table event. Snapshot replaces the whole
+| subscribed view. Patch applies membership and endpoint changes. removes
+| contains opaque socket ids that should be removed from the client's current
+| table. If the process exits, the stream emits Exited and then completes.
+union ProcessSocketsInUseTableEvent {
+  @ id - 1
+  Snapshot(
+    @ id - 1
+    rows: ProcessSocketInUseInfo[],
+  ),
+
+  @ id - 2
+  Patch(
+    @ id - 1
+    removes: string[],
+
+    @ id - 2
+    upserts: ProcessSocketInUseInfo[],
+  ),
+
+  @ id - 3
+  Exited(),
+}
+
 @ description - Method-level process subscription start errors.
 union SubscribeProcessesError {
   @ id - 0
@@ -379,6 +484,33 @@ union SubscribeProcessDetailError {
 
 @ description - Method-level process resources-in-use subscription start errors.
 union SubscribeProcessResourcesInUseError {
+  @ id - 0
+  Failed(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 1
+  NotFound(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 2
+  PermissionDenied(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 3
+  Unsupported(
+    @ id - 1
+    message: string,
+  ),
+}
+
+@ description - Method-level process sockets-in-use subscription start errors.
+union SubscribeProcessSocketsInUseError {
   @ id - 0
   Failed(
     @ id - 1
