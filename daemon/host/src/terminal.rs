@@ -68,6 +68,14 @@ struct LaunchCommand {
     env: Vec<(String, String)>,
 }
 
+#[cfg(target_os = "macos")]
+#[derive(Debug, Clone)]
+struct MacosConsoleUser {
+    name: String,
+    home: String,
+    shell: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum TerminalMetadata {
     Title(String),
@@ -800,12 +808,17 @@ fn terminal_spawn_launch(launch: &LaunchCommand, shell_integration_dir: &Path) -
 
     #[cfg(target_os = "macos")]
     if should_spawn_terminal_as_macos_console_user() {
-        if let Some(user) = macos_console_user_name() {
+        if let Some(user) = macos_console_user() {
             let mut args = vec![
                 "-H".to_string(),
                 "-u".to_string(),
-                user,
+                user.name.clone(),
                 "--".to_string(),
+                "/usr/bin/env".to_string(),
+                format!("HOME={}", user.home),
+                format!("USER={}", user.name),
+                format!("LOGNAME={}", user.name),
+                format!("SHELL={}", user.shell),
                 launch.command.clone(),
             ];
             args.extend(launch.args.clone());
@@ -1172,32 +1185,53 @@ fn default_unix_shell() -> Option<String> {
 
 #[cfg(target_os = "macos")]
 fn macos_console_user_shell() -> Option<String> {
-    let user = macos_console_user_name()?;
+    macos_console_user().map(|user| user.shell)
+}
 
+#[cfg(target_os = "macos")]
+fn macos_console_user() -> Option<MacosConsoleUser> {
+    let name = macos_console_user_name()?;
     let output = std::process::Command::new("/usr/bin/dscl")
-        .args([".", "-read", &format!("/Users/{user}"), "UserShell"])
+        .args([
+            ".",
+            "-read",
+            &format!("/Users/{name}"),
+            "NFSHomeDirectory",
+            "UserShell",
+        ])
         .output()
         .ok()?;
     if !output.status.success() {
         return None;
     }
-    parse_dscl_user_shell(&String::from_utf8(output.stdout).ok()?)
-}
-
-#[cfg(target_os = "macos")]
-fn parse_dscl_user_shell(output: &str) -> Option<String> {
-    output
-        .lines()
-        .find_map(|line| line.trim().strip_prefix("UserShell:"))
-        .map(str::trim)
-        .filter(|shell| !shell.is_empty())
-        .map(str::to_string)
+    parse_dscl_console_user(&name, &String::from_utf8(output.stdout).ok()?)
 }
 
 #[cfg(target_os = "macos")]
 fn macos_console_user_name() -> Option<String> {
     trimmed_command_output("/usr/bin/stat", &["-f", "%Su", "/dev/console"])
         .filter(|user| user != "root")
+}
+
+#[cfg(target_os = "macos")]
+fn parse_dscl_console_user(name: &str, output: &str) -> Option<MacosConsoleUser> {
+    let home = parse_dscl_attribute(output, "NFSHomeDirectory")?;
+    let shell = parse_dscl_attribute(output, "UserShell")?;
+    Some(MacosConsoleUser {
+        name: name.to_string(),
+        home,
+        shell,
+    })
+}
+
+#[cfg(target_os = "macos")]
+fn parse_dscl_attribute(output: &str, attribute: &str) -> Option<String> {
+    output
+        .lines()
+        .find_map(|line| line.trim().strip_prefix(&format!("{attribute}:")))
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
 }
 
 #[cfg(target_os = "macos")]
@@ -1287,7 +1321,7 @@ mod tests {
     use super::{parse_osc_metadata, TerminalMetadata};
 
     #[cfg(target_os = "macos")]
-    use super::parse_dscl_user_shell;
+    use super::parse_dscl_console_user;
 
     #[test]
     fn parses_osc633_cwd_property() {
@@ -1307,10 +1341,18 @@ mod tests {
 
     #[cfg(target_os = "macos")]
     #[test]
-    fn parses_macos_user_shell_from_dscl_output() {
+    fn parses_macos_console_user_from_dscl_output() {
         assert_eq!(
-            parse_dscl_user_shell("UserShell: /bin/zsh\n"),
-            Some("/bin/zsh".to_string())
+            parse_dscl_console_user(
+                "me",
+                "NFSHomeDirectory: /Users/me\nUserShell: /bin/zsh\n"
+            )
+            .map(|user| (user.name, user.home, user.shell)),
+            Some((
+                "me".to_string(),
+                "/Users/me".to_string(),
+                "/bin/zsh".to_string()
+            ))
         );
     }
 }
