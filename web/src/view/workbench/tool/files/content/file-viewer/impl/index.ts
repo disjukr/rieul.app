@@ -27,6 +27,11 @@ export const fileViewerImpls = {
     viewerName: "hex viewer",
     Component: lazy(() => import("./hex/index.tsx")),
   },
+  image: {
+    label: "Image",
+    viewerName: "image viewer",
+    Component: lazy(() => import("./image/index.tsx")),
+  },
 } as const satisfies Record<string, FileViewerImpl>;
 
 export type FileViewerImplId = keyof typeof fileViewerImpls;

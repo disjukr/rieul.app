@@ -21,14 +21,20 @@ type FileViewerState =
 
 export const FsEntryContext = createContext<FsEntry | undefined>(undefined);
 export const FsEntryPathContext = createContext<string | undefined>(undefined);
+const FsEntryScope = createScopeFromContext(FsEntryContext);
 const FsEntryPathScope = createScopeFromContext(FsEntryPathContext);
 
 export const fileViewerBunja = bunja(() => {
   const machine = bunja.use(machineBunja);
   const rpcSession = bunja.use(rpcSessionBunja);
   const tabId = requireWorkbenchTabId(bunja.use(WorkbenchTabIdScope));
-  const fsEntryPath = requireFsEntryPath(bunja.use(FsEntryPathScope));
-  const fsEntry = fsEntryFromPath(fsEntryPath);
+  const fsEntryContext = bunja.use(FsEntryScope);
+  const fsEntryPath = requireFsEntryPath(
+    bunja.use(FsEntryPathScope) ?? fsEntryContext?.path,
+  );
+  const fsEntry = fsEntryContext?.path === fsEntryPath
+    ? fsEntryContext
+    : fsEntryFromPath(fsEntryPath);
   const store = bunja.use(JotaiStoreScope);
 
   const stateAtom = atom<FileViewerState>({ phase: "detecting" });
