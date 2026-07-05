@@ -46,6 +46,7 @@ import {
 } from "../../../../state/explorer.ts";
 import {
   workbenchPaneBunja,
+  type WorkbenchProcessPage,
   workbenchTabBunja,
 } from "../../../../state/workbench.ts";
 import { Button } from "../../../ui/button.tsx";
@@ -90,6 +91,11 @@ interface ProcessModulesState {
   rows: ProcessModuleInfo[];
 }
 
+interface ProcessTreeNode {
+  depth: number;
+  process: ProcessInfo;
+}
+
 const processesToolClassName = [
   "flex h-full min-h-0 w-full flex-col",
   "overflow-hidden bg-white text-[#20242d]",
@@ -105,6 +111,11 @@ const emptyWorkspaceClassName = [
 const processTableClassName = [
   "grid min-h-0 min-w-0 flex-1 overflow-auto leading-[1.6]",
   "[grid-template-columns:minmax(72px,96px)_minmax(72px,96px)_minmax(180px,1fr)_minmax(104px,132px)]",
+  "auto-rows-[2rem] bg-white",
+].join(" ");
+const processTreeTableClassName = [
+  "grid min-h-0 min-w-0 flex-1 overflow-auto leading-[1.6]",
+  "[grid-template-columns:minmax(240px,1fr)_minmax(72px,96px)_minmax(72px,96px)_minmax(104px,132px)]",
   "auto-rows-[2rem] bg-white",
 ].join(" ");
 const processResourceTableClassName = [
@@ -302,10 +313,31 @@ export function ProcessesTool() {
             supported={processModulesSupported}
           />
         )
+        : selectedPage === "children"
+        ? (
+          <ProcessChildrenView
+            daemonInfoPhase={daemonInfo.phase}
+            machineId={machine.id}
+            onOpenProcess={(process) =>
+              paneState.addProcessesTab({
+                processDetailPid: process.pid,
+                title: process.name || `PID ${process.pid}`,
+              })}
+            pid={selectedPid}
+            rpcSession={rpcSession}
+            supported={processListSupported}
+          />
+        )
         : (
           <ProcessDetailView
             daemonInfoPhase={daemonInfo.phase}
             machineId={machine.id}
+            onShowChildren={() =>
+              paneState.addProcessesTab({
+                processDetailPid: selectedPid,
+                processPage: "children",
+                title: tab?.title ?? `PID ${selectedPid}`,
+              })}
             onShowResourcesInUse={() =>
               paneState.addProcessesTab({
                 processDetailPid: selectedPid,
@@ -337,7 +369,7 @@ export function ProcessesTool() {
 }
 
 interface ProcessesBreadcrumbProps {
-  selectedPage?: "detail" | "heldResources" | "heldSockets" | "modules";
+  selectedPage?: WorkbenchProcessPage;
   selectedPid?: number;
   onOpenProcess: () => void;
   onOpenRoot: () => void;
@@ -363,12 +395,14 @@ function ProcessesBreadcrumb(
     items.push({
       label: `PID ${selectedPid}`,
       onClick:
-        selectedPage === "heldResources" || selectedPage === "heldSockets" ||
-          selectedPage === "modules"
+        selectedPage === "children" || selectedPage === "heldResources" ||
+          selectedPage === "heldSockets" || selectedPage === "modules"
           ? onOpenProcess
           : undefined,
     });
-    if (selectedPage === "heldResources") {
+    if (selectedPage === "children") {
+      items.push({ label: "Process tree" });
+    } else if (selectedPage === "heldResources") {
       items.push({ label: "Resources in use" });
     } else if (selectedPage === "heldSockets") {
       items.push({ label: "Sockets in use" });
@@ -553,9 +587,178 @@ function ProcessListView(
   );
 }
 
+interface ProcessChildrenViewProps {
+  daemonInfoPhase: string;
+  machineId: string;
+  onOpenProcess: (process: ProcessInfo) => void;
+  pid: number;
+  rpcSession: ProcessesRpcSession;
+  supported: boolean;
+}
+
+function ProcessChildrenView(
+  {
+    daemonInfoPhase,
+    machineId,
+    onOpenProcess,
+    pid,
+    rpcSession,
+    supported,
+  }: ProcessChildrenViewProps,
+) {
+  const rowsRef = useRef<ProcessInfo[]>([]);
+  const [state, setState] = useState<ProcessesState>({
+    phase: "idle",
+    rows: [],
+  });
+  const tree = buildProcessTreeNodes(state.rows, pid);
+
+  useEffect(() => {
+    if (daemonInfoPhase === "error") {
+      rowsRef.current = [];
+      setState({
+        message: "Daemon info unavailable",
+        phase: "error",
+        rows: [],
+      });
+      return;
+    }
+    if (daemonInfoPhase !== "ready") {
+      rowsRef.current = [];
+      setState({ phase: "loading", rows: [] });
+      return;
+    }
+    if (!supported) {
+      rowsRef.current = [];
+      setState({
+        message: "This daemon does not support process subscriptions.",
+        phase: "unsupported",
+        rows: [],
+      });
+      return;
+    }
+
+    let cancelled = false;
+    let iterator: AsyncGenerator<ProcessesTableEvent> | undefined;
+    setState((current) => ({ ...current, phase: "loading" }));
+
+    void (async () => {
+      try {
+        const transport = await rpcSession.webTransport();
+        if (cancelled) return;
+        iterator = subscribeProcesses(transport);
+        for await (const event of iterator) {
+          if (cancelled) return;
+          const rows = applyProcessesEvent(rowsRef.current, event);
+          rowsRef.current = rows;
+          setState({ phase: "ready", rows });
+        }
+      } catch (err) {
+        if (cancelled) return;
+        rowsRef.current = [];
+        setState({
+          message: err instanceof Error ? err.message : String(err),
+          phase: "error",
+          rows: [],
+        });
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      void iterator?.return(undefined);
+    };
+  }, [daemonInfoPhase, machineId, pid, rpcSession, supported]);
+
+  if (state.phase === "loading" || daemonInfoPhase !== "ready") {
+    return (
+      <section className={emptyWorkspaceClassName}>
+        <Loader2 size={24} className="animate-spin" />
+        <h2>Loading child processes</h2>
+      </section>
+    );
+  }
+
+  if (state.phase === "unsupported" || state.phase === "error") {
+    return (
+      <section className={emptyWorkspaceClassName}>
+        <Activity size={28} />
+        <h2>
+          {state.phase === "unsupported"
+            ? "Process tree unavailable"
+            : "Failed to load process tree"}
+        </h2>
+        {state.message ? <p>{state.message}</p> : null}
+      </section>
+    );
+  }
+
+  return (
+    <div className={processesContentClassName}>
+      <div
+        className={processTreeTableClassName}
+        role="grid"
+        aria-label="Child process tree"
+      >
+        <div
+          className={`${processHeadClassName} ${processFirstColumnClassName}`}
+          role="columnheader"
+        >
+          Name
+        </div>
+        <div className={processHeadClassName} role="columnheader">
+          PID
+        </div>
+        <div className={processHeadClassName} role="columnheader">
+          PPID
+        </div>
+        <div className={processHeadClassName} role="columnheader">
+          Status
+        </div>
+        {tree.length === 0
+          ? (
+            <div className={`${processCellClassName} [grid-column:1/-1]`}>
+              No child processes
+            </div>
+          )
+          : tree.map(({ depth, process }) => (
+            <div
+              key={process.pid}
+              className={`${processRowClassName} !cursor-pointer`}
+              role="row"
+              onDoubleClick={() => onOpenProcess(process)}
+            >
+              <span
+                className={processCellClassName}
+                style={{ paddingLeft: `calc(1rem + ${depth * 1.25}rem)` }}
+              >
+                <span className={processNameClassName}>
+                  {process.name || "(unnamed)"}
+                </span>
+              </span>
+              <span className={processPidCellClassName}>
+                {process.pid}
+              </span>
+              <span className={processPidCellClassName}>
+                {process.ppid ?? ""}
+              </span>
+              <span className={processMetaCellClassName}>
+                {processStatusLabel(process.status)}
+              </span>
+            </div>
+          ))}
+      </div>
+      <footer className={processesFooterClassName}>
+        {tree.length} {tree.length === 1 ? "process" : "processes"}
+      </footer>
+    </div>
+  );
+}
+
 interface ProcessDetailViewProps {
   daemonInfoPhase: string;
   machineId: string;
+  onShowChildren: () => void;
   onShowModules: () => void;
   onShowResourcesInUse: () => void;
   onShowSocketsInUse: () => void;
@@ -571,6 +774,7 @@ function ProcessDetailView(
   {
     daemonInfoPhase,
     machineId,
+    onShowChildren,
     onShowModules,
     onShowResourcesInUse,
     onShowSocketsInUse,
@@ -674,6 +878,7 @@ function ProcessDetailView(
     <div className={processesContentClassName}>
       <ProcessDetailSummary
         detail={state.detail}
+        onShowChildren={onShowChildren}
         onShowModules={onShowModules}
         onShowResourcesInUse={onShowResourcesInUse}
         onShowSocketsInUse={onShowSocketsInUse}
@@ -692,6 +897,7 @@ function ProcessDetailView(
 
 interface ProcessDetailSummaryProps {
   detail: ProcessDetail;
+  onShowChildren: () => void;
   onShowModules: () => void;
   onShowResourcesInUse: () => void;
   onShowSocketsInUse: () => void;
@@ -703,6 +909,7 @@ interface ProcessDetailSummaryProps {
 function ProcessDetailSummary(
   {
     detail,
+    onShowChildren,
     onShowModules,
     onShowResourcesInUse,
     onShowSocketsInUse,
@@ -748,6 +955,13 @@ function ProcessDetailSummary(
           <ProcessDetailItem label="CWD" value={metadata.cwd ?? "Unknown"} />
         </PropertyList>
         <div className={processDetailActionsClassName}>
+          <Button
+            onClick={onShowChildren}
+            title="Show process tree rooted at this process"
+          >
+            <ExternalLink size={14} />
+            Process tree
+          </Button>
           <Button
             disabled={!resourcesSupported}
             onClick={onShowResourcesInUse}
@@ -1575,6 +1789,42 @@ function applyProcessModulesEvent(
 
 function sortedProcesses(rows: ProcessInfo[]): ProcessInfo[] {
   return [...rows].sort((a, b) => a.pid - b.pid);
+}
+
+function buildProcessTreeNodes(
+  rows: ProcessInfo[],
+  rootPid: number,
+): ProcessTreeNode[] {
+  const childrenByParent = new Map<number, ProcessInfo[]>();
+  for (const row of rows) {
+    if (row.ppid === undefined) continue;
+    const children = childrenByParent.get(row.ppid);
+    if (children === undefined) {
+      childrenByParent.set(row.ppid, [row]);
+    } else {
+      children.push(row);
+    }
+  }
+
+  for (const children of childrenByParent.values()) {
+    children.sort((a, b) =>
+      (a.name || "").localeCompare(b.name || "") || a.pid - b.pid
+    );
+  }
+
+  const tree: ProcessTreeNode[] = [];
+  const visited = new Set<number>();
+  const appendChildren = (parentPid: number, depth: number) => {
+    const children = childrenByParent.get(parentPid) ?? [];
+    for (const process of children) {
+      if (visited.has(process.pid)) continue;
+      visited.add(process.pid);
+      tree.push({ depth, process });
+      appendChildren(process.pid, depth + 1);
+    }
+  };
+  appendChildren(rootPid, 0);
+  return tree;
 }
 
 function sortedProcessResourcesInUse(

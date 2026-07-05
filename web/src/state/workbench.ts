@@ -19,6 +19,7 @@ export type WorkbenchTool =
 export type WorkbenchFilesView = "roots" | "home" | "trash";
 export type WorkbenchProcessPage =
   | "detail"
+  | "children"
   | "heldResources"
   | "heldSockets"
   | "modules";
