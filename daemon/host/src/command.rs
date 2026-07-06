@@ -706,21 +706,22 @@ impl CommandManager {
                 .await;
             }
         };
+        let mut output_readers = Vec::new();
         if let Some(stdout) = child.stdout.take() {
-            spawn_output_reader(
+            output_readers.push(spawn_output_reader(
                 self.clone(),
                 job_id.to_string(),
                 JobOutputStream::Stdout,
                 stdout,
-            );
+            ));
         }
         if let Some(stderr) = child.stderr.take() {
-            spawn_output_reader(
+            output_readers.push(spawn_output_reader(
                 self.clone(),
                 job_id.to_string(),
                 JobOutputStream::Stderr,
                 stderr,
-            );
+            ));
         }
         if let Err(err) = write_child_stdin(&mut child, request.launch.stdin.as_ref()).await {
             self.append_output(
@@ -739,7 +740,7 @@ impl CommandManager {
             }
         });
 
-        tokio::select! {
+        let exit = tokio::select! {
             status = child.wait() => {
                 match status {
                     Ok(status) => CommandExit {
@@ -767,7 +768,9 @@ impl CommandManager {
                 let _ = child.wait().await;
                 CommandExit { code: None, signal: None, reason: CommandExitReason::Timeout, exited_at_ms: current_unix_ms() }
             }
-        }
+        };
+        await_output_readers(output_readers).await;
+        exit
     }
 
     async fn finish_job(&self, job_id: &str, exit: CommandExit) {
@@ -981,11 +984,11 @@ impl CommandManager {
                 let request = GetScheduleNextRunsReq {
                     schedule_id: record.info.schedule_id.clone(),
                     limit: 16,
-                    from_ms: Some(record.last_checked_ms.saturating_add(1)),
+                    from_ms: Some(record.last_checked_ms),
                     search_until_ms: Some(now),
                 };
                 let runs = next_runs_for_rule(&rule, request);
-                record.last_checked_ms = now;
+                record.last_checked_ms = next_schedule_checkpoint(now, &runs);
                 for _ in runs.run_at_ms {
                     due.push(record.info.clone());
                 }
@@ -1164,7 +1167,8 @@ fn spawn_output_reader<R>(
     job_id: String,
     stream: JobOutputStream,
     mut reader: R,
-) where
+) -> tokio::task::JoinHandle<()>
+where
     R: tokio::io::AsyncRead + Unpin + Send + 'static,
 {
     tokio::spawn(async move {
@@ -1180,7 +1184,13 @@ fn spawn_output_reader<R>(
                 Err(_) => break,
             }
         }
-    });
+    })
+}
+
+async fn await_output_readers(readers: Vec<tokio::task::JoinHandle<()>>) {
+    for reader in readers {
+        let _ = reader.await;
+    }
 }
 
 fn next_id(prefix: &str, next_id: &AtomicU64) -> String {
@@ -1229,7 +1239,7 @@ fn next_runs_for_rule(
     let result = rule
         .set
         .clone()
-        .after(unix_ms_to_datetime(from_ms.saturating_sub(1)))
+        .after(unix_ms_to_datetime(from_ms.saturating_add(1)))
         .before(unix_ms_to_datetime(searched_until_ms.saturating_add(1)))
         .all(limit as u16);
     let run_at_ms = result.dates.into_iter().map(datetime_to_unix_ms).collect();
@@ -1247,11 +1257,21 @@ fn next_runs_for_rule(
     }
 }
 
+fn next_schedule_checkpoint(now: u64, runs: &GetScheduleNextRunsRes) -> u64 {
+    match runs.continuation {
+        ScheduleNextRunsContinuation::MoreAvailable => {
+            runs.run_at_ms.last().copied().unwrap_or(now)
+        }
+        ScheduleNextRunsContinuation::Exhausted
+        | ScheduleNextRunsContinuation::SearchLimitReached => now,
+    }
+}
+
 fn has_more_runs_after(rule: &ParsedRRuleSet, searched_until_ms: u64) -> bool {
     !rule
         .set
         .clone()
-        .after(unix_ms_to_datetime(searched_until_ms))
+        .after(unix_ms_to_datetime(searched_until_ms.saturating_add(1)))
         .all(1)
         .dates
         .is_empty()
@@ -1285,6 +1305,80 @@ fn datetime_to_unix_ms(datetime: DateTime<Tz>) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use wgo_daemon_core::rpc::JobLogOptions;
+
+    async fn wait_for_job_exit(manager: &CommandManager, job_id: &str) -> JobInfo {
+        for _ in 0..100 {
+            let snapshot = manager.jobs_snapshot(&SubscribeJobsReq::default()).await;
+            if let Some(job) = snapshot
+                .rows
+                .into_iter()
+                .find(|job| job.job_id == job_id && matches!(job.status, JobStatus::Exited { .. }))
+            {
+                return job;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        panic!("job did not exit in time");
+    }
+
+    fn output_test_launch() -> CommandLaunchSpec {
+        if cfg!(windows) {
+            CommandLaunchSpec {
+                command: "cmd".to_string(),
+                args: vec!["/C".to_string(), "echo final-output".to_string()],
+                ..CommandLaunchSpec::default()
+            }
+        } else {
+            CommandLaunchSpec {
+                command: "sh".to_string(),
+                args: vec!["-c".to_string(), "printf final-output".to_string()],
+                ..CommandLaunchSpec::default()
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn job_exit_waits_for_output_readers() {
+        let manager = CommandManager::open(DaemonStateDb::open_in_memory_for_tests().unwrap())
+            .expect("open command manager");
+        let job = manager
+            .create_job(CreateJobReq {
+                launch: output_test_launch(),
+                log: JobLogOptions {
+                    stdout: true,
+                    ..JobLogOptions::default()
+                },
+                ..CreateJobReq::default()
+            })
+            .await
+            .expect("create job");
+
+        wait_for_job_exit(&manager, &job.job_id).await;
+
+        let (_, _, events) = manager
+            .output_attached(&SubscribeJobOutputReq {
+                job_id: job.job_id,
+                stream: JobOutputStream::Stdout,
+                after_seq: None,
+            })
+            .await
+            .expect("attach job output");
+        let stdout = events
+            .into_iter()
+            .filter_map(|event| match event {
+                JobOutputEvent::Chunk { bytes, .. } => Some(bytes),
+                _ => None,
+            })
+            .flatten()
+            .collect::<Vec<_>>();
+
+        assert!(
+            String::from_utf8_lossy(&stdout).contains("final-output"),
+            "stdout was {}",
+            String::from_utf8_lossy(&stdout)
+        );
+    }
 
     fn ms(rfc3339: &str) -> u64 {
         chrono::DateTime::parse_from_rfc3339(rfc3339)
@@ -1315,7 +1409,7 @@ mod tests {
         let result = next_runs(
             "DTSTART:20260101T000000Z\nRRULE:FREQ=DAILY;COUNT=3\nRDATE:20260105T000000Z\nEXDATE:20260102T000000Z",
             10,
-            ms("2026-01-01T00:00:00Z"),
+            ms("2025-12-31T00:00:00Z"),
             ms("2026-01-31T00:00:00Z"),
         );
 
@@ -1335,7 +1429,7 @@ mod tests {
         let result = next_runs(
             "DTSTART:20260101T000000Z\nRRULE:FREQ=MONTHLY;COUNT=2;BYDAY=MO;BYSETPOS=1",
             10,
-            ms("2026-01-01T00:00:00Z"),
+            ms("2025-12-31T00:00:00Z"),
             ms("2026-03-31T00:00:00Z"),
         );
 
@@ -1351,7 +1445,7 @@ mod tests {
         let result = next_runs(
             "DTSTART:20260101T000000Z\nRRULE:FREQ=DAILY",
             2,
-            ms("2026-01-01T00:00:00Z"),
+            ms("2025-12-31T00:00:00Z"),
             ms("2026-01-31T00:00:00Z"),
         );
 
@@ -1360,5 +1454,50 @@ mod tests {
             result.continuation,
             ScheduleNextRunsContinuation::MoreAvailable
         );
+    }
+
+    #[test]
+    fn rrule_next_runs_continuation_starts_after_last_returned_run() {
+        let first = next_runs(
+            "DTSTART:20260101T000000Z\nRRULE:FREQ=DAILY",
+            1,
+            ms("2025-12-31T00:00:00Z"),
+            ms("2026-01-31T00:00:00Z"),
+        );
+        assert_eq!(first.run_at_ms, vec![ms("2026-01-01T00:00:00Z")]);
+        assert_eq!(
+            first.continuation,
+            ScheduleNextRunsContinuation::MoreAvailable
+        );
+
+        let second = next_runs(
+            "DTSTART:20260101T000000Z\nRRULE:FREQ=DAILY",
+            1,
+            first.run_at_ms[0],
+            ms("2026-01-31T00:00:00Z"),
+        );
+        assert_eq!(second.run_at_ms, vec![ms("2026-01-02T00:00:00Z")]);
+    }
+
+    #[test]
+    fn schedule_checkpoint_preserves_unprocessed_due_runs() {
+        let first = ms("2026-01-01T00:00:00Z");
+        let second = ms("2026-01-02T00:00:00Z");
+        let now = ms("2026-01-31T00:00:00Z");
+        let limited = GetScheduleNextRunsRes {
+            run_at_ms: vec![first, second],
+            searched_until_ms: now,
+            continuation: ScheduleNextRunsContinuation::MoreAvailable,
+        };
+
+        assert_eq!(next_schedule_checkpoint(now, &limited), second);
+
+        let exhausted = GetScheduleNextRunsRes {
+            run_at_ms: vec![first, second],
+            searched_until_ms: now,
+            continuation: ScheduleNextRunsContinuation::Exhausted,
+        };
+
+        assert_eq!(next_schedule_checkpoint(now, &exhausted), now);
     }
 }

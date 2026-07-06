@@ -611,8 +611,9 @@ struct GetScheduleNextRunsReq {
 
   @ id - 3
   @ description
-  | Lower bound timestamp in epoch milliseconds. If absent, the daemon's current
-  | time is used.
+  | Exclusive lower bound timestamp in epoch milliseconds. If absent, the
+  | daemon's current time is used. When continuation is MoreAvailable, callers
+  | can continue by passing the last returned run time here.
   fromMs?: u53,
 
   @ id - 4
