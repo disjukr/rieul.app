@@ -2219,6 +2219,7 @@ async fn stream_jobs_subscription(
     commands: SharedCommandManager,
     request: SubscribeJobsReq,
 ) -> Result<()> {
+    let mut receiver = commands.subscribe_jobs_events();
     let snapshot = commands.jobs_snapshot(&request).await;
     write_reqres_message(
         send,
@@ -2231,7 +2232,6 @@ async fn stream_jobs_subscription(
     )
     .await?;
 
-    let mut receiver = commands.subscribe_jobs_events();
     loop {
         if receiver.changed().await.is_err() {
             return Ok(());
@@ -2256,6 +2256,7 @@ async fn stream_job_output_subscription(
     proc_id: u64,
     request: SubscribeJobOutputReq,
 ) -> Result<()> {
+    let mut receiver = commands.subscribe_output_events();
     let mut last_seq = request.after_seq.unwrap_or(0);
     let (_job, _state, events) = match commands.output_attached(&request).await {
         Ok(attached) => attached,
@@ -2282,7 +2283,6 @@ async fn stream_job_output_subscription(
         return Ok(());
     }
 
-    let mut receiver = commands.subscribe_output_events();
     loop {
         if receiver.changed().await.is_err() {
             return Ok(());
@@ -2327,6 +2327,7 @@ async fn stream_schedules_subscription(
     commands: SharedCommandManager,
     request: SubscribeSchedulesReq,
 ) -> Result<()> {
+    let mut receiver = commands.subscribe_schedules_events();
     let snapshot = commands.schedules_snapshot(&request).await;
     write_reqres_message(
         send,
@@ -2339,7 +2340,6 @@ async fn stream_schedules_subscription(
     )
     .await?;
 
-    let mut receiver = commands.subscribe_schedules_events();
     loop {
         if receiver.changed().await.is_err() {
             return Ok(());

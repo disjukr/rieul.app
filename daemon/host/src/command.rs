@@ -706,14 +706,6 @@ impl CommandManager {
                 .await;
             }
         };
-        if let Err(err) = write_child_stdin(&mut child, request.launch.stdin.as_ref()).await {
-            self.append_output(
-                job_id,
-                JobOutputStream::Stderr,
-                format!("failed to write stdin: {}\n", err.message).into_bytes(),
-            )
-            .await;
-        }
         if let Some(stdout) = child.stdout.take() {
             spawn_output_reader(
                 self.clone(),
@@ -729,6 +721,14 @@ impl CommandManager {
                 JobOutputStream::Stderr,
                 stderr,
             );
+        }
+        if let Err(err) = write_child_stdin(&mut child, request.launch.stdin.as_ref()).await {
+            self.append_output(
+                job_id,
+                JobOutputStream::Stderr,
+                format!("failed to write stdin: {}\n", err.message).into_bytes(),
+            )
+            .await;
         }
         let timeout = request.timeout_ms.map(Duration::from_millis);
         let mut timeout_sleep = Box::pin(async {

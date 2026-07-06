@@ -222,6 +222,7 @@ impl DaemonStateDb {
         stream: JobOutputStream,
         state: &JobOutputState,
     ) -> Result<()> {
+        let stream = job_output_stream_name(stream);
         self.connection
             .execute(
                 r#"
@@ -239,7 +240,7 @@ impl DaemonStateDb {
                 "#,
                 (
                     job_id,
-                    job_output_stream_name(stream),
+                    stream,
                     bool_to_i64(state.enabled),
                     state.oldest_seq as i64,
                     state.latest_seq as i64,
@@ -248,6 +249,27 @@ impl DaemonStateDb {
                 ),
             )
             .context("save job output state")?;
+        if state.oldest_seq > 0 {
+            self.connection
+                .execute(
+                    r#"
+                    DELETE FROM command_job_output_chunks
+                    WHERE job_id = ?1 AND stream = ?2 AND seq < ?3
+                    "#,
+                    (job_id, stream, state.oldest_seq as i64),
+                )
+                .context("prune old job output chunks")?;
+        } else {
+            self.connection
+                .execute(
+                    r#"
+                    DELETE FROM command_job_output_chunks
+                    WHERE job_id = ?1 AND stream = ?2
+                    "#,
+                    (job_id, stream),
+                )
+                .context("prune disabled job output chunks")?;
+        }
         Ok(())
     }
 
@@ -411,6 +433,47 @@ mod tests {
         assert!(err.to_string().contains("newer than supported"));
     }
 
+    #[test]
+    fn prunes_output_chunks_older_than_retained_state() {
+        let db = DaemonStateDb::open_in_memory_for_tests().unwrap();
+        let job = test_job();
+        db.save_job(&job).unwrap();
+        db.save_job_output_state(
+            &job.job_id,
+            JobOutputStream::Stdout,
+            &JobOutputState {
+                enabled: true,
+                oldest_seq: 1,
+                latest_seq: 3,
+                retained_bytes: 3,
+                truncated: false,
+            },
+        )
+        .unwrap();
+        db.append_job_output_chunk(&job.job_id, JobOutputStream::Stdout, 1, b"a", 1)
+            .unwrap();
+        db.append_job_output_chunk(&job.job_id, JobOutputStream::Stdout, 2, b"b", 2)
+            .unwrap();
+        db.append_job_output_chunk(&job.job_id, JobOutputStream::Stdout, 3, b"c", 3)
+            .unwrap();
+
+        db.save_job_output_state(
+            &job.job_id,
+            JobOutputStream::Stdout,
+            &JobOutputState {
+                enabled: true,
+                oldest_seq: 3,
+                latest_seq: 3,
+                retained_bytes: 1,
+                truncated: true,
+            },
+        )
+        .unwrap();
+
+        let remaining = output_chunk_seqs(&db, &job.job_id, "stdout");
+        assert_eq!(remaining, vec![3]);
+    }
+
     fn table_exists(connection: &Connection, table_name: &str) -> bool {
         connection
             .query_row(
@@ -423,5 +486,57 @@ mod tests {
             )
             .unwrap()
             == 1
+    }
+
+    fn output_chunk_seqs(db: &DaemonStateDb, job_id: &str, stream: &str) -> Vec<i64> {
+        let mut statement = db
+            .connection
+            .prepare(
+                "SELECT seq FROM command_job_output_chunks
+                WHERE job_id = ?1 AND stream = ?2
+                ORDER BY seq",
+            )
+            .unwrap();
+        statement
+            .query_map((job_id, stream), |row| row.get::<_, i64>(0))
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .unwrap()
+    }
+
+    fn test_job() -> JobInfo {
+        JobInfo {
+            job_id: "job-test".to_string(),
+            title: None,
+            launch: wgo_daemon_core::rpc::CommandLaunchSpec {
+                command: "test".to_string(),
+                args: Vec::new(),
+                cwd: None,
+                env: None,
+                stdin: None,
+                elevated: None,
+            },
+            created_at_ms: 1,
+            started_at_ms: Some(1),
+            finished_at_ms: None,
+            status: JobStatus::Running,
+            reason: JobRunReason::Manual,
+            log: wgo_daemon_core::rpc::JobLogState {
+                stdout: JobOutputState {
+                    enabled: true,
+                    oldest_seq: 0,
+                    latest_seq: 0,
+                    retained_bytes: 0,
+                    truncated: false,
+                },
+                stderr: JobOutputState {
+                    enabled: false,
+                    oldest_seq: 0,
+                    latest_seq: 0,
+                    retained_bytes: 0,
+                    truncated: false,
+                },
+            },
+        }
     }
 }
