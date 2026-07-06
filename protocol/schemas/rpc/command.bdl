@@ -1,0 +1,968 @@
+# standard - wgo-rpc
+# description
+| Command RPC methods execute host commands as short session-bound runs,
+| daemon-lifetime jobs, or scheduled jobs. RunCommand is intended for client
+| features that need a small command result quickly. Jobs and schedules are
+| user-visible daemon-local work items that survive WebTransport reconnection
+| but not daemon process restart.
+| Authorization, routing, and malformed wire messages are wgo-wire envelope
+| errors.
+
+@ description
+| Runs a short command and returns captured stdout/stderr after the process
+| exits. The command is bound to the calling WebTransport session: if that
+| session is lost before completion, the daemon should terminate the child
+| process. If timeoutMs is absent, the daemon applies a 1000ms timeout. Captured
+| stdout and stderr default to 65536 bytes each when their max fields are
+| absent. RunCommand is for short client features, not long-running user jobs.
+@ id - 31
+@ stream - unary
+proc RunCommand = RunCommandReq -> RunCommandRes throws RunCommandError
+
+@ description
+| Creates a daemon-lifetime job. Jobs keep running after the creating
+| WebTransport session disconnects, but are not expected to survive daemon
+| process restart. If timeoutMs is absent, the job has no protocol-level
+| timeout. The response returns the created job row; subsequent state changes
+| are observed through SubscribeJobs.
+@ id - 32
+@ stream - unary
+proc CreateJob = CreateJobReq -> JobInfo throws CreateJobError
+
+@ description
+| Subscribes to jobs currently known to this daemon process. The first response
+| event is JobsTableEvent.Snapshot. Later Patch events apply incremental
+| membership and status changes. If scheduleId is present, only jobs created by
+| that schedule are included.
+@ id - 33
+@ stream - server
+proc SubscribeJobs = SubscribeJobsReq -> JobsTableEvent throws SubscribeJobsError
+
+@ description
+| Subscribes to retained and live output for one job stream. Stdout and stderr
+| are intentionally subscribed separately. If afterSeq is absent, replay starts
+| from the oldest retained chunk for that stream. If the requested history is no
+| longer retained, the stream reports HistoryGap and then continues from the
+| oldest retained output or live output.
+@ id - 34
+@ stream - server
+proc SubscribeJobOutput = SubscribeJobOutputReq -> JobOutputEvent throws SubscribeJobOutputError
+
+@ description
+| Requests termination of a running job. If the job is already finished, this is
+| a no-op success. Job deletion is a separate operation.
+@ id - 35
+@ stream - unary
+proc KillJob = KillJobReq -> void throws KillJobError
+
+@ description
+| Deletes specific jobs. If killRunning is false, running jobs fail per item and
+| are not deleted. If killRunning is true, running jobs are forcefully
+| terminated before deletion. Deleted jobs leave SubscribeJobs views and their
+| retained output is removed.
+@ id - 36
+@ stream - unary
+proc DeleteJobs = DeleteJobsReq -> BulkJobMutationRes throws JobMutationError
+
+@ description
+| Deletes jobs by scope. With ClearJobsRunningPolicy.Keep, only non-running jobs
+| are removed and running jobs are left intact. With ClearJobsRunningPolicy.Kill,
+| matching running jobs are forcefully terminated before removal. Deleted jobs
+| leave SubscribeJobs views and their retained output is removed.
+@ id - 37
+@ stream - unary
+proc ClearJobs = ClearJobsReq -> BulkJobMutationRes throws JobMutationError
+
+@ description
+| Creates a schedule. A schedule stores a launch plan and RFC5545 recurrence
+| text. When the daemon observes a due occurrence for an enabled, unarchived
+| schedule, it creates a job whose reason is JobRunReason.Schedule.
+@ id - 38
+@ stream - unary
+proc CreateSchedule = CreateScheduleReq -> ScheduleInfo throws CreateScheduleError
+
+@ description
+| Updates schedule fields. Omitted optional patch fields leave existing values
+| unchanged. Setting archived to true soft-deletes the schedule from active
+| schedule views without deleting jobs it already created. A later update may
+| unarchive it by setting archived to false.
+@ id - 39
+@ stream - unary
+proc UpdateSchedule = UpdateScheduleReq -> ScheduleInfo throws UpdateScheduleError
+
+@ description
+| Subscribes to schedules known to this daemon process. The first response event
+| is SchedulesTableEvent.Snapshot. Later Patch events apply incremental
+| membership and metadata changes. The archived filter controls whether active,
+| archived, or all schedules are included.
+@ id - 40
+@ stream - server
+proc SubscribeSchedules = SubscribeSchedulesReq -> SchedulesTableEvent throws SubscribeSchedulesError
+
+@ description
+| Hard-deletes schedules. Hard deletion also deletes every job created by the
+| deleted schedules, including retained output. Running jobs created by the
+| deleted schedules are forcefully terminated before deletion. Deleted schedules
+| leave SubscribeSchedules views, and their jobs leave SubscribeJobs views.
+@ id - 41
+@ stream - unary
+proc DeleteSchedules = DeleteSchedulesReq -> BulkScheduleMutationRes throws ScheduleMutationError
+
+@ description
+| Returns planned future run times for one schedule. This is a point-in-time
+| query derived from the schedule's current rruleSet and daemon time. It does
+| not subscribe to future schedule edits or clock changes. Archived schedules
+| may still be queried; invalid, deleted, or unknown schedules fail with
+| NotFound or InvalidRRuleSet as appropriate.
+@ id - 42
+@ stream - unary
+proc GetScheduleNextRuns = GetScheduleNextRunsReq -> GetScheduleNextRunsRes throws GetScheduleNextRunsError
+
+@ description - Shared host command launch specification.
+struct CommandLaunchSpec {
+  @ id - 1
+  command: string,
+
+  @ id - 2
+  @ description - Program arguments. Empty means no additional arguments.
+  args: string[],
+
+  @ id - 3
+  @ description - Initial working directory, if requested.
+  cwd?: string,
+
+  @ id - 4
+  @ description
+  | Environment variable patch applied on top of the daemon's command execution
+  | environment. Absent means no environment changes.
+  env?: CommandEnvPatch,
+
+  @ id - 5
+  stdin?: CommandStdin,
+
+  @ id - 6
+  @ description
+  | Requests administrator/root-style elevation for the child process. Exact
+  | behavior is platform-specific. If the daemon cannot satisfy elevation, the
+  | method should fail with PermissionDenied or ElevationUnavailable rather than
+  | silently running without elevation.
+  elevated?: bool,
+}
+
+struct CommandEnvPatch {
+  @ id - 1
+  set: CommandEnvVar[],
+
+  @ id - 2
+  unset: string[],
+}
+
+struct CommandEnvVar {
+  @ id - 1
+  name: string,
+
+  @ id - 2
+  value: string,
+}
+
+union CommandStdin {
+  @ id - 1
+  Text(
+    @ id - 1
+    text: string,
+  ),
+
+  @ id - 2
+  Bytes(
+    @ id - 1
+    bytes: bytes,
+  ),
+}
+
+struct RunCommandReq {
+  @ id - 1
+  launch: CommandLaunchSpec,
+
+  @ id - 2
+  @ description - Timeout in milliseconds. Defaults to 1000 when absent.
+  timeoutMs?: u53,
+
+  @ id - 3
+  @ description - Maximum captured stdout bytes. Defaults to 65536 when absent.
+  maxStdoutBytes?: u53,
+
+  @ id - 4
+  @ description - Maximum captured stderr bytes. Defaults to 65536 when absent.
+  maxStderrBytes?: u53,
+}
+
+struct RunCommandRes {
+  @ id - 1
+  exit: CommandExit,
+
+  @ id - 2
+  stdout: CommandOutputCapture,
+
+  @ id - 3
+  stderr: CommandOutputCapture,
+}
+
+struct CommandOutputCapture {
+  @ id - 1
+  bytes: bytes,
+
+  @ id - 2
+  truncated: bool,
+}
+
+struct CreateJobReq {
+  @ id - 1
+  launch: CommandLaunchSpec,
+
+  @ id - 2
+  @ description - No timeout when absent.
+  timeoutMs?: u53,
+
+  @ id - 3
+  log: JobLogOptions,
+
+  @ id - 4
+  title?: string,
+}
+
+struct JobLogOptions {
+  @ id - 1
+  stdout: bool,
+
+  @ id - 2
+  stderr: bool,
+
+  @ id - 3
+  @ description - Maximum retained stdout bytes. Absent uses daemon policy.
+  maxStdoutBytes?: u53,
+
+  @ id - 4
+  @ description - Maximum retained stderr bytes. Absent uses daemon policy.
+  maxStderrBytes?: u53,
+}
+
+struct JobInfo {
+  @ id - 1
+  jobId: string,
+
+  @ id - 2
+  title?: string,
+
+  @ id - 3
+  launch: CommandLaunchSpec,
+
+  @ id - 4
+  createdAtMs: u53,
+
+  @ id - 5
+  startedAtMs?: u53,
+
+  @ id - 6
+  finishedAtMs?: u53,
+
+  @ id - 7
+  status: JobStatus,
+
+  @ id - 8
+  reason: JobRunReason,
+
+  @ id - 9
+  log: JobLogState,
+}
+
+union JobRunReason {
+  @ id - 1
+  Manual(),
+
+  @ id - 2
+  Schedule(
+    @ id - 1
+    scheduleId: string,
+
+    @ id - 2
+    @ description
+    | RFC5545 recurrence text from the schedule at the time this job was
+    | created. This is retained so later schedule edits do not rewrite job
+    | history.
+    rruleSet: string,
+  ),
+}
+
+union JobStatus {
+  @ id - 1
+  Running(),
+
+  @ id - 2
+  Exited(
+    @ id - 1
+    exit: CommandExit,
+  ),
+}
+
+struct CommandExit {
+  @ id - 1
+  @ description - Process exit code, when the OS reports one.
+  code?: i53,
+
+  @ id - 2
+  @ description - Unix signal name or number, when the OS reports one.
+  signal?: string,
+
+  @ id - 3
+  reason: CommandExitReason,
+
+  @ id - 4
+  exitedAtMs: u53,
+}
+
+enum CommandExitReason {
+  @ id - 1
+  ProcessExit,
+
+  @ id - 2
+  UserKill,
+
+  @ id - 3
+  Timeout,
+
+  @ id - 4
+  SpawnFailed,
+
+  @ id - 5
+  DaemonShuttingDown,
+}
+
+struct JobLogState {
+  @ id - 1
+  stdout: JobOutputState,
+
+  @ id - 2
+  stderr: JobOutputState,
+}
+
+struct JobOutputState {
+  @ id - 1
+  enabled: bool,
+
+  @ id - 2
+  oldestSeq: u53,
+
+  @ id - 3
+  latestSeq: u53,
+
+  @ id - 4
+  retainedBytes: u53,
+
+  @ id - 5
+  truncated: bool,
+}
+
+struct SubscribeJobsReq {
+  @ id - 1
+  scheduleId?: string,
+}
+
+union JobsTableEvent {
+  @ id - 1
+  Snapshot(
+    @ id - 1
+    rows: JobInfo[],
+  ),
+
+  @ id - 2
+  Patch(
+    @ id - 1
+    removes: string[],
+
+    @ id - 2
+    upserts: JobInfo[],
+  ),
+}
+
+struct SubscribeJobOutputReq {
+  @ id - 1
+  jobId: string,
+
+  @ id - 2
+  stream: JobOutputStream,
+
+  @ id - 3
+  afterSeq?: u53,
+}
+
+enum JobOutputStream {
+  @ id - 1
+  Stdout,
+
+  @ id - 2
+  Stderr,
+}
+
+union JobOutputEvent {
+  @ id - 1
+  Attached(
+    @ id - 1
+    job: JobInfo,
+
+    @ id - 2
+    oldestSeq: u53,
+
+    @ id - 3
+    latestSeq: u53,
+  ),
+
+  @ id - 2
+  Chunk(
+    @ id - 1
+    seq: u53,
+
+    @ id - 2
+    bytes: bytes,
+  ),
+
+  @ id - 3
+  HistoryGap(
+    @ id - 1
+    nextSeq: u53,
+  ),
+
+  @ id - 4
+  Truncated(),
+
+  @ id - 5
+  JobExited(
+    @ id - 1
+    exit: CommandExit,
+  ),
+}
+
+struct KillJobReq {
+  @ id - 1
+  jobId: string,
+}
+
+struct DeleteJobsReq {
+  @ id - 1
+  jobIds: string[],
+
+  @ id - 2
+  killRunning: bool,
+}
+
+struct ClearJobsReq {
+  @ id - 1
+  scope: ClearJobsScope,
+
+  @ id - 2
+  running: ClearJobsRunningPolicy,
+}
+
+enum ClearJobsRunningPolicy {
+  @ id - 1
+  @ description - Leave running jobs intact and clear only non-running jobs.
+  Keep,
+
+  @ id - 2
+  @ description - Forcefully terminate matching running jobs before clearing them.
+  Kill,
+}
+
+union ClearJobsScope {
+  @ id - 1
+  All(),
+
+  @ id - 2
+  BySchedule(
+    @ id - 1
+    scheduleId: string,
+  ),
+}
+
+struct BulkJobMutationRes {
+  @ id - 1
+  results: JobMutationResult[],
+}
+
+union JobMutationResult {
+  @ id - 1
+  Deleted(
+    @ id - 1
+    jobId: string,
+  ),
+
+  @ id - 2
+  KilledAndDeleted(
+    @ id - 1
+    jobId: string,
+  ),
+
+  @ id - 3
+  Failed(
+    @ id - 1
+    jobId: string,
+
+    @ id - 2
+    message: string,
+  ),
+}
+
+struct CreateScheduleReq {
+  @ id - 1
+  title: string,
+
+  @ id - 2
+  launch: CommandLaunchSpec,
+
+  @ id - 3
+  job: ScheduledJobOptions,
+
+  @ id - 4
+  @ description - RFC5545 recurrence text containing DTSTART/RRULE/RDATE/EXDATE lines.
+  rruleSet: string,
+
+  @ id - 5
+  enabled: bool,
+
+  @ id - 6
+  note?: string,
+}
+
+struct UpdateScheduleReq {
+  @ id - 1
+  scheduleId: string,
+
+  @ id - 2
+  title?: string,
+
+  @ id - 3
+  launch?: CommandLaunchSpec,
+
+  @ id - 4
+  job?: ScheduledJobOptions,
+
+  @ id - 5
+  @ description - RFC5545 recurrence text containing DTSTART/RRULE/RDATE/EXDATE lines.
+  rruleSet?: string,
+
+  @ id - 6
+  enabled?: bool,
+
+  @ id - 7
+  archived?: bool,
+
+  @ id - 8
+  note?: string,
+}
+
+struct ScheduledJobOptions {
+  @ id - 1
+  @ description - No timeout when absent.
+  timeoutMs?: u53,
+
+  @ id - 2
+  log: JobLogOptions,
+}
+
+struct ScheduleInfo {
+  @ id - 1
+  scheduleId: string,
+
+  @ id - 2
+  title: string,
+
+  @ id - 3
+  launch: CommandLaunchSpec,
+
+  @ id - 4
+  job: ScheduledJobOptions,
+
+  @ id - 5
+  @ description - RFC5545 recurrence text containing DTSTART/RRULE/RDATE/EXDATE lines.
+  rruleSet: string,
+
+  @ id - 6
+  enabled: bool,
+
+  @ id - 7
+  archived: bool,
+
+  @ id - 8
+  createdAtMs: u53,
+
+  @ id - 9
+  updatedAtMs: u53,
+
+  @ id - 10
+  note?: string,
+}
+
+struct GetScheduleNextRunsReq {
+  @ id - 1
+  scheduleId: string,
+
+  @ id - 2
+  @ description - Maximum number of planned run times to return.
+  limit: u53,
+
+  @ id - 3
+  @ description
+  | Lower bound timestamp in epoch milliseconds. If absent, the daemon's current
+  | time is used.
+  fromMs?: u53,
+
+  @ id - 4
+  @ description
+  | Optional caller-requested search horizon in epoch milliseconds. The daemon
+  | may clamp this to its policy limit based on the most frequent recurrence
+  | rule in the schedule. Suggested default policy is: SECONDLY 1 hour, MINUTELY
+  | 1 day, HOURLY 30 days, DAILY 1 year, WEEKLY 5 years, MONTHLY 20 years, and
+  | YEARLY 100 years.
+  searchUntilMs?: u53,
+}
+
+struct GetScheduleNextRunsRes {
+  @ id - 1
+  @ description - Planned run timestamps in epoch milliseconds, ascending.
+  runAtMs: u53[],
+
+  @ id - 2
+  @ description - Exclusive upper search timestamp actually used by the daemon.
+  searchedUntilMs: u53,
+
+  @ id - 3
+  continuation: ScheduleNextRunsContinuation,
+}
+
+enum ScheduleNextRunsContinuation {
+  @ id - 1
+  @ description - The schedule is known to have no more runs after runAtMs.
+  Exhausted,
+
+  @ id - 2
+  @ description
+  | The daemon stopped because limit was reached. More runs are expected to be
+  | available by querying again from the last returned run time.
+  MoreAvailable,
+
+  @ id - 3
+  @ description
+  | The daemon stopped because the search horizon or implementation work limit
+  | was reached before limit was filled. More runs may exist after
+  | searchedUntilMs.
+  SearchLimitReached,
+}
+
+struct SubscribeSchedulesReq {
+  @ id - 1
+  archived: ScheduleArchiveFilter,
+}
+
+enum ScheduleArchiveFilter {
+  @ id - 1
+  ActiveOnly,
+
+  @ id - 2
+  ArchivedOnly,
+
+  @ id - 3
+  All,
+}
+
+union SchedulesTableEvent {
+  @ id - 1
+  Snapshot(
+    @ id - 1
+    rows: ScheduleInfo[],
+  ),
+
+  @ id - 2
+  Patch(
+    @ id - 1
+    removes: string[],
+
+    @ id - 2
+    upserts: ScheduleInfo[],
+  ),
+}
+
+struct DeleteSchedulesReq {
+  @ id - 1
+  scheduleIds: string[],
+}
+
+struct BulkScheduleMutationRes {
+  @ id - 1
+  results: ScheduleMutationResult[],
+}
+
+union ScheduleMutationResult {
+  @ id - 1
+  Deleted(
+    @ id - 1
+    scheduleId: string,
+  ),
+
+  @ id - 2
+  Failed(
+    @ id - 1
+    scheduleId: string,
+
+    @ id - 2
+    message: string,
+  ),
+}
+
+union RunCommandError {
+  @ id - 0
+  Failed(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 1
+  PermissionDenied(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 2
+  ElevationUnavailable(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 3
+  InvalidLaunch(
+    @ id - 1
+    message: string,
+  ),
+}
+
+union CreateJobError {
+  @ id - 0
+  Failed(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 1
+  PermissionDenied(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 2
+  ElevationUnavailable(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 3
+  InvalidLaunch(
+    @ id - 1
+    message: string,
+  ),
+}
+
+union SubscribeJobsError {
+  @ id - 0
+  Failed(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 1
+  PermissionDenied(
+    @ id - 1
+    message: string,
+  ),
+}
+
+union SubscribeJobOutputError {
+  @ id - 0
+  Failed(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 1
+  NotFound(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 2
+  PermissionDenied(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 3
+  LogDisabled(
+    @ id - 1
+    message: string,
+  ),
+}
+
+union KillJobError {
+  @ id - 0
+  Failed(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 1
+  NotFound(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 2
+  PermissionDenied(
+    @ id - 1
+    message: string,
+  ),
+}
+
+union JobMutationError {
+  @ id - 0
+  Failed(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 1
+  PermissionDenied(
+    @ id - 1
+    message: string,
+  ),
+}
+
+union CreateScheduleError {
+  @ id - 0
+  Failed(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 1
+  PermissionDenied(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 2
+  ElevationUnavailable(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 3
+  InvalidLaunch(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 4
+  InvalidRRuleSet(
+    @ id - 1
+    message: string,
+  ),
+}
+
+union UpdateScheduleError {
+  @ id - 0
+  Failed(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 1
+  NotFound(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 2
+  PermissionDenied(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 3
+  ElevationUnavailable(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 4
+  InvalidLaunch(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 5
+  InvalidRRuleSet(
+    @ id - 1
+    message: string,
+  ),
+}
+
+union SubscribeSchedulesError {
+  @ id - 0
+  Failed(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 1
+  PermissionDenied(
+    @ id - 1
+    message: string,
+  ),
+}
+
+union ScheduleMutationError {
+  @ id - 0
+  Failed(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 1
+  PermissionDenied(
+    @ id - 1
+    message: string,
+  ),
+}
+
+union GetScheduleNextRunsError {
+  @ id - 0
+  Failed(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 1
+  NotFound(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 2
+  PermissionDenied(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 3
+  InvalidRRuleSet(
+    @ id - 1
+    message: string,
+  ),
+}

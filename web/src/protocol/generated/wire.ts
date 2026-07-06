@@ -2,6 +2,7 @@
 // Do not edit by hand.
 import { cborF64, type CborValue } from "../cbor.ts";
 
+
 export type ReqResMessage =
   | { type: "requestUnary"; procId: number; payload?: Uint8Array }
   | { type: "requestStreamStart"; procId: number; payload?: Uint8Array }
@@ -10,14 +11,11 @@ export type ReqResMessage =
   | { type: "responseUnaryError"; error: Uint8Array; errorKind: RpcErrorKind }
   | { type: "responseStreamStart"; payload?: Uint8Array }
   | { type: "responseStreamChunk"; payload: Uint8Array }
-  | {
-    type: "responseStreamErrorEnd";
-    error: Uint8Array;
-    errorKind: RpcErrorKind;
-  }
+  | { type: "responseStreamErrorEnd"; error: Uint8Array; errorKind: RpcErrorKind }
   | { type: "sessionAuthenticate"; mechanism: string; payload: Uint8Array }
   | { type: "sessionAuthenticated" }
-  | { type: "sessionAuthError"; code: SessionAuthErrorCode; message: string };
+  | { type: "sessionAuthError"; code: SessionAuthErrorCode; message: string }
+;
 
 export enum SessionAuthErrorCode {
   UnsupportedMechanism = 1,
@@ -54,36 +52,26 @@ export interface RpcErrorPayload {
 
 export type DatagramMessage =
   | { type: "ping"; pingId: number }
-  | { type: "pong"; pingId: number };
+  | { type: "pong"; pingId: number }
+;
 
 export function encodeReqResMessageValue(value: ReqResMessage): CborValue {
   switch (value.type) {
     case "requestUnary": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        u53(required(value.procId, "ReqResMessage.RequestUnary.procId")),
-      );
+      fields.set(1, u53(required(value.procId, "ReqResMessage.RequestUnary.procId")));
       if (value.payload !== undefined) fields.set(2, bytes(value.payload));
       return [0, fields];
     }
     case "requestStreamStart": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        u53(required(value.procId, "ReqResMessage.RequestStreamStart.procId")),
-      );
+      fields.set(1, u53(required(value.procId, "ReqResMessage.RequestStreamStart.procId")));
       if (value.payload !== undefined) fields.set(2, bytes(value.payload));
       return [1, fields];
     }
     case "requestStreamChunk": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        2,
-        bytes(
-          required(value.payload, "ReqResMessage.RequestStreamChunk.payload"),
-        ),
-      );
+      fields.set(2, bytes(required(value.payload, "ReqResMessage.RequestStreamChunk.payload")));
       return [2, fields];
     }
     case "responseUnaryOk": {
@@ -93,19 +81,8 @@ export function encodeReqResMessageValue(value: ReqResMessage): CborValue {
     }
     case "responseUnaryError": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        3,
-        bytes(required(value.error, "ReqResMessage.ResponseUnaryError.error")),
-      );
-      fields.set(
-        4,
-        encodeRpcErrorKindValue(
-          required(
-            value.errorKind,
-            "ReqResMessage.ResponseUnaryError.errorKind",
-          ),
-        ),
-      );
+      fields.set(3, bytes(required(value.error, "ReqResMessage.ResponseUnaryError.error")));
+      fields.set(4, encodeRpcErrorKindValue(required(value.errorKind, "ReqResMessage.ResponseUnaryError.errorKind")));
       return [4, fields];
     }
     case "responseStreamStart": {
@@ -115,50 +92,19 @@ export function encodeReqResMessageValue(value: ReqResMessage): CborValue {
     }
     case "responseStreamChunk": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        2,
-        bytes(
-          required(value.payload, "ReqResMessage.ResponseStreamChunk.payload"),
-        ),
-      );
+      fields.set(2, bytes(required(value.payload, "ReqResMessage.ResponseStreamChunk.payload")));
       return [6, fields];
     }
     case "responseStreamErrorEnd": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        3,
-        bytes(
-          required(value.error, "ReqResMessage.ResponseStreamErrorEnd.error"),
-        ),
-      );
-      fields.set(
-        4,
-        encodeRpcErrorKindValue(
-          required(
-            value.errorKind,
-            "ReqResMessage.ResponseStreamErrorEnd.errorKind",
-          ),
-        ),
-      );
+      fields.set(3, bytes(required(value.error, "ReqResMessage.ResponseStreamErrorEnd.error")));
+      fields.set(4, encodeRpcErrorKindValue(required(value.errorKind, "ReqResMessage.ResponseStreamErrorEnd.errorKind")));
       return [7, fields];
     }
     case "sessionAuthenticate": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(
-          required(
-            value.mechanism,
-            "ReqResMessage.SessionAuthenticate.mechanism",
-          ),
-        ),
-      );
-      fields.set(
-        2,
-        bytes(
-          required(value.payload, "ReqResMessage.SessionAuthenticate.payload"),
-        ),
-      );
+      fields.set(1, text(required(value.mechanism, "ReqResMessage.SessionAuthenticate.mechanism")));
+      fields.set(2, bytes(required(value.payload, "ReqResMessage.SessionAuthenticate.payload")));
       return [8, fields];
     }
     case "sessionAuthenticated": {
@@ -167,16 +113,8 @@ export function encodeReqResMessageValue(value: ReqResMessage): CborValue {
     }
     case "sessionAuthError": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        encodeSessionAuthErrorCodeValue(
-          required(value.code, "ReqResMessage.SessionAuthError.code"),
-        ),
-      );
-      fields.set(
-        2,
-        text(required(value.message, "ReqResMessage.SessionAuthError.message")),
-      );
+      fields.set(1, encodeSessionAuthErrorCodeValue(required(value.code, "ReqResMessage.SessionAuthError.code")));
+      fields.set(2, text(required(value.message, "ReqResMessage.SessionAuthError.message")));
       return [10, fields];
     }
   }
@@ -188,31 +126,19 @@ export function decodeReqResMessageValue(value: CborValue): ReqResMessage {
     case 0:
       return {
         type: "requestUnary",
-        procId: fieldOrDefault(
-          fields.get(1),
-          (value) => integer(value),
-          () => 0,
-        ),
+        procId: fieldOrDefault(fields.get(1), (value) => integer(value), () => 0),
         payload: optionalField(fields.get(2), (value) => bytesValue(value)),
       };
     case 1:
       return {
         type: "requestStreamStart",
-        procId: fieldOrDefault(
-          fields.get(1),
-          (value) => integer(value),
-          () => 0,
-        ),
+        procId: fieldOrDefault(fields.get(1), (value) => integer(value), () => 0),
         payload: optionalField(fields.get(2), (value) => bytesValue(value)),
       };
     case 2:
       return {
         type: "requestStreamChunk",
-        payload: fieldOrDefault(
-          fields.get(2),
-          (value) => bytesValue(value),
-          () => new Uint8Array(),
-        ),
+        payload: fieldOrDefault(fields.get(2), (value) => bytesValue(value), () => new Uint8Array()),
       };
     case 3:
       return {
@@ -222,16 +148,8 @@ export function decodeReqResMessageValue(value: CborValue): ReqResMessage {
     case 4:
       return {
         type: "responseUnaryError",
-        error: fieldOrDefault(
-          fields.get(3),
-          (value) => bytesValue(value),
-          () => new Uint8Array(),
-        ),
-        errorKind: fieldOrDefault(
-          fields.get(4),
-          (value) => decodeRpcErrorKindValue(value),
-          () => RpcErrorKind.System,
-        ),
+        error: fieldOrDefault(fields.get(3), (value) => bytesValue(value), () => new Uint8Array()),
+        errorKind: fieldOrDefault(fields.get(4), (value) => decodeRpcErrorKindValue(value), () => RpcErrorKind.System),
       };
     case 5:
       return {
@@ -241,39 +159,19 @@ export function decodeReqResMessageValue(value: CborValue): ReqResMessage {
     case 6:
       return {
         type: "responseStreamChunk",
-        payload: fieldOrDefault(
-          fields.get(2),
-          (value) => bytesValue(value),
-          () => new Uint8Array(),
-        ),
+        payload: fieldOrDefault(fields.get(2), (value) => bytesValue(value), () => new Uint8Array()),
       };
     case 7:
       return {
         type: "responseStreamErrorEnd",
-        error: fieldOrDefault(
-          fields.get(3),
-          (value) => bytesValue(value),
-          () => new Uint8Array(),
-        ),
-        errorKind: fieldOrDefault(
-          fields.get(4),
-          (value) => decodeRpcErrorKindValue(value),
-          () => RpcErrorKind.System,
-        ),
+        error: fieldOrDefault(fields.get(3), (value) => bytesValue(value), () => new Uint8Array()),
+        errorKind: fieldOrDefault(fields.get(4), (value) => decodeRpcErrorKindValue(value), () => RpcErrorKind.System),
       };
     case 8:
       return {
         type: "sessionAuthenticate",
-        mechanism: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
-        payload: fieldOrDefault(
-          fields.get(2),
-          (value) => bytesValue(value),
-          () => new Uint8Array(),
-        ),
+        mechanism: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+        payload: fieldOrDefault(fields.get(2), (value) => bytesValue(value), () => new Uint8Array()),
       };
     case 9:
       return {
@@ -282,72 +180,35 @@ export function decodeReqResMessageValue(value: CborValue): ReqResMessage {
     case 10:
       return {
         type: "sessionAuthError",
-        code: fieldOrDefault(
-          fields.get(1),
-          (value) => decodeSessionAuthErrorCodeValue(value),
-          () => SessionAuthErrorCode.UnsupportedMechanism,
-        ),
-        message: fieldOrDefault(
-          fields.get(2),
-          (value) => textValue(value),
-          () => "",
-        ),
+        code: fieldOrDefault(fields.get(1), (value) => decodeSessionAuthErrorCodeValue(value), () => SessionAuthErrorCode.UnsupportedMechanism),
+        message: fieldOrDefault(fields.get(2), (value) => textValue(value), () => ""),
       };
   }
   throw new Error(`unknown ReqResMessage variant ${variantId}`);
 }
 
-export function encodeSessionAuthErrorCodeValue(
-  value: SessionAuthErrorCode,
-): CborValue {
+export function encodeSessionAuthErrorCodeValue(value: SessionAuthErrorCode): CborValue {
   return integer(value);
 }
 
-export function decodeSessionAuthErrorCodeValue(
-  value: CborValue,
-): SessionAuthErrorCode {
+export function decodeSessionAuthErrorCodeValue(value: CborValue): SessionAuthErrorCode {
   const id = integer(value);
-  if (![1, 2, 3, 4].includes(id)) {
-    throw new Error(`unknown SessionAuthErrorCode variant ${id}`);
-  }
+  if (![1, 2, 3, 4].includes(id)) throw new Error(`unknown SessionAuthErrorCode variant ${id}`);
   return id as SessionAuthErrorCode;
 }
 
-export function encodePairedSecretCredentialValue(
-  value: PairedSecretCredential,
-): CborValue {
+export function encodePairedSecretCredentialValue(value: PairedSecretCredential): CborValue {
   const fields = new Map<number, CborValue>();
-  fields.set(
-    1,
-    text(required(value.credentialId, "PairedSecretCredential.credentialId")),
-  );
-  fields.set(
-    2,
-    text(
-      required(
-        value.credentialSecret,
-        "PairedSecretCredential.credentialSecret",
-      ),
-    ),
-  );
+  fields.set(1, text(required(value.credentialId, "PairedSecretCredential.credentialId")));
+  fields.set(2, text(required(value.credentialSecret, "PairedSecretCredential.credentialSecret")));
   return fields;
 }
 
-export function decodePairedSecretCredentialValue(
-  value: CborValue,
-): PairedSecretCredential {
+export function decodePairedSecretCredentialValue(value: CborValue): PairedSecretCredential {
   const fields = expectMap(value);
   return {
-    credentialId: fieldOrDefault(
-      fields.get(1),
-      (value) => textValue(value),
-      () => "",
-    ),
-    credentialSecret: fieldOrDefault(
-      fields.get(2),
-      (value) => textValue(value),
-      () => "",
-    ),
+    credentialId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+    credentialSecret: fieldOrDefault(fields.get(2), (value) => textValue(value), () => ""),
   };
 }
 
@@ -357,9 +218,7 @@ export function encodeRpcErrorKindValue(value: RpcErrorKind): CborValue {
 
 export function decodeRpcErrorKindValue(value: CborValue): RpcErrorKind {
   const id = integer(value);
-  if (![1, 2].includes(id)) {
-    throw new Error(`unknown RpcErrorKind variant ${id}`);
-  }
+  if (![1, 2].includes(id)) throw new Error(`unknown RpcErrorKind variant ${id}`);
   return id as RpcErrorKind;
 }
 
@@ -369,18 +228,13 @@ export function encodeRpcErrorCodeValue(value: RpcErrorCode): CborValue {
 
 export function decodeRpcErrorCodeValue(value: CborValue): RpcErrorCode {
   const id = integer(value);
-  if (![1, 2, 3, 4, 6, 7, 8, 9].includes(id)) {
-    throw new Error(`unknown RpcErrorCode variant ${id}`);
-  }
+  if (![1, 2, 3, 4, 6, 7, 8, 9].includes(id)) throw new Error(`unknown RpcErrorCode variant ${id}`);
   return id as RpcErrorCode;
 }
 
 export function encodeRpcErrorPayloadValue(value: RpcErrorPayload): CborValue {
   const fields = new Map<number, CborValue>();
-  fields.set(
-    1,
-    encodeRpcErrorCodeValue(required(value.code, "RpcErrorPayload.code")),
-  );
+  fields.set(1, encodeRpcErrorCodeValue(required(value.code, "RpcErrorPayload.code")));
   fields.set(2, text(required(value.message, "RpcErrorPayload.message")));
   return fields;
 }
@@ -388,16 +242,8 @@ export function encodeRpcErrorPayloadValue(value: RpcErrorPayload): CborValue {
 export function decodeRpcErrorPayloadValue(value: CborValue): RpcErrorPayload {
   const fields = expectMap(value);
   return {
-    code: fieldOrDefault(
-      fields.get(1),
-      (value) => decodeRpcErrorCodeValue(value),
-      () => RpcErrorCode.BadMessage,
-    ),
-    message: fieldOrDefault(
-      fields.get(2),
-      (value) => textValue(value),
-      () => "",
-    ),
+    code: fieldOrDefault(fields.get(1), (value) => decodeRpcErrorCodeValue(value), () => RpcErrorCode.BadMessage),
+    message: fieldOrDefault(fields.get(2), (value) => textValue(value), () => ""),
   };
 }
 
@@ -422,20 +268,12 @@ export function decodeDatagramMessageValue(value: CborValue): DatagramMessage {
     case 1:
       return {
         type: "ping",
-        pingId: fieldOrDefault(
-          fields.get(1),
-          (value) => integer(value),
-          () => 0,
-        ),
+        pingId: fieldOrDefault(fields.get(1), (value) => integer(value), () => 0),
       };
     case 2:
       return {
         type: "pong",
-        pingId: fieldOrDefault(
-          fields.get(1),
-          (value) => integer(value),
-          () => 0,
-        ),
+        pingId: fieldOrDefault(fields.get(1), (value) => integer(value), () => 0),
       };
   }
   throw new Error(`unknown DatagramMessage variant ${variantId}`);
@@ -483,9 +321,7 @@ function expectMap(value: CborValue): Map<number, CborValue> {
 }
 
 function expectUnion(value: CborValue): [number, Map<number, CborValue>] {
-  if (!Array.isArray(value) || value.length !== 2) {
-    throw new Error("expected CBOR union tuple");
-  }
+  if (!Array.isArray(value) || value.length !== 2) throw new Error("expected CBOR union tuple");
   return [integer(value[0]), expectMap(value[1])];
 }
 
@@ -495,17 +331,12 @@ function array(value: CborValue): CborValue[] {
 }
 
 function integer(value: CborValue): number {
-  if (typeof value !== "number" || !Number.isSafeInteger(value)) {
-    throw new Error("expected CBOR integer");
-  }
+  if (typeof value !== "number" || !Number.isSafeInteger(value)) throw new Error("expected CBOR integer");
   return value;
 }
 
 function f64Value(value: CborValue): number {
-  if (
-    typeof value !== "object" || value === null || !("type" in value) ||
-    value.type !== "f64"
-  ) throw new Error("expected CBOR f64");
+  if (typeof value !== "object" || value === null || !("type" in value) || value.type !== "f64") throw new Error("expected CBOR f64");
   return value.value;
 }
 
@@ -524,18 +355,11 @@ function bytesValue(value: CborValue): Uint8Array {
   return value;
 }
 
-function optionalField<T>(
-  value: CborValue | undefined,
-  decode: (value: CborValue) => T,
-): T | undefined {
+function optionalField<T>(value: CborValue | undefined, decode: (value: CborValue) => T): T | undefined {
   return value === undefined ? undefined : decode(value);
 }
 
-function fieldOrDefault<T>(
-  value: CborValue | undefined,
-  decode: (value: CborValue) => T,
-  fallback: () => T,
-): T {
+function fieldOrDefault<T>(value: CborValue | undefined, decode: (value: CborValue) => T, fallback: () => T): T {
   return value === undefined ? fallback() : decode(value);
 }
 
@@ -545,9 +369,7 @@ function required<T>(value: T | undefined, label: string): T {
 }
 
 function u53(value: number): CborValue {
-  if (!Number.isSafeInteger(value) || value < 0) {
-    throw new Error("expected u53");
-  }
+  if (!Number.isSafeInteger(value) || value < 0) throw new Error("expected u53");
   return value;
 }
 

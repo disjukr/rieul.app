@@ -7,51 +7,76 @@ import {
   type RpcClientStream,
 } from "../client.ts";
 import {
-  attachTerminalSessionProc,
-  closeTerminalSessionProc,
-  completePairingProc,
-  createNodesProc,
-  createTerminalSessionProc,
-  deletePathsProc,
-  getDaemonEnvironmentProc,
   getDaemonInfoProc,
-  purgeTrashItemsProc,
-  readFileProc,
-  renamePathsProc,
-  renewClientCredentialProc,
-  restoreTrashItemsProc,
   startPairingProc,
-  subscribeAvailableShellsProc,
-  subscribeClientsProc,
+  completePairingProc,
+  renewClientCredentialProc,
+  subscribeRootsProc,
   subscribeDirectoryProc,
-  subscribeProcessDetailProc,
+  readFileProc,
+  writeFileProc,
+  createNodesProc,
+  renamePathsProc,
+  deletePathsProc,
+  createTerminalSessionProc,
+  subscribeTerminalSessionsProc,
+  subscribeAvailableShellsProc,
+  attachTerminalSessionProc,
+  takeTerminalControlProc,
+  writeTerminalInputProc,
+  closeTerminalSessionProc,
+  subscribeClientsProc,
+  subscribeTrashItemsProc,
+  restoreTrashItemsProc,
+  purgeTrashItemsProc,
+  getDaemonEnvironmentProc,
   subscribeProcessesProc,
-  subscribeProcessModulesProc,
+  subscribeProcessDetailProc,
+  subscribeWindowsProc,
+  subscribeWindowDetailProc,
   subscribeProcessResourcesInUseProc,
   subscribeProcessSocketsInUseProc,
-  subscribeRootsProc,
-  subscribeTerminalSessionsProc,
-  subscribeTrashItemsProc,
-  subscribeWindowDetailProc,
-  subscribeWindowsProc,
-  takeTerminalControlProc,
-  writeFileProc,
-  writeTerminalInputProc,
+  subscribeProcessModulesProc,
+  runCommandProc,
+  createJobProc,
+  subscribeJobsProc,
+  subscribeJobOutputProc,
+  killJobProc,
+  deleteJobsProc,
+  clearJobsProc,
+  createScheduleProc,
+  updateScheduleProc,
+  subscribeSchedulesProc,
+  deleteSchedulesProc,
+  getScheduleNextRunsProc,
 } from "./rpc.ts";
 import type {
   AttachTerminalSessionReq,
   AvailableShellsTableEvent,
+  BulkJobMutationRes,
   BulkMutationRes,
+  BulkScheduleMutationRes,
+  ClearJobsReq,
   ClientsTableEvent,
   CloseTerminalSessionReq,
   CompletePairingReq,
   CompletePairingRes,
+  CreateJobReq,
   CreateNodesReq,
+  CreateScheduleReq,
   CreateTerminalSessionReq,
   DaemonEnvironment,
   DaemonInfo,
+  DeleteJobsReq,
   DeletePathsReq,
+  DeleteSchedulesReq,
   DirectoryTableEvent,
+  GetScheduleNextRunsReq,
+  GetScheduleNextRunsRes,
+  JobInfo,
+  JobOutputEvent,
+  JobsTableEvent,
+  KillJobReq,
   ProcessDetailEvent,
   ProcessesTableEvent,
   ProcessModulesTableEvent,
@@ -64,13 +89,20 @@ import type {
   RenewClientCredentialRes,
   RestoreTrashItemsReq,
   RootsTableEvent,
+  RunCommandReq,
+  RunCommandRes,
+  ScheduleInfo,
+  SchedulesTableEvent,
   StartPairingReq,
   StartPairingRes,
   SubscribeDirectoryReq,
+  SubscribeJobOutputReq,
+  SubscribeJobsReq,
   SubscribeProcessDetailReq,
   SubscribeProcessModulesReq,
   SubscribeProcessResourcesInUseReq,
   SubscribeProcessSocketsInUseReq,
+  SubscribeSchedulesReq,
   SubscribeWindowDetailReq,
   TakeTerminalControlReq,
   TakeTerminalControlRes,
@@ -78,6 +110,7 @@ import type {
   TerminalSessionInfo,
   TerminalSessionsTableEvent,
   TrashItemsTableEvent,
+  UpdateScheduleReq,
   WindowDetailEvent,
   WindowsTableEvent,
   WriteFileReq,
@@ -89,200 +122,166 @@ export function getDaemonInfo(transport: WebTransport): Promise<DaemonInfo> {
   return callUnary(transport, getDaemonInfoProc, undefined);
 }
 
-export function startPairing(
-  transport: WebTransport,
-  request: StartPairingReq,
-): Promise<StartPairingRes> {
+export function startPairing(transport: WebTransport, request: StartPairingReq): Promise<StartPairingRes> {
   return callUnary(transport, startPairingProc, request);
 }
 
-export function completePairing(
-  transport: WebTransport,
-  request: CompletePairingReq,
-): Promise<CompletePairingRes> {
+export function completePairing(transport: WebTransport, request: CompletePairingReq): Promise<CompletePairingRes> {
   return callUnary(transport, completePairingProc, request);
 }
 
-export function renewClientCredential(
-  transport: WebTransport,
-): Promise<RenewClientCredentialRes> {
+export function renewClientCredential(transport: WebTransport): Promise<RenewClientCredentialRes> {
   return callUnary(transport, renewClientCredentialProc, undefined);
 }
 
-export function subscribeRoots(
-  transport: WebTransport,
-): AsyncGenerator<RootsTableEvent> {
+export function subscribeRoots(transport: WebTransport): AsyncGenerator<RootsTableEvent> {
   return callServerStream(transport, subscribeRootsProc, undefined);
 }
 
-export function subscribeDirectory(
-  transport: WebTransport,
-  request: SubscribeDirectoryReq,
-): AsyncGenerator<DirectoryTableEvent> {
+export function subscribeDirectory(transport: WebTransport, request: SubscribeDirectoryReq): AsyncGenerator<DirectoryTableEvent> {
   return callServerStream(transport, subscribeDirectoryProc, request);
 }
 
-export function readFile(
-  transport: WebTransport,
-  request: ReadFileReq,
-): AsyncGenerator<ReadFileChunk> {
+export function readFile(transport: WebTransport, request: ReadFileReq): AsyncGenerator<ReadFileChunk> {
   return callServerStream(transport, readFileProc, request);
 }
 
-export function writeFile(
-  transport: WebTransport,
-  requests: RpcClientStream<WriteFileReq>,
-): Promise<WriteFileResult> {
+export function writeFile(transport: WebTransport, requests: RpcClientStream<WriteFileReq>): Promise<WriteFileResult> {
   return callClientStream(transport, writeFileProc, requests);
 }
 
-export function createNodes(
-  transport: WebTransport,
-  request: CreateNodesReq,
-): Promise<BulkMutationRes> {
+export function createNodes(transport: WebTransport, request: CreateNodesReq): Promise<BulkMutationRes> {
   return callUnary(transport, createNodesProc, request);
 }
 
-export function renamePaths(
-  transport: WebTransport,
-  request: RenamePathsReq,
-): Promise<BulkMutationRes> {
+export function renamePaths(transport: WebTransport, request: RenamePathsReq): Promise<BulkMutationRes> {
   return callUnary(transport, renamePathsProc, request);
 }
 
-export function deletePaths(
-  transport: WebTransport,
-  request: DeletePathsReq,
-): Promise<BulkMutationRes> {
+export function deletePaths(transport: WebTransport, request: DeletePathsReq): Promise<BulkMutationRes> {
   return callUnary(transport, deletePathsProc, request);
 }
 
-export function createTerminalSession(
-  transport: WebTransport,
-  request: CreateTerminalSessionReq,
-): Promise<TerminalSessionInfo> {
+export function createTerminalSession(transport: WebTransport, request: CreateTerminalSessionReq): Promise<TerminalSessionInfo> {
   return callUnary(transport, createTerminalSessionProc, request);
 }
 
-export function subscribeTerminalSessions(
-  transport: WebTransport,
-): AsyncGenerator<TerminalSessionsTableEvent> {
+export function subscribeTerminalSessions(transport: WebTransport): AsyncGenerator<TerminalSessionsTableEvent> {
   return callServerStream(transport, subscribeTerminalSessionsProc, undefined);
 }
 
-export function subscribeAvailableShells(
-  transport: WebTransport,
-): AsyncGenerator<AvailableShellsTableEvent> {
+export function subscribeAvailableShells(transport: WebTransport): AsyncGenerator<AvailableShellsTableEvent> {
   return callServerStream(transport, subscribeAvailableShellsProc, undefined);
 }
 
-export function attachTerminalSession(
-  transport: WebTransport,
-  request: AttachTerminalSessionReq,
-): AsyncGenerator<TerminalEvent> {
+export function attachTerminalSession(transport: WebTransport, request: AttachTerminalSessionReq): AsyncGenerator<TerminalEvent> {
   return callServerStream(transport, attachTerminalSessionProc, request);
 }
 
-export function takeTerminalControl(
-  transport: WebTransport,
-  request: TakeTerminalControlReq,
-): Promise<TakeTerminalControlRes> {
+export function takeTerminalControl(transport: WebTransport, request: TakeTerminalControlReq): Promise<TakeTerminalControlRes> {
   return callUnary(transport, takeTerminalControlProc, request);
 }
 
-export function writeTerminalInput(
-  transport: WebTransport,
-  requests: RpcClientStream<WriteTerminalInputReq>,
-): Promise<undefined> {
+export function writeTerminalInput(transport: WebTransport, requests: RpcClientStream<WriteTerminalInputReq>): Promise<undefined> {
   return callClientStream(transport, writeTerminalInputProc, requests);
 }
 
-export function closeTerminalSession(
-  transport: WebTransport,
-  request: CloseTerminalSessionReq,
-): Promise<undefined> {
+export function closeTerminalSession(transport: WebTransport, request: CloseTerminalSessionReq): Promise<undefined> {
   return callUnary(transport, closeTerminalSessionProc, request);
 }
 
-export function subscribeClients(
-  transport: WebTransport,
-): AsyncGenerator<ClientsTableEvent> {
+export function subscribeClients(transport: WebTransport): AsyncGenerator<ClientsTableEvent> {
   return callServerStream(transport, subscribeClientsProc, undefined);
 }
 
-export function subscribeTrashItems(
-  transport: WebTransport,
-): AsyncGenerator<TrashItemsTableEvent> {
+export function subscribeTrashItems(transport: WebTransport): AsyncGenerator<TrashItemsTableEvent> {
   return callServerStream(transport, subscribeTrashItemsProc, undefined);
 }
 
-export function restoreTrashItems(
-  transport: WebTransport,
-  request: RestoreTrashItemsReq,
-): Promise<BulkMutationRes> {
+export function restoreTrashItems(transport: WebTransport, request: RestoreTrashItemsReq): Promise<BulkMutationRes> {
   return callUnary(transport, restoreTrashItemsProc, request);
 }
 
-export function purgeTrashItems(
-  transport: WebTransport,
-  request: PurgeTrashItemsReq,
-): Promise<BulkMutationRes> {
+export function purgeTrashItems(transport: WebTransport, request: PurgeTrashItemsReq): Promise<BulkMutationRes> {
   return callUnary(transport, purgeTrashItemsProc, request);
 }
 
-export function getDaemonEnvironment(
-  transport: WebTransport,
-): Promise<DaemonEnvironment> {
+export function getDaemonEnvironment(transport: WebTransport): Promise<DaemonEnvironment> {
   return callUnary(transport, getDaemonEnvironmentProc, undefined);
 }
 
-export function subscribeProcesses(
-  transport: WebTransport,
-): AsyncGenerator<ProcessesTableEvent> {
+export function subscribeProcesses(transport: WebTransport): AsyncGenerator<ProcessesTableEvent> {
   return callServerStream(transport, subscribeProcessesProc, undefined);
 }
 
-export function subscribeProcessDetail(
-  transport: WebTransport,
-  request: SubscribeProcessDetailReq,
-): AsyncGenerator<ProcessDetailEvent> {
+export function subscribeProcessDetail(transport: WebTransport, request: SubscribeProcessDetailReq): AsyncGenerator<ProcessDetailEvent> {
   return callServerStream(transport, subscribeProcessDetailProc, request);
 }
 
-export function subscribeWindows(
-  transport: WebTransport,
-): AsyncGenerator<WindowsTableEvent> {
+export function subscribeWindows(transport: WebTransport): AsyncGenerator<WindowsTableEvent> {
   return callServerStream(transport, subscribeWindowsProc, undefined);
 }
 
-export function subscribeWindowDetail(
-  transport: WebTransport,
-  request: SubscribeWindowDetailReq,
-): AsyncGenerator<WindowDetailEvent> {
+export function subscribeWindowDetail(transport: WebTransport, request: SubscribeWindowDetailReq): AsyncGenerator<WindowDetailEvent> {
   return callServerStream(transport, subscribeWindowDetailProc, request);
 }
 
-export function subscribeProcessResourcesInUse(
-  transport: WebTransport,
-  request: SubscribeProcessResourcesInUseReq,
-): AsyncGenerator<ProcessResourcesInUseTableEvent> {
-  return callServerStream(
-    transport,
-    subscribeProcessResourcesInUseProc,
-    request,
-  );
+export function subscribeProcessResourcesInUse(transport: WebTransport, request: SubscribeProcessResourcesInUseReq): AsyncGenerator<ProcessResourcesInUseTableEvent> {
+  return callServerStream(transport, subscribeProcessResourcesInUseProc, request);
 }
 
-export function subscribeProcessSocketsInUse(
-  transport: WebTransport,
-  request: SubscribeProcessSocketsInUseReq,
-): AsyncGenerator<ProcessSocketsInUseTableEvent> {
+export function subscribeProcessSocketsInUse(transport: WebTransport, request: SubscribeProcessSocketsInUseReq): AsyncGenerator<ProcessSocketsInUseTableEvent> {
   return callServerStream(transport, subscribeProcessSocketsInUseProc, request);
 }
 
-export function subscribeProcessModules(
-  transport: WebTransport,
-  request: SubscribeProcessModulesReq,
-): AsyncGenerator<ProcessModulesTableEvent> {
+export function subscribeProcessModules(transport: WebTransport, request: SubscribeProcessModulesReq): AsyncGenerator<ProcessModulesTableEvent> {
   return callServerStream(transport, subscribeProcessModulesProc, request);
+}
+
+export function runCommand(transport: WebTransport, request: RunCommandReq): Promise<RunCommandRes> {
+  return callUnary(transport, runCommandProc, request);
+}
+
+export function createJob(transport: WebTransport, request: CreateJobReq): Promise<JobInfo> {
+  return callUnary(transport, createJobProc, request);
+}
+
+export function subscribeJobs(transport: WebTransport, request: SubscribeJobsReq): AsyncGenerator<JobsTableEvent> {
+  return callServerStream(transport, subscribeJobsProc, request);
+}
+
+export function subscribeJobOutput(transport: WebTransport, request: SubscribeJobOutputReq): AsyncGenerator<JobOutputEvent> {
+  return callServerStream(transport, subscribeJobOutputProc, request);
+}
+
+export function killJob(transport: WebTransport, request: KillJobReq): Promise<undefined> {
+  return callUnary(transport, killJobProc, request);
+}
+
+export function deleteJobs(transport: WebTransport, request: DeleteJobsReq): Promise<BulkJobMutationRes> {
+  return callUnary(transport, deleteJobsProc, request);
+}
+
+export function clearJobs(transport: WebTransport, request: ClearJobsReq): Promise<BulkJobMutationRes> {
+  return callUnary(transport, clearJobsProc, request);
+}
+
+export function createSchedule(transport: WebTransport, request: CreateScheduleReq): Promise<ScheduleInfo> {
+  return callUnary(transport, createScheduleProc, request);
+}
+
+export function updateSchedule(transport: WebTransport, request: UpdateScheduleReq): Promise<ScheduleInfo> {
+  return callUnary(transport, updateScheduleProc, request);
+}
+
+export function subscribeSchedules(transport: WebTransport, request: SubscribeSchedulesReq): AsyncGenerator<SchedulesTableEvent> {
+  return callServerStream(transport, subscribeSchedulesProc, request);
+}
+
+export function deleteSchedules(transport: WebTransport, request: DeleteSchedulesReq): Promise<BulkScheduleMutationRes> {
+  return callUnary(transport, deleteSchedulesProc, request);
+}
+
+export function getScheduleNextRuns(transport: WebTransport, request: GetScheduleNextRunsReq): Promise<GetScheduleNextRunsRes> {
+  return callUnary(transport, getScheduleNextRunsProc, request);
 }

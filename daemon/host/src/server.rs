@@ -8,7 +8,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use notify::{Event, RecursiveMode, Watcher};
 use rustls::server::{ClientHello, ResolvesServerCert};
 use rustls::sign::CertifiedKey;
@@ -17,52 +17,58 @@ use sysinfo::{
     ProcessesToUpdate, System as SysinfoSystem, UpdateKind,
 };
 use time::OffsetDateTime;
-use tokio::sync::{watch, Mutex};
+use tokio::sync::{Mutex, watch};
 use tracing::{info, warn};
 use web_transport_quinn::proto::ConnectResponse;
 use wgo_daemon_core::config::{
-    client_credentials_path, daemon_status_path, load_client_credentials_or_default,
+    ClientCredentialRecord, ClientCredentials, SystemConfig, client_credentials_path,
+    daemon_state_database_path, daemon_status_path, load_client_credentials_or_default,
     load_or_default, load_or_generated_default, save, save_client_credentials,
-    ClientCredentialRecord, ClientCredentials, SystemConfig,
 };
 use wgo_daemon_core::generated::rpc::{
     WriteFileReq as GeneratedWriteFileReq, WriteTerminalInputReq as GeneratedWriteTerminalInputReq,
 };
 use wgo_daemon_core::pairing::{
-    create_pairing_code, issue_client_secret, reissue_client_secret, renew_client_credential,
-    verify_client_credential, verify_pairing_code, PairingRecord,
+    PairingRecord, create_pairing_code, issue_client_secret, reissue_client_secret,
+    renew_client_credential, verify_client_credential, verify_pairing_code,
 };
 use wgo_daemon_core::rpc::{
     AttachTerminalSessionReq, AvailableShellsTableEvent, BulkMutationItemResult, BulkMutationRes,
-    ClientInfo, ClientKey, ClientsTableEvent, CloseTerminalSessionReq, CompletePairingRequest,
-    CompletePairingResponse, CreateNodesReq, CreateTerminalSessionReq, DaemonEnvironment,
-    DaemonInfo, DeleteMode, DeletePathsReq, DirectoryEntryKey, DirectorySubscriptionCloseReason,
-    DirectoryTableEvent, FsEntry, ProcId, ProcStream, ProcessDetail, ProcessDetailEvent,
-    ProcessInfo, ProcessIoUsage, ProcessMetadata, ProcessModuleInfo, ProcessModulesTableEvent,
-    ProcessResourceInUseInfo, ProcessResourceUsage, ProcessResourcesInUseTableEvent,
-    ProcessSocketInUseInfo, ProcessSocketsInUseTableEvent, ProcessStatus, ProcessesTableEvent,
-    PurgeTrashItemsReq, ReadFileChunk, ReadFileReq, RenamePathsReq, RenewClientCredentialResponse,
-    RestoreTrashItemsReq, RootEntryKey, RootsSubscriptionCloseReason, RootsTableEvent,
-    RpcErrorCode, RpcErrorPayload, RpcHandlerFuture, RpcHandlers, RpcRequest,
-    RpcRequestDecodeError, RpcResponse, StartPairingRequest, StartPairingResponse,
-    SubscribeDirectoryReq, SubscribeProcessDetailReq, SubscribeProcessModulesReq,
-    SubscribeProcessResourcesInUseReq, SubscribeProcessSocketsInUseReq, SubscribeWindowDetailReq,
-    TakeTerminalControlReq, TerminalEvent, TerminalSessionsTableEvent, TrashItem,
-    TrashItemsSubscriptionCloseReason, TrashItemsTableEvent, WindowDetail, WindowDetailEvent,
-    WindowInfo, WindowsTableEvent, WriteFileChunk, WriteFileReq, WriteTerminalInputReq, MAX_U53,
+    ClearJobsReq, ClientInfo, ClientKey, ClientsTableEvent, CloseTerminalSessionReq,
+    CompletePairingRequest, CompletePairingResponse, CreateJobReq, CreateNodesReq,
+    CreateScheduleReq, CreateTerminalSessionReq, DaemonEnvironment, DaemonInfo, DeleteJobsReq,
+    DeleteMode, DeletePathsReq, DeleteSchedulesReq, DirectoryEntryKey,
+    DirectorySubscriptionCloseReason, DirectoryTableEvent, FsEntry, GetScheduleNextRunsReq,
+    JobOutputEvent, JobsTableEvent, KillJobReq, MAX_U53, ProcId, ProcStream, ProcessDetail,
+    ProcessDetailEvent, ProcessInfo, ProcessIoUsage, ProcessMetadata, ProcessModuleInfo,
+    ProcessModulesTableEvent, ProcessResourceInUseInfo, ProcessResourceUsage,
+    ProcessResourcesInUseTableEvent, ProcessSocketInUseInfo, ProcessSocketsInUseTableEvent,
+    ProcessStatus, ProcessesTableEvent, PurgeTrashItemsReq, ReadFileChunk, ReadFileReq,
+    RenamePathsReq, RenewClientCredentialResponse, RestoreTrashItemsReq, RootEntryKey,
+    RootsSubscriptionCloseReason, RootsTableEvent, RpcErrorCode, RpcErrorPayload, RpcHandlerFuture,
+    RpcHandlers, RpcRequest, RpcRequestDecodeError, RpcResponse, RunCommandReq,
+    SchedulesTableEvent, StartPairingRequest, StartPairingResponse, SubscribeDirectoryReq,
+    SubscribeJobOutputReq, SubscribeJobsReq, SubscribeProcessDetailReq, SubscribeProcessModulesReq,
+    SubscribeProcessResourcesInUseReq, SubscribeProcessSocketsInUseReq, SubscribeSchedulesReq,
+    SubscribeWindowDetailReq, TakeTerminalControlReq, TerminalEvent, TerminalSessionsTableEvent,
+    TrashItem, TrashItemsSubscriptionCloseReason, TrashItemsTableEvent, UpdateScheduleReq,
+    WindowDetail, WindowDetailEvent, WindowInfo, WindowsTableEvent, WriteFileChunk, WriteFileReq,
+    WriteTerminalInputReq,
 };
 use wgo_daemon_core::traits::{
     BoxFutureResult, FileService, ProcessModulesService, ProcessResourcesInUseService,
     ProcessSocketsInUseService, ServiceError, WindowService, WriteFileChunkSource,
 };
 use wgo_daemon_core::wire::{
-    DatagramMessage, PairedSecretCredential, ReqResMessage, RpcErrorKind, SessionAuthErrorCode,
-    MAX_MESSAGE_SEQUENCE_SIZE, PAIRED_SECRET_AUTH_MECHANISM,
+    DatagramMessage, MAX_MESSAGE_SEQUENCE_SIZE, PAIRED_SECRET_AUTH_MECHANISM,
+    PairedSecretCredential, ReqResMessage, RpcErrorKind, SessionAuthErrorCode,
 };
 
 use crate::cert::{
     configured_certificate_paths, prepare_server_certificate, uses_scheduled_certificate_refresh,
 };
+use crate::command::{CommandError, CommandErrorKind, CommandManager};
+use crate::state_db::DaemonStateDb;
 use crate::terminal::{AttachedTerminal, TerminalManager};
 
 const CERT_RELOAD_DEBOUNCE: Duration = Duration::from_millis(250);
@@ -96,6 +102,7 @@ type SharedProcessModulesService = Arc<dyn ProcessModulesService>;
 type SharedHostRpcHandlers = Arc<HostRpcHandlers>;
 type SharedPairingNotifier = Arc<dyn PairingNotifier>;
 type SharedTerminalManager = Arc<TerminalManager>;
+type SharedCommandManager = Arc<CommandManager>;
 type SharedTrashEvents = watch::Sender<u64>;
 type SharedSendStream = Arc<Mutex<web_transport_quinn::SendStream>>;
 
@@ -214,6 +221,12 @@ async fn run_system_server_once(
     let certificate = prepare_server_certificate(&mut config, addr, &config_path, &provider)?;
     let config_state = Arc::new(Mutex::new(config));
     let credentials_path = client_credentials_path(&config_path);
+    let state_db_path = daemon_state_database_path(&config_path);
+    let commands = Arc::new(CommandManager::open(DaemonStateDb::open(&state_db_path)?)?);
+    info!(
+        state_db = %state_db_path.display(),
+        "daemon state database ready"
+    );
     let initial_client_credentials = load_client_credentials_or_default(&credentials_path)?;
     let client_credentials = Arc::new(Mutex::new(initial_client_credentials.clone()));
     let (client_credentials_events, _) = watch::channel(initial_client_credentials);
@@ -254,6 +267,7 @@ async fn run_system_server_once(
         let process_modules = process_modules.clone();
         let rpc_handlers = rpc_handlers.clone();
         let terminals = terminals.clone();
+        let commands = commands.clone();
         let trash_events = trash_events.clone();
         let pairing_notifier = pairing_notifier.clone();
         tokio::spawn(async move {
@@ -272,6 +286,7 @@ async fn run_system_server_once(
                 process_modules,
                 rpc_handlers,
                 terminals,
+                commands,
                 trash_events,
                 pairing_notifier,
             )
@@ -803,6 +818,7 @@ async fn handle_request(
     process_modules: Option<SharedProcessModulesService>,
     rpc_handlers: SharedHostRpcHandlers,
     terminals: SharedTerminalManager,
+    commands: SharedCommandManager,
     trash_events: SharedTrashEvents,
     pairing_notifier: Option<SharedPairingNotifier>,
 ) -> Result<()> {
@@ -825,6 +841,7 @@ async fn handle_request(
                 process_modules,
                 rpc_handlers,
                 terminals,
+                commands,
                 trash_events,
                 pairing_notifier,
             )
@@ -858,6 +875,7 @@ async fn run_rpc_session(
     process_modules: Option<SharedProcessModulesService>,
     rpc_handlers: SharedHostRpcHandlers,
     terminals: SharedTerminalManager,
+    commands: SharedCommandManager,
     trash_events: SharedTrashEvents,
     pairing_notifier: Option<SharedPairingNotifier>,
 ) -> Result<()> {
@@ -883,13 +901,16 @@ async fn run_rpc_session(
                 let process_modules = process_modules.clone();
                 let rpc_handlers = rpc_handlers.clone();
                 let terminals = terminals.clone();
+                let commands = commands.clone();
                 let trash_events = trash_events.clone();
                 let pairing_notifier = pairing_notifier.clone();
+                let stream_session = session.clone();
                 tokio::spawn(async move {
                     let response = async {
                         handle_reqres_stream(
                             recv,
                             send,
+                            stream_session,
                             config_path,
                             credentials_path,
                             config_state,
@@ -904,6 +925,7 @@ async fn run_rpc_session(
                             process_modules,
                             rpc_handlers,
                             terminals,
+                            commands,
                             trash_events,
                             pairing_notifier,
                         )
@@ -975,7 +997,19 @@ fn build_rpc_handlers(
         .restore_trash_items(HostRpcHandler::restore_trash_items_rpc)
         .purge_trash_items(HostRpcHandler::purge_trash_items_rpc)
         .subscribe_processes(HostRpcHandler::subscribe_processes_rpc)
-        .subscribe_process_detail(HostRpcHandler::subscribe_process_detail_rpc);
+        .subscribe_process_detail(HostRpcHandler::subscribe_process_detail_rpc)
+        .run_command(HostRpcHandler::run_command_rpc)
+        .create_job(HostRpcHandler::create_job_rpc)
+        .subscribe_jobs(HostRpcHandler::subscribe_jobs_rpc)
+        .subscribe_job_output(HostRpcHandler::subscribe_job_output_rpc)
+        .kill_job(HostRpcHandler::kill_job_rpc)
+        .delete_jobs(HostRpcHandler::delete_jobs_rpc)
+        .clear_jobs(HostRpcHandler::clear_jobs_rpc)
+        .create_schedule(HostRpcHandler::create_schedule_rpc)
+        .update_schedule(HostRpcHandler::update_schedule_rpc)
+        .subscribe_schedules(HostRpcHandler::subscribe_schedules_rpc)
+        .delete_schedules(HostRpcHandler::delete_schedules_rpc)
+        .get_schedule_next_runs(HostRpcHandler::get_schedule_next_runs_rpc);
 
     if process_resources_in_use.is_some() {
         handlers = handlers.subscribe_process_resources_in_use(
@@ -1083,6 +1117,7 @@ async fn handle_reqres_messages(
 ) -> Result<Vec<ReqResMessage>> {
     let client_credentials_events = temporary_client_credentials_events(&client_credentials).await;
     let (trash_events, _) = watch::channel(0);
+    let commands = test_commands();
     handle_reqres_messages_with_events(
         messages,
         config_path,
@@ -1095,6 +1130,7 @@ async fn handle_reqres_messages(
         files,
         None,
         terminals,
+        commands,
         trash_events,
         pairing_notifier,
     )
@@ -1114,11 +1150,13 @@ async fn handle_reqres_messages_with_events(
     files: SharedFileService,
     windows: Option<SharedWindowService>,
     terminals: SharedTerminalManager,
+    commands: SharedCommandManager,
     trash_events: SharedTrashEvents,
     pairing_notifier: Option<SharedPairingNotifier>,
 ) -> Result<Vec<ReqResMessage>> {
     let rpc_handlers = Arc::new(build_rpc_handlers(windows.as_ref(), None, None, None));
     let context = HostRpcContext {
+        session: None,
         config_path: config_path.to_path_buf(),
         credentials_path: credentials_path.to_path_buf(),
         config_state,
@@ -1133,6 +1171,7 @@ async fn handle_reqres_messages_with_events(
         process_modules: None,
         rpc_handlers,
         terminals,
+        commands,
         trash_events,
         pairing_notifier,
     };
@@ -1142,6 +1181,7 @@ async fn handle_reqres_messages_with_events(
 async fn handle_reqres_stream(
     recv: web_transport_quinn::RecvStream,
     mut send: web_transport_quinn::SendStream,
+    session: web_transport_quinn::Session,
     config_path: PathBuf,
     credentials_path: PathBuf,
     config_state: SharedSystemConfig,
@@ -1156,10 +1196,12 @@ async fn handle_reqres_stream(
     process_modules: Option<SharedProcessModulesService>,
     rpc_handlers: SharedHostRpcHandlers,
     terminals: SharedTerminalManager,
+    commands: SharedCommandManager,
     trash_events: SharedTrashEvents,
     pairing_notifier: Option<SharedPairingNotifier>,
 ) -> Result<()> {
     let context = HostRpcContext {
+        session: Some(session),
         config_path,
         credentials_path,
         config_state,
@@ -1174,6 +1216,7 @@ async fn handle_reqres_stream(
         process_modules,
         rpc_handlers,
         terminals,
+        commands,
         trash_events,
         pairing_notifier,
     };
@@ -1270,6 +1313,7 @@ async fn handle_reqres_stream(
 
 #[derive(Clone)]
 struct HostRpcContext {
+    session: Option<web_transport_quinn::Session>,
     config_path: PathBuf,
     credentials_path: PathBuf,
     config_state: SharedSystemConfig,
@@ -1284,6 +1328,7 @@ struct HostRpcContext {
     process_modules: Option<SharedProcessModulesService>,
     rpc_handlers: SharedHostRpcHandlers,
     terminals: SharedTerminalManager,
+    commands: SharedCommandManager,
     trash_events: SharedTrashEvents,
     pairing_notifier: Option<SharedPairingNotifier>,
 }
@@ -1491,6 +1536,7 @@ async fn dispatch_client_stream_rpc(
 }
 
 struct HostRpcHandler {
+    session: Option<web_transport_quinn::Session>,
     config_path: PathBuf,
     credentials_path: PathBuf,
     config_state: SharedSystemConfig,
@@ -1505,6 +1551,7 @@ struct HostRpcHandler {
     process_modules: Option<SharedProcessModulesService>,
     rpc_handlers: SharedHostRpcHandlers,
     terminals: SharedTerminalManager,
+    commands: SharedCommandManager,
     trash_events: SharedTrashEvents,
     pairing_notifier: Option<SharedPairingNotifier>,
     send: Option<SharedSendStream>,
@@ -1534,6 +1581,7 @@ impl HostRpcHandler {
         request_stream: Option<RequestStreamSource>,
     ) -> Self {
         HostRpcHandler {
+            session: context.session,
             config_path: context.config_path,
             credentials_path: context.credentials_path,
             config_state: context.config_state,
@@ -1548,6 +1596,7 @@ impl HostRpcHandler {
             process_modules: context.process_modules,
             rpc_handlers: context.rpc_handlers,
             terminals: context.terminals,
+            commands: context.commands,
             trash_events: context.trash_events,
             pairing_notifier: context.pairing_notifier,
             send,
@@ -1797,6 +1846,33 @@ impl HostRpcHandler {
         .await
     }
 
+    async fn subscribe_jobs(&mut self, request: SubscribeJobsReq) -> Result<()> {
+        let commands = self.commands.clone();
+        let send = self.response_stream();
+        let mut send = send.lock().await;
+        stream_jobs_subscription(&mut send, commands, request).await
+    }
+
+    async fn subscribe_job_output(&mut self, request: SubscribeJobOutputReq) -> Result<()> {
+        let commands = self.commands.clone();
+        let send = self.response_stream();
+        let mut send = send.lock().await;
+        stream_job_output_subscription(
+            &mut send,
+            commands,
+            ProcId::SubscribeJobOutput.as_u64(),
+            request,
+        )
+        .await
+    }
+
+    async fn subscribe_schedules(&mut self, request: SubscribeSchedulesReq) -> Result<()> {
+        let commands = self.commands.clone();
+        let send = self.response_stream();
+        let mut send = send.lock().await;
+        stream_schedules_subscription(&mut send, commands, request).await
+    }
+
     fn subscribe_roots_rpc<'a>(&'a mut self, request: ()) -> RpcHandlerFuture<'a, Result<()>> {
         Box::pin(self.subscribe_roots(request))
     }
@@ -1885,6 +1961,27 @@ impl HostRpcHandler {
         request: SubscribeWindowDetailReq,
     ) -> RpcHandlerFuture<'a, Result<()>> {
         Box::pin(self.subscribe_window_detail(request))
+    }
+
+    fn subscribe_jobs_rpc<'a>(
+        &'a mut self,
+        request: SubscribeJobsReq,
+    ) -> RpcHandlerFuture<'a, Result<()>> {
+        Box::pin(self.subscribe_jobs(request))
+    }
+
+    fn subscribe_job_output_rpc<'a>(
+        &'a mut self,
+        request: SubscribeJobOutputReq,
+    ) -> RpcHandlerFuture<'a, Result<()>> {
+        Box::pin(self.subscribe_job_output(request))
+    }
+
+    fn subscribe_schedules_rpc<'a>(
+        &'a mut self,
+        request: SubscribeSchedulesReq,
+    ) -> RpcHandlerFuture<'a, Result<()>> {
+        Box::pin(self.subscribe_schedules(request))
     }
 }
 
@@ -2114,6 +2211,150 @@ async fn stream_clients_subscription(
             write_reqres_message(send, stream_chunk_payload_message(event.encode())).await?;
             rows = next_rows;
         }
+    }
+}
+
+async fn stream_jobs_subscription(
+    send: &mut web_transport_quinn::SendStream,
+    commands: SharedCommandManager,
+    request: SubscribeJobsReq,
+) -> Result<()> {
+    let snapshot = commands.jobs_snapshot(&request).await;
+    write_reqres_message(
+        send,
+        stream_start_payload_message(
+            JobsTableEvent::Snapshot {
+                rows: snapshot.rows,
+            }
+            .encode(),
+        ),
+    )
+    .await?;
+
+    let mut receiver = commands.subscribe_jobs_events();
+    loop {
+        if receiver.changed().await.is_err() {
+            return Ok(());
+        }
+        let snapshot = commands.jobs_snapshot(&request).await;
+        write_reqres_message(
+            send,
+            stream_chunk_payload_message(
+                JobsTableEvent::Snapshot {
+                    rows: snapshot.rows,
+                }
+                .encode(),
+            ),
+        )
+        .await?;
+    }
+}
+
+async fn stream_job_output_subscription(
+    send: &mut web_transport_quinn::SendStream,
+    commands: SharedCommandManager,
+    proc_id: u64,
+    request: SubscribeJobOutputReq,
+) -> Result<()> {
+    let mut last_seq = request.after_seq.unwrap_or(0);
+    let (_job, _state, events) = match commands.output_attached(&request).await {
+        Ok(attached) => attached,
+        Err(err) => {
+            write_reqres_message(send, stream_command_error_message(proc_id, err)).await?;
+            return Ok(());
+        }
+    };
+
+    let mut events = events.into_iter();
+    let Some(first) = events.next() else {
+        return Ok(());
+    };
+    if let JobOutputEvent::Attached { latest_seq, .. } = &first {
+        last_seq = last_seq.max(*latest_seq);
+    }
+    write_reqres_message(send, stream_start_payload_message(first.encode())).await?;
+    let mut exited = false;
+    for event in events {
+        update_job_output_cursor(&mut last_seq, &mut exited, &event);
+        write_reqres_message(send, stream_chunk_payload_message(event.encode())).await?;
+    }
+    if exited {
+        return Ok(());
+    }
+
+    let mut receiver = commands.subscribe_output_events();
+    loop {
+        if receiver.changed().await.is_err() {
+            return Ok(());
+        }
+        let (_job, events) = match commands
+            .output_chunks_after(&request.job_id, request.stream, last_seq)
+            .await
+        {
+            Ok(events) => events,
+            Err(err) => {
+                write_reqres_message(send, stream_command_error_message(proc_id, err)).await?;
+                return Ok(());
+            }
+        };
+        for event in events {
+            update_job_output_cursor(&mut last_seq, &mut exited, &event);
+            write_reqres_message(send, stream_chunk_payload_message(event.encode())).await?;
+            if exited {
+                return Ok(());
+            }
+        }
+    }
+}
+
+fn update_job_output_cursor(last_seq: &mut u64, exited: &mut bool, event: &JobOutputEvent) {
+    match event {
+        JobOutputEvent::Attached { latest_seq, .. } => {
+            *last_seq = (*last_seq).max(*latest_seq);
+        }
+        JobOutputEvent::Chunk { seq, .. } => {
+            *last_seq = (*last_seq).max(*seq);
+        }
+        JobOutputEvent::JobExited { .. } => {
+            *exited = true;
+        }
+        JobOutputEvent::HistoryGap { .. } | JobOutputEvent::Truncated => {}
+    }
+}
+
+async fn stream_schedules_subscription(
+    send: &mut web_transport_quinn::SendStream,
+    commands: SharedCommandManager,
+    request: SubscribeSchedulesReq,
+) -> Result<()> {
+    let snapshot = commands.schedules_snapshot(&request).await;
+    write_reqres_message(
+        send,
+        stream_start_payload_message(
+            SchedulesTableEvent::Snapshot {
+                rows: snapshot.rows,
+            }
+            .encode(),
+        ),
+    )
+    .await?;
+
+    let mut receiver = commands.subscribe_schedules_events();
+    loop {
+        if receiver.changed().await.is_err() {
+            return Ok(());
+        }
+        let snapshot = commands.schedules_snapshot(&request).await;
+        write_reqres_message(
+            send,
+            stream_chunk_payload_message(
+                SchedulesTableEvent::Snapshot {
+                    rows: snapshot.rows,
+                }
+                .encode(),
+            ),
+        )
+        .await?;
     }
 }
 
@@ -3323,6 +3564,7 @@ async fn handle_rpc_messages(
 ) -> Result<Vec<ReqResMessage>> {
     let client_credentials_events = temporary_client_credentials_events(&client_credentials).await;
     let (trash_events, _) = watch::channel(0);
+    let commands = test_commands();
     handle_rpc_messages_with_events(
         messages,
         config_path,
@@ -3334,6 +3576,7 @@ async fn handle_rpc_messages(
         session_state,
         files,
         terminals,
+        commands,
         trash_events,
         pairing_notifier,
     )
@@ -3352,11 +3595,13 @@ async fn handle_rpc_messages_with_events(
     session_state: SharedRpcSessionState,
     files: SharedFileService,
     terminals: SharedTerminalManager,
+    commands: SharedCommandManager,
     trash_events: SharedTrashEvents,
     pairing_notifier: Option<SharedPairingNotifier>,
 ) -> Result<Vec<ReqResMessage>> {
     let rpc_handlers = Arc::new(build_rpc_handlers(None, None, None, None));
     let context = HostRpcContext {
+        session: None,
         config_path: config_path.to_path_buf(),
         credentials_path: credentials_path.to_path_buf(),
         config_state,
@@ -3371,6 +3616,7 @@ async fn handle_rpc_messages_with_events(
         process_modules: None,
         rpc_handlers,
         terminals,
+        commands,
         trash_events,
         pairing_notifier,
     };
@@ -3746,6 +3992,90 @@ impl HostRpcHandler {
         }
     }
 
+    async fn run_command(&mut self, request: RunCommandReq) -> Result<UnaryRpcOutcome> {
+        let proc_id = ProcId::RunCommand.as_u64();
+        let result = if let Some(session) = self.session.clone() {
+            self.commands
+                .run_command_until(request, async move {
+                    let _ = session.closed().await;
+                })
+                .await
+        } else {
+            self.commands.run_command(request).await
+        };
+        match result {
+            Ok(response) => Ok(RpcResponse::RunCommand(response).into()),
+            Err(err) => Ok(UnaryRpcOutcome::Message(command_error_message(
+                proc_id, err,
+            ))),
+        }
+    }
+
+    async fn create_job(&mut self, request: CreateJobReq) -> Result<UnaryRpcOutcome> {
+        let proc_id = ProcId::CreateJob.as_u64();
+        match self.commands.create_job(request).await {
+            Ok(job) => Ok(RpcResponse::CreateJob(job).into()),
+            Err(err) => Ok(UnaryRpcOutcome::Message(command_error_message(
+                proc_id, err,
+            ))),
+        }
+    }
+
+    async fn kill_job(&mut self, request: KillJobReq) -> Result<UnaryRpcOutcome> {
+        let proc_id = ProcId::KillJob.as_u64();
+        match self.commands.kill_job(request).await {
+            Ok(()) => Ok(RpcResponse::KillJob.into()),
+            Err(err) => Ok(UnaryRpcOutcome::Message(command_error_message(
+                proc_id, err,
+            ))),
+        }
+    }
+
+    async fn delete_jobs(&mut self, request: DeleteJobsReq) -> Result<UnaryRpcOutcome> {
+        Ok(RpcResponse::DeleteJobs(self.commands.delete_jobs(request).await).into())
+    }
+
+    async fn clear_jobs(&mut self, request: ClearJobsReq) -> Result<UnaryRpcOutcome> {
+        Ok(RpcResponse::ClearJobs(self.commands.clear_jobs(request).await).into())
+    }
+
+    async fn create_schedule(&mut self, request: CreateScheduleReq) -> Result<UnaryRpcOutcome> {
+        let proc_id = ProcId::CreateSchedule.as_u64();
+        match self.commands.create_schedule(request).await {
+            Ok(schedule) => Ok(RpcResponse::CreateSchedule(schedule).into()),
+            Err(err) => Ok(UnaryRpcOutcome::Message(command_error_message(
+                proc_id, err,
+            ))),
+        }
+    }
+
+    async fn update_schedule(&mut self, request: UpdateScheduleReq) -> Result<UnaryRpcOutcome> {
+        let proc_id = ProcId::UpdateSchedule.as_u64();
+        match self.commands.update_schedule(request).await {
+            Ok(schedule) => Ok(RpcResponse::UpdateSchedule(schedule).into()),
+            Err(err) => Ok(UnaryRpcOutcome::Message(command_error_message(
+                proc_id, err,
+            ))),
+        }
+    }
+
+    async fn delete_schedules(&mut self, request: DeleteSchedulesReq) -> Result<UnaryRpcOutcome> {
+        Ok(RpcResponse::DeleteSchedules(self.commands.delete_schedules(request).await).into())
+    }
+
+    async fn get_schedule_next_runs(
+        &mut self,
+        request: GetScheduleNextRunsReq,
+    ) -> Result<UnaryRpcOutcome> {
+        let proc_id = ProcId::GetScheduleNextRuns.as_u64();
+        match self.commands.get_schedule_next_runs(request).await {
+            Ok(response) => Ok(RpcResponse::GetScheduleNextRuns(response).into()),
+            Err(err) => Ok(UnaryRpcOutcome::Message(command_error_message(
+                proc_id, err,
+            ))),
+        }
+    }
+
     fn get_daemon_info_rpc<'a>(
         &'a mut self,
         request: (),
@@ -3835,6 +4165,69 @@ impl HostRpcHandler {
         request: PurgeTrashItemsReq,
     ) -> RpcHandlerFuture<'a, Result<UnaryRpcOutcome>> {
         Box::pin(self.purge_trash_items(request))
+    }
+
+    fn run_command_rpc<'a>(
+        &'a mut self,
+        request: RunCommandReq,
+    ) -> RpcHandlerFuture<'a, Result<UnaryRpcOutcome>> {
+        Box::pin(self.run_command(request))
+    }
+
+    fn create_job_rpc<'a>(
+        &'a mut self,
+        request: CreateJobReq,
+    ) -> RpcHandlerFuture<'a, Result<UnaryRpcOutcome>> {
+        Box::pin(self.create_job(request))
+    }
+
+    fn kill_job_rpc<'a>(
+        &'a mut self,
+        request: KillJobReq,
+    ) -> RpcHandlerFuture<'a, Result<UnaryRpcOutcome>> {
+        Box::pin(self.kill_job(request))
+    }
+
+    fn delete_jobs_rpc<'a>(
+        &'a mut self,
+        request: DeleteJobsReq,
+    ) -> RpcHandlerFuture<'a, Result<UnaryRpcOutcome>> {
+        Box::pin(self.delete_jobs(request))
+    }
+
+    fn clear_jobs_rpc<'a>(
+        &'a mut self,
+        request: ClearJobsReq,
+    ) -> RpcHandlerFuture<'a, Result<UnaryRpcOutcome>> {
+        Box::pin(self.clear_jobs(request))
+    }
+
+    fn create_schedule_rpc<'a>(
+        &'a mut self,
+        request: CreateScheduleReq,
+    ) -> RpcHandlerFuture<'a, Result<UnaryRpcOutcome>> {
+        Box::pin(self.create_schedule(request))
+    }
+
+    fn update_schedule_rpc<'a>(
+        &'a mut self,
+        request: UpdateScheduleReq,
+    ) -> RpcHandlerFuture<'a, Result<UnaryRpcOutcome>> {
+        Box::pin(self.update_schedule(request))
+    }
+
+    fn delete_schedules_rpc<'a>(
+        &'a mut self,
+        request: DeleteSchedulesReq,
+    ) -> RpcHandlerFuture<'a, Result<UnaryRpcOutcome>> {
+        Box::pin(self.delete_schedules(request))
+    }
+
+    fn get_schedule_next_runs_rpc<'a>(
+        &'a mut self,
+        request: GetScheduleNextRunsReq,
+    ) -> RpcHandlerFuture<'a, Result<UnaryRpcOutcome>> {
+        Box::pin(self.get_schedule_next_runs(request))
     }
 }
 
@@ -4015,6 +4408,11 @@ async fn temporary_client_credentials_events(
     tx
 }
 
+#[cfg(test)]
+fn test_commands() -> SharedCommandManager {
+    Arc::new(CommandManager::open(DaemonStateDb::open_in_memory_for_tests().unwrap()).unwrap())
+}
+
 fn client_info_from_record(record: &ClientCredentialRecord) -> ClientInfo {
     ClientInfo {
         client_id: record.client_id.clone(),
@@ -4167,6 +4565,26 @@ fn terminal_service_error_message(proc_id: u64, err: ServiceError) -> ReqResMess
 fn terminal_stream_service_error_message(proc_id: u64, err: ServiceError) -> ReqResMessage {
     let code = terminal_service_error_code(&err);
     stream_error_message(proc_id, code, &err.to_string())
+}
+
+fn command_error_message(proc_id: u64, err: CommandError) -> ReqResMessage {
+    error_message(proc_id, command_error_code(err.kind), &err.message)
+}
+
+fn stream_command_error_message(proc_id: u64, err: CommandError) -> ReqResMessage {
+    stream_error_message(proc_id, command_error_code(err.kind), &err.message)
+}
+
+fn command_error_code(kind: CommandErrorKind) -> &'static str {
+    match kind {
+        CommandErrorKind::Failed => "failed",
+        CommandErrorKind::NotFound => "not_found",
+        CommandErrorKind::PermissionDenied => "permission_denied",
+        CommandErrorKind::ElevationUnavailable => "elevation_unavailable",
+        CommandErrorKind::InvalidLaunch => "invalid_launch",
+        CommandErrorKind::InvalidRRuleSet => "invalid_rrule_set",
+        CommandErrorKind::LogDisabled => "log_disabled",
+    }
 }
 
 fn terminal_service_error_code(err: &ServiceError) -> &'static str {
@@ -4332,8 +4750,8 @@ mod tests {
     use super::*;
     use wgo_daemon_core::cbor::Value;
     use wgo_daemon_core::pairing::{
-        create_pairing_code, issue_client_secret, verify_client_secret,
-        CLIENT_CREDENTIAL_TTL_SECONDS, PAIRING_TTL_SECONDS,
+        CLIENT_CREDENTIAL_TTL_SECONDS, PAIRING_TTL_SECONDS, create_pairing_code,
+        issue_client_secret, verify_client_secret,
     };
     use wgo_daemon_core::rpc::{
         CompletePairingRequest, CreateNodeOp, DeleteMode, FsEntryKind, ReadFileReq,
@@ -4627,14 +5045,18 @@ mod tests {
         assert_eq!(active_pairing_challenge(&pairing_challenge).await, None);
         assert_ne!(credentials.client_id, existing_client_id);
         assert_eq!(stored.clients.len(), 2);
-        assert!(stored
-            .clients
-            .iter()
-            .any(|record| record.client_id == existing_client_id));
-        assert!(stored
-            .clients
-            .iter()
-            .any(|record| record.client_id == credentials.client_id));
+        assert!(
+            stored
+                .clients
+                .iter()
+                .any(|record| record.client_id == existing_client_id)
+        );
+        assert!(
+            stored
+                .clients
+                .iter()
+                .any(|record| record.client_id == credentials.client_id)
+        );
         assert!(stored.clients.iter().any(|record| {
             record.client_id == credentials.client_id
                 && record.expires_at_unix == credentials.client_credential_expires_at_unix

@@ -33,6 +33,18 @@ export enum ProcId {
   SubscribeProcessResourcesInUse = 28,
   SubscribeProcessSocketsInUse = 29,
   SubscribeProcessModules = 30,
+  RunCommand = 31,
+  CreateJob = 32,
+  SubscribeJobs = 33,
+  SubscribeJobOutput = 34,
+  KillJob = 35,
+  DeleteJobs = 36,
+  ClearJobs = 37,
+  CreateSchedule = 38,
+  UpdateSchedule = 39,
+  SubscribeSchedules = 40,
+  DeleteSchedules = 41,
+  GetScheduleNextRuns = 42,
 }
 
 export interface SubscribeWindowDetailReq {
@@ -67,25 +79,29 @@ export interface WindowBounds {
 
 export type WindowsTableEvent =
   | { type: "snapshot"; rows: WindowInfo[] }
-  | { type: "patch"; removes: string[]; upserts: WindowInfo[] };
+  | { type: "patch"; removes: string[]; upserts: WindowInfo[] }
+;
 
 export type WindowDetailEvent =
   | { type: "snapshot"; detail: WindowDetail }
   | { type: "infoChanged"; info: WindowInfo }
   | { type: "stateChanged"; state: WindowState }
   | { type: "boundsChanged"; bounds?: WindowBounds }
-  | { type: "closed" };
+  | { type: "closed" }
+;
 
 export type SubscribeWindowsError =
   | { type: "failed"; message: string }
   | { type: "unsupported"; message: string }
-  | { type: "permissionDenied"; message: string };
+  | { type: "permissionDenied"; message: string }
+;
 
 export type SubscribeWindowDetailError =
   | { type: "failed"; message: string }
   | { type: "notFound"; message: string }
   | { type: "unsupported"; message: string }
-  | { type: "permissionDenied"; message: string };
+  | { type: "permissionDenied"; message: string }
+;
 
 export interface CreateTerminalSessionReq {
   cols: number;
@@ -119,11 +135,8 @@ export interface TerminalSessionInfo {
 
 export type TerminalSessionsTableEvent =
   | { type: "snapshot"; rows: TerminalSessionInfo[] }
-  | {
-    type: "patch";
-    removes: TerminalSessionKey[];
-    upserts: TerminalSessionInfo[];
-  };
+  | { type: "patch"; removes: TerminalSessionKey[]; upserts: TerminalSessionInfo[] }
+;
 
 export interface TerminalSessionKey {
   terminalSessionId: string;
@@ -131,11 +144,8 @@ export interface TerminalSessionKey {
 
 export type AvailableShellsTableEvent =
   | { type: "snapshot"; rows: AvailableShellInfo[] }
-  | {
-    type: "patch";
-    removes: AvailableShellKey[];
-    upserts: AvailableShellInfo[];
-  };
+  | { type: "patch"; removes: AvailableShellKey[]; upserts: AvailableShellInfo[] }
+;
 
 export interface AvailableShellInfo {
   shellId: string;
@@ -157,12 +167,7 @@ export interface AttachTerminalSessionReq {
 }
 
 export type TerminalEvent =
-  | {
-    type: "attached";
-    attachId: string;
-    primaryAttachId?: string;
-    session: TerminalSessionInfo;
-  }
+  | { type: "attached"; attachId: string; primaryAttachId?: string; session: TerminalSessionInfo }
   | { type: "outputChunk"; seq: number; bytes: Uint8Array }
   | { type: "historyGap"; nextSeq: number }
   | { type: "controlChanged"; primaryAttachId: string }
@@ -170,7 +175,8 @@ export type TerminalEvent =
   | { type: "sessionExited"; exit: TerminalExit }
   | { type: "sessionClosed"; reason: TerminalSessionCloseReason }
   | { type: "workingDirectoryChanged"; cwd: string }
-  | { type: "titleChanged"; title: string };
+  | { type: "titleChanged"; title: string }
+;
 
 export interface TakeTerminalControlReq {
   terminalSessionId: string;
@@ -184,12 +190,9 @@ export interface TakeTerminalControlRes {
 }
 
 export type WriteTerminalInputReq =
-  | {
-    type: "writeTerminalInputStart";
-    terminalSessionId: string;
-    attachId: string;
-  }
-  | { type: "writeTerminalInputChunk"; bytes: Uint8Array };
+  | { type: "writeTerminalInputStart"; terminalSessionId: string; attachId: string }
+  | { type: "writeTerminalInputChunk"; bytes: Uint8Array }
+;
 
 export interface CloseTerminalSessionReq {
   terminalSessionId: string;
@@ -205,47 +208,55 @@ export type TerminalSessionCloseReason =
   | { type: "failed"; message: string }
   | { type: "closedByClient" }
   | { type: "daemonShuttingDown" }
-  | { type: "unknown" };
+  | { type: "unknown" }
+;
 
 export type CreateTerminalSessionError =
   | { type: "failed"; message: string }
   | { type: "permissionDenied"; message: string }
   | { type: "invalidSize"; message: string }
   | { type: "shellNotFound"; message: string }
-  | { type: "invalidLaunch"; message: string };
+  | { type: "invalidLaunch"; message: string }
+;
 
 export type SubscribeTerminalSessionsError =
   | { type: "failed"; message: string }
-  | { type: "permissionDenied"; message: string };
+  | { type: "permissionDenied"; message: string }
+;
 
 export type SubscribeAvailableShellsError =
   | { type: "failed"; message: string }
-  | { type: "permissionDenied"; message: string };
+  | { type: "permissionDenied"; message: string }
+;
 
 export type CloseTerminalSessionError =
   | { type: "failed"; message: string }
   | { type: "notFound"; message: string }
-  | { type: "permissionDenied"; message: string };
+  | { type: "permissionDenied"; message: string }
+;
 
 export type AttachTerminalSessionError =
   | { type: "failed"; message: string }
   | { type: "notFound"; message: string }
   | { type: "permissionDenied"; message: string }
-  | { type: "invalidSize"; message: string };
+  | { type: "invalidSize"; message: string }
+;
 
 export type TakeTerminalControlError =
   | { type: "failed"; message: string }
   | { type: "notFound"; message: string }
   | { type: "permissionDenied"; message: string }
   | { type: "attachNotFound"; message: string }
-  | { type: "invalidSize"; message: string };
+  | { type: "invalidSize"; message: string }
+;
 
 export type WriteTerminalInputError =
   | { type: "failed"; message: string }
   | { type: "notFound"; message: string }
   | { type: "permissionDenied"; message: string }
   | { type: "attachNotFound"; message: string }
-  | { type: "notPrimaryAttach"; message: string };
+  | { type: "notPrimaryAttach"; message: string }
+;
 
 export interface SubscribeProcessDetailReq {
   pid: number;
@@ -312,18 +323,21 @@ export type ProcessStatus =
   | { type: "lockBlocked" }
   | { type: "uninterruptibleDiskSleep" }
   | { type: "suspended" }
-  | { type: "unknown"; code: number };
+  | { type: "unknown"; code: number }
+;
 
 export type ProcessesTableEvent =
   | { type: "snapshot"; rows: ProcessInfo[] }
-  | { type: "patch"; removePids: number[]; upserts: ProcessInfo[] };
+  | { type: "patch"; removePids: number[]; upserts: ProcessInfo[] }
+;
 
 export type ProcessDetailEvent =
   | { type: "snapshot"; detail: ProcessDetail }
   | { type: "infoChanged"; info: ProcessInfo }
   | { type: "metadataChanged"; metadata: ProcessMetadata }
   | { type: "usageChanged"; usage: ProcessResourceUsage }
-  | { type: "exited" };
+  | { type: "exited" }
+;
 
 export interface ProcessResourceInUseInfo {
   resourceId: string;
@@ -351,7 +365,8 @@ export interface ProcessResourceInUseAccess {
 export type ProcessResourcesInUseTableEvent =
   | { type: "snapshot"; rows: ProcessResourceInUseInfo[] }
   | { type: "patch"; removes: string[]; upserts: ProcessResourceInUseInfo[] }
-  | { type: "exited" };
+  | { type: "exited" }
+;
 
 export interface ProcessSocketInUseInfo {
   socketId: string;
@@ -366,16 +381,19 @@ export type ProcessSocketInUseKind =
   | { type: "udp" }
   | { type: "unix" }
   | { type: "raw" }
-  | { type: "unknown" };
+  | { type: "unknown" }
+;
 
 export type SocketEndpoint =
   | { type: "ip"; address: string; port?: number }
-  | { type: "unix"; path?: string; name?: string };
+  | { type: "unix"; path?: string; name?: string }
+;
 
 export type ProcessSocketsInUseTableEvent =
   | { type: "snapshot"; rows: ProcessSocketInUseInfo[] }
   | { type: "patch"; removes: string[]; upserts: ProcessSocketInUseInfo[] }
-  | { type: "exited" };
+  | { type: "exited" }
+;
 
 export interface ProcessModuleInfo {
   moduleId: string;
@@ -396,34 +414,40 @@ export enum ProcessModuleKind {
 export type ProcessModulesTableEvent =
   | { type: "snapshot"; rows: ProcessModuleInfo[] }
   | { type: "patch"; removes: string[]; upserts: ProcessModuleInfo[] }
-  | { type: "exited" };
+  | { type: "exited" }
+;
 
 export type SubscribeProcessesError =
   | { type: "failed"; message: string }
-  | { type: "permissionDenied"; message: string };
+  | { type: "permissionDenied"; message: string }
+;
 
 export type SubscribeProcessDetailError =
   | { type: "failed"; message: string }
   | { type: "notFound"; message: string }
-  | { type: "permissionDenied"; message: string };
+  | { type: "permissionDenied"; message: string }
+;
 
 export type SubscribeProcessResourcesInUseError =
   | { type: "failed"; message: string }
   | { type: "notFound"; message: string }
   | { type: "permissionDenied"; message: string }
-  | { type: "unsupported"; message: string };
+  | { type: "unsupported"; message: string }
+;
 
 export type SubscribeProcessSocketsInUseError =
   | { type: "failed"; message: string }
   | { type: "notFound"; message: string }
   | { type: "permissionDenied"; message: string }
-  | { type: "unsupported"; message: string };
+  | { type: "unsupported"; message: string }
+;
 
 export type SubscribeProcessModulesError =
   | { type: "failed"; message: string }
   | { type: "notFound"; message: string }
   | { type: "permissionDenied"; message: string }
-  | { type: "unsupported"; message: string };
+  | { type: "unsupported"; message: string }
+;
 
 export interface StartPairingReq {
   confirmationCode: string;
@@ -449,14 +473,19 @@ export interface RenewClientCredentialRes {
   clientCredentialExpiresAtUnix: number;
 }
 
-export type StartPairingError = { type: "failed"; message: string };
+export type StartPairingError =
+  | { type: "failed"; message: string }
+;
 
 export type CompletePairingError =
   | { type: "pairingNotStarted"; message: string }
   | { type: "pairingExpired"; message: string }
-  | { type: "invalidPairingCode"; message: string };
+  | { type: "invalidPairingCode"; message: string }
+;
 
-export type RenewClientCredentialError = { type: "failed"; message: string };
+export type RenewClientCredentialError =
+  | { type: "failed"; message: string }
+;
 
 export interface ReadFileReq {
   path: string;
@@ -471,17 +500,20 @@ export interface SubscribeDirectoryReq {
 export type RootsTableEvent =
   | { type: "snapshot"; rows: FsEntry[] }
   | { type: "patch"; removes: RootEntryKey[]; upserts: FsEntry[] }
-  | { type: "closed"; reason: RootsSubscriptionCloseReason };
+  | { type: "closed"; reason: RootsSubscriptionCloseReason }
+;
 
 export type DirectoryTableEvent =
   | { type: "snapshot"; rows: FsEntry[] }
   | { type: "patch"; removes: DirectoryEntryKey[]; upserts: FsEntry[] }
-  | { type: "closed"; reason: DirectorySubscriptionCloseReason };
+  | { type: "closed"; reason: DirectorySubscriptionCloseReason }
+;
 
 export type TrashItemsTableEvent =
   | { type: "snapshot"; rows: TrashItem[] }
   | { type: "patch"; removes: string[]; upserts: TrashItem[] }
-  | { type: "closed"; reason: TrashItemsSubscriptionCloseReason };
+  | { type: "closed"; reason: TrashItemsSubscriptionCloseReason }
+;
 
 export interface RootEntryKey {
   path: string;
@@ -494,7 +526,8 @@ export interface DirectoryEntryKey {
 export type RootsSubscriptionCloseReason =
   | { type: "failed" }
   | { type: "permissionLost" }
-  | { type: "unknown" };
+  | { type: "unknown" }
+;
 
 export type DirectorySubscriptionCloseReason =
   | { type: "failed" }
@@ -502,12 +535,14 @@ export type DirectorySubscriptionCloseReason =
   | { type: "moved"; to?: string }
   | { type: "permissionLost" }
   | { type: "replacedByNonDirectory" }
-  | { type: "unknown" };
+  | { type: "unknown" }
+;
 
 export type TrashItemsSubscriptionCloseReason =
   | { type: "failed" }
   | { type: "permissionLost" }
-  | { type: "unknown" };
+  | { type: "unknown" }
+;
 
 export interface FsEntry {
   name: string;
@@ -535,7 +570,8 @@ export interface TrashItem {
 
 export type TrashItemSize =
   | { type: "bytes"; value: number }
-  | { type: "entries"; value: number };
+  | { type: "entries"; value: number }
+;
 
 export interface ReadFileChunk {
   offset: number;
@@ -543,14 +579,9 @@ export interface ReadFileChunk {
 }
 
 export type WriteFileReq =
-  | {
-    type: "writeFileStart";
-    path: string;
-    mode: WriteFileMode;
-    expectedResultSize?: number;
-    modifiedAtMs?: number;
-  }
-  | { type: "writeFileChunk"; offset?: number; bytes: Uint8Array };
+  | { type: "writeFileStart"; path: string; mode: WriteFileMode; expectedResultSize?: number; modifiedAtMs?: number }
+  | { type: "writeFileChunk"; offset?: number; bytes: Uint8Array }
+;
 
 export interface WriteFileResult {
   bytesWritten: number;
@@ -578,7 +609,8 @@ export type CreateNodeSpec =
   | { type: "file" }
   | { type: "directory" }
   | { type: "symlink"; target: string }
-  | { type: "hardlink"; target: string };
+  | { type: "hardlink"; target: string }
+;
 
 export interface RenamePathsReq {
   ops: RenamePathOp[];
@@ -613,7 +645,8 @@ export interface BulkMutationRes {
 
 export type BulkMutationItemResult =
   | { type: "failed"; index: number; error: FsMutationItemError }
-  | { type: "ok"; index: number };
+  | { type: "ok"; index: number }
+;
 
 export type FsMutationItemError =
   | { type: "failed"; message: string }
@@ -623,26 +656,32 @@ export type FsMutationItemError =
   | { type: "notDirectory"; message: string }
   | { type: "notFile"; message: string }
   | { type: "invalidPath"; message: string }
-  | { type: "unsupported"; message: string };
+  | { type: "unsupported"; message: string }
+;
 
-export type SubscribeRootsError = { type: "failed"; message: string };
+export type SubscribeRootsError =
+  | { type: "failed"; message: string }
+;
 
 export type SubscribeDirectoryError =
   | { type: "failed"; message: string }
   | { type: "permissionDenied"; message: string }
   | { type: "notFound"; message: string }
-  | { type: "notDirectory"; message: string };
+  | { type: "notDirectory"; message: string }
+;
 
 export type SubscribeTrashItemsError =
   | { type: "failed"; message: string }
-  | { type: "permissionDenied"; message: string };
+  | { type: "permissionDenied"; message: string }
+;
 
 export type ReadFileError =
   | { type: "failed"; message: string }
   | { type: "permissionDenied"; message: string }
   | { type: "notFound"; message: string }
   | { type: "notFile"; message: string }
-  | { type: "invalidPath"; message: string };
+  | { type: "invalidPath"; message: string }
+;
 
 export type WriteFileError =
   | { type: "failed"; message: string }
@@ -651,9 +690,12 @@ export type WriteFileError =
   | { type: "alreadyExists"; message: string }
   | { type: "notDirectory"; message: string }
   | { type: "notFile"; message: string }
-  | { type: "invalidPath"; message: string };
+  | { type: "invalidPath"; message: string }
+;
 
-export type FsMutationError = { type: "failed"; message: string };
+export type FsMutationError =
+  | { type: "failed"; message: string }
+;
 
 export interface DaemonInfo {
   supportedProcIds: number[];
@@ -677,19 +719,349 @@ export interface ClientInfo {
 
 export type ClientsTableEvent =
   | { type: "snapshot"; rows: ClientInfo[] }
-  | { type: "patch"; removes: ClientKey[]; upserts: ClientInfo[] };
+  | { type: "patch"; removes: ClientKey[]; upserts: ClientInfo[] }
+;
 
 export interface ClientKey {
   clientId: string;
 }
 
-export type GetDaemonInfoError = { type: "failed"; message: string };
+export type GetDaemonInfoError =
+  | { type: "failed"; message: string }
+;
 
-export type GetDaemonEnvironmentError = { type: "failed"; message: string };
+export type GetDaemonEnvironmentError =
+  | { type: "failed"; message: string }
+;
 
 export type SubscribeClientsError =
   | { type: "failed"; message: string }
-  | { type: "permissionDenied"; message: string };
+  | { type: "permissionDenied"; message: string }
+;
+
+export interface CommandLaunchSpec {
+  command: string;
+  args: string[];
+  cwd?: string;
+  env?: CommandEnvPatch;
+  stdin?: CommandStdin;
+  elevated?: boolean;
+}
+
+export interface CommandEnvPatch {
+  set: CommandEnvVar[];
+  unset: string[];
+}
+
+export interface CommandEnvVar {
+  name: string;
+  value: string;
+}
+
+export type CommandStdin =
+  | { type: "text"; text: string }
+  | { type: "bytes"; bytes: Uint8Array }
+;
+
+export interface RunCommandReq {
+  launch: CommandLaunchSpec;
+  timeoutMs?: number;
+  maxStdoutBytes?: number;
+  maxStderrBytes?: number;
+}
+
+export interface RunCommandRes {
+  exit: CommandExit;
+  stdout: CommandOutputCapture;
+  stderr: CommandOutputCapture;
+}
+
+export interface CommandOutputCapture {
+  bytes: Uint8Array;
+  truncated: boolean;
+}
+
+export interface CreateJobReq {
+  launch: CommandLaunchSpec;
+  timeoutMs?: number;
+  log: JobLogOptions;
+  title?: string;
+}
+
+export interface JobLogOptions {
+  stdout: boolean;
+  stderr: boolean;
+  maxStdoutBytes?: number;
+  maxStderrBytes?: number;
+}
+
+export interface JobInfo {
+  jobId: string;
+  title?: string;
+  launch: CommandLaunchSpec;
+  createdAtMs: number;
+  startedAtMs?: number;
+  finishedAtMs?: number;
+  status: JobStatus;
+  reason: JobRunReason;
+  log: JobLogState;
+}
+
+export type JobRunReason =
+  | { type: "manual" }
+  | { type: "schedule"; scheduleId: string; rruleSet: string }
+;
+
+export type JobStatus =
+  | { type: "running" }
+  | { type: "exited"; exit: CommandExit }
+;
+
+export interface CommandExit {
+  code?: number;
+  signal?: string;
+  reason: CommandExitReason;
+  exitedAtMs: number;
+}
+
+export enum CommandExitReason {
+  ProcessExit = 1,
+  UserKill = 2,
+  Timeout = 3,
+  SpawnFailed = 4,
+  DaemonShuttingDown = 5,
+}
+
+export interface JobLogState {
+  stdout: JobOutputState;
+  stderr: JobOutputState;
+}
+
+export interface JobOutputState {
+  enabled: boolean;
+  oldestSeq: number;
+  latestSeq: number;
+  retainedBytes: number;
+  truncated: boolean;
+}
+
+export interface SubscribeJobsReq {
+  scheduleId?: string;
+}
+
+export type JobsTableEvent =
+  | { type: "snapshot"; rows: JobInfo[] }
+  | { type: "patch"; removes: string[]; upserts: JobInfo[] }
+;
+
+export interface SubscribeJobOutputReq {
+  jobId: string;
+  stream: JobOutputStream;
+  afterSeq?: number;
+}
+
+export enum JobOutputStream {
+  Stdout = 1,
+  Stderr = 2,
+}
+
+export type JobOutputEvent =
+  | { type: "attached"; job: JobInfo; oldestSeq: number; latestSeq: number }
+  | { type: "chunk"; seq: number; bytes: Uint8Array }
+  | { type: "historyGap"; nextSeq: number }
+  | { type: "truncated" }
+  | { type: "jobExited"; exit: CommandExit }
+;
+
+export interface KillJobReq {
+  jobId: string;
+}
+
+export interface DeleteJobsReq {
+  jobIds: string[];
+  killRunning: boolean;
+}
+
+export interface ClearJobsReq {
+  scope: ClearJobsScope;
+  running: ClearJobsRunningPolicy;
+}
+
+export enum ClearJobsRunningPolicy {
+  Keep = 1,
+  Kill = 2,
+}
+
+export type ClearJobsScope =
+  | { type: "all" }
+  | { type: "bySchedule"; scheduleId: string }
+;
+
+export interface BulkJobMutationRes {
+  results: JobMutationResult[];
+}
+
+export type JobMutationResult =
+  | { type: "deleted"; jobId: string }
+  | { type: "killedAndDeleted"; jobId: string }
+  | { type: "failed"; jobId: string; message: string }
+;
+
+export interface CreateScheduleReq {
+  title: string;
+  launch: CommandLaunchSpec;
+  job: ScheduledJobOptions;
+  rruleSet: string;
+  enabled: boolean;
+  note?: string;
+}
+
+export interface UpdateScheduleReq {
+  scheduleId: string;
+  title?: string;
+  launch?: CommandLaunchSpec;
+  job?: ScheduledJobOptions;
+  rruleSet?: string;
+  enabled?: boolean;
+  archived?: boolean;
+  note?: string;
+}
+
+export interface ScheduledJobOptions {
+  timeoutMs?: number;
+  log: JobLogOptions;
+}
+
+export interface ScheduleInfo {
+  scheduleId: string;
+  title: string;
+  launch: CommandLaunchSpec;
+  job: ScheduledJobOptions;
+  rruleSet: string;
+  enabled: boolean;
+  archived: boolean;
+  createdAtMs: number;
+  updatedAtMs: number;
+  note?: string;
+}
+
+export interface GetScheduleNextRunsReq {
+  scheduleId: string;
+  limit: number;
+  fromMs?: number;
+  searchUntilMs?: number;
+}
+
+export interface GetScheduleNextRunsRes {
+  runAtMs: number[];
+  searchedUntilMs: number;
+  continuation: ScheduleNextRunsContinuation;
+}
+
+export enum ScheduleNextRunsContinuation {
+  Exhausted = 1,
+  MoreAvailable = 2,
+  SearchLimitReached = 3,
+}
+
+export interface SubscribeSchedulesReq {
+  archived: ScheduleArchiveFilter;
+}
+
+export enum ScheduleArchiveFilter {
+  ActiveOnly = 1,
+  ArchivedOnly = 2,
+  All = 3,
+}
+
+export type SchedulesTableEvent =
+  | { type: "snapshot"; rows: ScheduleInfo[] }
+  | { type: "patch"; removes: string[]; upserts: ScheduleInfo[] }
+;
+
+export interface DeleteSchedulesReq {
+  scheduleIds: string[];
+}
+
+export interface BulkScheduleMutationRes {
+  results: ScheduleMutationResult[];
+}
+
+export type ScheduleMutationResult =
+  | { type: "deleted"; scheduleId: string }
+  | { type: "failed"; scheduleId: string; message: string }
+;
+
+export type RunCommandError =
+  | { type: "failed"; message: string }
+  | { type: "permissionDenied"; message: string }
+  | { type: "elevationUnavailable"; message: string }
+  | { type: "invalidLaunch"; message: string }
+;
+
+export type CreateJobError =
+  | { type: "failed"; message: string }
+  | { type: "permissionDenied"; message: string }
+  | { type: "elevationUnavailable"; message: string }
+  | { type: "invalidLaunch"; message: string }
+;
+
+export type SubscribeJobsError =
+  | { type: "failed"; message: string }
+  | { type: "permissionDenied"; message: string }
+;
+
+export type SubscribeJobOutputError =
+  | { type: "failed"; message: string }
+  | { type: "notFound"; message: string }
+  | { type: "permissionDenied"; message: string }
+  | { type: "logDisabled"; message: string }
+;
+
+export type KillJobError =
+  | { type: "failed"; message: string }
+  | { type: "notFound"; message: string }
+  | { type: "permissionDenied"; message: string }
+;
+
+export type JobMutationError =
+  | { type: "failed"; message: string }
+  | { type: "permissionDenied"; message: string }
+;
+
+export type CreateScheduleError =
+  | { type: "failed"; message: string }
+  | { type: "permissionDenied"; message: string }
+  | { type: "elevationUnavailable"; message: string }
+  | { type: "invalidLaunch"; message: string }
+  | { type: "invalidRRuleSet"; message: string }
+;
+
+export type UpdateScheduleError =
+  | { type: "failed"; message: string }
+  | { type: "notFound"; message: string }
+  | { type: "permissionDenied"; message: string }
+  | { type: "elevationUnavailable"; message: string }
+  | { type: "invalidLaunch"; message: string }
+  | { type: "invalidRRuleSet"; message: string }
+;
+
+export type SubscribeSchedulesError =
+  | { type: "failed"; message: string }
+  | { type: "permissionDenied"; message: string }
+;
+
+export type ScheduleMutationError =
+  | { type: "failed"; message: string }
+  | { type: "permissionDenied"; message: string }
+;
+
+export type GetScheduleNextRunsError =
+  | { type: "failed"; message: string }
+  | { type: "notFound"; message: string }
+  | { type: "permissionDenied"; message: string }
+  | { type: "invalidRRuleSet"; message: string }
+;
 
 export interface ProcCodec<Request, Response, ErrorPayload> {
   id: ProcId;
@@ -703,11 +1075,7 @@ export interface ProcCodec<Request, Response, ErrorPayload> {
   decodeError(value: CborValue): ErrorPayload;
 }
 
-export const getDaemonInfoProc: ProcCodec<
-  undefined,
-  DaemonInfo,
-  GetDaemonInfoError
-> = {
+export const getDaemonInfoProc: ProcCodec<undefined, DaemonInfo, GetDaemonInfoError> = {
   id: ProcId.GetDaemonInfo,
   name: "GetDaemonInfo",
   stream: "unary",
@@ -719,11 +1087,7 @@ export const getDaemonInfoProc: ProcCodec<
   decodeError: decodeGetDaemonInfoErrorValue,
 };
 
-export const startPairingProc: ProcCodec<
-  StartPairingReq,
-  StartPairingRes,
-  StartPairingError
-> = {
+export const startPairingProc: ProcCodec<StartPairingReq, StartPairingRes, StartPairingError> = {
   id: ProcId.StartPairing,
   name: "StartPairing",
   stream: "unary",
@@ -735,11 +1099,7 @@ export const startPairingProc: ProcCodec<
   decodeError: decodeStartPairingErrorValue,
 };
 
-export const completePairingProc: ProcCodec<
-  CompletePairingReq,
-  CompletePairingRes,
-  CompletePairingError
-> = {
+export const completePairingProc: ProcCodec<CompletePairingReq, CompletePairingRes, CompletePairingError> = {
   id: ProcId.CompletePairing,
   name: "CompletePairing",
   stream: "unary",
@@ -751,11 +1111,7 @@ export const completePairingProc: ProcCodec<
   decodeError: decodeCompletePairingErrorValue,
 };
 
-export const renewClientCredentialProc: ProcCodec<
-  undefined,
-  RenewClientCredentialRes,
-  RenewClientCredentialError
-> = {
+export const renewClientCredentialProc: ProcCodec<undefined, RenewClientCredentialRes, RenewClientCredentialError> = {
   id: ProcId.RenewClientCredential,
   name: "RenewClientCredential",
   stream: "unary",
@@ -767,11 +1123,7 @@ export const renewClientCredentialProc: ProcCodec<
   decodeError: decodeRenewClientCredentialErrorValue,
 };
 
-export const subscribeRootsProc: ProcCodec<
-  undefined,
-  RootsTableEvent,
-  SubscribeRootsError
-> = {
+export const subscribeRootsProc: ProcCodec<undefined, RootsTableEvent, SubscribeRootsError> = {
   id: ProcId.SubscribeRoots,
   name: "SubscribeRoots",
   stream: "server",
@@ -783,11 +1135,7 @@ export const subscribeRootsProc: ProcCodec<
   decodeError: decodeSubscribeRootsErrorValue,
 };
 
-export const subscribeDirectoryProc: ProcCodec<
-  SubscribeDirectoryReq,
-  DirectoryTableEvent,
-  SubscribeDirectoryError
-> = {
+export const subscribeDirectoryProc: ProcCodec<SubscribeDirectoryReq, DirectoryTableEvent, SubscribeDirectoryError> = {
   id: ProcId.SubscribeDirectory,
   name: "SubscribeDirectory",
   stream: "server",
@@ -799,11 +1147,7 @@ export const subscribeDirectoryProc: ProcCodec<
   decodeError: decodeSubscribeDirectoryErrorValue,
 };
 
-export const readFileProc: ProcCodec<
-  ReadFileReq,
-  ReadFileChunk,
-  ReadFileError
-> = {
+export const readFileProc: ProcCodec<ReadFileReq, ReadFileChunk, ReadFileError> = {
   id: ProcId.ReadFile,
   name: "ReadFile",
   stream: "server",
@@ -815,11 +1159,7 @@ export const readFileProc: ProcCodec<
   decodeError: decodeReadFileErrorValue,
 };
 
-export const writeFileProc: ProcCodec<
-  WriteFileReq,
-  WriteFileResult,
-  WriteFileError
-> = {
+export const writeFileProc: ProcCodec<WriteFileReq, WriteFileResult, WriteFileError> = {
   id: ProcId.WriteFile,
   name: "WriteFile",
   stream: "client",
@@ -831,11 +1171,7 @@ export const writeFileProc: ProcCodec<
   decodeError: decodeWriteFileErrorValue,
 };
 
-export const createNodesProc: ProcCodec<
-  CreateNodesReq,
-  BulkMutationRes,
-  FsMutationError
-> = {
+export const createNodesProc: ProcCodec<CreateNodesReq, BulkMutationRes, FsMutationError> = {
   id: ProcId.CreateNodes,
   name: "CreateNodes",
   stream: "unary",
@@ -847,11 +1183,7 @@ export const createNodesProc: ProcCodec<
   decodeError: decodeFsMutationErrorValue,
 };
 
-export const renamePathsProc: ProcCodec<
-  RenamePathsReq,
-  BulkMutationRes,
-  FsMutationError
-> = {
+export const renamePathsProc: ProcCodec<RenamePathsReq, BulkMutationRes, FsMutationError> = {
   id: ProcId.RenamePaths,
   name: "RenamePaths",
   stream: "unary",
@@ -863,11 +1195,7 @@ export const renamePathsProc: ProcCodec<
   decodeError: decodeFsMutationErrorValue,
 };
 
-export const deletePathsProc: ProcCodec<
-  DeletePathsReq,
-  BulkMutationRes,
-  FsMutationError
-> = {
+export const deletePathsProc: ProcCodec<DeletePathsReq, BulkMutationRes, FsMutationError> = {
   id: ProcId.DeletePaths,
   name: "DeletePaths",
   stream: "unary",
@@ -879,11 +1207,7 @@ export const deletePathsProc: ProcCodec<
   decodeError: decodeFsMutationErrorValue,
 };
 
-export const createTerminalSessionProc: ProcCodec<
-  CreateTerminalSessionReq,
-  TerminalSessionInfo,
-  CreateTerminalSessionError
-> = {
+export const createTerminalSessionProc: ProcCodec<CreateTerminalSessionReq, TerminalSessionInfo, CreateTerminalSessionError> = {
   id: ProcId.CreateTerminalSession,
   name: "CreateTerminalSession",
   stream: "unary",
@@ -895,11 +1219,7 @@ export const createTerminalSessionProc: ProcCodec<
   decodeError: decodeCreateTerminalSessionErrorValue,
 };
 
-export const subscribeTerminalSessionsProc: ProcCodec<
-  undefined,
-  TerminalSessionsTableEvent,
-  SubscribeTerminalSessionsError
-> = {
+export const subscribeTerminalSessionsProc: ProcCodec<undefined, TerminalSessionsTableEvent, SubscribeTerminalSessionsError> = {
   id: ProcId.SubscribeTerminalSessions,
   name: "SubscribeTerminalSessions",
   stream: "server",
@@ -911,11 +1231,7 @@ export const subscribeTerminalSessionsProc: ProcCodec<
   decodeError: decodeSubscribeTerminalSessionsErrorValue,
 };
 
-export const subscribeAvailableShellsProc: ProcCodec<
-  undefined,
-  AvailableShellsTableEvent,
-  SubscribeAvailableShellsError
-> = {
+export const subscribeAvailableShellsProc: ProcCodec<undefined, AvailableShellsTableEvent, SubscribeAvailableShellsError> = {
   id: ProcId.SubscribeAvailableShells,
   name: "SubscribeAvailableShells",
   stream: "server",
@@ -927,11 +1243,7 @@ export const subscribeAvailableShellsProc: ProcCodec<
   decodeError: decodeSubscribeAvailableShellsErrorValue,
 };
 
-export const attachTerminalSessionProc: ProcCodec<
-  AttachTerminalSessionReq,
-  TerminalEvent,
-  AttachTerminalSessionError
-> = {
+export const attachTerminalSessionProc: ProcCodec<AttachTerminalSessionReq, TerminalEvent, AttachTerminalSessionError> = {
   id: ProcId.AttachTerminalSession,
   name: "AttachTerminalSession",
   stream: "server",
@@ -943,11 +1255,7 @@ export const attachTerminalSessionProc: ProcCodec<
   decodeError: decodeAttachTerminalSessionErrorValue,
 };
 
-export const takeTerminalControlProc: ProcCodec<
-  TakeTerminalControlReq,
-  TakeTerminalControlRes,
-  TakeTerminalControlError
-> = {
+export const takeTerminalControlProc: ProcCodec<TakeTerminalControlReq, TakeTerminalControlRes, TakeTerminalControlError> = {
   id: ProcId.TakeTerminalControl,
   name: "TakeTerminalControl",
   stream: "unary",
@@ -959,11 +1267,7 @@ export const takeTerminalControlProc: ProcCodec<
   decodeError: decodeTakeTerminalControlErrorValue,
 };
 
-export const writeTerminalInputProc: ProcCodec<
-  WriteTerminalInputReq,
-  undefined,
-  WriteTerminalInputError
-> = {
+export const writeTerminalInputProc: ProcCodec<WriteTerminalInputReq, undefined, WriteTerminalInputError> = {
   id: ProcId.WriteTerminalInput,
   name: "WriteTerminalInput",
   stream: "client",
@@ -975,11 +1279,7 @@ export const writeTerminalInputProc: ProcCodec<
   decodeError: decodeWriteTerminalInputErrorValue,
 };
 
-export const closeTerminalSessionProc: ProcCodec<
-  CloseTerminalSessionReq,
-  undefined,
-  CloseTerminalSessionError
-> = {
+export const closeTerminalSessionProc: ProcCodec<CloseTerminalSessionReq, undefined, CloseTerminalSessionError> = {
   id: ProcId.CloseTerminalSession,
   name: "CloseTerminalSession",
   stream: "unary",
@@ -991,11 +1291,7 @@ export const closeTerminalSessionProc: ProcCodec<
   decodeError: decodeCloseTerminalSessionErrorValue,
 };
 
-export const subscribeClientsProc: ProcCodec<
-  undefined,
-  ClientsTableEvent,
-  SubscribeClientsError
-> = {
+export const subscribeClientsProc: ProcCodec<undefined, ClientsTableEvent, SubscribeClientsError> = {
   id: ProcId.SubscribeClients,
   name: "SubscribeClients",
   stream: "server",
@@ -1007,11 +1303,7 @@ export const subscribeClientsProc: ProcCodec<
   decodeError: decodeSubscribeClientsErrorValue,
 };
 
-export const subscribeTrashItemsProc: ProcCodec<
-  undefined,
-  TrashItemsTableEvent,
-  SubscribeTrashItemsError
-> = {
+export const subscribeTrashItemsProc: ProcCodec<undefined, TrashItemsTableEvent, SubscribeTrashItemsError> = {
   id: ProcId.SubscribeTrashItems,
   name: "SubscribeTrashItems",
   stream: "server",
@@ -1023,11 +1315,7 @@ export const subscribeTrashItemsProc: ProcCodec<
   decodeError: decodeSubscribeTrashItemsErrorValue,
 };
 
-export const restoreTrashItemsProc: ProcCodec<
-  RestoreTrashItemsReq,
-  BulkMutationRes,
-  FsMutationError
-> = {
+export const restoreTrashItemsProc: ProcCodec<RestoreTrashItemsReq, BulkMutationRes, FsMutationError> = {
   id: ProcId.RestoreTrashItems,
   name: "RestoreTrashItems",
   stream: "unary",
@@ -1039,11 +1327,7 @@ export const restoreTrashItemsProc: ProcCodec<
   decodeError: decodeFsMutationErrorValue,
 };
 
-export const purgeTrashItemsProc: ProcCodec<
-  PurgeTrashItemsReq,
-  BulkMutationRes,
-  FsMutationError
-> = {
+export const purgeTrashItemsProc: ProcCodec<PurgeTrashItemsReq, BulkMutationRes, FsMutationError> = {
   id: ProcId.PurgeTrashItems,
   name: "PurgeTrashItems",
   stream: "unary",
@@ -1055,11 +1339,7 @@ export const purgeTrashItemsProc: ProcCodec<
   decodeError: decodeFsMutationErrorValue,
 };
 
-export const getDaemonEnvironmentProc: ProcCodec<
-  undefined,
-  DaemonEnvironment,
-  GetDaemonEnvironmentError
-> = {
+export const getDaemonEnvironmentProc: ProcCodec<undefined, DaemonEnvironment, GetDaemonEnvironmentError> = {
   id: ProcId.GetDaemonEnvironment,
   name: "GetDaemonEnvironment",
   stream: "unary",
@@ -1071,11 +1351,7 @@ export const getDaemonEnvironmentProc: ProcCodec<
   decodeError: decodeGetDaemonEnvironmentErrorValue,
 };
 
-export const subscribeProcessesProc: ProcCodec<
-  undefined,
-  ProcessesTableEvent,
-  SubscribeProcessesError
-> = {
+export const subscribeProcessesProc: ProcCodec<undefined, ProcessesTableEvent, SubscribeProcessesError> = {
   id: ProcId.SubscribeProcesses,
   name: "SubscribeProcesses",
   stream: "server",
@@ -1087,11 +1363,7 @@ export const subscribeProcessesProc: ProcCodec<
   decodeError: decodeSubscribeProcessesErrorValue,
 };
 
-export const subscribeProcessDetailProc: ProcCodec<
-  SubscribeProcessDetailReq,
-  ProcessDetailEvent,
-  SubscribeProcessDetailError
-> = {
+export const subscribeProcessDetailProc: ProcCodec<SubscribeProcessDetailReq, ProcessDetailEvent, SubscribeProcessDetailError> = {
   id: ProcId.SubscribeProcessDetail,
   name: "SubscribeProcessDetail",
   stream: "server",
@@ -1103,11 +1375,7 @@ export const subscribeProcessDetailProc: ProcCodec<
   decodeError: decodeSubscribeProcessDetailErrorValue,
 };
 
-export const subscribeWindowsProc: ProcCodec<
-  undefined,
-  WindowsTableEvent,
-  SubscribeWindowsError
-> = {
+export const subscribeWindowsProc: ProcCodec<undefined, WindowsTableEvent, SubscribeWindowsError> = {
   id: ProcId.SubscribeWindows,
   name: "SubscribeWindows",
   stream: "server",
@@ -1119,11 +1387,7 @@ export const subscribeWindowsProc: ProcCodec<
   decodeError: decodeSubscribeWindowsErrorValue,
 };
 
-export const subscribeWindowDetailProc: ProcCodec<
-  SubscribeWindowDetailReq,
-  WindowDetailEvent,
-  SubscribeWindowDetailError
-> = {
+export const subscribeWindowDetailProc: ProcCodec<SubscribeWindowDetailReq, WindowDetailEvent, SubscribeWindowDetailError> = {
   id: ProcId.SubscribeWindowDetail,
   name: "SubscribeWindowDetail",
   stream: "server",
@@ -1135,11 +1399,7 @@ export const subscribeWindowDetailProc: ProcCodec<
   decodeError: decodeSubscribeWindowDetailErrorValue,
 };
 
-export const subscribeProcessResourcesInUseProc: ProcCodec<
-  SubscribeProcessResourcesInUseReq,
-  ProcessResourcesInUseTableEvent,
-  SubscribeProcessResourcesInUseError
-> = {
+export const subscribeProcessResourcesInUseProc: ProcCodec<SubscribeProcessResourcesInUseReq, ProcessResourcesInUseTableEvent, SubscribeProcessResourcesInUseError> = {
   id: ProcId.SubscribeProcessResourcesInUse,
   name: "SubscribeProcessResourcesInUse",
   stream: "server",
@@ -1151,11 +1411,7 @@ export const subscribeProcessResourcesInUseProc: ProcCodec<
   decodeError: decodeSubscribeProcessResourcesInUseErrorValue,
 };
 
-export const subscribeProcessSocketsInUseProc: ProcCodec<
-  SubscribeProcessSocketsInUseReq,
-  ProcessSocketsInUseTableEvent,
-  SubscribeProcessSocketsInUseError
-> = {
+export const subscribeProcessSocketsInUseProc: ProcCodec<SubscribeProcessSocketsInUseReq, ProcessSocketsInUseTableEvent, SubscribeProcessSocketsInUseError> = {
   id: ProcId.SubscribeProcessSocketsInUse,
   name: "SubscribeProcessSocketsInUse",
   stream: "server",
@@ -1167,11 +1423,7 @@ export const subscribeProcessSocketsInUseProc: ProcCodec<
   decodeError: decodeSubscribeProcessSocketsInUseErrorValue,
 };
 
-export const subscribeProcessModulesProc: ProcCodec<
-  SubscribeProcessModulesReq,
-  ProcessModulesTableEvent,
-  SubscribeProcessModulesError
-> = {
+export const subscribeProcessModulesProc: ProcCodec<SubscribeProcessModulesReq, ProcessModulesTableEvent, SubscribeProcessModulesError> = {
   id: ProcId.SubscribeProcessModules,
   name: "SubscribeProcessModules",
   stream: "server",
@@ -1181,6 +1433,150 @@ export const subscribeProcessModulesProc: ProcCodec<
   encodeRequest: encodeSubscribeProcessModulesReqValue,
   decodeResponse: decodeProcessModulesTableEventValue,
   decodeError: decodeSubscribeProcessModulesErrorValue,
+};
+
+export const runCommandProc: ProcCodec<RunCommandReq, RunCommandRes, RunCommandError> = {
+  id: ProcId.RunCommand,
+  name: "RunCommand",
+  stream: "unary",
+  requestType: "RunCommandReq",
+  responseType: "RunCommandRes",
+  errorType: "RunCommandError",
+  encodeRequest: encodeRunCommandReqValue,
+  decodeResponse: decodeRunCommandResValue,
+  decodeError: decodeRunCommandErrorValue,
+};
+
+export const createJobProc: ProcCodec<CreateJobReq, JobInfo, CreateJobError> = {
+  id: ProcId.CreateJob,
+  name: "CreateJob",
+  stream: "unary",
+  requestType: "CreateJobReq",
+  responseType: "JobInfo",
+  errorType: "CreateJobError",
+  encodeRequest: encodeCreateJobReqValue,
+  decodeResponse: decodeJobInfoValue,
+  decodeError: decodeCreateJobErrorValue,
+};
+
+export const subscribeJobsProc: ProcCodec<SubscribeJobsReq, JobsTableEvent, SubscribeJobsError> = {
+  id: ProcId.SubscribeJobs,
+  name: "SubscribeJobs",
+  stream: "server",
+  requestType: "SubscribeJobsReq",
+  responseType: "JobsTableEvent",
+  errorType: "SubscribeJobsError",
+  encodeRequest: encodeSubscribeJobsReqValue,
+  decodeResponse: decodeJobsTableEventValue,
+  decodeError: decodeSubscribeJobsErrorValue,
+};
+
+export const subscribeJobOutputProc: ProcCodec<SubscribeJobOutputReq, JobOutputEvent, SubscribeJobOutputError> = {
+  id: ProcId.SubscribeJobOutput,
+  name: "SubscribeJobOutput",
+  stream: "server",
+  requestType: "SubscribeJobOutputReq",
+  responseType: "JobOutputEvent",
+  errorType: "SubscribeJobOutputError",
+  encodeRequest: encodeSubscribeJobOutputReqValue,
+  decodeResponse: decodeJobOutputEventValue,
+  decodeError: decodeSubscribeJobOutputErrorValue,
+};
+
+export const killJobProc: ProcCodec<KillJobReq, undefined, KillJobError> = {
+  id: ProcId.KillJob,
+  name: "KillJob",
+  stream: "unary",
+  requestType: "KillJobReq",
+  responseType: "void",
+  errorType: "KillJobError",
+  encodeRequest: encodeKillJobReqValue,
+  decodeResponse: decodeVoidValue,
+  decodeError: decodeKillJobErrorValue,
+};
+
+export const deleteJobsProc: ProcCodec<DeleteJobsReq, BulkJobMutationRes, JobMutationError> = {
+  id: ProcId.DeleteJobs,
+  name: "DeleteJobs",
+  stream: "unary",
+  requestType: "DeleteJobsReq",
+  responseType: "BulkJobMutationRes",
+  errorType: "JobMutationError",
+  encodeRequest: encodeDeleteJobsReqValue,
+  decodeResponse: decodeBulkJobMutationResValue,
+  decodeError: decodeJobMutationErrorValue,
+};
+
+export const clearJobsProc: ProcCodec<ClearJobsReq, BulkJobMutationRes, JobMutationError> = {
+  id: ProcId.ClearJobs,
+  name: "ClearJobs",
+  stream: "unary",
+  requestType: "ClearJobsReq",
+  responseType: "BulkJobMutationRes",
+  errorType: "JobMutationError",
+  encodeRequest: encodeClearJobsReqValue,
+  decodeResponse: decodeBulkJobMutationResValue,
+  decodeError: decodeJobMutationErrorValue,
+};
+
+export const createScheduleProc: ProcCodec<CreateScheduleReq, ScheduleInfo, CreateScheduleError> = {
+  id: ProcId.CreateSchedule,
+  name: "CreateSchedule",
+  stream: "unary",
+  requestType: "CreateScheduleReq",
+  responseType: "ScheduleInfo",
+  errorType: "CreateScheduleError",
+  encodeRequest: encodeCreateScheduleReqValue,
+  decodeResponse: decodeScheduleInfoValue,
+  decodeError: decodeCreateScheduleErrorValue,
+};
+
+export const updateScheduleProc: ProcCodec<UpdateScheduleReq, ScheduleInfo, UpdateScheduleError> = {
+  id: ProcId.UpdateSchedule,
+  name: "UpdateSchedule",
+  stream: "unary",
+  requestType: "UpdateScheduleReq",
+  responseType: "ScheduleInfo",
+  errorType: "UpdateScheduleError",
+  encodeRequest: encodeUpdateScheduleReqValue,
+  decodeResponse: decodeScheduleInfoValue,
+  decodeError: decodeUpdateScheduleErrorValue,
+};
+
+export const subscribeSchedulesProc: ProcCodec<SubscribeSchedulesReq, SchedulesTableEvent, SubscribeSchedulesError> = {
+  id: ProcId.SubscribeSchedules,
+  name: "SubscribeSchedules",
+  stream: "server",
+  requestType: "SubscribeSchedulesReq",
+  responseType: "SchedulesTableEvent",
+  errorType: "SubscribeSchedulesError",
+  encodeRequest: encodeSubscribeSchedulesReqValue,
+  decodeResponse: decodeSchedulesTableEventValue,
+  decodeError: decodeSubscribeSchedulesErrorValue,
+};
+
+export const deleteSchedulesProc: ProcCodec<DeleteSchedulesReq, BulkScheduleMutationRes, ScheduleMutationError> = {
+  id: ProcId.DeleteSchedules,
+  name: "DeleteSchedules",
+  stream: "unary",
+  requestType: "DeleteSchedulesReq",
+  responseType: "BulkScheduleMutationRes",
+  errorType: "ScheduleMutationError",
+  encodeRequest: encodeDeleteSchedulesReqValue,
+  decodeResponse: decodeBulkScheduleMutationResValue,
+  decodeError: decodeScheduleMutationErrorValue,
+};
+
+export const getScheduleNextRunsProc: ProcCodec<GetScheduleNextRunsReq, GetScheduleNextRunsRes, GetScheduleNextRunsError> = {
+  id: ProcId.GetScheduleNextRuns,
+  name: "GetScheduleNextRuns",
+  stream: "unary",
+  requestType: "GetScheduleNextRunsReq",
+  responseType: "GetScheduleNextRunsRes",
+  errorType: "GetScheduleNextRunsError",
+  encodeRequest: encodeGetScheduleNextRunsReqValue,
+  decodeResponse: decodeGetScheduleNextRunsResValue,
+  decodeError: decodeGetScheduleNextRunsErrorValue,
 };
 
 export const procs = {
@@ -1214,29 +1610,30 @@ export const procs = {
   [ProcId.SubscribeProcessResourcesInUse]: subscribeProcessResourcesInUseProc,
   [ProcId.SubscribeProcessSocketsInUse]: subscribeProcessSocketsInUseProc,
   [ProcId.SubscribeProcessModules]: subscribeProcessModulesProc,
+  [ProcId.RunCommand]: runCommandProc,
+  [ProcId.CreateJob]: createJobProc,
+  [ProcId.SubscribeJobs]: subscribeJobsProc,
+  [ProcId.SubscribeJobOutput]: subscribeJobOutputProc,
+  [ProcId.KillJob]: killJobProc,
+  [ProcId.DeleteJobs]: deleteJobsProc,
+  [ProcId.ClearJobs]: clearJobsProc,
+  [ProcId.CreateSchedule]: createScheduleProc,
+  [ProcId.UpdateSchedule]: updateScheduleProc,
+  [ProcId.SubscribeSchedules]: subscribeSchedulesProc,
+  [ProcId.DeleteSchedules]: deleteSchedulesProc,
+  [ProcId.GetScheduleNextRuns]: getScheduleNextRunsProc,
 } as const;
 
-export function encodeSubscribeWindowDetailReqValue(
-  value: SubscribeWindowDetailReq,
-): CborValue {
+export function encodeSubscribeWindowDetailReqValue(value: SubscribeWindowDetailReq): CborValue {
   const fields = new Map<number, CborValue>();
-  fields.set(
-    1,
-    text(required(value.windowId, "SubscribeWindowDetailReq.windowId")),
-  );
+  fields.set(1, text(required(value.windowId, "SubscribeWindowDetailReq.windowId")));
   return fields;
 }
 
-export function decodeSubscribeWindowDetailReqValue(
-  value: CborValue,
-): SubscribeWindowDetailReq {
+export function decodeSubscribeWindowDetailReqValue(value: CborValue): SubscribeWindowDetailReq {
   const fields = expectMap(value);
   return {
-    windowId: fieldOrDefault(
-      fields.get(1),
-      (value) => textValue(value),
-      () => "",
-    ),
+    windowId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
   };
 }
 
@@ -1252,11 +1649,7 @@ export function encodeWindowInfoValue(value: WindowInfo): CborValue {
 export function decodeWindowInfoValue(value: CborValue): WindowInfo {
   const fields = expectMap(value);
   return {
-    windowId: fieldOrDefault(
-      fields.get(1),
-      (value) => textValue(value),
-      () => "",
-    ),
+    windowId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
     title: optionalField(fields.get(2), (value) => textValue(value)),
     processId: optionalField(fields.get(3), (value) => integer(value)),
     focused: optionalField(fields.get(4), (value) => boolValue(value)),
@@ -1265,37 +1658,18 @@ export function decodeWindowInfoValue(value: CborValue): WindowInfo {
 
 export function encodeWindowDetailValue(value: WindowDetail): CborValue {
   const fields = new Map<number, CborValue>();
-  fields.set(
-    1,
-    encodeWindowInfoValue(required(value.info, "WindowDetail.info")),
-  );
-  fields.set(
-    2,
-    encodeWindowStateValue(required(value.state, "WindowDetail.state")),
-  );
-  if (value.bounds !== undefined) {
-    fields.set(3, encodeWindowBoundsValue(value.bounds));
-  }
+  fields.set(1, encodeWindowInfoValue(required(value.info, "WindowDetail.info")));
+  fields.set(2, encodeWindowStateValue(required(value.state, "WindowDetail.state")));
+  if (value.bounds !== undefined) fields.set(3, encodeWindowBoundsValue(value.bounds));
   return fields;
 }
 
 export function decodeWindowDetailValue(value: CborValue): WindowDetail {
   const fields = expectMap(value);
   return {
-    info: fieldOrDefault(
-      fields.get(1),
-      (value) => decodeWindowInfoValue(value),
-      () => defaultWindowInfo(),
-    ),
-    state: fieldOrDefault(
-      fields.get(2),
-      (value) => decodeWindowStateValue(value),
-      () => defaultWindowState(),
-    ),
-    bounds: optionalField(
-      fields.get(3),
-      (value) => decodeWindowBoundsValue(value),
-    ),
+    info: fieldOrDefault(fields.get(1), (value) => decodeWindowInfoValue(value), () => defaultWindowInfo()),
+    state: fieldOrDefault(fields.get(2), (value) => decodeWindowStateValue(value), () => defaultWindowState()),
+    bounds: optionalField(fields.get(3), (value) => decodeWindowBoundsValue(value)),
   };
 }
 
@@ -1335,110 +1709,60 @@ export function decodeWindowBoundsValue(value: CborValue): WindowBounds {
   };
 }
 
-export function encodeWindowsTableEventValue(
-  value: WindowsTableEvent,
-): CborValue {
+export function encodeWindowsTableEventValue(value: WindowsTableEvent): CborValue {
   switch (value.type) {
     case "snapshot": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        required(value.rows, "WindowsTableEvent.Snapshot.rows").map((item) =>
-          encodeWindowInfoValue(item)
-        ),
-      );
+      fields.set(1, required(value.rows, "WindowsTableEvent.Snapshot.rows").map((item) => encodeWindowInfoValue(item)));
       return [1, fields];
     }
     case "patch": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        required(value.removes, "WindowsTableEvent.Patch.removes").map((item) =>
-          text(item)
-        ),
-      );
-      fields.set(
-        2,
-        required(value.upserts, "WindowsTableEvent.Patch.upserts").map((item) =>
-          encodeWindowInfoValue(item)
-        ),
-      );
+      fields.set(1, required(value.removes, "WindowsTableEvent.Patch.removes").map((item) => text(item)));
+      fields.set(2, required(value.upserts, "WindowsTableEvent.Patch.upserts").map((item) => encodeWindowInfoValue(item)));
       return [2, fields];
     }
   }
 }
 
-export function decodeWindowsTableEventValue(
-  value: CborValue,
-): WindowsTableEvent {
+export function decodeWindowsTableEventValue(value: CborValue): WindowsTableEvent {
   const [variantId, fields] = expectUnion(value);
   switch (variantId) {
     case 1:
       return {
         type: "snapshot",
-        rows: fieldOrDefault(
-          fields.get(1),
-          (value) => array(value).map((item) => decodeWindowInfoValue(item)),
-          () => [],
-        ),
+        rows: fieldOrDefault(fields.get(1), (value) => array(value).map((item) => decodeWindowInfoValue(item)), () => []),
       };
     case 2:
       return {
         type: "patch",
-        removes: fieldOrDefault(
-          fields.get(1),
-          (value) => array(value).map((item) => textValue(item)),
-          () => [],
-        ),
-        upserts: fieldOrDefault(
-          fields.get(2),
-          (value) => array(value).map((item) => decodeWindowInfoValue(item)),
-          () => [],
-        ),
+        removes: fieldOrDefault(fields.get(1), (value) => array(value).map((item) => textValue(item)), () => []),
+        upserts: fieldOrDefault(fields.get(2), (value) => array(value).map((item) => decodeWindowInfoValue(item)), () => []),
       };
   }
   throw new Error(`unknown WindowsTableEvent variant ${variantId}`);
 }
 
-export function encodeWindowDetailEventValue(
-  value: WindowDetailEvent,
-): CborValue {
+export function encodeWindowDetailEventValue(value: WindowDetailEvent): CborValue {
   switch (value.type) {
     case "snapshot": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        encodeWindowDetailValue(
-          required(value.detail, "WindowDetailEvent.Snapshot.detail"),
-        ),
-      );
+      fields.set(1, encodeWindowDetailValue(required(value.detail, "WindowDetailEvent.Snapshot.detail")));
       return [1, fields];
     }
     case "infoChanged": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        encodeWindowInfoValue(
-          required(value.info, "WindowDetailEvent.InfoChanged.info"),
-        ),
-      );
+      fields.set(1, encodeWindowInfoValue(required(value.info, "WindowDetailEvent.InfoChanged.info")));
       return [2, fields];
     }
     case "stateChanged": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        encodeWindowStateValue(
-          required(value.state, "WindowDetailEvent.StateChanged.state"),
-        ),
-      );
+      fields.set(1, encodeWindowStateValue(required(value.state, "WindowDetailEvent.StateChanged.state")));
       return [3, fields];
     }
     case "boundsChanged": {
       const fields = new Map<number, CborValue>();
-      if (value.bounds !== undefined) {
-        fields.set(1, encodeWindowBoundsValue(value.bounds));
-      }
+      if (value.bounds !== undefined) fields.set(1, encodeWindowBoundsValue(value.bounds));
       return [4, fields];
     }
     case "closed": {
@@ -1448,45 +1772,28 @@ export function encodeWindowDetailEventValue(
   }
 }
 
-export function decodeWindowDetailEventValue(
-  value: CborValue,
-): WindowDetailEvent {
+export function decodeWindowDetailEventValue(value: CborValue): WindowDetailEvent {
   const [variantId, fields] = expectUnion(value);
   switch (variantId) {
     case 1:
       return {
         type: "snapshot",
-        detail: fieldOrDefault(
-          fields.get(1),
-          (value) => decodeWindowDetailValue(value),
-          () => defaultWindowDetail(),
-        ),
+        detail: fieldOrDefault(fields.get(1), (value) => decodeWindowDetailValue(value), () => defaultWindowDetail()),
       };
     case 2:
       return {
         type: "infoChanged",
-        info: fieldOrDefault(
-          fields.get(1),
-          (value) => decodeWindowInfoValue(value),
-          () => defaultWindowInfo(),
-        ),
+        info: fieldOrDefault(fields.get(1), (value) => decodeWindowInfoValue(value), () => defaultWindowInfo()),
       };
     case 3:
       return {
         type: "stateChanged",
-        state: fieldOrDefault(
-          fields.get(1),
-          (value) => decodeWindowStateValue(value),
-          () => defaultWindowState(),
-        ),
+        state: fieldOrDefault(fields.get(1), (value) => decodeWindowStateValue(value), () => defaultWindowState()),
       };
     case 4:
       return {
         type: "boundsChanged",
-        bounds: optionalField(
-          fields.get(1),
-          (value) => decodeWindowBoundsValue(value),
-        ),
+        bounds: optionalField(fields.get(1), (value) => decodeWindowBoundsValue(value)),
       };
     case 5:
       return {
@@ -1496,625 +1803,306 @@ export function decodeWindowDetailEventValue(
   throw new Error(`unknown WindowDetailEvent variant ${variantId}`);
 }
 
-export function encodeSubscribeWindowsErrorValue(
-  value: SubscribeWindowsError,
-): CborValue {
+export function encodeSubscribeWindowsErrorValue(value: SubscribeWindowsError): CborValue {
   switch (value.type) {
     case "failed": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(required(value.message, "SubscribeWindowsError.Failed.message")),
-      );
+      fields.set(1, text(required(value.message, "SubscribeWindowsError.Failed.message")));
       return [0, fields];
     }
     case "unsupported": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(
-          required(value.message, "SubscribeWindowsError.Unsupported.message"),
-        ),
-      );
+      fields.set(1, text(required(value.message, "SubscribeWindowsError.Unsupported.message")));
       return [1, fields];
     }
     case "permissionDenied": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(
-          required(
-            value.message,
-            "SubscribeWindowsError.PermissionDenied.message",
-          ),
-        ),
-      );
+      fields.set(1, text(required(value.message, "SubscribeWindowsError.PermissionDenied.message")));
       return [2, fields];
     }
   }
 }
 
-export function decodeSubscribeWindowsErrorValue(
-  value: CborValue,
-): SubscribeWindowsError {
+export function decodeSubscribeWindowsErrorValue(value: CborValue): SubscribeWindowsError {
   const [variantId, fields] = expectUnion(value);
   switch (variantId) {
     case 0:
       return {
         type: "failed",
-        message: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
     case 1:
       return {
         type: "unsupported",
-        message: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
     case 2:
       return {
         type: "permissionDenied",
-        message: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
   }
   throw new Error(`unknown SubscribeWindowsError variant ${variantId}`);
 }
 
-export function encodeSubscribeWindowDetailErrorValue(
-  value: SubscribeWindowDetailError,
-): CborValue {
+export function encodeSubscribeWindowDetailErrorValue(value: SubscribeWindowDetailError): CborValue {
   switch (value.type) {
     case "failed": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(
-          required(value.message, "SubscribeWindowDetailError.Failed.message"),
-        ),
-      );
+      fields.set(1, text(required(value.message, "SubscribeWindowDetailError.Failed.message")));
       return [0, fields];
     }
     case "notFound": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(
-          required(
-            value.message,
-            "SubscribeWindowDetailError.NotFound.message",
-          ),
-        ),
-      );
+      fields.set(1, text(required(value.message, "SubscribeWindowDetailError.NotFound.message")));
       return [1, fields];
     }
     case "unsupported": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(
-          required(
-            value.message,
-            "SubscribeWindowDetailError.Unsupported.message",
-          ),
-        ),
-      );
+      fields.set(1, text(required(value.message, "SubscribeWindowDetailError.Unsupported.message")));
       return [2, fields];
     }
     case "permissionDenied": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(
-          required(
-            value.message,
-            "SubscribeWindowDetailError.PermissionDenied.message",
-          ),
-        ),
-      );
+      fields.set(1, text(required(value.message, "SubscribeWindowDetailError.PermissionDenied.message")));
       return [3, fields];
     }
   }
 }
 
-export function decodeSubscribeWindowDetailErrorValue(
-  value: CborValue,
-): SubscribeWindowDetailError {
+export function decodeSubscribeWindowDetailErrorValue(value: CborValue): SubscribeWindowDetailError {
   const [variantId, fields] = expectUnion(value);
   switch (variantId) {
     case 0:
       return {
         type: "failed",
-        message: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
     case 1:
       return {
         type: "notFound",
-        message: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
     case 2:
       return {
         type: "unsupported",
-        message: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
     case 3:
       return {
         type: "permissionDenied",
-        message: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
   }
   throw new Error(`unknown SubscribeWindowDetailError variant ${variantId}`);
 }
 
-export function encodeCreateTerminalSessionReqValue(
-  value: CreateTerminalSessionReq,
-): CborValue {
+export function encodeCreateTerminalSessionReqValue(value: CreateTerminalSessionReq): CborValue {
   const fields = new Map<number, CborValue>();
   fields.set(1, u53(required(value.cols, "CreateTerminalSessionReq.cols")));
   fields.set(2, u53(required(value.rows, "CreateTerminalSessionReq.rows")));
   if (value.cwd !== undefined) fields.set(3, text(value.cwd));
-  fields.set(
-    4,
-    encodeTerminalLaunchSpecValue(
-      required(value.launch, "CreateTerminalSessionReq.launch"),
-    ),
-  );
+  fields.set(4, encodeTerminalLaunchSpecValue(required(value.launch, "CreateTerminalSessionReq.launch")));
   if (value.title !== undefined) fields.set(5, text(value.title));
   return fields;
 }
 
-export function decodeCreateTerminalSessionReqValue(
-  value: CborValue,
-): CreateTerminalSessionReq {
+export function decodeCreateTerminalSessionReqValue(value: CborValue): CreateTerminalSessionReq {
   const fields = expectMap(value);
   return {
     cols: fieldOrDefault(fields.get(1), (value) => integer(value), () => 0),
     rows: fieldOrDefault(fields.get(2), (value) => integer(value), () => 0),
     cwd: optionalField(fields.get(3), (value) => textValue(value)),
-    launch: fieldOrDefault(
-      fields.get(4),
-      (value) => decodeTerminalLaunchSpecValue(value),
-      () => defaultTerminalLaunchSpec(),
-    ),
+    launch: fieldOrDefault(fields.get(4), (value) => decodeTerminalLaunchSpecValue(value), () => defaultTerminalLaunchSpec()),
     title: optionalField(fields.get(5), (value) => textValue(value)),
   };
 }
 
-export function encodeTerminalLaunchSpecValue(
-  value: TerminalLaunchSpec,
-): CborValue {
+export function encodeTerminalLaunchSpecValue(value: TerminalLaunchSpec): CborValue {
   const fields = new Map<number, CborValue>();
   fields.set(1, text(required(value.command, "TerminalLaunchSpec.command")));
-  fields.set(
-    2,
-    required(value.args, "TerminalLaunchSpec.args").map((item) => text(item)),
-  );
+  fields.set(2, required(value.args, "TerminalLaunchSpec.args").map((item) => text(item)));
   return fields;
 }
 
-export function decodeTerminalLaunchSpecValue(
-  value: CborValue,
-): TerminalLaunchSpec {
+export function decodeTerminalLaunchSpecValue(value: CborValue): TerminalLaunchSpec {
   const fields = expectMap(value);
   return {
-    command: fieldOrDefault(
-      fields.get(1),
-      (value) => textValue(value),
-      () => "",
-    ),
-    args: fieldOrDefault(
-      fields.get(2),
-      (value) => array(value).map((item) => textValue(item)),
-      () => [],
-    ),
+    command: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+    args: fieldOrDefault(fields.get(2), (value) => array(value).map((item) => textValue(item)), () => []),
   };
 }
 
-export function encodeTerminalSessionInfoValue(
-  value: TerminalSessionInfo,
-): CborValue {
+export function encodeTerminalSessionInfoValue(value: TerminalSessionInfo): CborValue {
   const fields = new Map<number, CborValue>();
-  fields.set(
-    1,
-    text(
-      required(
-        value.terminalSessionId,
-        "TerminalSessionInfo.terminalSessionId",
-      ),
-    ),
-  );
-  fields.set(
-    2,
-    text(
-      required(value.creatorClientId, "TerminalSessionInfo.creatorClientId"),
-    ),
-  );
-  fields.set(
-    3,
-    u53(required(value.createdAtMs, "TerminalSessionInfo.createdAtMs")),
-  );
-  if (value.lastAttachedAtMs !== undefined) {
-    fields.set(4, u53(value.lastAttachedAtMs));
-  }
-  if (value.lastDetachedAtMs !== undefined) {
-    fields.set(5, u53(value.lastDetachedAtMs));
-  }
-  if (value.lastOutputAtMs !== undefined) {
-    fields.set(6, u53(value.lastOutputAtMs));
-  }
+  fields.set(1, text(required(value.terminalSessionId, "TerminalSessionInfo.terminalSessionId")));
+  fields.set(2, text(required(value.creatorClientId, "TerminalSessionInfo.creatorClientId")));
+  fields.set(3, u53(required(value.createdAtMs, "TerminalSessionInfo.createdAtMs")));
+  if (value.lastAttachedAtMs !== undefined) fields.set(4, u53(value.lastAttachedAtMs));
+  if (value.lastDetachedAtMs !== undefined) fields.set(5, u53(value.lastDetachedAtMs));
+  if (value.lastOutputAtMs !== undefined) fields.set(6, u53(value.lastOutputAtMs));
   fields.set(7, u53(required(value.cols, "TerminalSessionInfo.cols")));
   fields.set(8, u53(required(value.rows, "TerminalSessionInfo.rows")));
-  if (value.primaryAttachId !== undefined) {
-    fields.set(9, text(value.primaryAttachId));
-  }
-  fields.set(
-    10,
-    u53(required(value.latestOutputSeq, "TerminalSessionInfo.latestOutputSeq")),
-  );
-  if (value.lastKnownTitle !== undefined) {
-    fields.set(11, text(value.lastKnownTitle));
-  }
-  if (value.exit !== undefined) {
-    fields.set(12, encodeTerminalExitValue(value.exit));
-  }
-  if (value.lastKnownCwd !== undefined) {
-    fields.set(13, text(value.lastKnownCwd));
-  }
-  fields.set(
-    14,
-    encodeTerminalLaunchSpecValue(
-      required(value.launch, "TerminalSessionInfo.launch"),
-    ),
-  );
+  if (value.primaryAttachId !== undefined) fields.set(9, text(value.primaryAttachId));
+  fields.set(10, u53(required(value.latestOutputSeq, "TerminalSessionInfo.latestOutputSeq")));
+  if (value.lastKnownTitle !== undefined) fields.set(11, text(value.lastKnownTitle));
+  if (value.exit !== undefined) fields.set(12, encodeTerminalExitValue(value.exit));
+  if (value.lastKnownCwd !== undefined) fields.set(13, text(value.lastKnownCwd));
+  fields.set(14, encodeTerminalLaunchSpecValue(required(value.launch, "TerminalSessionInfo.launch")));
   return fields;
 }
 
-export function decodeTerminalSessionInfoValue(
-  value: CborValue,
-): TerminalSessionInfo {
+export function decodeTerminalSessionInfoValue(value: CborValue): TerminalSessionInfo {
   const fields = expectMap(value);
   return {
-    terminalSessionId: fieldOrDefault(
-      fields.get(1),
-      (value) => textValue(value),
-      () => "",
-    ),
-    creatorClientId: fieldOrDefault(
-      fields.get(2),
-      (value) => textValue(value),
-      () => "",
-    ),
-    createdAtMs: fieldOrDefault(
-      fields.get(3),
-      (value) => integer(value),
-      () => 0,
-    ),
+    terminalSessionId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+    creatorClientId: fieldOrDefault(fields.get(2), (value) => textValue(value), () => ""),
+    createdAtMs: fieldOrDefault(fields.get(3), (value) => integer(value), () => 0),
     lastAttachedAtMs: optionalField(fields.get(4), (value) => integer(value)),
     lastDetachedAtMs: optionalField(fields.get(5), (value) => integer(value)),
     lastOutputAtMs: optionalField(fields.get(6), (value) => integer(value)),
     cols: fieldOrDefault(fields.get(7), (value) => integer(value), () => 0),
     rows: fieldOrDefault(fields.get(8), (value) => integer(value), () => 0),
     primaryAttachId: optionalField(fields.get(9), (value) => textValue(value)),
-    latestOutputSeq: fieldOrDefault(
-      fields.get(10),
-      (value) => integer(value),
-      () => 0,
-    ),
+    latestOutputSeq: fieldOrDefault(fields.get(10), (value) => integer(value), () => 0),
     lastKnownTitle: optionalField(fields.get(11), (value) => textValue(value)),
-    exit: optionalField(
-      fields.get(12),
-      (value) => decodeTerminalExitValue(value),
-    ),
+    exit: optionalField(fields.get(12), (value) => decodeTerminalExitValue(value)),
     lastKnownCwd: optionalField(fields.get(13), (value) => textValue(value)),
-    launch: fieldOrDefault(
-      fields.get(14),
-      (value) => decodeTerminalLaunchSpecValue(value),
-      () => defaultTerminalLaunchSpec(),
-    ),
+    launch: fieldOrDefault(fields.get(14), (value) => decodeTerminalLaunchSpecValue(value), () => defaultTerminalLaunchSpec()),
   };
 }
 
-export function encodeTerminalSessionsTableEventValue(
-  value: TerminalSessionsTableEvent,
-): CborValue {
+export function encodeTerminalSessionsTableEventValue(value: TerminalSessionsTableEvent): CborValue {
   switch (value.type) {
     case "snapshot": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        required(value.rows, "TerminalSessionsTableEvent.Snapshot.rows").map((
-          item,
-        ) => encodeTerminalSessionInfoValue(item)),
-      );
+      fields.set(1, required(value.rows, "TerminalSessionsTableEvent.Snapshot.rows").map((item) => encodeTerminalSessionInfoValue(item)));
       return [1, fields];
     }
     case "patch": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        required(value.removes, "TerminalSessionsTableEvent.Patch.removes").map(
-          (item) => encodeTerminalSessionKeyValue(item),
-        ),
-      );
-      fields.set(
-        2,
-        required(value.upserts, "TerminalSessionsTableEvent.Patch.upserts").map(
-          (item) => encodeTerminalSessionInfoValue(item),
-        ),
-      );
+      fields.set(1, required(value.removes, "TerminalSessionsTableEvent.Patch.removes").map((item) => encodeTerminalSessionKeyValue(item)));
+      fields.set(2, required(value.upserts, "TerminalSessionsTableEvent.Patch.upserts").map((item) => encodeTerminalSessionInfoValue(item)));
       return [2, fields];
     }
   }
 }
 
-export function decodeTerminalSessionsTableEventValue(
-  value: CborValue,
-): TerminalSessionsTableEvent {
+export function decodeTerminalSessionsTableEventValue(value: CborValue): TerminalSessionsTableEvent {
   const [variantId, fields] = expectUnion(value);
   switch (variantId) {
     case 1:
       return {
         type: "snapshot",
-        rows: fieldOrDefault(
-          fields.get(1),
-          (value) =>
-            array(value).map((item) => decodeTerminalSessionInfoValue(item)),
-          () => [],
-        ),
+        rows: fieldOrDefault(fields.get(1), (value) => array(value).map((item) => decodeTerminalSessionInfoValue(item)), () => []),
       };
     case 2:
       return {
         type: "patch",
-        removes: fieldOrDefault(
-          fields.get(1),
-          (value) =>
-            array(value).map((item) => decodeTerminalSessionKeyValue(item)),
-          () => [],
-        ),
-        upserts: fieldOrDefault(
-          fields.get(2),
-          (value) =>
-            array(value).map((item) => decodeTerminalSessionInfoValue(item)),
-          () => [],
-        ),
+        removes: fieldOrDefault(fields.get(1), (value) => array(value).map((item) => decodeTerminalSessionKeyValue(item)), () => []),
+        upserts: fieldOrDefault(fields.get(2), (value) => array(value).map((item) => decodeTerminalSessionInfoValue(item)), () => []),
       };
   }
   throw new Error(`unknown TerminalSessionsTableEvent variant ${variantId}`);
 }
 
-export function encodeTerminalSessionKeyValue(
-  value: TerminalSessionKey,
-): CborValue {
+export function encodeTerminalSessionKeyValue(value: TerminalSessionKey): CborValue {
   const fields = new Map<number, CborValue>();
-  fields.set(
-    1,
-    text(
-      required(value.terminalSessionId, "TerminalSessionKey.terminalSessionId"),
-    ),
-  );
+  fields.set(1, text(required(value.terminalSessionId, "TerminalSessionKey.terminalSessionId")));
   return fields;
 }
 
-export function decodeTerminalSessionKeyValue(
-  value: CborValue,
-): TerminalSessionKey {
+export function decodeTerminalSessionKeyValue(value: CborValue): TerminalSessionKey {
   const fields = expectMap(value);
   return {
-    terminalSessionId: fieldOrDefault(
-      fields.get(1),
-      (value) => textValue(value),
-      () => "",
-    ),
+    terminalSessionId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
   };
 }
 
-export function encodeAvailableShellsTableEventValue(
-  value: AvailableShellsTableEvent,
-): CborValue {
+export function encodeAvailableShellsTableEventValue(value: AvailableShellsTableEvent): CborValue {
   switch (value.type) {
     case "snapshot": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        required(value.rows, "AvailableShellsTableEvent.Snapshot.rows").map((
-          item,
-        ) => encodeAvailableShellInfoValue(item)),
-      );
+      fields.set(1, required(value.rows, "AvailableShellsTableEvent.Snapshot.rows").map((item) => encodeAvailableShellInfoValue(item)));
       return [1, fields];
     }
     case "patch": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        required(value.removes, "AvailableShellsTableEvent.Patch.removes").map((
-          item,
-        ) => encodeAvailableShellKeyValue(item)),
-      );
-      fields.set(
-        2,
-        required(value.upserts, "AvailableShellsTableEvent.Patch.upserts").map((
-          item,
-        ) => encodeAvailableShellInfoValue(item)),
-      );
+      fields.set(1, required(value.removes, "AvailableShellsTableEvent.Patch.removes").map((item) => encodeAvailableShellKeyValue(item)));
+      fields.set(2, required(value.upserts, "AvailableShellsTableEvent.Patch.upserts").map((item) => encodeAvailableShellInfoValue(item)));
       return [2, fields];
     }
   }
 }
 
-export function decodeAvailableShellsTableEventValue(
-  value: CborValue,
-): AvailableShellsTableEvent {
+export function decodeAvailableShellsTableEventValue(value: CborValue): AvailableShellsTableEvent {
   const [variantId, fields] = expectUnion(value);
   switch (variantId) {
     case 1:
       return {
         type: "snapshot",
-        rows: fieldOrDefault(
-          fields.get(1),
-          (value) =>
-            array(value).map((item) => decodeAvailableShellInfoValue(item)),
-          () => [],
-        ),
+        rows: fieldOrDefault(fields.get(1), (value) => array(value).map((item) => decodeAvailableShellInfoValue(item)), () => []),
       };
     case 2:
       return {
         type: "patch",
-        removes: fieldOrDefault(
-          fields.get(1),
-          (value) =>
-            array(value).map((item) => decodeAvailableShellKeyValue(item)),
-          () => [],
-        ),
-        upserts: fieldOrDefault(
-          fields.get(2),
-          (value) =>
-            array(value).map((item) => decodeAvailableShellInfoValue(item)),
-          () => [],
-        ),
+        removes: fieldOrDefault(fields.get(1), (value) => array(value).map((item) => decodeAvailableShellKeyValue(item)), () => []),
+        upserts: fieldOrDefault(fields.get(2), (value) => array(value).map((item) => decodeAvailableShellInfoValue(item)), () => []),
       };
   }
   throw new Error(`unknown AvailableShellsTableEvent variant ${variantId}`);
 }
 
-export function encodeAvailableShellInfoValue(
-  value: AvailableShellInfo,
-): CborValue {
+export function encodeAvailableShellInfoValue(value: AvailableShellInfo): CborValue {
   const fields = new Map<number, CborValue>();
   fields.set(1, text(required(value.shellId, "AvailableShellInfo.shellId")));
   fields.set(2, text(required(value.name, "AvailableShellInfo.name")));
   fields.set(3, text(required(value.command, "AvailableShellInfo.command")));
-  fields.set(
-    4,
-    required(value.args, "AvailableShellInfo.args").map((item) => text(item)),
-  );
-  fields.set(
-    5,
-    bool(required(value.isDefault, "AvailableShellInfo.isDefault")),
-  );
+  fields.set(4, required(value.args, "AvailableShellInfo.args").map((item) => text(item)));
+  fields.set(5, bool(required(value.isDefault, "AvailableShellInfo.isDefault")));
   return fields;
 }
 
-export function decodeAvailableShellInfoValue(
-  value: CborValue,
-): AvailableShellInfo {
+export function decodeAvailableShellInfoValue(value: CborValue): AvailableShellInfo {
   const fields = expectMap(value);
   return {
-    shellId: fieldOrDefault(
-      fields.get(1),
-      (value) => textValue(value),
-      () => "",
-    ),
+    shellId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
     name: fieldOrDefault(fields.get(2), (value) => textValue(value), () => ""),
-    command: fieldOrDefault(
-      fields.get(3),
-      (value) => textValue(value),
-      () => "",
-    ),
-    args: fieldOrDefault(
-      fields.get(4),
-      (value) => array(value).map((item) => textValue(item)),
-      () => [],
-    ),
-    isDefault: fieldOrDefault(
-      fields.get(5),
-      (value) => boolValue(value),
-      () => false,
-    ),
+    command: fieldOrDefault(fields.get(3), (value) => textValue(value), () => ""),
+    args: fieldOrDefault(fields.get(4), (value) => array(value).map((item) => textValue(item)), () => []),
+    isDefault: fieldOrDefault(fields.get(5), (value) => boolValue(value), () => false),
   };
 }
 
-export function encodeAvailableShellKeyValue(
-  value: AvailableShellKey,
-): CborValue {
+export function encodeAvailableShellKeyValue(value: AvailableShellKey): CborValue {
   const fields = new Map<number, CborValue>();
   fields.set(1, text(required(value.shellId, "AvailableShellKey.shellId")));
   return fields;
 }
 
-export function decodeAvailableShellKeyValue(
-  value: CborValue,
-): AvailableShellKey {
+export function decodeAvailableShellKeyValue(value: CborValue): AvailableShellKey {
   const fields = expectMap(value);
   return {
-    shellId: fieldOrDefault(
-      fields.get(1),
-      (value) => textValue(value),
-      () => "",
-    ),
+    shellId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
   };
 }
 
-export function encodeAttachTerminalSessionReqValue(
-  value: AttachTerminalSessionReq,
-): CborValue {
+export function encodeAttachTerminalSessionReqValue(value: AttachTerminalSessionReq): CborValue {
   const fields = new Map<number, CborValue>();
-  fields.set(
-    1,
-    text(
-      required(
-        value.terminalSessionId,
-        "AttachTerminalSessionReq.terminalSessionId",
-      ),
-    ),
-  );
+  fields.set(1, text(required(value.terminalSessionId, "AttachTerminalSessionReq.terminalSessionId")));
   if (value.afterSeq !== undefined) fields.set(2, u53(value.afterSeq));
-  fields.set(
-    3,
-    u53(required(value.viewportCols, "AttachTerminalSessionReq.viewportCols")),
-  );
-  fields.set(
-    4,
-    u53(required(value.viewportRows, "AttachTerminalSessionReq.viewportRows")),
-  );
+  fields.set(3, u53(required(value.viewportCols, "AttachTerminalSessionReq.viewportCols")));
+  fields.set(4, u53(required(value.viewportRows, "AttachTerminalSessionReq.viewportRows")));
   return fields;
 }
 
-export function decodeAttachTerminalSessionReqValue(
-  value: CborValue,
-): AttachTerminalSessionReq {
+export function decodeAttachTerminalSessionReqValue(value: CborValue): AttachTerminalSessionReq {
   const fields = expectMap(value);
   return {
-    terminalSessionId: fieldOrDefault(
-      fields.get(1),
-      (value) => textValue(value),
-      () => "",
-    ),
+    terminalSessionId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
     afterSeq: optionalField(fields.get(2), (value) => integer(value)),
-    viewportCols: fieldOrDefault(
-      fields.get(3),
-      (value) => integer(value),
-      () => 0,
-    ),
-    viewportRows: fieldOrDefault(
-      fields.get(4),
-      (value) => integer(value),
-      () => 0,
-    ),
+    viewportCols: fieldOrDefault(fields.get(3), (value) => integer(value), () => 0),
+    viewportRows: fieldOrDefault(fields.get(4), (value) => integer(value), () => 0),
   };
 }
 
@@ -2122,97 +2110,51 @@ export function encodeTerminalEventValue(value: TerminalEvent): CborValue {
   switch (value.type) {
     case "attached": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(required(value.attachId, "TerminalEvent.Attached.attachId")),
-      );
-      if (value.primaryAttachId !== undefined) {
-        fields.set(2, text(value.primaryAttachId));
-      }
-      fields.set(
-        3,
-        encodeTerminalSessionInfoValue(
-          required(value.session, "TerminalEvent.Attached.session"),
-        ),
-      );
+      fields.set(1, text(required(value.attachId, "TerminalEvent.Attached.attachId")));
+      if (value.primaryAttachId !== undefined) fields.set(2, text(value.primaryAttachId));
+      fields.set(3, encodeTerminalSessionInfoValue(required(value.session, "TerminalEvent.Attached.session")));
       return [1, fields];
     }
     case "outputChunk": {
       const fields = new Map<number, CborValue>();
       fields.set(1, u53(required(value.seq, "TerminalEvent.OutputChunk.seq")));
-      fields.set(
-        2,
-        bytes(required(value.bytes, "TerminalEvent.OutputChunk.bytes")),
-      );
+      fields.set(2, bytes(required(value.bytes, "TerminalEvent.OutputChunk.bytes")));
       return [2, fields];
     }
     case "historyGap": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        u53(required(value.nextSeq, "TerminalEvent.HistoryGap.nextSeq")),
-      );
+      fields.set(1, u53(required(value.nextSeq, "TerminalEvent.HistoryGap.nextSeq")));
       return [3, fields];
     }
     case "controlChanged": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(
-          required(
-            value.primaryAttachId,
-            "TerminalEvent.ControlChanged.primaryAttachId",
-          ),
-        ),
-      );
+      fields.set(1, text(required(value.primaryAttachId, "TerminalEvent.ControlChanged.primaryAttachId")));
       return [4, fields];
     }
     case "pseudoTerminalResized": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        u53(required(value.cols, "TerminalEvent.PseudoTerminalResized.cols")),
-      );
-      fields.set(
-        2,
-        u53(required(value.rows, "TerminalEvent.PseudoTerminalResized.rows")),
-      );
+      fields.set(1, u53(required(value.cols, "TerminalEvent.PseudoTerminalResized.cols")));
+      fields.set(2, u53(required(value.rows, "TerminalEvent.PseudoTerminalResized.rows")));
       return [5, fields];
     }
     case "sessionExited": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        encodeTerminalExitValue(
-          required(value.exit, "TerminalEvent.SessionExited.exit"),
-        ),
-      );
+      fields.set(1, encodeTerminalExitValue(required(value.exit, "TerminalEvent.SessionExited.exit")));
       return [6, fields];
     }
     case "sessionClosed": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        encodeTerminalSessionCloseReasonValue(
-          required(value.reason, "TerminalEvent.SessionClosed.reason"),
-        ),
-      );
+      fields.set(1, encodeTerminalSessionCloseReasonValue(required(value.reason, "TerminalEvent.SessionClosed.reason")));
       return [7, fields];
     }
     case "workingDirectoryChanged": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(required(value.cwd, "TerminalEvent.WorkingDirectoryChanged.cwd")),
-      );
+      fields.set(1, text(required(value.cwd, "TerminalEvent.WorkingDirectoryChanged.cwd")));
       return [8, fields];
     }
     case "titleChanged": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(required(value.title, "TerminalEvent.TitleChanged.title")),
-      );
+      fields.set(1, text(required(value.title, "TerminalEvent.TitleChanged.title")));
       return [9, fields];
     }
   }
@@ -2224,48 +2166,25 @@ export function decodeTerminalEventValue(value: CborValue): TerminalEvent {
     case 1:
       return {
         type: "attached",
-        attachId: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
-        primaryAttachId: optionalField(
-          fields.get(2),
-          (value) => textValue(value),
-        ),
-        session: fieldOrDefault(
-          fields.get(3),
-          (value) => decodeTerminalSessionInfoValue(value),
-          () => defaultTerminalSessionInfo(),
-        ),
+        attachId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+        primaryAttachId: optionalField(fields.get(2), (value) => textValue(value)),
+        session: fieldOrDefault(fields.get(3), (value) => decodeTerminalSessionInfoValue(value), () => defaultTerminalSessionInfo()),
       };
     case 2:
       return {
         type: "outputChunk",
         seq: fieldOrDefault(fields.get(1), (value) => integer(value), () => 0),
-        bytes: fieldOrDefault(
-          fields.get(2),
-          (value) => bytesValue(value),
-          () => new Uint8Array(),
-        ),
+        bytes: fieldOrDefault(fields.get(2), (value) => bytesValue(value), () => new Uint8Array()),
       };
     case 3:
       return {
         type: "historyGap",
-        nextSeq: fieldOrDefault(
-          fields.get(1),
-          (value) => integer(value),
-          () => 0,
-        ),
+        nextSeq: fieldOrDefault(fields.get(1), (value) => integer(value), () => 0),
       };
     case 4:
       return {
         type: "controlChanged",
-        primaryAttachId: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        primaryAttachId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
     case 5:
       return {
@@ -2276,225 +2195,103 @@ export function decodeTerminalEventValue(value: CborValue): TerminalEvent {
     case 6:
       return {
         type: "sessionExited",
-        exit: fieldOrDefault(
-          fields.get(1),
-          (value) => decodeTerminalExitValue(value),
-          () => defaultTerminalExit(),
-        ),
+        exit: fieldOrDefault(fields.get(1), (value) => decodeTerminalExitValue(value), () => defaultTerminalExit()),
       };
     case 7:
       return {
         type: "sessionClosed",
-        reason: fieldOrDefault(
-          fields.get(1),
-          (value) => decodeTerminalSessionCloseReasonValue(value),
-          () => defaultTerminalSessionCloseReason(),
-        ),
+        reason: fieldOrDefault(fields.get(1), (value) => decodeTerminalSessionCloseReasonValue(value), () => defaultTerminalSessionCloseReason()),
       };
     case 8:
       return {
         type: "workingDirectoryChanged",
-        cwd: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        cwd: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
     case 9:
       return {
         type: "titleChanged",
-        title: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        title: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
   }
   throw new Error(`unknown TerminalEvent variant ${variantId}`);
 }
 
-export function encodeTakeTerminalControlReqValue(
-  value: TakeTerminalControlReq,
-): CborValue {
+export function encodeTakeTerminalControlReqValue(value: TakeTerminalControlReq): CborValue {
   const fields = new Map<number, CborValue>();
-  fields.set(
-    1,
-    text(
-      required(
-        value.terminalSessionId,
-        "TakeTerminalControlReq.terminalSessionId",
-      ),
-    ),
-  );
-  fields.set(
-    2,
-    text(required(value.attachId, "TakeTerminalControlReq.attachId")),
-  );
-  fields.set(
-    3,
-    u53(required(value.viewportCols, "TakeTerminalControlReq.viewportCols")),
-  );
-  fields.set(
-    4,
-    u53(required(value.viewportRows, "TakeTerminalControlReq.viewportRows")),
-  );
+  fields.set(1, text(required(value.terminalSessionId, "TakeTerminalControlReq.terminalSessionId")));
+  fields.set(2, text(required(value.attachId, "TakeTerminalControlReq.attachId")));
+  fields.set(3, u53(required(value.viewportCols, "TakeTerminalControlReq.viewportCols")));
+  fields.set(4, u53(required(value.viewportRows, "TakeTerminalControlReq.viewportRows")));
   return fields;
 }
 
-export function decodeTakeTerminalControlReqValue(
-  value: CborValue,
-): TakeTerminalControlReq {
+export function decodeTakeTerminalControlReqValue(value: CborValue): TakeTerminalControlReq {
   const fields = expectMap(value);
   return {
-    terminalSessionId: fieldOrDefault(
-      fields.get(1),
-      (value) => textValue(value),
-      () => "",
-    ),
-    attachId: fieldOrDefault(
-      fields.get(2),
-      (value) => textValue(value),
-      () => "",
-    ),
-    viewportCols: fieldOrDefault(
-      fields.get(3),
-      (value) => integer(value),
-      () => 0,
-    ),
-    viewportRows: fieldOrDefault(
-      fields.get(4),
-      (value) => integer(value),
-      () => 0,
-    ),
+    terminalSessionId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+    attachId: fieldOrDefault(fields.get(2), (value) => textValue(value), () => ""),
+    viewportCols: fieldOrDefault(fields.get(3), (value) => integer(value), () => 0),
+    viewportRows: fieldOrDefault(fields.get(4), (value) => integer(value), () => 0),
   };
 }
 
-export function encodeTakeTerminalControlResValue(
-  value: TakeTerminalControlRes,
-): CborValue {
+export function encodeTakeTerminalControlResValue(value: TakeTerminalControlRes): CborValue {
   const fields = new Map<number, CborValue>();
-  fields.set(
-    1,
-    text(
-      required(value.primaryAttachId, "TakeTerminalControlRes.primaryAttachId"),
-    ),
-  );
+  fields.set(1, text(required(value.primaryAttachId, "TakeTerminalControlRes.primaryAttachId")));
   return fields;
 }
 
-export function decodeTakeTerminalControlResValue(
-  value: CborValue,
-): TakeTerminalControlRes {
+export function decodeTakeTerminalControlResValue(value: CborValue): TakeTerminalControlRes {
   const fields = expectMap(value);
   return {
-    primaryAttachId: fieldOrDefault(
-      fields.get(1),
-      (value) => textValue(value),
-      () => "",
-    ),
+    primaryAttachId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
   };
 }
 
-export function encodeWriteTerminalInputReqValue(
-  value: WriteTerminalInputReq,
-): CborValue {
+export function encodeWriteTerminalInputReqValue(value: WriteTerminalInputReq): CborValue {
   switch (value.type) {
     case "writeTerminalInputStart": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(
-          required(
-            value.terminalSessionId,
-            "WriteTerminalInputReq.WriteTerminalInputStart.terminalSessionId",
-          ),
-        ),
-      );
-      fields.set(
-        2,
-        text(
-          required(
-            value.attachId,
-            "WriteTerminalInputReq.WriteTerminalInputStart.attachId",
-          ),
-        ),
-      );
+      fields.set(1, text(required(value.terminalSessionId, "WriteTerminalInputReq.WriteTerminalInputStart.terminalSessionId")));
+      fields.set(2, text(required(value.attachId, "WriteTerminalInputReq.WriteTerminalInputStart.attachId")));
       return [1, fields];
     }
     case "writeTerminalInputChunk": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        bytes(
-          required(
-            value.bytes,
-            "WriteTerminalInputReq.WriteTerminalInputChunk.bytes",
-          ),
-        ),
-      );
+      fields.set(1, bytes(required(value.bytes, "WriteTerminalInputReq.WriteTerminalInputChunk.bytes")));
       return [2, fields];
     }
   }
 }
 
-export function decodeWriteTerminalInputReqValue(
-  value: CborValue,
-): WriteTerminalInputReq {
+export function decodeWriteTerminalInputReqValue(value: CborValue): WriteTerminalInputReq {
   const [variantId, fields] = expectUnion(value);
   switch (variantId) {
     case 1:
       return {
         type: "writeTerminalInputStart",
-        terminalSessionId: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
-        attachId: fieldOrDefault(
-          fields.get(2),
-          (value) => textValue(value),
-          () => "",
-        ),
+        terminalSessionId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+        attachId: fieldOrDefault(fields.get(2), (value) => textValue(value), () => ""),
       };
     case 2:
       return {
         type: "writeTerminalInputChunk",
-        bytes: fieldOrDefault(
-          fields.get(1),
-          (value) => bytesValue(value),
-          () => new Uint8Array(),
-        ),
+        bytes: fieldOrDefault(fields.get(1), (value) => bytesValue(value), () => new Uint8Array()),
       };
   }
   throw new Error(`unknown WriteTerminalInputReq variant ${variantId}`);
 }
 
-export function encodeCloseTerminalSessionReqValue(
-  value: CloseTerminalSessionReq,
-): CborValue {
+export function encodeCloseTerminalSessionReqValue(value: CloseTerminalSessionReq): CborValue {
   const fields = new Map<number, CborValue>();
-  fields.set(
-    1,
-    text(
-      required(
-        value.terminalSessionId,
-        "CloseTerminalSessionReq.terminalSessionId",
-      ),
-    ),
-  );
+  fields.set(1, text(required(value.terminalSessionId, "CloseTerminalSessionReq.terminalSessionId")));
   return fields;
 }
 
-export function decodeCloseTerminalSessionReqValue(
-  value: CborValue,
-): CloseTerminalSessionReq {
+export function decodeCloseTerminalSessionReqValue(value: CborValue): CloseTerminalSessionReq {
   const fields = expectMap(value);
   return {
-    terminalSessionId: fieldOrDefault(
-      fields.get(1),
-      (value) => textValue(value),
-      () => "",
-    ),
+    terminalSessionId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
   };
 }
 
@@ -2511,26 +2308,15 @@ export function decodeTerminalExitValue(value: CborValue): TerminalExit {
   return {
     code: optionalField(fields.get(1), (value) => integer(value)),
     signal: optionalField(fields.get(2), (value) => textValue(value)),
-    exitedAtMs: fieldOrDefault(
-      fields.get(3),
-      (value) => integer(value),
-      () => 0,
-    ),
+    exitedAtMs: fieldOrDefault(fields.get(3), (value) => integer(value), () => 0),
   };
 }
 
-export function encodeTerminalSessionCloseReasonValue(
-  value: TerminalSessionCloseReason,
-): CborValue {
+export function encodeTerminalSessionCloseReasonValue(value: TerminalSessionCloseReason): CborValue {
   switch (value.type) {
     case "failed": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(
-          required(value.message, "TerminalSessionCloseReason.Failed.message"),
-        ),
-      );
+      fields.set(1, text(required(value.message, "TerminalSessionCloseReason.Failed.message")));
       return [0, fields];
     }
     case "closedByClient": {
@@ -2548,19 +2334,13 @@ export function encodeTerminalSessionCloseReasonValue(
   }
 }
 
-export function decodeTerminalSessionCloseReasonValue(
-  value: CborValue,
-): TerminalSessionCloseReason {
+export function decodeTerminalSessionCloseReasonValue(value: CborValue): TerminalSessionCloseReason {
   const [variantId, fields] = expectUnion(value);
   switch (variantId) {
     case 0:
       return {
         type: "failed",
-        message: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
     case 1:
       return {
@@ -2578,734 +2358,396 @@ export function decodeTerminalSessionCloseReasonValue(
   throw new Error(`unknown TerminalSessionCloseReason variant ${variantId}`);
 }
 
-export function encodeCreateTerminalSessionErrorValue(
-  value: CreateTerminalSessionError,
-): CborValue {
+export function encodeCreateTerminalSessionErrorValue(value: CreateTerminalSessionError): CborValue {
   switch (value.type) {
     case "failed": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(
-          required(value.message, "CreateTerminalSessionError.Failed.message"),
-        ),
-      );
+      fields.set(1, text(required(value.message, "CreateTerminalSessionError.Failed.message")));
       return [0, fields];
     }
     case "permissionDenied": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(
-          required(
-            value.message,
-            "CreateTerminalSessionError.PermissionDenied.message",
-          ),
-        ),
-      );
+      fields.set(1, text(required(value.message, "CreateTerminalSessionError.PermissionDenied.message")));
       return [1, fields];
     }
     case "invalidSize": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(
-          required(
-            value.message,
-            "CreateTerminalSessionError.InvalidSize.message",
-          ),
-        ),
-      );
+      fields.set(1, text(required(value.message, "CreateTerminalSessionError.InvalidSize.message")));
       return [2, fields];
     }
     case "shellNotFound": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(
-          required(
-            value.message,
-            "CreateTerminalSessionError.ShellNotFound.message",
-          ),
-        ),
-      );
+      fields.set(1, text(required(value.message, "CreateTerminalSessionError.ShellNotFound.message")));
       return [3, fields];
     }
     case "invalidLaunch": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(
-          required(
-            value.message,
-            "CreateTerminalSessionError.InvalidLaunch.message",
-          ),
-        ),
-      );
+      fields.set(1, text(required(value.message, "CreateTerminalSessionError.InvalidLaunch.message")));
       return [4, fields];
     }
   }
 }
 
-export function decodeCreateTerminalSessionErrorValue(
-  value: CborValue,
-): CreateTerminalSessionError {
+export function decodeCreateTerminalSessionErrorValue(value: CborValue): CreateTerminalSessionError {
   const [variantId, fields] = expectUnion(value);
   switch (variantId) {
     case 0:
       return {
         type: "failed",
-        message: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
     case 1:
       return {
         type: "permissionDenied",
-        message: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
     case 2:
       return {
         type: "invalidSize",
-        message: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
     case 3:
       return {
         type: "shellNotFound",
-        message: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
     case 4:
       return {
         type: "invalidLaunch",
-        message: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
   }
   throw new Error(`unknown CreateTerminalSessionError variant ${variantId}`);
 }
 
-export function encodeSubscribeTerminalSessionsErrorValue(
-  value: SubscribeTerminalSessionsError,
-): CborValue {
+export function encodeSubscribeTerminalSessionsErrorValue(value: SubscribeTerminalSessionsError): CborValue {
   switch (value.type) {
     case "failed": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(
-          required(
-            value.message,
-            "SubscribeTerminalSessionsError.Failed.message",
-          ),
-        ),
-      );
+      fields.set(1, text(required(value.message, "SubscribeTerminalSessionsError.Failed.message")));
       return [0, fields];
     }
     case "permissionDenied": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(
-          required(
-            value.message,
-            "SubscribeTerminalSessionsError.PermissionDenied.message",
-          ),
-        ),
-      );
+      fields.set(1, text(required(value.message, "SubscribeTerminalSessionsError.PermissionDenied.message")));
       return [1, fields];
     }
   }
 }
 
-export function decodeSubscribeTerminalSessionsErrorValue(
-  value: CborValue,
-): SubscribeTerminalSessionsError {
+export function decodeSubscribeTerminalSessionsErrorValue(value: CborValue): SubscribeTerminalSessionsError {
   const [variantId, fields] = expectUnion(value);
   switch (variantId) {
     case 0:
       return {
         type: "failed",
-        message: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
     case 1:
       return {
         type: "permissionDenied",
-        message: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
   }
-  throw new Error(
-    `unknown SubscribeTerminalSessionsError variant ${variantId}`,
-  );
+  throw new Error(`unknown SubscribeTerminalSessionsError variant ${variantId}`);
 }
 
-export function encodeSubscribeAvailableShellsErrorValue(
-  value: SubscribeAvailableShellsError,
-): CborValue {
+export function encodeSubscribeAvailableShellsErrorValue(value: SubscribeAvailableShellsError): CborValue {
   switch (value.type) {
     case "failed": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(
-          required(
-            value.message,
-            "SubscribeAvailableShellsError.Failed.message",
-          ),
-        ),
-      );
+      fields.set(1, text(required(value.message, "SubscribeAvailableShellsError.Failed.message")));
       return [0, fields];
     }
     case "permissionDenied": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(
-          required(
-            value.message,
-            "SubscribeAvailableShellsError.PermissionDenied.message",
-          ),
-        ),
-      );
+      fields.set(1, text(required(value.message, "SubscribeAvailableShellsError.PermissionDenied.message")));
       return [1, fields];
     }
   }
 }
 
-export function decodeSubscribeAvailableShellsErrorValue(
-  value: CborValue,
-): SubscribeAvailableShellsError {
+export function decodeSubscribeAvailableShellsErrorValue(value: CborValue): SubscribeAvailableShellsError {
   const [variantId, fields] = expectUnion(value);
   switch (variantId) {
     case 0:
       return {
         type: "failed",
-        message: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
     case 1:
       return {
         type: "permissionDenied",
-        message: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
   }
   throw new Error(`unknown SubscribeAvailableShellsError variant ${variantId}`);
 }
 
-export function encodeCloseTerminalSessionErrorValue(
-  value: CloseTerminalSessionError,
-): CborValue {
+export function encodeCloseTerminalSessionErrorValue(value: CloseTerminalSessionError): CborValue {
   switch (value.type) {
     case "failed": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(
-          required(value.message, "CloseTerminalSessionError.Failed.message"),
-        ),
-      );
+      fields.set(1, text(required(value.message, "CloseTerminalSessionError.Failed.message")));
       return [0, fields];
     }
     case "notFound": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(
-          required(value.message, "CloseTerminalSessionError.NotFound.message"),
-        ),
-      );
+      fields.set(1, text(required(value.message, "CloseTerminalSessionError.NotFound.message")));
       return [1, fields];
     }
     case "permissionDenied": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(
-          required(
-            value.message,
-            "CloseTerminalSessionError.PermissionDenied.message",
-          ),
-        ),
-      );
+      fields.set(1, text(required(value.message, "CloseTerminalSessionError.PermissionDenied.message")));
       return [2, fields];
     }
   }
 }
 
-export function decodeCloseTerminalSessionErrorValue(
-  value: CborValue,
-): CloseTerminalSessionError {
+export function decodeCloseTerminalSessionErrorValue(value: CborValue): CloseTerminalSessionError {
   const [variantId, fields] = expectUnion(value);
   switch (variantId) {
     case 0:
       return {
         type: "failed",
-        message: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
     case 1:
       return {
         type: "notFound",
-        message: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
     case 2:
       return {
         type: "permissionDenied",
-        message: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
   }
   throw new Error(`unknown CloseTerminalSessionError variant ${variantId}`);
 }
 
-export function encodeAttachTerminalSessionErrorValue(
-  value: AttachTerminalSessionError,
-): CborValue {
+export function encodeAttachTerminalSessionErrorValue(value: AttachTerminalSessionError): CborValue {
   switch (value.type) {
     case "failed": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(
-          required(value.message, "AttachTerminalSessionError.Failed.message"),
-        ),
-      );
+      fields.set(1, text(required(value.message, "AttachTerminalSessionError.Failed.message")));
       return [0, fields];
     }
     case "notFound": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(
-          required(
-            value.message,
-            "AttachTerminalSessionError.NotFound.message",
-          ),
-        ),
-      );
+      fields.set(1, text(required(value.message, "AttachTerminalSessionError.NotFound.message")));
       return [1, fields];
     }
     case "permissionDenied": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(
-          required(
-            value.message,
-            "AttachTerminalSessionError.PermissionDenied.message",
-          ),
-        ),
-      );
+      fields.set(1, text(required(value.message, "AttachTerminalSessionError.PermissionDenied.message")));
       return [2, fields];
     }
     case "invalidSize": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(
-          required(
-            value.message,
-            "AttachTerminalSessionError.InvalidSize.message",
-          ),
-        ),
-      );
+      fields.set(1, text(required(value.message, "AttachTerminalSessionError.InvalidSize.message")));
       return [3, fields];
     }
   }
 }
 
-export function decodeAttachTerminalSessionErrorValue(
-  value: CborValue,
-): AttachTerminalSessionError {
+export function decodeAttachTerminalSessionErrorValue(value: CborValue): AttachTerminalSessionError {
   const [variantId, fields] = expectUnion(value);
   switch (variantId) {
     case 0:
       return {
         type: "failed",
-        message: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
     case 1:
       return {
         type: "notFound",
-        message: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
     case 2:
       return {
         type: "permissionDenied",
-        message: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
     case 3:
       return {
         type: "invalidSize",
-        message: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
   }
   throw new Error(`unknown AttachTerminalSessionError variant ${variantId}`);
 }
 
-export function encodeTakeTerminalControlErrorValue(
-  value: TakeTerminalControlError,
-): CborValue {
+export function encodeTakeTerminalControlErrorValue(value: TakeTerminalControlError): CborValue {
   switch (value.type) {
     case "failed": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(
-          required(value.message, "TakeTerminalControlError.Failed.message"),
-        ),
-      );
+      fields.set(1, text(required(value.message, "TakeTerminalControlError.Failed.message")));
       return [0, fields];
     }
     case "notFound": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(
-          required(value.message, "TakeTerminalControlError.NotFound.message"),
-        ),
-      );
+      fields.set(1, text(required(value.message, "TakeTerminalControlError.NotFound.message")));
       return [1, fields];
     }
     case "permissionDenied": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(
-          required(
-            value.message,
-            "TakeTerminalControlError.PermissionDenied.message",
-          ),
-        ),
-      );
+      fields.set(1, text(required(value.message, "TakeTerminalControlError.PermissionDenied.message")));
       return [2, fields];
     }
     case "attachNotFound": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(
-          required(
-            value.message,
-            "TakeTerminalControlError.AttachNotFound.message",
-          ),
-        ),
-      );
+      fields.set(1, text(required(value.message, "TakeTerminalControlError.AttachNotFound.message")));
       return [3, fields];
     }
     case "invalidSize": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(
-          required(
-            value.message,
-            "TakeTerminalControlError.InvalidSize.message",
-          ),
-        ),
-      );
+      fields.set(1, text(required(value.message, "TakeTerminalControlError.InvalidSize.message")));
       return [4, fields];
     }
   }
 }
 
-export function decodeTakeTerminalControlErrorValue(
-  value: CborValue,
-): TakeTerminalControlError {
+export function decodeTakeTerminalControlErrorValue(value: CborValue): TakeTerminalControlError {
   const [variantId, fields] = expectUnion(value);
   switch (variantId) {
     case 0:
       return {
         type: "failed",
-        message: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
     case 1:
       return {
         type: "notFound",
-        message: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
     case 2:
       return {
         type: "permissionDenied",
-        message: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
     case 3:
       return {
         type: "attachNotFound",
-        message: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
     case 4:
       return {
         type: "invalidSize",
-        message: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
   }
   throw new Error(`unknown TakeTerminalControlError variant ${variantId}`);
 }
 
-export function encodeWriteTerminalInputErrorValue(
-  value: WriteTerminalInputError,
-): CborValue {
+export function encodeWriteTerminalInputErrorValue(value: WriteTerminalInputError): CborValue {
   switch (value.type) {
     case "failed": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(required(value.message, "WriteTerminalInputError.Failed.message")),
-      );
+      fields.set(1, text(required(value.message, "WriteTerminalInputError.Failed.message")));
       return [0, fields];
     }
     case "notFound": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(
-          required(value.message, "WriteTerminalInputError.NotFound.message"),
-        ),
-      );
+      fields.set(1, text(required(value.message, "WriteTerminalInputError.NotFound.message")));
       return [1, fields];
     }
     case "permissionDenied": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(
-          required(
-            value.message,
-            "WriteTerminalInputError.PermissionDenied.message",
-          ),
-        ),
-      );
+      fields.set(1, text(required(value.message, "WriteTerminalInputError.PermissionDenied.message")));
       return [2, fields];
     }
     case "attachNotFound": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(
-          required(
-            value.message,
-            "WriteTerminalInputError.AttachNotFound.message",
-          ),
-        ),
-      );
+      fields.set(1, text(required(value.message, "WriteTerminalInputError.AttachNotFound.message")));
       return [3, fields];
     }
     case "notPrimaryAttach": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(
-          required(
-            value.message,
-            "WriteTerminalInputError.NotPrimaryAttach.message",
-          ),
-        ),
-      );
+      fields.set(1, text(required(value.message, "WriteTerminalInputError.NotPrimaryAttach.message")));
       return [4, fields];
     }
   }
 }
 
-export function decodeWriteTerminalInputErrorValue(
-  value: CborValue,
-): WriteTerminalInputError {
+export function decodeWriteTerminalInputErrorValue(value: CborValue): WriteTerminalInputError {
   const [variantId, fields] = expectUnion(value);
   switch (variantId) {
     case 0:
       return {
         type: "failed",
-        message: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
     case 1:
       return {
         type: "notFound",
-        message: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
     case 2:
       return {
         type: "permissionDenied",
-        message: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
     case 3:
       return {
         type: "attachNotFound",
-        message: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
     case 4:
       return {
         type: "notPrimaryAttach",
-        message: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
   }
   throw new Error(`unknown WriteTerminalInputError variant ${variantId}`);
 }
 
-export function encodeSubscribeProcessDetailReqValue(
-  value: SubscribeProcessDetailReq,
-): CborValue {
+export function encodeSubscribeProcessDetailReqValue(value: SubscribeProcessDetailReq): CborValue {
   const fields = new Map<number, CborValue>();
   fields.set(1, u53(required(value.pid, "SubscribeProcessDetailReq.pid")));
   return fields;
 }
 
-export function decodeSubscribeProcessDetailReqValue(
-  value: CborValue,
-): SubscribeProcessDetailReq {
+export function decodeSubscribeProcessDetailReqValue(value: CborValue): SubscribeProcessDetailReq {
   const fields = expectMap(value);
   return {
     pid: fieldOrDefault(fields.get(1), (value) => integer(value), () => 0),
   };
 }
 
-export function encodeSubscribeProcessResourcesInUseReqValue(
-  value: SubscribeProcessResourcesInUseReq,
-): CborValue {
+export function encodeSubscribeProcessResourcesInUseReqValue(value: SubscribeProcessResourcesInUseReq): CborValue {
   const fields = new Map<number, CborValue>();
-  fields.set(
-    1,
-    u53(required(value.pid, "SubscribeProcessResourcesInUseReq.pid")),
-  );
+  fields.set(1, u53(required(value.pid, "SubscribeProcessResourcesInUseReq.pid")));
   return fields;
 }
 
-export function decodeSubscribeProcessResourcesInUseReqValue(
-  value: CborValue,
-): SubscribeProcessResourcesInUseReq {
+export function decodeSubscribeProcessResourcesInUseReqValue(value: CborValue): SubscribeProcessResourcesInUseReq {
   const fields = expectMap(value);
   return {
     pid: fieldOrDefault(fields.get(1), (value) => integer(value), () => 0),
   };
 }
 
-export function encodeSubscribeProcessSocketsInUseReqValue(
-  value: SubscribeProcessSocketsInUseReq,
-): CborValue {
+export function encodeSubscribeProcessSocketsInUseReqValue(value: SubscribeProcessSocketsInUseReq): CborValue {
   const fields = new Map<number, CborValue>();
-  fields.set(
-    1,
-    u53(required(value.pid, "SubscribeProcessSocketsInUseReq.pid")),
-  );
+  fields.set(1, u53(required(value.pid, "SubscribeProcessSocketsInUseReq.pid")));
   return fields;
 }
 
-export function decodeSubscribeProcessSocketsInUseReqValue(
-  value: CborValue,
-): SubscribeProcessSocketsInUseReq {
+export function decodeSubscribeProcessSocketsInUseReqValue(value: CborValue): SubscribeProcessSocketsInUseReq {
   const fields = expectMap(value);
   return {
     pid: fieldOrDefault(fields.get(1), (value) => integer(value), () => 0),
   };
 }
 
-export function encodeSubscribeProcessModulesReqValue(
-  value: SubscribeProcessModulesReq,
-): CborValue {
+export function encodeSubscribeProcessModulesReqValue(value: SubscribeProcessModulesReq): CborValue {
   const fields = new Map<number, CborValue>();
   fields.set(1, u53(required(value.pid, "SubscribeProcessModulesReq.pid")));
   return fields;
 }
 
-export function decodeSubscribeProcessModulesReqValue(
-  value: CborValue,
-): SubscribeProcessModulesReq {
+export function decodeSubscribeProcessModulesReqValue(value: CborValue): SubscribeProcessModulesReq {
   const fields = expectMap(value);
   return {
     pid: fieldOrDefault(fields.get(1), (value) => integer(value), () => 0),
@@ -3317,10 +2759,7 @@ export function encodeProcessInfoValue(value: ProcessInfo): CborValue {
   fields.set(1, u53(required(value.pid, "ProcessInfo.pid")));
   if (value.ppid !== undefined) fields.set(2, u53(value.ppid));
   fields.set(3, text(required(value.name, "ProcessInfo.name")));
-  fields.set(
-    4,
-    encodeProcessStatusValue(required(value.status, "ProcessInfo.status")),
-  );
+  fields.set(4, encodeProcessStatusValue(required(value.status, "ProcessInfo.status")));
   return fields;
 }
 
@@ -3330,208 +2769,83 @@ export function decodeProcessInfoValue(value: CborValue): ProcessInfo {
     pid: fieldOrDefault(fields.get(1), (value) => integer(value), () => 0),
     ppid: optionalField(fields.get(2), (value) => integer(value)),
     name: fieldOrDefault(fields.get(3), (value) => textValue(value), () => ""),
-    status: fieldOrDefault(
-      fields.get(4),
-      (value) => decodeProcessStatusValue(value),
-      () => defaultProcessStatus(),
-    ),
+    status: fieldOrDefault(fields.get(4), (value) => decodeProcessStatusValue(value), () => defaultProcessStatus()),
   };
 }
 
 export function encodeProcessDetailValue(value: ProcessDetail): CborValue {
   const fields = new Map<number, CborValue>();
-  fields.set(
-    1,
-    encodeProcessInfoValue(required(value.info, "ProcessDetail.info")),
-  );
-  fields.set(
-    2,
-    encodeProcessMetadataValue(
-      required(value.metadata, "ProcessDetail.metadata"),
-    ),
-  );
-  fields.set(
-    3,
-    encodeProcessResourceUsageValue(
-      required(value.usage, "ProcessDetail.usage"),
-    ),
-  );
+  fields.set(1, encodeProcessInfoValue(required(value.info, "ProcessDetail.info")));
+  fields.set(2, encodeProcessMetadataValue(required(value.metadata, "ProcessDetail.metadata")));
+  fields.set(3, encodeProcessResourceUsageValue(required(value.usage, "ProcessDetail.usage")));
   return fields;
 }
 
 export function decodeProcessDetailValue(value: CborValue): ProcessDetail {
   const fields = expectMap(value);
   return {
-    info: fieldOrDefault(
-      fields.get(1),
-      (value) => decodeProcessInfoValue(value),
-      () => defaultProcessInfo(),
-    ),
-    metadata: fieldOrDefault(
-      fields.get(2),
-      (value) => decodeProcessMetadataValue(value),
-      () => defaultProcessMetadata(),
-    ),
-    usage: fieldOrDefault(
-      fields.get(3),
-      (value) => decodeProcessResourceUsageValue(value),
-      () => defaultProcessResourceUsage(),
-    ),
+    info: fieldOrDefault(fields.get(1), (value) => decodeProcessInfoValue(value), () => defaultProcessInfo()),
+    metadata: fieldOrDefault(fields.get(2), (value) => decodeProcessMetadataValue(value), () => defaultProcessMetadata()),
+    usage: fieldOrDefault(fields.get(3), (value) => decodeProcessResourceUsageValue(value), () => defaultProcessResourceUsage()),
   };
 }
 
 export function encodeProcessMetadataValue(value: ProcessMetadata): CborValue {
   const fields = new Map<number, CborValue>();
-  fields.set(
-    1,
-    required(value.command, "ProcessMetadata.command").map((item) =>
-      text(item)
-    ),
-  );
-  if (value.executablePath !== undefined) {
-    fields.set(2, text(value.executablePath));
-  }
+  fields.set(1, required(value.command, "ProcessMetadata.command").map((item) => text(item)));
+  if (value.executablePath !== undefined) fields.set(2, text(value.executablePath));
   if (value.cwd !== undefined) fields.set(3, text(value.cwd));
-  fields.set(
-    4,
-    u53(required(value.startTimeUnix, "ProcessMetadata.startTimeUnix")),
-  );
+  fields.set(4, u53(required(value.startTimeUnix, "ProcessMetadata.startTimeUnix")));
   return fields;
 }
 
 export function decodeProcessMetadataValue(value: CborValue): ProcessMetadata {
   const fields = expectMap(value);
   return {
-    command: fieldOrDefault(
-      fields.get(1),
-      (value) => array(value).map((item) => textValue(item)),
-      () => [],
-    ),
+    command: fieldOrDefault(fields.get(1), (value) => array(value).map((item) => textValue(item)), () => []),
     executablePath: optionalField(fields.get(2), (value) => textValue(value)),
     cwd: optionalField(fields.get(3), (value) => textValue(value)),
-    startTimeUnix: fieldOrDefault(
-      fields.get(4),
-      (value) => integer(value),
-      () => 0,
-    ),
+    startTimeUnix: fieldOrDefault(fields.get(4), (value) => integer(value), () => 0),
   };
 }
 
-export function encodeProcessResourceUsageValue(
-  value: ProcessResourceUsage,
-): CborValue {
+export function encodeProcessResourceUsageValue(value: ProcessResourceUsage): CborValue {
   const fields = new Map<number, CborValue>();
-  fields.set(
-    1,
-    u53(required(value.memoryBytes, "ProcessResourceUsage.memoryBytes")),
-  );
-  fields.set(
-    2,
-    u53(
-      required(
-        value.virtualMemoryBytes,
-        "ProcessResourceUsage.virtualMemoryBytes",
-      ),
-    ),
-  );
-  fields.set(
-    3,
-    f64(
-      required(value.cpuUsagePercent, "ProcessResourceUsage.cpuUsagePercent"),
-    ),
-  );
-  fields.set(
-    4,
-    u53(
-      required(
-        value.accumulatedCpuTimeMs,
-        "ProcessResourceUsage.accumulatedCpuTimeMs",
-      ),
-    ),
-  );
-  fields.set(
-    5,
-    encodeProcessIoUsageValue(
-      required(value.ioUsage, "ProcessResourceUsage.ioUsage"),
-    ),
-  );
+  fields.set(1, u53(required(value.memoryBytes, "ProcessResourceUsage.memoryBytes")));
+  fields.set(2, u53(required(value.virtualMemoryBytes, "ProcessResourceUsage.virtualMemoryBytes")));
+  fields.set(3, f64(required(value.cpuUsagePercent, "ProcessResourceUsage.cpuUsagePercent")));
+  fields.set(4, u53(required(value.accumulatedCpuTimeMs, "ProcessResourceUsage.accumulatedCpuTimeMs")));
+  fields.set(5, encodeProcessIoUsageValue(required(value.ioUsage, "ProcessResourceUsage.ioUsage")));
   return fields;
 }
 
-export function decodeProcessResourceUsageValue(
-  value: CborValue,
-): ProcessResourceUsage {
+export function decodeProcessResourceUsageValue(value: CborValue): ProcessResourceUsage {
   const fields = expectMap(value);
   return {
-    memoryBytes: fieldOrDefault(
-      fields.get(1),
-      (value) => integer(value),
-      () => 0,
-    ),
-    virtualMemoryBytes: fieldOrDefault(
-      fields.get(2),
-      (value) => integer(value),
-      () => 0,
-    ),
-    cpuUsagePercent: fieldOrDefault(
-      fields.get(3),
-      (value) => f64Value(value),
-      () => 0,
-    ),
-    accumulatedCpuTimeMs: fieldOrDefault(
-      fields.get(4),
-      (value) => integer(value),
-      () => 0,
-    ),
-    ioUsage: fieldOrDefault(
-      fields.get(5),
-      (value) => decodeProcessIoUsageValue(value),
-      () => defaultProcessIoUsage(),
-    ),
+    memoryBytes: fieldOrDefault(fields.get(1), (value) => integer(value), () => 0),
+    virtualMemoryBytes: fieldOrDefault(fields.get(2), (value) => integer(value), () => 0),
+    cpuUsagePercent: fieldOrDefault(fields.get(3), (value) => f64Value(value), () => 0),
+    accumulatedCpuTimeMs: fieldOrDefault(fields.get(4), (value) => integer(value), () => 0),
+    ioUsage: fieldOrDefault(fields.get(5), (value) => decodeProcessIoUsageValue(value), () => defaultProcessIoUsage()),
   };
 }
 
 export function encodeProcessIoUsageValue(value: ProcessIoUsage): CborValue {
   const fields = new Map<number, CborValue>();
   fields.set(1, u53(required(value.readBytes, "ProcessIoUsage.readBytes")));
-  fields.set(
-    2,
-    u53(required(value.writtenBytes, "ProcessIoUsage.writtenBytes")),
-  );
-  fields.set(
-    3,
-    u53(required(value.totalReadBytes, "ProcessIoUsage.totalReadBytes")),
-  );
-  fields.set(
-    4,
-    u53(required(value.totalWrittenBytes, "ProcessIoUsage.totalWrittenBytes")),
-  );
+  fields.set(2, u53(required(value.writtenBytes, "ProcessIoUsage.writtenBytes")));
+  fields.set(3, u53(required(value.totalReadBytes, "ProcessIoUsage.totalReadBytes")));
+  fields.set(4, u53(required(value.totalWrittenBytes, "ProcessIoUsage.totalWrittenBytes")));
   return fields;
 }
 
 export function decodeProcessIoUsageValue(value: CborValue): ProcessIoUsage {
   const fields = expectMap(value);
   return {
-    readBytes: fieldOrDefault(
-      fields.get(1),
-      (value) => integer(value),
-      () => 0,
-    ),
-    writtenBytes: fieldOrDefault(
-      fields.get(2),
-      (value) => integer(value),
-      () => 0,
-    ),
-    totalReadBytes: fieldOrDefault(
-      fields.get(3),
-      (value) => integer(value),
-      () => 0,
-    ),
-    totalWrittenBytes: fieldOrDefault(
-      fields.get(4),
-      (value) => integer(value),
-      () => 0,
-    ),
+    readBytes: fieldOrDefault(fields.get(1), (value) => integer(value), () => 0),
+    writtenBytes: fieldOrDefault(fields.get(2), (value) => integer(value), () => 0),
+    totalReadBytes: fieldOrDefault(fields.get(3), (value) => integer(value), () => 0),
+    totalWrittenBytes: fieldOrDefault(fields.get(4), (value) => integer(value), () => 0),
   };
 }
 
@@ -3661,116 +2975,60 @@ export function decodeProcessStatusValue(value: CborValue): ProcessStatus {
   throw new Error(`unknown ProcessStatus variant ${variantId}`);
 }
 
-export function encodeProcessesTableEventValue(
-  value: ProcessesTableEvent,
-): CborValue {
+export function encodeProcessesTableEventValue(value: ProcessesTableEvent): CborValue {
   switch (value.type) {
     case "snapshot": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        required(value.rows, "ProcessesTableEvent.Snapshot.rows").map((item) =>
-          encodeProcessInfoValue(item)
-        ),
-      );
+      fields.set(1, required(value.rows, "ProcessesTableEvent.Snapshot.rows").map((item) => encodeProcessInfoValue(item)));
       return [1, fields];
     }
     case "patch": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        required(value.removePids, "ProcessesTableEvent.Patch.removePids").map((
-          item,
-        ) => u53(item)),
-      );
-      fields.set(
-        2,
-        required(value.upserts, "ProcessesTableEvent.Patch.upserts").map((
-          item,
-        ) => encodeProcessInfoValue(item)),
-      );
+      fields.set(1, required(value.removePids, "ProcessesTableEvent.Patch.removePids").map((item) => u53(item)));
+      fields.set(2, required(value.upserts, "ProcessesTableEvent.Patch.upserts").map((item) => encodeProcessInfoValue(item)));
       return [2, fields];
     }
   }
 }
 
-export function decodeProcessesTableEventValue(
-  value: CborValue,
-): ProcessesTableEvent {
+export function decodeProcessesTableEventValue(value: CborValue): ProcessesTableEvent {
   const [variantId, fields] = expectUnion(value);
   switch (variantId) {
     case 1:
       return {
         type: "snapshot",
-        rows: fieldOrDefault(
-          fields.get(1),
-          (value) => array(value).map((item) => decodeProcessInfoValue(item)),
-          () => [],
-        ),
+        rows: fieldOrDefault(fields.get(1), (value) => array(value).map((item) => decodeProcessInfoValue(item)), () => []),
       };
     case 2:
       return {
         type: "patch",
-        removePids: fieldOrDefault(
-          fields.get(1),
-          (value) => array(value).map((item) => integer(item)),
-          () => [],
-        ),
-        upserts: fieldOrDefault(
-          fields.get(2),
-          (value) => array(value).map((item) => decodeProcessInfoValue(item)),
-          () => [],
-        ),
+        removePids: fieldOrDefault(fields.get(1), (value) => array(value).map((item) => integer(item)), () => []),
+        upserts: fieldOrDefault(fields.get(2), (value) => array(value).map((item) => decodeProcessInfoValue(item)), () => []),
       };
   }
   throw new Error(`unknown ProcessesTableEvent variant ${variantId}`);
 }
 
-export function encodeProcessDetailEventValue(
-  value: ProcessDetailEvent,
-): CborValue {
+export function encodeProcessDetailEventValue(value: ProcessDetailEvent): CborValue {
   switch (value.type) {
     case "snapshot": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        encodeProcessDetailValue(
-          required(value.detail, "ProcessDetailEvent.Snapshot.detail"),
-        ),
-      );
+      fields.set(1, encodeProcessDetailValue(required(value.detail, "ProcessDetailEvent.Snapshot.detail")));
       return [1, fields];
     }
     case "infoChanged": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        encodeProcessInfoValue(
-          required(value.info, "ProcessDetailEvent.InfoChanged.info"),
-        ),
-      );
+      fields.set(1, encodeProcessInfoValue(required(value.info, "ProcessDetailEvent.InfoChanged.info")));
       return [2, fields];
     }
     case "metadataChanged": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        encodeProcessMetadataValue(
-          required(
-            value.metadata,
-            "ProcessDetailEvent.MetadataChanged.metadata",
-          ),
-        ),
-      );
+      fields.set(1, encodeProcessMetadataValue(required(value.metadata, "ProcessDetailEvent.MetadataChanged.metadata")));
       return [3, fields];
     }
     case "usageChanged": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        encodeProcessResourceUsageValue(
-          required(value.usage, "ProcessDetailEvent.UsageChanged.usage"),
-        ),
-      );
+      fields.set(1, encodeProcessResourceUsageValue(required(value.usage, "ProcessDetailEvent.UsageChanged.usage")));
       return [4, fields];
     }
     case "exited": {
@@ -3780,46 +3038,28 @@ export function encodeProcessDetailEventValue(
   }
 }
 
-export function decodeProcessDetailEventValue(
-  value: CborValue,
-): ProcessDetailEvent {
+export function decodeProcessDetailEventValue(value: CborValue): ProcessDetailEvent {
   const [variantId, fields] = expectUnion(value);
   switch (variantId) {
     case 1:
       return {
         type: "snapshot",
-        detail: fieldOrDefault(
-          fields.get(1),
-          (value) => decodeProcessDetailValue(value),
-          () => defaultProcessDetail(),
-        ),
+        detail: fieldOrDefault(fields.get(1), (value) => decodeProcessDetailValue(value), () => defaultProcessDetail()),
       };
     case 2:
       return {
         type: "infoChanged",
-        info: fieldOrDefault(
-          fields.get(1),
-          (value) => decodeProcessInfoValue(value),
-          () => defaultProcessInfo(),
-        ),
+        info: fieldOrDefault(fields.get(1), (value) => decodeProcessInfoValue(value), () => defaultProcessInfo()),
       };
     case 3:
       return {
         type: "metadataChanged",
-        metadata: fieldOrDefault(
-          fields.get(1),
-          (value) => decodeProcessMetadataValue(value),
-          () => defaultProcessMetadata(),
-        ),
+        metadata: fieldOrDefault(fields.get(1), (value) => decodeProcessMetadataValue(value), () => defaultProcessMetadata()),
       };
     case 4:
       return {
         type: "usageChanged",
-        usage: fieldOrDefault(
-          fields.get(1),
-          (value) => decodeProcessResourceUsageValue(value),
-          () => defaultProcessResourceUsage(),
-        ),
+        usage: fieldOrDefault(fields.get(1), (value) => decodeProcessResourceUsageValue(value), () => defaultProcessResourceUsage()),
       };
     case 5:
       return {
@@ -3829,71 +3069,38 @@ export function decodeProcessDetailEventValue(
   throw new Error(`unknown ProcessDetailEvent variant ${variantId}`);
 }
 
-export function encodeProcessResourceInUseInfoValue(
-  value: ProcessResourceInUseInfo,
-): CborValue {
+export function encodeProcessResourceInUseInfoValue(value: ProcessResourceInUseInfo): CborValue {
   const fields = new Map<number, CborValue>();
-  fields.set(
-    1,
-    text(required(value.resourceId, "ProcessResourceInUseInfo.resourceId")),
-  );
-  fields.set(
-    2,
-    encodeProcessResourceInUseKindValue(
-      required(value.kind, "ProcessResourceInUseInfo.kind"),
-    ),
-  );
+  fields.set(1, text(required(value.resourceId, "ProcessResourceInUseInfo.resourceId")));
+  fields.set(2, encodeProcessResourceInUseKindValue(required(value.kind, "ProcessResourceInUseInfo.kind")));
   if (value.name !== undefined) fields.set(3, text(value.name));
-  if (value.access !== undefined) {
-    fields.set(4, encodeProcessResourceInUseAccessValue(value.access));
-  }
+  if (value.access !== undefined) fields.set(4, encodeProcessResourceInUseAccessValue(value.access));
   if (value.deleted !== undefined) fields.set(5, bool(value.deleted));
   return fields;
 }
 
-export function decodeProcessResourceInUseInfoValue(
-  value: CborValue,
-): ProcessResourceInUseInfo {
+export function decodeProcessResourceInUseInfoValue(value: CborValue): ProcessResourceInUseInfo {
   const fields = expectMap(value);
   return {
-    resourceId: fieldOrDefault(
-      fields.get(1),
-      (value) => textValue(value),
-      () => "",
-    ),
-    kind: fieldOrDefault(
-      fields.get(2),
-      (value) => decodeProcessResourceInUseKindValue(value),
-      () => ProcessResourceInUseKind.File,
-    ),
+    resourceId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+    kind: fieldOrDefault(fields.get(2), (value) => decodeProcessResourceInUseKindValue(value), () => ProcessResourceInUseKind.File),
     name: optionalField(fields.get(3), (value) => textValue(value)),
-    access: optionalField(
-      fields.get(4),
-      (value) => decodeProcessResourceInUseAccessValue(value),
-    ),
+    access: optionalField(fields.get(4), (value) => decodeProcessResourceInUseAccessValue(value)),
     deleted: optionalField(fields.get(5), (value) => boolValue(value)),
   };
 }
 
-export function encodeProcessResourceInUseKindValue(
-  value: ProcessResourceInUseKind,
-): CborValue {
+export function encodeProcessResourceInUseKindValue(value: ProcessResourceInUseKind): CborValue {
   return integer(value);
 }
 
-export function decodeProcessResourceInUseKindValue(
-  value: CborValue,
-): ProcessResourceInUseKind {
+export function decodeProcessResourceInUseKindValue(value: CborValue): ProcessResourceInUseKind {
   const id = integer(value);
-  if (![1, 2, 3, 4, 5, 6].includes(id)) {
-    throw new Error(`unknown ProcessResourceInUseKind variant ${id}`);
-  }
+  if (![1, 2, 3, 4, 5, 6].includes(id)) throw new Error(`unknown ProcessResourceInUseKind variant ${id}`);
   return id as ProcessResourceInUseKind;
 }
 
-export function encodeProcessResourceInUseAccessValue(
-  value: ProcessResourceInUseAccess,
-): CborValue {
+export function encodeProcessResourceInUseAccessValue(value: ProcessResourceInUseAccess): CborValue {
   const fields = new Map<number, CborValue>();
   if (value.read !== undefined) fields.set(1, bool(value.read));
   if (value.write !== undefined) fields.set(2, bool(value.write));
@@ -3901,9 +3108,7 @@ export function encodeProcessResourceInUseAccessValue(
   return fields;
 }
 
-export function decodeProcessResourceInUseAccessValue(
-  value: CborValue,
-): ProcessResourceInUseAccess {
+export function decodeProcessResourceInUseAccessValue(value: CborValue): ProcessResourceInUseAccess {
   const fields = expectMap(value);
   return {
     read: optionalField(fields.get(1), (value) => boolValue(value)),
@@ -3912,31 +3117,17 @@ export function decodeProcessResourceInUseAccessValue(
   };
 }
 
-export function encodeProcessResourcesInUseTableEventValue(
-  value: ProcessResourcesInUseTableEvent,
-): CborValue {
+export function encodeProcessResourcesInUseTableEventValue(value: ProcessResourcesInUseTableEvent): CborValue {
   switch (value.type) {
     case "snapshot": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        required(value.rows, "ProcessResourcesInUseTableEvent.Snapshot.rows")
-          .map((item) => encodeProcessResourceInUseInfoValue(item)),
-      );
+      fields.set(1, required(value.rows, "ProcessResourcesInUseTableEvent.Snapshot.rows").map((item) => encodeProcessResourceInUseInfoValue(item)));
       return [1, fields];
     }
     case "patch": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        required(value.removes, "ProcessResourcesInUseTableEvent.Patch.removes")
-          .map((item) => text(item)),
-      );
-      fields.set(
-        2,
-        required(value.upserts, "ProcessResourcesInUseTableEvent.Patch.upserts")
-          .map((item) => encodeProcessResourceInUseInfoValue(item)),
-      );
+      fields.set(1, required(value.removes, "ProcessResourcesInUseTableEvent.Patch.removes").map((item) => text(item)));
+      fields.set(2, required(value.upserts, "ProcessResourcesInUseTableEvent.Patch.upserts").map((item) => encodeProcessResourceInUseInfoValue(item)));
       return [2, fields];
     }
     case "exited": {
@@ -3946,104 +3137,50 @@ export function encodeProcessResourcesInUseTableEventValue(
   }
 }
 
-export function decodeProcessResourcesInUseTableEventValue(
-  value: CborValue,
-): ProcessResourcesInUseTableEvent {
+export function decodeProcessResourcesInUseTableEventValue(value: CborValue): ProcessResourcesInUseTableEvent {
   const [variantId, fields] = expectUnion(value);
   switch (variantId) {
     case 1:
       return {
         type: "snapshot",
-        rows: fieldOrDefault(
-          fields.get(1),
-          (value) =>
-            array(value).map((item) =>
-              decodeProcessResourceInUseInfoValue(item)
-            ),
-          () => [],
-        ),
+        rows: fieldOrDefault(fields.get(1), (value) => array(value).map((item) => decodeProcessResourceInUseInfoValue(item)), () => []),
       };
     case 2:
       return {
         type: "patch",
-        removes: fieldOrDefault(
-          fields.get(1),
-          (value) => array(value).map((item) => textValue(item)),
-          () => [],
-        ),
-        upserts: fieldOrDefault(
-          fields.get(2),
-          (value) =>
-            array(value).map((item) =>
-              decodeProcessResourceInUseInfoValue(item)
-            ),
-          () => [],
-        ),
+        removes: fieldOrDefault(fields.get(1), (value) => array(value).map((item) => textValue(item)), () => []),
+        upserts: fieldOrDefault(fields.get(2), (value) => array(value).map((item) => decodeProcessResourceInUseInfoValue(item)), () => []),
       };
     case 3:
       return {
         type: "exited",
       };
   }
-  throw new Error(
-    `unknown ProcessResourcesInUseTableEvent variant ${variantId}`,
-  );
+  throw new Error(`unknown ProcessResourcesInUseTableEvent variant ${variantId}`);
 }
 
-export function encodeProcessSocketInUseInfoValue(
-  value: ProcessSocketInUseInfo,
-): CborValue {
+export function encodeProcessSocketInUseInfoValue(value: ProcessSocketInUseInfo): CborValue {
   const fields = new Map<number, CborValue>();
-  fields.set(
-    1,
-    text(required(value.socketId, "ProcessSocketInUseInfo.socketId")),
-  );
-  fields.set(
-    2,
-    encodeProcessSocketInUseKindValue(
-      required(value.kind, "ProcessSocketInUseInfo.kind"),
-    ),
-  );
-  if (value.localEndpoint !== undefined) {
-    fields.set(3, encodeSocketEndpointValue(value.localEndpoint));
-  }
-  if (value.remoteEndpoint !== undefined) {
-    fields.set(4, encodeSocketEndpointValue(value.remoteEndpoint));
-  }
+  fields.set(1, text(required(value.socketId, "ProcessSocketInUseInfo.socketId")));
+  fields.set(2, encodeProcessSocketInUseKindValue(required(value.kind, "ProcessSocketInUseInfo.kind")));
+  if (value.localEndpoint !== undefined) fields.set(3, encodeSocketEndpointValue(value.localEndpoint));
+  if (value.remoteEndpoint !== undefined) fields.set(4, encodeSocketEndpointValue(value.remoteEndpoint));
   if (value.listening !== undefined) fields.set(5, bool(value.listening));
   return fields;
 }
 
-export function decodeProcessSocketInUseInfoValue(
-  value: CborValue,
-): ProcessSocketInUseInfo {
+export function decodeProcessSocketInUseInfoValue(value: CborValue): ProcessSocketInUseInfo {
   const fields = expectMap(value);
   return {
-    socketId: fieldOrDefault(
-      fields.get(1),
-      (value) => textValue(value),
-      () => "",
-    ),
-    kind: fieldOrDefault(
-      fields.get(2),
-      (value) => decodeProcessSocketInUseKindValue(value),
-      () => defaultProcessSocketInUseKind(),
-    ),
-    localEndpoint: optionalField(
-      fields.get(3),
-      (value) => decodeSocketEndpointValue(value),
-    ),
-    remoteEndpoint: optionalField(
-      fields.get(4),
-      (value) => decodeSocketEndpointValue(value),
-    ),
+    socketId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+    kind: fieldOrDefault(fields.get(2), (value) => decodeProcessSocketInUseKindValue(value), () => defaultProcessSocketInUseKind()),
+    localEndpoint: optionalField(fields.get(3), (value) => decodeSocketEndpointValue(value)),
+    remoteEndpoint: optionalField(fields.get(4), (value) => decodeSocketEndpointValue(value)),
     listening: optionalField(fields.get(5), (value) => boolValue(value)),
   };
 }
 
-export function encodeProcessSocketInUseKindValue(
-  value: ProcessSocketInUseKind,
-): CborValue {
+export function encodeProcessSocketInUseKindValue(value: ProcessSocketInUseKind): CborValue {
   switch (value.type) {
     case "tcp": {
       const fields = new Map<number, CborValue>();
@@ -4068,9 +3205,7 @@ export function encodeProcessSocketInUseKindValue(
   }
 }
 
-export function decodeProcessSocketInUseKindValue(
-  value: CborValue,
-): ProcessSocketInUseKind {
+export function decodeProcessSocketInUseKindValue(value: CborValue): ProcessSocketInUseKind {
   const [variantId, fields] = expectUnion(value);
   switch (variantId) {
     case 1:
@@ -4120,11 +3255,7 @@ export function decodeSocketEndpointValue(value: CborValue): SocketEndpoint {
     case 1:
       return {
         type: "ip",
-        address: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        address: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
         port: optionalField(fields.get(2), (value) => integer(value)),
       };
     case 2:
@@ -4137,32 +3268,17 @@ export function decodeSocketEndpointValue(value: CborValue): SocketEndpoint {
   throw new Error(`unknown SocketEndpoint variant ${variantId}`);
 }
 
-export function encodeProcessSocketsInUseTableEventValue(
-  value: ProcessSocketsInUseTableEvent,
-): CborValue {
+export function encodeProcessSocketsInUseTableEventValue(value: ProcessSocketsInUseTableEvent): CborValue {
   switch (value.type) {
     case "snapshot": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        required(value.rows, "ProcessSocketsInUseTableEvent.Snapshot.rows").map(
-          (item) => encodeProcessSocketInUseInfoValue(item),
-        ),
-      );
+      fields.set(1, required(value.rows, "ProcessSocketsInUseTableEvent.Snapshot.rows").map((item) => encodeProcessSocketInUseInfoValue(item)));
       return [1, fields];
     }
     case "patch": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        required(value.removes, "ProcessSocketsInUseTableEvent.Patch.removes")
-          .map((item) => text(item)),
-      );
-      fields.set(
-        2,
-        required(value.upserts, "ProcessSocketsInUseTableEvent.Patch.upserts")
-          .map((item) => encodeProcessSocketInUseInfoValue(item)),
-      );
+      fields.set(1, required(value.removes, "ProcessSocketsInUseTableEvent.Patch.removes").map((item) => text(item)));
+      fields.set(2, required(value.upserts, "ProcessSocketsInUseTableEvent.Patch.upserts").map((item) => encodeProcessSocketInUseInfoValue(item)));
       return [2, fields];
     }
     case "exited": {
@@ -4172,35 +3288,19 @@ export function encodeProcessSocketsInUseTableEventValue(
   }
 }
 
-export function decodeProcessSocketsInUseTableEventValue(
-  value: CborValue,
-): ProcessSocketsInUseTableEvent {
+export function decodeProcessSocketsInUseTableEventValue(value: CborValue): ProcessSocketsInUseTableEvent {
   const [variantId, fields] = expectUnion(value);
   switch (variantId) {
     case 1:
       return {
         type: "snapshot",
-        rows: fieldOrDefault(
-          fields.get(1),
-          (value) =>
-            array(value).map((item) => decodeProcessSocketInUseInfoValue(item)),
-          () => [],
-        ),
+        rows: fieldOrDefault(fields.get(1), (value) => array(value).map((item) => decodeProcessSocketInUseInfoValue(item)), () => []),
       };
     case 2:
       return {
         type: "patch",
-        removes: fieldOrDefault(
-          fields.get(1),
-          (value) => array(value).map((item) => textValue(item)),
-          () => [],
-        ),
-        upserts: fieldOrDefault(
-          fields.get(2),
-          (value) =>
-            array(value).map((item) => decodeProcessSocketInUseInfoValue(item)),
-          () => [],
-        ),
+        removes: fieldOrDefault(fields.get(1), (value) => array(value).map((item) => textValue(item)), () => []),
+        upserts: fieldOrDefault(fields.get(2), (value) => array(value).map((item) => decodeProcessSocketInUseInfoValue(item)), () => []),
       };
     case 3:
       return {
@@ -4210,92 +3310,52 @@ export function decodeProcessSocketsInUseTableEventValue(
   throw new Error(`unknown ProcessSocketsInUseTableEvent variant ${variantId}`);
 }
 
-export function encodeProcessModuleInfoValue(
-  value: ProcessModuleInfo,
-): CborValue {
+export function encodeProcessModuleInfoValue(value: ProcessModuleInfo): CborValue {
   const fields = new Map<number, CborValue>();
   fields.set(1, text(required(value.moduleId, "ProcessModuleInfo.moduleId")));
   fields.set(2, text(required(value.name, "ProcessModuleInfo.name")));
   if (value.path !== undefined) fields.set(3, text(value.path));
-  fields.set(
-    4,
-    encodeProcessModuleKindValue(
-      required(value.kind, "ProcessModuleInfo.kind"),
-    ),
-  );
+  fields.set(4, encodeProcessModuleKindValue(required(value.kind, "ProcessModuleInfo.kind")));
   if (value.baseAddress !== undefined) fields.set(5, text(value.baseAddress));
   if (value.sizeBytes !== undefined) fields.set(6, u53(value.sizeBytes));
   if (value.version !== undefined) fields.set(7, text(value.version));
   return fields;
 }
 
-export function decodeProcessModuleInfoValue(
-  value: CborValue,
-): ProcessModuleInfo {
+export function decodeProcessModuleInfoValue(value: CborValue): ProcessModuleInfo {
   const fields = expectMap(value);
   return {
-    moduleId: fieldOrDefault(
-      fields.get(1),
-      (value) => textValue(value),
-      () => "",
-    ),
+    moduleId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
     name: fieldOrDefault(fields.get(2), (value) => textValue(value), () => ""),
     path: optionalField(fields.get(3), (value) => textValue(value)),
-    kind: fieldOrDefault(
-      fields.get(4),
-      (value) => decodeProcessModuleKindValue(value),
-      () => ProcessModuleKind.Executable,
-    ),
+    kind: fieldOrDefault(fields.get(4), (value) => decodeProcessModuleKindValue(value), () => ProcessModuleKind.Executable),
     baseAddress: optionalField(fields.get(5), (value) => textValue(value)),
     sizeBytes: optionalField(fields.get(6), (value) => integer(value)),
     version: optionalField(fields.get(7), (value) => textValue(value)),
   };
 }
 
-export function encodeProcessModuleKindValue(
-  value: ProcessModuleKind,
-): CborValue {
+export function encodeProcessModuleKindValue(value: ProcessModuleKind): CborValue {
   return integer(value);
 }
 
-export function decodeProcessModuleKindValue(
-  value: CborValue,
-): ProcessModuleKind {
+export function decodeProcessModuleKindValue(value: CborValue): ProcessModuleKind {
   const id = integer(value);
-  if (![1, 2, 3].includes(id)) {
-    throw new Error(`unknown ProcessModuleKind variant ${id}`);
-  }
+  if (![1, 2, 3].includes(id)) throw new Error(`unknown ProcessModuleKind variant ${id}`);
   return id as ProcessModuleKind;
 }
 
-export function encodeProcessModulesTableEventValue(
-  value: ProcessModulesTableEvent,
-): CborValue {
+export function encodeProcessModulesTableEventValue(value: ProcessModulesTableEvent): CborValue {
   switch (value.type) {
     case "snapshot": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        required(value.rows, "ProcessModulesTableEvent.Snapshot.rows").map((
-          item,
-        ) => encodeProcessModuleInfoValue(item)),
-      );
+      fields.set(1, required(value.rows, "ProcessModulesTableEvent.Snapshot.rows").map((item) => encodeProcessModuleInfoValue(item)));
       return [1, fields];
     }
     case "patch": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        required(value.removes, "ProcessModulesTableEvent.Patch.removes").map((
-          item,
-        ) => text(item)),
-      );
-      fields.set(
-        2,
-        required(value.upserts, "ProcessModulesTableEvent.Patch.upserts").map((
-          item,
-        ) => encodeProcessModuleInfoValue(item)),
-      );
+      fields.set(1, required(value.removes, "ProcessModulesTableEvent.Patch.removes").map((item) => text(item)));
+      fields.set(2, required(value.upserts, "ProcessModulesTableEvent.Patch.upserts").map((item) => encodeProcessModuleInfoValue(item)));
       return [2, fields];
     }
     case "exited": {
@@ -4305,35 +3365,19 @@ export function encodeProcessModulesTableEventValue(
   }
 }
 
-export function decodeProcessModulesTableEventValue(
-  value: CborValue,
-): ProcessModulesTableEvent {
+export function decodeProcessModulesTableEventValue(value: CborValue): ProcessModulesTableEvent {
   const [variantId, fields] = expectUnion(value);
   switch (variantId) {
     case 1:
       return {
         type: "snapshot",
-        rows: fieldOrDefault(
-          fields.get(1),
-          (value) =>
-            array(value).map((item) => decodeProcessModuleInfoValue(item)),
-          () => [],
-        ),
+        rows: fieldOrDefault(fields.get(1), (value) => array(value).map((item) => decodeProcessModuleInfoValue(item)), () => []),
       };
     case 2:
       return {
         type: "patch",
-        removes: fieldOrDefault(
-          fields.get(1),
-          (value) => array(value).map((item) => textValue(item)),
-          () => [],
-        ),
-        upserts: fieldOrDefault(
-          fields.get(2),
-          (value) =>
-            array(value).map((item) => decodeProcessModuleInfoValue(item)),
-          () => [],
-        ),
+        removes: fieldOrDefault(fields.get(1), (value) => array(value).map((item) => textValue(item)), () => []),
+        upserts: fieldOrDefault(fields.get(2), (value) => array(value).map((item) => decodeProcessModuleInfoValue(item)), () => []),
       };
     case 3:
       return {
@@ -4343,451 +3387,231 @@ export function decodeProcessModulesTableEventValue(
   throw new Error(`unknown ProcessModulesTableEvent variant ${variantId}`);
 }
 
-export function encodeSubscribeProcessesErrorValue(
-  value: SubscribeProcessesError,
-): CborValue {
+export function encodeSubscribeProcessesErrorValue(value: SubscribeProcessesError): CborValue {
   switch (value.type) {
     case "failed": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(required(value.message, "SubscribeProcessesError.Failed.message")),
-      );
+      fields.set(1, text(required(value.message, "SubscribeProcessesError.Failed.message")));
       return [0, fields];
     }
     case "permissionDenied": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(
-          required(
-            value.message,
-            "SubscribeProcessesError.PermissionDenied.message",
-          ),
-        ),
-      );
+      fields.set(1, text(required(value.message, "SubscribeProcessesError.PermissionDenied.message")));
       return [1, fields];
     }
   }
 }
 
-export function decodeSubscribeProcessesErrorValue(
-  value: CborValue,
-): SubscribeProcessesError {
+export function decodeSubscribeProcessesErrorValue(value: CborValue): SubscribeProcessesError {
   const [variantId, fields] = expectUnion(value);
   switch (variantId) {
     case 0:
       return {
         type: "failed",
-        message: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
     case 1:
       return {
         type: "permissionDenied",
-        message: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
   }
   throw new Error(`unknown SubscribeProcessesError variant ${variantId}`);
 }
 
-export function encodeSubscribeProcessDetailErrorValue(
-  value: SubscribeProcessDetailError,
-): CborValue {
+export function encodeSubscribeProcessDetailErrorValue(value: SubscribeProcessDetailError): CborValue {
   switch (value.type) {
     case "failed": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(
-          required(value.message, "SubscribeProcessDetailError.Failed.message"),
-        ),
-      );
+      fields.set(1, text(required(value.message, "SubscribeProcessDetailError.Failed.message")));
       return [0, fields];
     }
     case "notFound": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(
-          required(
-            value.message,
-            "SubscribeProcessDetailError.NotFound.message",
-          ),
-        ),
-      );
+      fields.set(1, text(required(value.message, "SubscribeProcessDetailError.NotFound.message")));
       return [1, fields];
     }
     case "permissionDenied": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(
-          required(
-            value.message,
-            "SubscribeProcessDetailError.PermissionDenied.message",
-          ),
-        ),
-      );
+      fields.set(1, text(required(value.message, "SubscribeProcessDetailError.PermissionDenied.message")));
       return [2, fields];
     }
   }
 }
 
-export function decodeSubscribeProcessDetailErrorValue(
-  value: CborValue,
-): SubscribeProcessDetailError {
+export function decodeSubscribeProcessDetailErrorValue(value: CborValue): SubscribeProcessDetailError {
   const [variantId, fields] = expectUnion(value);
   switch (variantId) {
     case 0:
       return {
         type: "failed",
-        message: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
     case 1:
       return {
         type: "notFound",
-        message: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
     case 2:
       return {
         type: "permissionDenied",
-        message: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
   }
   throw new Error(`unknown SubscribeProcessDetailError variant ${variantId}`);
 }
 
-export function encodeSubscribeProcessResourcesInUseErrorValue(
-  value: SubscribeProcessResourcesInUseError,
-): CborValue {
+export function encodeSubscribeProcessResourcesInUseErrorValue(value: SubscribeProcessResourcesInUseError): CborValue {
   switch (value.type) {
     case "failed": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(
-          required(
-            value.message,
-            "SubscribeProcessResourcesInUseError.Failed.message",
-          ),
-        ),
-      );
+      fields.set(1, text(required(value.message, "SubscribeProcessResourcesInUseError.Failed.message")));
       return [0, fields];
     }
     case "notFound": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(
-          required(
-            value.message,
-            "SubscribeProcessResourcesInUseError.NotFound.message",
-          ),
-        ),
-      );
+      fields.set(1, text(required(value.message, "SubscribeProcessResourcesInUseError.NotFound.message")));
       return [1, fields];
     }
     case "permissionDenied": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(
-          required(
-            value.message,
-            "SubscribeProcessResourcesInUseError.PermissionDenied.message",
-          ),
-        ),
-      );
+      fields.set(1, text(required(value.message, "SubscribeProcessResourcesInUseError.PermissionDenied.message")));
       return [2, fields];
     }
     case "unsupported": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(
-          required(
-            value.message,
-            "SubscribeProcessResourcesInUseError.Unsupported.message",
-          ),
-        ),
-      );
+      fields.set(1, text(required(value.message, "SubscribeProcessResourcesInUseError.Unsupported.message")));
       return [3, fields];
     }
   }
 }
 
-export function decodeSubscribeProcessResourcesInUseErrorValue(
-  value: CborValue,
-): SubscribeProcessResourcesInUseError {
+export function decodeSubscribeProcessResourcesInUseErrorValue(value: CborValue): SubscribeProcessResourcesInUseError {
   const [variantId, fields] = expectUnion(value);
   switch (variantId) {
     case 0:
       return {
         type: "failed",
-        message: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
     case 1:
       return {
         type: "notFound",
-        message: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
     case 2:
       return {
         type: "permissionDenied",
-        message: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
     case 3:
       return {
         type: "unsupported",
-        message: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
   }
-  throw new Error(
-    `unknown SubscribeProcessResourcesInUseError variant ${variantId}`,
-  );
+  throw new Error(`unknown SubscribeProcessResourcesInUseError variant ${variantId}`);
 }
 
-export function encodeSubscribeProcessSocketsInUseErrorValue(
-  value: SubscribeProcessSocketsInUseError,
-): CborValue {
+export function encodeSubscribeProcessSocketsInUseErrorValue(value: SubscribeProcessSocketsInUseError): CborValue {
   switch (value.type) {
     case "failed": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(
-          required(
-            value.message,
-            "SubscribeProcessSocketsInUseError.Failed.message",
-          ),
-        ),
-      );
+      fields.set(1, text(required(value.message, "SubscribeProcessSocketsInUseError.Failed.message")));
       return [0, fields];
     }
     case "notFound": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(
-          required(
-            value.message,
-            "SubscribeProcessSocketsInUseError.NotFound.message",
-          ),
-        ),
-      );
+      fields.set(1, text(required(value.message, "SubscribeProcessSocketsInUseError.NotFound.message")));
       return [1, fields];
     }
     case "permissionDenied": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(
-          required(
-            value.message,
-            "SubscribeProcessSocketsInUseError.PermissionDenied.message",
-          ),
-        ),
-      );
+      fields.set(1, text(required(value.message, "SubscribeProcessSocketsInUseError.PermissionDenied.message")));
       return [2, fields];
     }
     case "unsupported": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(
-          required(
-            value.message,
-            "SubscribeProcessSocketsInUseError.Unsupported.message",
-          ),
-        ),
-      );
+      fields.set(1, text(required(value.message, "SubscribeProcessSocketsInUseError.Unsupported.message")));
       return [3, fields];
     }
   }
 }
 
-export function decodeSubscribeProcessSocketsInUseErrorValue(
-  value: CborValue,
-): SubscribeProcessSocketsInUseError {
+export function decodeSubscribeProcessSocketsInUseErrorValue(value: CborValue): SubscribeProcessSocketsInUseError {
   const [variantId, fields] = expectUnion(value);
   switch (variantId) {
     case 0:
       return {
         type: "failed",
-        message: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
     case 1:
       return {
         type: "notFound",
-        message: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
     case 2:
       return {
         type: "permissionDenied",
-        message: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
     case 3:
       return {
         type: "unsupported",
-        message: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
   }
-  throw new Error(
-    `unknown SubscribeProcessSocketsInUseError variant ${variantId}`,
-  );
+  throw new Error(`unknown SubscribeProcessSocketsInUseError variant ${variantId}`);
 }
 
-export function encodeSubscribeProcessModulesErrorValue(
-  value: SubscribeProcessModulesError,
-): CborValue {
+export function encodeSubscribeProcessModulesErrorValue(value: SubscribeProcessModulesError): CborValue {
   switch (value.type) {
     case "failed": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(
-          required(
-            value.message,
-            "SubscribeProcessModulesError.Failed.message",
-          ),
-        ),
-      );
+      fields.set(1, text(required(value.message, "SubscribeProcessModulesError.Failed.message")));
       return [0, fields];
     }
     case "notFound": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(
-          required(
-            value.message,
-            "SubscribeProcessModulesError.NotFound.message",
-          ),
-        ),
-      );
+      fields.set(1, text(required(value.message, "SubscribeProcessModulesError.NotFound.message")));
       return [1, fields];
     }
     case "permissionDenied": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(
-          required(
-            value.message,
-            "SubscribeProcessModulesError.PermissionDenied.message",
-          ),
-        ),
-      );
+      fields.set(1, text(required(value.message, "SubscribeProcessModulesError.PermissionDenied.message")));
       return [2, fields];
     }
     case "unsupported": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(
-          required(
-            value.message,
-            "SubscribeProcessModulesError.Unsupported.message",
-          ),
-        ),
-      );
+      fields.set(1, text(required(value.message, "SubscribeProcessModulesError.Unsupported.message")));
       return [3, fields];
     }
   }
 }
 
-export function decodeSubscribeProcessModulesErrorValue(
-  value: CborValue,
-): SubscribeProcessModulesError {
+export function decodeSubscribeProcessModulesErrorValue(value: CborValue): SubscribeProcessModulesError {
   const [variantId, fields] = expectUnion(value);
   switch (variantId) {
     case 0:
       return {
         type: "failed",
-        message: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
     case 1:
       return {
         type: "notFound",
-        message: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
     case 2:
       return {
         type: "permissionDenied",
-        message: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
     case 3:
       return {
         type: "unsupported",
-        message: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
   }
   throw new Error(`unknown SubscribeProcessModulesError variant ${variantId}`);
@@ -4795,14 +3619,8 @@ export function decodeSubscribeProcessModulesErrorValue(
 
 export function encodeStartPairingReqValue(value: StartPairingReq): CborValue {
   const fields = new Map<number, CborValue>();
-  fields.set(
-    1,
-    text(required(value.confirmationCode, "StartPairingReq.confirmationCode")),
-  );
-  fields.set(
-    2,
-    text(required(value.clientLabel, "StartPairingReq.clientLabel")),
-  );
+  fields.set(1, text(required(value.confirmationCode, "StartPairingReq.confirmationCode")));
+  fields.set(2, text(required(value.clientLabel, "StartPairingReq.clientLabel")));
   if (value.clientId !== undefined) fields.set(3, text(value.clientId));
   return fields;
 }
@@ -4810,280 +3628,149 @@ export function encodeStartPairingReqValue(value: StartPairingReq): CborValue {
 export function decodeStartPairingReqValue(value: CborValue): StartPairingReq {
   const fields = expectMap(value);
   return {
-    confirmationCode: fieldOrDefault(
-      fields.get(1),
-      (value) => textValue(value),
-      () => "",
-    ),
-    clientLabel: fieldOrDefault(
-      fields.get(2),
-      (value) => textValue(value),
-      () => "",
-    ),
+    confirmationCode: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+    clientLabel: fieldOrDefault(fields.get(2), (value) => textValue(value), () => ""),
     clientId: optionalField(fields.get(3), (value) => textValue(value)),
   };
 }
 
 export function encodeStartPairingResValue(value: StartPairingRes): CborValue {
   const fields = new Map<number, CborValue>();
-  fields.set(
-    1,
-    i53(
-      required(
-        value.pairingCodeExpiresAtUnix,
-        "StartPairingRes.pairingCodeExpiresAtUnix",
-      ),
-    ),
-  );
+  fields.set(1, i53(required(value.pairingCodeExpiresAtUnix, "StartPairingRes.pairingCodeExpiresAtUnix")));
   return fields;
 }
 
 export function decodeStartPairingResValue(value: CborValue): StartPairingRes {
   const fields = expectMap(value);
   return {
-    pairingCodeExpiresAtUnix: fieldOrDefault(
-      fields.get(1),
-      (value) => integer(value),
-      () => 0,
-    ),
+    pairingCodeExpiresAtUnix: fieldOrDefault(fields.get(1), (value) => integer(value), () => 0),
   };
 }
 
-export function encodeCompletePairingReqValue(
-  value: CompletePairingReq,
-): CborValue {
+export function encodeCompletePairingReqValue(value: CompletePairingReq): CborValue {
   const fields = new Map<number, CborValue>();
   fields.set(1, text(required(value.code, "CompletePairingReq.code")));
   return fields;
 }
 
-export function decodeCompletePairingReqValue(
-  value: CborValue,
-): CompletePairingReq {
+export function decodeCompletePairingReqValue(value: CborValue): CompletePairingReq {
   const fields = expectMap(value);
   return {
     code: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
   };
 }
 
-export function encodeCompletePairingResValue(
-  value: CompletePairingRes,
-): CborValue {
+export function encodeCompletePairingResValue(value: CompletePairingRes): CborValue {
   const fields = new Map<number, CborValue>();
   fields.set(1, text(required(value.clientId, "CompletePairingRes.clientId")));
-  fields.set(
-    2,
-    text(required(value.clientSecret, "CompletePairingRes.clientSecret")),
-  );
-  fields.set(
-    3,
-    i53(
-      required(
-        value.clientCredentialExpiresAtUnix,
-        "CompletePairingRes.clientCredentialExpiresAtUnix",
-      ),
-    ),
-  );
+  fields.set(2, text(required(value.clientSecret, "CompletePairingRes.clientSecret")));
+  fields.set(3, i53(required(value.clientCredentialExpiresAtUnix, "CompletePairingRes.clientCredentialExpiresAtUnix")));
   return fields;
 }
 
-export function decodeCompletePairingResValue(
-  value: CborValue,
-): CompletePairingRes {
+export function decodeCompletePairingResValue(value: CborValue): CompletePairingRes {
   const fields = expectMap(value);
   return {
-    clientId: fieldOrDefault(
-      fields.get(1),
-      (value) => textValue(value),
-      () => "",
-    ),
-    clientSecret: fieldOrDefault(
-      fields.get(2),
-      (value) => textValue(value),
-      () => "",
-    ),
-    clientCredentialExpiresAtUnix: fieldOrDefault(
-      fields.get(3),
-      (value) => integer(value),
-      () => 0,
-    ),
+    clientId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+    clientSecret: fieldOrDefault(fields.get(2), (value) => textValue(value), () => ""),
+    clientCredentialExpiresAtUnix: fieldOrDefault(fields.get(3), (value) => integer(value), () => 0),
   };
 }
 
-export function encodeRenewClientCredentialResValue(
-  value: RenewClientCredentialRes,
-): CborValue {
+export function encodeRenewClientCredentialResValue(value: RenewClientCredentialRes): CborValue {
   const fields = new Map<number, CborValue>();
-  fields.set(
-    1,
-    i53(
-      required(
-        value.clientCredentialExpiresAtUnix,
-        "RenewClientCredentialRes.clientCredentialExpiresAtUnix",
-      ),
-    ),
-  );
+  fields.set(1, i53(required(value.clientCredentialExpiresAtUnix, "RenewClientCredentialRes.clientCredentialExpiresAtUnix")));
   return fields;
 }
 
-export function decodeRenewClientCredentialResValue(
-  value: CborValue,
-): RenewClientCredentialRes {
+export function decodeRenewClientCredentialResValue(value: CborValue): RenewClientCredentialRes {
   const fields = expectMap(value);
   return {
-    clientCredentialExpiresAtUnix: fieldOrDefault(
-      fields.get(1),
-      (value) => integer(value),
-      () => 0,
-    ),
+    clientCredentialExpiresAtUnix: fieldOrDefault(fields.get(1), (value) => integer(value), () => 0),
   };
 }
 
-export function encodeStartPairingErrorValue(
-  value: StartPairingError,
-): CborValue {
+export function encodeStartPairingErrorValue(value: StartPairingError): CborValue {
   switch (value.type) {
     case "failed": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(required(value.message, "StartPairingError.Failed.message")),
-      );
+      fields.set(1, text(required(value.message, "StartPairingError.Failed.message")));
       return [0, fields];
     }
   }
 }
 
-export function decodeStartPairingErrorValue(
-  value: CborValue,
-): StartPairingError {
+export function decodeStartPairingErrorValue(value: CborValue): StartPairingError {
   const [variantId, fields] = expectUnion(value);
   switch (variantId) {
     case 0:
       return {
         type: "failed",
-        message: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
   }
   throw new Error(`unknown StartPairingError variant ${variantId}`);
 }
 
-export function encodeCompletePairingErrorValue(
-  value: CompletePairingError,
-): CborValue {
+export function encodeCompletePairingErrorValue(value: CompletePairingError): CborValue {
   switch (value.type) {
     case "pairingNotStarted": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(
-          required(
-            value.message,
-            "CompletePairingError.PairingNotStarted.message",
-          ),
-        ),
-      );
+      fields.set(1, text(required(value.message, "CompletePairingError.PairingNotStarted.message")));
       return [1, fields];
     }
     case "pairingExpired": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(
-          required(
-            value.message,
-            "CompletePairingError.PairingExpired.message",
-          ),
-        ),
-      );
+      fields.set(1, text(required(value.message, "CompletePairingError.PairingExpired.message")));
       return [2, fields];
     }
     case "invalidPairingCode": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(
-          required(
-            value.message,
-            "CompletePairingError.InvalidPairingCode.message",
-          ),
-        ),
-      );
+      fields.set(1, text(required(value.message, "CompletePairingError.InvalidPairingCode.message")));
       return [3, fields];
     }
   }
 }
 
-export function decodeCompletePairingErrorValue(
-  value: CborValue,
-): CompletePairingError {
+export function decodeCompletePairingErrorValue(value: CborValue): CompletePairingError {
   const [variantId, fields] = expectUnion(value);
   switch (variantId) {
     case 1:
       return {
         type: "pairingNotStarted",
-        message: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
     case 2:
       return {
         type: "pairingExpired",
-        message: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
     case 3:
       return {
         type: "invalidPairingCode",
-        message: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
   }
   throw new Error(`unknown CompletePairingError variant ${variantId}`);
 }
 
-export function encodeRenewClientCredentialErrorValue(
-  value: RenewClientCredentialError,
-): CborValue {
+export function encodeRenewClientCredentialErrorValue(value: RenewClientCredentialError): CborValue {
   switch (value.type) {
     case "failed": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(
-          required(value.message, "RenewClientCredentialError.Failed.message"),
-        ),
-      );
+      fields.set(1, text(required(value.message, "RenewClientCredentialError.Failed.message")));
       return [0, fields];
     }
   }
 }
 
-export function decodeRenewClientCredentialErrorValue(
-  value: CborValue,
-): RenewClientCredentialError {
+export function decodeRenewClientCredentialErrorValue(value: CborValue): RenewClientCredentialError {
   const [variantId, fields] = expectUnion(value);
   switch (variantId) {
     case 0:
       return {
         type: "failed",
-        message: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
   }
   throw new Error(`unknown RenewClientCredentialError variant ${variantId}`);
@@ -5106,17 +3793,13 @@ export function decodeReadFileReqValue(value: CborValue): ReadFileReq {
   };
 }
 
-export function encodeSubscribeDirectoryReqValue(
-  value: SubscribeDirectoryReq,
-): CborValue {
+export function encodeSubscribeDirectoryReqValue(value: SubscribeDirectoryReq): CborValue {
   const fields = new Map<number, CborValue>();
   fields.set(1, text(required(value.path, "SubscribeDirectoryReq.path")));
   return fields;
 }
 
-export function decodeSubscribeDirectoryReqValue(
-  value: CborValue,
-): SubscribeDirectoryReq {
+export function decodeSubscribeDirectoryReqValue(value: CborValue): SubscribeDirectoryReq {
   const fields = expectMap(value);
   return {
     path: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
@@ -5127,38 +3810,18 @@ export function encodeRootsTableEventValue(value: RootsTableEvent): CborValue {
   switch (value.type) {
     case "snapshot": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        required(value.rows, "RootsTableEvent.Snapshot.rows").map((item) =>
-          encodeFsEntryValue(item)
-        ),
-      );
+      fields.set(1, required(value.rows, "RootsTableEvent.Snapshot.rows").map((item) => encodeFsEntryValue(item)));
       return [1, fields];
     }
     case "patch": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        required(value.removes, "RootsTableEvent.Patch.removes").map((item) =>
-          encodeRootEntryKeyValue(item)
-        ),
-      );
-      fields.set(
-        2,
-        required(value.upserts, "RootsTableEvent.Patch.upserts").map((item) =>
-          encodeFsEntryValue(item)
-        ),
-      );
+      fields.set(1, required(value.removes, "RootsTableEvent.Patch.removes").map((item) => encodeRootEntryKeyValue(item)));
+      fields.set(2, required(value.upserts, "RootsTableEvent.Patch.upserts").map((item) => encodeFsEntryValue(item)));
       return [2, fields];
     }
     case "closed": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        encodeRootsSubscriptionCloseReasonValue(
-          required(value.reason, "RootsTableEvent.Closed.reason"),
-        ),
-      );
+      fields.set(1, encodeRootsSubscriptionCloseReasonValue(required(value.reason, "RootsTableEvent.Closed.reason")));
       return [3, fields];
     }
   }
@@ -5170,203 +3833,106 @@ export function decodeRootsTableEventValue(value: CborValue): RootsTableEvent {
     case 1:
       return {
         type: "snapshot",
-        rows: fieldOrDefault(
-          fields.get(1),
-          (value) => array(value).map((item) => decodeFsEntryValue(item)),
-          () => [],
-        ),
+        rows: fieldOrDefault(fields.get(1), (value) => array(value).map((item) => decodeFsEntryValue(item)), () => []),
       };
     case 2:
       return {
         type: "patch",
-        removes: fieldOrDefault(
-          fields.get(1),
-          (value) => array(value).map((item) => decodeRootEntryKeyValue(item)),
-          () => [],
-        ),
-        upserts: fieldOrDefault(
-          fields.get(2),
-          (value) => array(value).map((item) => decodeFsEntryValue(item)),
-          () => [],
-        ),
+        removes: fieldOrDefault(fields.get(1), (value) => array(value).map((item) => decodeRootEntryKeyValue(item)), () => []),
+        upserts: fieldOrDefault(fields.get(2), (value) => array(value).map((item) => decodeFsEntryValue(item)), () => []),
       };
     case 3:
       return {
         type: "closed",
-        reason: fieldOrDefault(
-          fields.get(1),
-          (value) => decodeRootsSubscriptionCloseReasonValue(value),
-          () => defaultRootsSubscriptionCloseReason(),
-        ),
+        reason: fieldOrDefault(fields.get(1), (value) => decodeRootsSubscriptionCloseReasonValue(value), () => defaultRootsSubscriptionCloseReason()),
       };
   }
   throw new Error(`unknown RootsTableEvent variant ${variantId}`);
 }
 
-export function encodeDirectoryTableEventValue(
-  value: DirectoryTableEvent,
-): CborValue {
+export function encodeDirectoryTableEventValue(value: DirectoryTableEvent): CborValue {
   switch (value.type) {
     case "snapshot": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        required(value.rows, "DirectoryTableEvent.Snapshot.rows").map((item) =>
-          encodeFsEntryValue(item)
-        ),
-      );
+      fields.set(1, required(value.rows, "DirectoryTableEvent.Snapshot.rows").map((item) => encodeFsEntryValue(item)));
       return [1, fields];
     }
     case "patch": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        required(value.removes, "DirectoryTableEvent.Patch.removes").map((
-          item,
-        ) => encodeDirectoryEntryKeyValue(item)),
-      );
-      fields.set(
-        2,
-        required(value.upserts, "DirectoryTableEvent.Patch.upserts").map((
-          item,
-        ) => encodeFsEntryValue(item)),
-      );
+      fields.set(1, required(value.removes, "DirectoryTableEvent.Patch.removes").map((item) => encodeDirectoryEntryKeyValue(item)));
+      fields.set(2, required(value.upserts, "DirectoryTableEvent.Patch.upserts").map((item) => encodeFsEntryValue(item)));
       return [2, fields];
     }
     case "closed": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        encodeDirectorySubscriptionCloseReasonValue(
-          required(value.reason, "DirectoryTableEvent.Closed.reason"),
-        ),
-      );
+      fields.set(1, encodeDirectorySubscriptionCloseReasonValue(required(value.reason, "DirectoryTableEvent.Closed.reason")));
       return [3, fields];
     }
   }
 }
 
-export function decodeDirectoryTableEventValue(
-  value: CborValue,
-): DirectoryTableEvent {
+export function decodeDirectoryTableEventValue(value: CborValue): DirectoryTableEvent {
   const [variantId, fields] = expectUnion(value);
   switch (variantId) {
     case 1:
       return {
         type: "snapshot",
-        rows: fieldOrDefault(
-          fields.get(1),
-          (value) => array(value).map((item) => decodeFsEntryValue(item)),
-          () => [],
-        ),
+        rows: fieldOrDefault(fields.get(1), (value) => array(value).map((item) => decodeFsEntryValue(item)), () => []),
       };
     case 2:
       return {
         type: "patch",
-        removes: fieldOrDefault(
-          fields.get(1),
-          (value) =>
-            array(value).map((item) => decodeDirectoryEntryKeyValue(item)),
-          () => [],
-        ),
-        upserts: fieldOrDefault(
-          fields.get(2),
-          (value) => array(value).map((item) => decodeFsEntryValue(item)),
-          () => [],
-        ),
+        removes: fieldOrDefault(fields.get(1), (value) => array(value).map((item) => decodeDirectoryEntryKeyValue(item)), () => []),
+        upserts: fieldOrDefault(fields.get(2), (value) => array(value).map((item) => decodeFsEntryValue(item)), () => []),
       };
     case 3:
       return {
         type: "closed",
-        reason: fieldOrDefault(
-          fields.get(1),
-          (value) => decodeDirectorySubscriptionCloseReasonValue(value),
-          () => defaultDirectorySubscriptionCloseReason(),
-        ),
+        reason: fieldOrDefault(fields.get(1), (value) => decodeDirectorySubscriptionCloseReasonValue(value), () => defaultDirectorySubscriptionCloseReason()),
       };
   }
   throw new Error(`unknown DirectoryTableEvent variant ${variantId}`);
 }
 
-export function encodeTrashItemsTableEventValue(
-  value: TrashItemsTableEvent,
-): CborValue {
+export function encodeTrashItemsTableEventValue(value: TrashItemsTableEvent): CborValue {
   switch (value.type) {
     case "snapshot": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        required(value.rows, "TrashItemsTableEvent.Snapshot.rows").map((item) =>
-          encodeTrashItemValue(item)
-        ),
-      );
+      fields.set(1, required(value.rows, "TrashItemsTableEvent.Snapshot.rows").map((item) => encodeTrashItemValue(item)));
       return [1, fields];
     }
     case "patch": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        required(value.removes, "TrashItemsTableEvent.Patch.removes").map((
-          item,
-        ) => text(item)),
-      );
-      fields.set(
-        2,
-        required(value.upserts, "TrashItemsTableEvent.Patch.upserts").map((
-          item,
-        ) => encodeTrashItemValue(item)),
-      );
+      fields.set(1, required(value.removes, "TrashItemsTableEvent.Patch.removes").map((item) => text(item)));
+      fields.set(2, required(value.upserts, "TrashItemsTableEvent.Patch.upserts").map((item) => encodeTrashItemValue(item)));
       return [2, fields];
     }
     case "closed": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        encodeTrashItemsSubscriptionCloseReasonValue(
-          required(value.reason, "TrashItemsTableEvent.Closed.reason"),
-        ),
-      );
+      fields.set(1, encodeTrashItemsSubscriptionCloseReasonValue(required(value.reason, "TrashItemsTableEvent.Closed.reason")));
       return [3, fields];
     }
   }
 }
 
-export function decodeTrashItemsTableEventValue(
-  value: CborValue,
-): TrashItemsTableEvent {
+export function decodeTrashItemsTableEventValue(value: CborValue): TrashItemsTableEvent {
   const [variantId, fields] = expectUnion(value);
   switch (variantId) {
     case 1:
       return {
         type: "snapshot",
-        rows: fieldOrDefault(
-          fields.get(1),
-          (value) => array(value).map((item) => decodeTrashItemValue(item)),
-          () => [],
-        ),
+        rows: fieldOrDefault(fields.get(1), (value) => array(value).map((item) => decodeTrashItemValue(item)), () => []),
       };
     case 2:
       return {
         type: "patch",
-        removes: fieldOrDefault(
-          fields.get(1),
-          (value) => array(value).map((item) => textValue(item)),
-          () => [],
-        ),
-        upserts: fieldOrDefault(
-          fields.get(2),
-          (value) => array(value).map((item) => decodeTrashItemValue(item)),
-          () => [],
-        ),
+        removes: fieldOrDefault(fields.get(1), (value) => array(value).map((item) => textValue(item)), () => []),
+        upserts: fieldOrDefault(fields.get(2), (value) => array(value).map((item) => decodeTrashItemValue(item)), () => []),
       };
     case 3:
       return {
         type: "closed",
-        reason: fieldOrDefault(
-          fields.get(1),
-          (value) => decodeTrashItemsSubscriptionCloseReasonValue(value),
-          () => defaultTrashItemsSubscriptionCloseReason(),
-        ),
+        reason: fieldOrDefault(fields.get(1), (value) => decodeTrashItemsSubscriptionCloseReasonValue(value), () => defaultTrashItemsSubscriptionCloseReason()),
       };
   }
   throw new Error(`unknown TrashItemsTableEvent variant ${variantId}`);
@@ -5385,26 +3951,20 @@ export function decodeRootEntryKeyValue(value: CborValue): RootEntryKey {
   };
 }
 
-export function encodeDirectoryEntryKeyValue(
-  value: DirectoryEntryKey,
-): CborValue {
+export function encodeDirectoryEntryKeyValue(value: DirectoryEntryKey): CborValue {
   const fields = new Map<number, CborValue>();
   fields.set(1, text(required(value.name, "DirectoryEntryKey.name")));
   return fields;
 }
 
-export function decodeDirectoryEntryKeyValue(
-  value: CborValue,
-): DirectoryEntryKey {
+export function decodeDirectoryEntryKeyValue(value: CborValue): DirectoryEntryKey {
   const fields = expectMap(value);
   return {
     name: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
   };
 }
 
-export function encodeRootsSubscriptionCloseReasonValue(
-  value: RootsSubscriptionCloseReason,
-): CborValue {
+export function encodeRootsSubscriptionCloseReasonValue(value: RootsSubscriptionCloseReason): CborValue {
   switch (value.type) {
     case "failed": {
       const fields = new Map<number, CborValue>();
@@ -5421,9 +3981,7 @@ export function encodeRootsSubscriptionCloseReasonValue(
   }
 }
 
-export function decodeRootsSubscriptionCloseReasonValue(
-  value: CborValue,
-): RootsSubscriptionCloseReason {
+export function decodeRootsSubscriptionCloseReasonValue(value: CborValue): RootsSubscriptionCloseReason {
   const [variantId, fields] = expectUnion(value);
   switch (variantId) {
     case 0:
@@ -5442,9 +4000,7 @@ export function decodeRootsSubscriptionCloseReasonValue(
   throw new Error(`unknown RootsSubscriptionCloseReason variant ${variantId}`);
 }
 
-export function encodeDirectorySubscriptionCloseReasonValue(
-  value: DirectorySubscriptionCloseReason,
-): CborValue {
+export function encodeDirectorySubscriptionCloseReasonValue(value: DirectorySubscriptionCloseReason): CborValue {
   switch (value.type) {
     case "failed": {
       const fields = new Map<number, CborValue>();
@@ -5474,9 +4030,7 @@ export function encodeDirectorySubscriptionCloseReasonValue(
   }
 }
 
-export function decodeDirectorySubscriptionCloseReasonValue(
-  value: CborValue,
-): DirectorySubscriptionCloseReason {
+export function decodeDirectorySubscriptionCloseReasonValue(value: CborValue): DirectorySubscriptionCloseReason {
   const [variantId, fields] = expectUnion(value);
   switch (variantId) {
     case 0:
@@ -5505,14 +4059,10 @@ export function decodeDirectorySubscriptionCloseReasonValue(
         type: "unknown",
       };
   }
-  throw new Error(
-    `unknown DirectorySubscriptionCloseReason variant ${variantId}`,
-  );
+  throw new Error(`unknown DirectorySubscriptionCloseReason variant ${variantId}`);
 }
 
-export function encodeTrashItemsSubscriptionCloseReasonValue(
-  value: TrashItemsSubscriptionCloseReason,
-): CborValue {
+export function encodeTrashItemsSubscriptionCloseReasonValue(value: TrashItemsSubscriptionCloseReason): CborValue {
   switch (value.type) {
     case "failed": {
       const fields = new Map<number, CborValue>();
@@ -5529,9 +4079,7 @@ export function encodeTrashItemsSubscriptionCloseReasonValue(
   }
 }
 
-export function decodeTrashItemsSubscriptionCloseReasonValue(
-  value: CborValue,
-): TrashItemsSubscriptionCloseReason {
+export function decodeTrashItemsSubscriptionCloseReasonValue(value: CborValue): TrashItemsSubscriptionCloseReason {
   const [variantId, fields] = expectUnion(value);
   switch (variantId) {
     case 0:
@@ -5547,9 +4095,7 @@ export function decodeTrashItemsSubscriptionCloseReasonValue(
         type: "unknown",
       };
   }
-  throw new Error(
-    `unknown TrashItemsSubscriptionCloseReason variant ${variantId}`,
-  );
+  throw new Error(`unknown TrashItemsSubscriptionCloseReason variant ${variantId}`);
 }
 
 export function encodeFsEntryValue(value: FsEntry): CborValue {
@@ -5568,18 +4114,10 @@ export function decodeFsEntryValue(value: CborValue): FsEntry {
   return {
     name: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
     path: fieldOrDefault(fields.get(2), (value) => textValue(value), () => ""),
-    kind: fieldOrDefault(
-      fields.get(3),
-      (value) => decodeFsEntryKindValue(value),
-      () => FsEntryKind.File,
-    ),
+    kind: fieldOrDefault(fields.get(3), (value) => decodeFsEntryKindValue(value), () => FsEntryKind.File),
     size: optionalField(fields.get(4), (value) => integer(value)),
     modifiedAtMs: optionalField(fields.get(5), (value) => integer(value)),
-    readonly: fieldOrDefault(
-      fields.get(6),
-      (value) => boolValue(value),
-      () => false,
-    ),
+    readonly: fieldOrDefault(fields.get(6), (value) => boolValue(value), () => false),
   };
 }
 
@@ -5589,9 +4127,7 @@ export function encodeFsEntryKindValue(value: FsEntryKind): CborValue {
 
 export function decodeFsEntryKindValue(value: CborValue): FsEntryKind {
   const id = integer(value);
-  if (![1, 2, 3, 4].includes(id)) {
-    throw new Error(`unknown FsEntryKind variant ${id}`);
-  }
+  if (![1, 2, 3, 4].includes(id)) throw new Error(`unknown FsEntryKind variant ${id}`);
   return id as FsEntryKind;
 }
 
@@ -5599,14 +4135,9 @@ export function encodeTrashItemValue(value: TrashItem): CborValue {
   const fields = new Map<number, CborValue>();
   fields.set(1, text(required(value.id, "TrashItem.id")));
   fields.set(2, text(required(value.name, "TrashItem.name")));
-  fields.set(
-    3,
-    text(required(value.originalParent, "TrashItem.originalParent")),
-  );
+  fields.set(3, text(required(value.originalParent, "TrashItem.originalParent")));
   if (value.deletedAtMs !== undefined) fields.set(4, u53(value.deletedAtMs));
-  if (value.size !== undefined) {
-    fields.set(5, encodeTrashItemSizeValue(value.size));
-  }
+  if (value.size !== undefined) fields.set(5, encodeTrashItemSizeValue(value.size));
   return fields;
 }
 
@@ -5615,16 +4146,9 @@ export function decodeTrashItemValue(value: CborValue): TrashItem {
   return {
     id: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
     name: fieldOrDefault(fields.get(2), (value) => textValue(value), () => ""),
-    originalParent: fieldOrDefault(
-      fields.get(3),
-      (value) => textValue(value),
-      () => "",
-    ),
+    originalParent: fieldOrDefault(fields.get(3), (value) => textValue(value), () => ""),
     deletedAtMs: optionalField(fields.get(4), (value) => integer(value)),
-    size: optionalField(
-      fields.get(5),
-      (value) => decodeTrashItemSizeValue(value),
-    ),
+    size: optionalField(fields.get(5), (value) => decodeTrashItemSizeValue(value)),
   };
 }
 
@@ -5649,20 +4173,12 @@ export function decodeTrashItemSizeValue(value: CborValue): TrashItemSize {
     case 1:
       return {
         type: "bytes",
-        value: fieldOrDefault(
-          fields.get(1),
-          (value) => integer(value),
-          () => 0,
-        ),
+        value: fieldOrDefault(fields.get(1), (value) => integer(value), () => 0),
       };
     case 2:
       return {
         type: "entries",
-        value: fieldOrDefault(
-          fields.get(1),
-          (value) => integer(value),
-          () => 0,
-        ),
+        value: fieldOrDefault(fields.get(1), (value) => integer(value), () => 0),
       };
   }
   throw new Error(`unknown TrashItemSize variant ${variantId}`);
@@ -5679,11 +4195,7 @@ export function decodeReadFileChunkValue(value: CborValue): ReadFileChunk {
   const fields = expectMap(value);
   return {
     offset: fieldOrDefault(fields.get(1), (value) => integer(value), () => 0),
-    bytes: fieldOrDefault(
-      fields.get(2),
-      (value) => bytesValue(value),
-      () => new Uint8Array(),
-    ),
+    bytes: fieldOrDefault(fields.get(2), (value) => bytesValue(value), () => new Uint8Array()),
   };
 }
 
@@ -5691,31 +4203,16 @@ export function encodeWriteFileReqValue(value: WriteFileReq): CborValue {
   switch (value.type) {
     case "writeFileStart": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(required(value.path, "WriteFileReq.WriteFileStart.path")),
-      );
-      fields.set(
-        2,
-        encodeWriteFileModeValue(
-          required(value.mode, "WriteFileReq.WriteFileStart.mode"),
-        ),
-      );
-      if (value.expectedResultSize !== undefined) {
-        fields.set(3, u53(value.expectedResultSize));
-      }
-      if (value.modifiedAtMs !== undefined) {
-        fields.set(4, u53(value.modifiedAtMs));
-      }
+      fields.set(1, text(required(value.path, "WriteFileReq.WriteFileStart.path")));
+      fields.set(2, encodeWriteFileModeValue(required(value.mode, "WriteFileReq.WriteFileStart.mode")));
+      if (value.expectedResultSize !== undefined) fields.set(3, u53(value.expectedResultSize));
+      if (value.modifiedAtMs !== undefined) fields.set(4, u53(value.modifiedAtMs));
       return [1, fields];
     }
     case "writeFileChunk": {
       const fields = new Map<number, CborValue>();
       if (value.offset !== undefined) fields.set(1, u53(value.offset));
-      fields.set(
-        2,
-        bytes(required(value.bytes, "WriteFileReq.WriteFileChunk.bytes")),
-      );
+      fields.set(2, bytes(required(value.bytes, "WriteFileReq.WriteFileChunk.bytes")));
       return [2, fields];
     }
   }
@@ -5727,31 +4224,16 @@ export function decodeWriteFileReqValue(value: CborValue): WriteFileReq {
     case 1:
       return {
         type: "writeFileStart",
-        path: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
-        mode: fieldOrDefault(
-          fields.get(2),
-          (value) => decodeWriteFileModeValue(value),
-          () => WriteFileMode.Create,
-        ),
-        expectedResultSize: optionalField(
-          fields.get(3),
-          (value) => integer(value),
-        ),
+        path: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+        mode: fieldOrDefault(fields.get(2), (value) => decodeWriteFileModeValue(value), () => WriteFileMode.Create),
+        expectedResultSize: optionalField(fields.get(3), (value) => integer(value)),
         modifiedAtMs: optionalField(fields.get(4), (value) => integer(value)),
       };
     case 2:
       return {
         type: "writeFileChunk",
         offset: optionalField(fields.get(1), (value) => integer(value)),
-        bytes: fieldOrDefault(
-          fields.get(2),
-          (value) => bytesValue(value),
-          () => new Uint8Array(),
-        ),
+        bytes: fieldOrDefault(fields.get(2), (value) => bytesValue(value), () => new Uint8Array()),
       };
   }
   throw new Error(`unknown WriteFileReq variant ${variantId}`);
@@ -5759,10 +4241,7 @@ export function decodeWriteFileReqValue(value: CborValue): WriteFileReq {
 
 export function encodeWriteFileResultValue(value: WriteFileResult): CborValue {
   const fields = new Map<number, CborValue>();
-  fields.set(
-    1,
-    u53(required(value.bytesWritten, "WriteFileResult.bytesWritten")),
-  );
+  fields.set(1, u53(required(value.bytesWritten, "WriteFileResult.bytesWritten")));
   fields.set(2, u53(required(value.resultSize, "WriteFileResult.resultSize")));
   if (value.modifiedAtMs !== undefined) fields.set(3, u53(value.modifiedAtMs));
   return fields;
@@ -5771,16 +4250,8 @@ export function encodeWriteFileResultValue(value: WriteFileResult): CborValue {
 export function decodeWriteFileResultValue(value: CborValue): WriteFileResult {
   const fields = expectMap(value);
   return {
-    bytesWritten: fieldOrDefault(
-      fields.get(1),
-      (value) => integer(value),
-      () => 0,
-    ),
-    resultSize: fieldOrDefault(
-      fields.get(2),
-      (value) => integer(value),
-      () => 0,
-    ),
+    bytesWritten: fieldOrDefault(fields.get(1), (value) => integer(value), () => 0),
+    resultSize: fieldOrDefault(fields.get(2), (value) => integer(value), () => 0),
     modifiedAtMs: optionalField(fields.get(3), (value) => integer(value)),
   };
 }
@@ -5791,41 +4262,27 @@ export function encodeWriteFileModeValue(value: WriteFileMode): CborValue {
 
 export function decodeWriteFileModeValue(value: CborValue): WriteFileMode {
   const id = integer(value);
-  if (![1, 2, 3, 4].includes(id)) {
-    throw new Error(`unknown WriteFileMode variant ${id}`);
-  }
+  if (![1, 2, 3, 4].includes(id)) throw new Error(`unknown WriteFileMode variant ${id}`);
   return id as WriteFileMode;
 }
 
 export function encodeCreateNodesReqValue(value: CreateNodesReq): CborValue {
   const fields = new Map<number, CborValue>();
-  fields.set(
-    1,
-    required(value.nodes, "CreateNodesReq.nodes").map((item) =>
-      encodeCreateNodeOpValue(item)
-    ),
-  );
+  fields.set(1, required(value.nodes, "CreateNodesReq.nodes").map((item) => encodeCreateNodeOpValue(item)));
   return fields;
 }
 
 export function decodeCreateNodesReqValue(value: CborValue): CreateNodesReq {
   const fields = expectMap(value);
   return {
-    nodes: fieldOrDefault(
-      fields.get(1),
-      (value) => array(value).map((item) => decodeCreateNodeOpValue(item)),
-      () => [],
-    ),
+    nodes: fieldOrDefault(fields.get(1), (value) => array(value).map((item) => decodeCreateNodeOpValue(item)), () => []),
   };
 }
 
 export function encodeCreateNodeOpValue(value: CreateNodeOp): CborValue {
   const fields = new Map<number, CborValue>();
   fields.set(1, text(required(value.path, "CreateNodeOp.path")));
-  fields.set(
-    2,
-    encodeCreateNodeSpecValue(required(value.spec, "CreateNodeOp.spec")),
-  );
+  fields.set(2, encodeCreateNodeSpecValue(required(value.spec, "CreateNodeOp.spec")));
   return fields;
 }
 
@@ -5833,11 +4290,7 @@ export function decodeCreateNodeOpValue(value: CborValue): CreateNodeOp {
   const fields = expectMap(value);
   return {
     path: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
-    spec: fieldOrDefault(
-      fields.get(2),
-      (value) => decodeCreateNodeSpecValue(value),
-      () => defaultCreateNodeSpec(),
-    ),
+    spec: fieldOrDefault(fields.get(2), (value) => decodeCreateNodeSpecValue(value), () => defaultCreateNodeSpec()),
   };
 }
 
@@ -5853,18 +4306,12 @@ export function encodeCreateNodeSpecValue(value: CreateNodeSpec): CborValue {
     }
     case "symlink": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(required(value.target, "CreateNodeSpec.Symlink.target")),
-      );
+      fields.set(1, text(required(value.target, "CreateNodeSpec.Symlink.target")));
       return [3, fields];
     }
     case "hardlink": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(required(value.target, "CreateNodeSpec.Hardlink.target")),
-      );
+      fields.set(1, text(required(value.target, "CreateNodeSpec.Hardlink.target")));
       return [4, fields];
     }
   }
@@ -5884,20 +4331,12 @@ export function decodeCreateNodeSpecValue(value: CborValue): CreateNodeSpec {
     case 3:
       return {
         type: "symlink",
-        target: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        target: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
     case 4:
       return {
         type: "hardlink",
-        target: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        target: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
   }
   throw new Error(`unknown CreateNodeSpec variant ${variantId}`);
@@ -5905,23 +4344,14 @@ export function decodeCreateNodeSpecValue(value: CborValue): CreateNodeSpec {
 
 export function encodeRenamePathsReqValue(value: RenamePathsReq): CborValue {
   const fields = new Map<number, CborValue>();
-  fields.set(
-    1,
-    required(value.ops, "RenamePathsReq.ops").map((item) =>
-      encodeRenamePathOpValue(item)
-    ),
-  );
+  fields.set(1, required(value.ops, "RenamePathsReq.ops").map((item) => encodeRenamePathOpValue(item)));
   return fields;
 }
 
 export function decodeRenamePathsReqValue(value: CborValue): RenamePathsReq {
   const fields = expectMap(value);
   return {
-    ops: fieldOrDefault(
-      fields.get(1),
-      (value) => array(value).map((item) => decodeRenamePathOpValue(item)),
-      () => [],
-    ),
+    ops: fieldOrDefault(fields.get(1), (value) => array(value).map((item) => decodeRenamePathOpValue(item)), () => []),
   };
 }
 
@@ -5942,82 +4372,42 @@ export function decodeRenamePathOpValue(value: CborValue): RenamePathOp {
 
 export function encodeDeletePathsReqValue(value: DeletePathsReq): CborValue {
   const fields = new Map<number, CborValue>();
-  fields.set(
-    1,
-    required(value.paths, "DeletePathsReq.paths").map((item) => text(item)),
-  );
-  fields.set(
-    2,
-    encodeDeleteModeValue(required(value.mode, "DeletePathsReq.mode")),
-  );
+  fields.set(1, required(value.paths, "DeletePathsReq.paths").map((item) => text(item)));
+  fields.set(2, encodeDeleteModeValue(required(value.mode, "DeletePathsReq.mode")));
   return fields;
 }
 
 export function decodeDeletePathsReqValue(value: CborValue): DeletePathsReq {
   const fields = expectMap(value);
   return {
-    paths: fieldOrDefault(
-      fields.get(1),
-      (value) => array(value).map((item) => textValue(item)),
-      () => [],
-    ),
-    mode: fieldOrDefault(
-      fields.get(2),
-      (value) => decodeDeleteModeValue(value),
-      () => DeleteMode.Trash,
-    ),
+    paths: fieldOrDefault(fields.get(1), (value) => array(value).map((item) => textValue(item)), () => []),
+    mode: fieldOrDefault(fields.get(2), (value) => decodeDeleteModeValue(value), () => DeleteMode.Trash),
   };
 }
 
-export function encodeRestoreTrashItemsReqValue(
-  value: RestoreTrashItemsReq,
-): CborValue {
+export function encodeRestoreTrashItemsReqValue(value: RestoreTrashItemsReq): CborValue {
   const fields = new Map<number, CborValue>();
-  fields.set(
-    1,
-    required(value.itemIds, "RestoreTrashItemsReq.itemIds").map((item) =>
-      text(item)
-    ),
-  );
+  fields.set(1, required(value.itemIds, "RestoreTrashItemsReq.itemIds").map((item) => text(item)));
   return fields;
 }
 
-export function decodeRestoreTrashItemsReqValue(
-  value: CborValue,
-): RestoreTrashItemsReq {
+export function decodeRestoreTrashItemsReqValue(value: CborValue): RestoreTrashItemsReq {
   const fields = expectMap(value);
   return {
-    itemIds: fieldOrDefault(
-      fields.get(1),
-      (value) => array(value).map((item) => textValue(item)),
-      () => [],
-    ),
+    itemIds: fieldOrDefault(fields.get(1), (value) => array(value).map((item) => textValue(item)), () => []),
   };
 }
 
-export function encodePurgeTrashItemsReqValue(
-  value: PurgeTrashItemsReq,
-): CborValue {
+export function encodePurgeTrashItemsReqValue(value: PurgeTrashItemsReq): CborValue {
   const fields = new Map<number, CborValue>();
-  fields.set(
-    1,
-    required(value.itemIds, "PurgeTrashItemsReq.itemIds").map((item) =>
-      text(item)
-    ),
-  );
+  fields.set(1, required(value.itemIds, "PurgeTrashItemsReq.itemIds").map((item) => text(item)));
   return fields;
 }
 
-export function decodePurgeTrashItemsReqValue(
-  value: CborValue,
-): PurgeTrashItemsReq {
+export function decodePurgeTrashItemsReqValue(value: CborValue): PurgeTrashItemsReq {
   const fields = expectMap(value);
   return {
-    itemIds: fieldOrDefault(
-      fields.get(1),
-      (value) => array(value).map((item) => textValue(item)),
-      () => [],
-    ),
+    itemIds: fieldOrDefault(fields.get(1), (value) => array(value).map((item) => textValue(item)), () => []),
   };
 }
 
@@ -6033,434 +4423,244 @@ export function decodeDeleteModeValue(value: CborValue): DeleteMode {
 
 export function encodeBulkMutationResValue(value: BulkMutationRes): CborValue {
   const fields = new Map<number, CborValue>();
-  fields.set(
-    1,
-    required(value.results, "BulkMutationRes.results").map((item) =>
-      encodeBulkMutationItemResultValue(item)
-    ),
-  );
+  fields.set(1, required(value.results, "BulkMutationRes.results").map((item) => encodeBulkMutationItemResultValue(item)));
   return fields;
 }
 
 export function decodeBulkMutationResValue(value: CborValue): BulkMutationRes {
   const fields = expectMap(value);
   return {
-    results: fieldOrDefault(
-      fields.get(1),
-      (value) =>
-        array(value).map((item) => decodeBulkMutationItemResultValue(item)),
-      () => [],
-    ),
+    results: fieldOrDefault(fields.get(1), (value) => array(value).map((item) => decodeBulkMutationItemResultValue(item)), () => []),
   };
 }
 
-export function encodeBulkMutationItemResultValue(
-  value: BulkMutationItemResult,
-): CborValue {
+export function encodeBulkMutationItemResultValue(value: BulkMutationItemResult): CborValue {
   switch (value.type) {
     case "failed": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        u53(required(value.index, "BulkMutationItemResult.Failed.index")),
-      );
-      fields.set(
-        2,
-        encodeFsMutationItemErrorValue(
-          required(value.error, "BulkMutationItemResult.Failed.error"),
-        ),
-      );
+      fields.set(1, u53(required(value.index, "BulkMutationItemResult.Failed.index")));
+      fields.set(2, encodeFsMutationItemErrorValue(required(value.error, "BulkMutationItemResult.Failed.error")));
       return [0, fields];
     }
     case "ok": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        u53(required(value.index, "BulkMutationItemResult.Ok.index")),
-      );
+      fields.set(1, u53(required(value.index, "BulkMutationItemResult.Ok.index")));
       return [1, fields];
     }
   }
 }
 
-export function decodeBulkMutationItemResultValue(
-  value: CborValue,
-): BulkMutationItemResult {
+export function decodeBulkMutationItemResultValue(value: CborValue): BulkMutationItemResult {
   const [variantId, fields] = expectUnion(value);
   switch (variantId) {
     case 0:
       return {
         type: "failed",
-        index: fieldOrDefault(
-          fields.get(1),
-          (value) => integer(value),
-          () => 0,
-        ),
-        error: fieldOrDefault(
-          fields.get(2),
-          (value) => decodeFsMutationItemErrorValue(value),
-          () => defaultFsMutationItemError(),
-        ),
+        index: fieldOrDefault(fields.get(1), (value) => integer(value), () => 0),
+        error: fieldOrDefault(fields.get(2), (value) => decodeFsMutationItemErrorValue(value), () => defaultFsMutationItemError()),
       };
     case 1:
       return {
         type: "ok",
-        index: fieldOrDefault(
-          fields.get(1),
-          (value) => integer(value),
-          () => 0,
-        ),
+        index: fieldOrDefault(fields.get(1), (value) => integer(value), () => 0),
       };
   }
   throw new Error(`unknown BulkMutationItemResult variant ${variantId}`);
 }
 
-export function encodeFsMutationItemErrorValue(
-  value: FsMutationItemError,
-): CborValue {
+export function encodeFsMutationItemErrorValue(value: FsMutationItemError): CborValue {
   switch (value.type) {
     case "failed": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(required(value.message, "FsMutationItemError.Failed.message")),
-      );
+      fields.set(1, text(required(value.message, "FsMutationItemError.Failed.message")));
       return [0, fields];
     }
     case "permissionDenied": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(
-          required(
-            value.message,
-            "FsMutationItemError.PermissionDenied.message",
-          ),
-        ),
-      );
+      fields.set(1, text(required(value.message, "FsMutationItemError.PermissionDenied.message")));
       return [1, fields];
     }
     case "notFound": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(required(value.message, "FsMutationItemError.NotFound.message")),
-      );
+      fields.set(1, text(required(value.message, "FsMutationItemError.NotFound.message")));
       return [2, fields];
     }
     case "alreadyExists": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(
-          required(value.message, "FsMutationItemError.AlreadyExists.message"),
-        ),
-      );
+      fields.set(1, text(required(value.message, "FsMutationItemError.AlreadyExists.message")));
       return [3, fields];
     }
     case "notDirectory": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(
-          required(value.message, "FsMutationItemError.NotDirectory.message"),
-        ),
-      );
+      fields.set(1, text(required(value.message, "FsMutationItemError.NotDirectory.message")));
       return [4, fields];
     }
     case "notFile": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(required(value.message, "FsMutationItemError.NotFile.message")),
-      );
+      fields.set(1, text(required(value.message, "FsMutationItemError.NotFile.message")));
       return [5, fields];
     }
     case "invalidPath": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(
-          required(value.message, "FsMutationItemError.InvalidPath.message"),
-        ),
-      );
+      fields.set(1, text(required(value.message, "FsMutationItemError.InvalidPath.message")));
       return [6, fields];
     }
     case "unsupported": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(
-          required(value.message, "FsMutationItemError.Unsupported.message"),
-        ),
-      );
+      fields.set(1, text(required(value.message, "FsMutationItemError.Unsupported.message")));
       return [7, fields];
     }
   }
 }
 
-export function decodeFsMutationItemErrorValue(
-  value: CborValue,
-): FsMutationItemError {
+export function decodeFsMutationItemErrorValue(value: CborValue): FsMutationItemError {
   const [variantId, fields] = expectUnion(value);
   switch (variantId) {
     case 0:
       return {
         type: "failed",
-        message: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
     case 1:
       return {
         type: "permissionDenied",
-        message: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
     case 2:
       return {
         type: "notFound",
-        message: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
     case 3:
       return {
         type: "alreadyExists",
-        message: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
     case 4:
       return {
         type: "notDirectory",
-        message: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
     case 5:
       return {
         type: "notFile",
-        message: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
     case 6:
       return {
         type: "invalidPath",
-        message: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
     case 7:
       return {
         type: "unsupported",
-        message: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
   }
   throw new Error(`unknown FsMutationItemError variant ${variantId}`);
 }
 
-export function encodeSubscribeRootsErrorValue(
-  value: SubscribeRootsError,
-): CborValue {
+export function encodeSubscribeRootsErrorValue(value: SubscribeRootsError): CborValue {
   switch (value.type) {
     case "failed": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(required(value.message, "SubscribeRootsError.Failed.message")),
-      );
+      fields.set(1, text(required(value.message, "SubscribeRootsError.Failed.message")));
       return [0, fields];
     }
   }
 }
 
-export function decodeSubscribeRootsErrorValue(
-  value: CborValue,
-): SubscribeRootsError {
+export function decodeSubscribeRootsErrorValue(value: CborValue): SubscribeRootsError {
   const [variantId, fields] = expectUnion(value);
   switch (variantId) {
     case 0:
       return {
         type: "failed",
-        message: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
   }
   throw new Error(`unknown SubscribeRootsError variant ${variantId}`);
 }
 
-export function encodeSubscribeDirectoryErrorValue(
-  value: SubscribeDirectoryError,
-): CborValue {
+export function encodeSubscribeDirectoryErrorValue(value: SubscribeDirectoryError): CborValue {
   switch (value.type) {
     case "failed": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(required(value.message, "SubscribeDirectoryError.Failed.message")),
-      );
+      fields.set(1, text(required(value.message, "SubscribeDirectoryError.Failed.message")));
       return [0, fields];
     }
     case "permissionDenied": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(
-          required(
-            value.message,
-            "SubscribeDirectoryError.PermissionDenied.message",
-          ),
-        ),
-      );
+      fields.set(1, text(required(value.message, "SubscribeDirectoryError.PermissionDenied.message")));
       return [1, fields];
     }
     case "notFound": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(
-          required(value.message, "SubscribeDirectoryError.NotFound.message"),
-        ),
-      );
+      fields.set(1, text(required(value.message, "SubscribeDirectoryError.NotFound.message")));
       return [2, fields];
     }
     case "notDirectory": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(
-          required(
-            value.message,
-            "SubscribeDirectoryError.NotDirectory.message",
-          ),
-        ),
-      );
+      fields.set(1, text(required(value.message, "SubscribeDirectoryError.NotDirectory.message")));
       return [3, fields];
     }
   }
 }
 
-export function decodeSubscribeDirectoryErrorValue(
-  value: CborValue,
-): SubscribeDirectoryError {
+export function decodeSubscribeDirectoryErrorValue(value: CborValue): SubscribeDirectoryError {
   const [variantId, fields] = expectUnion(value);
   switch (variantId) {
     case 0:
       return {
         type: "failed",
-        message: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
     case 1:
       return {
         type: "permissionDenied",
-        message: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
     case 2:
       return {
         type: "notFound",
-        message: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
     case 3:
       return {
         type: "notDirectory",
-        message: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
   }
   throw new Error(`unknown SubscribeDirectoryError variant ${variantId}`);
 }
 
-export function encodeSubscribeTrashItemsErrorValue(
-  value: SubscribeTrashItemsError,
-): CborValue {
+export function encodeSubscribeTrashItemsErrorValue(value: SubscribeTrashItemsError): CborValue {
   switch (value.type) {
     case "failed": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(
-          required(value.message, "SubscribeTrashItemsError.Failed.message"),
-        ),
-      );
+      fields.set(1, text(required(value.message, "SubscribeTrashItemsError.Failed.message")));
       return [0, fields];
     }
     case "permissionDenied": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(
-          required(
-            value.message,
-            "SubscribeTrashItemsError.PermissionDenied.message",
-          ),
-        ),
-      );
+      fields.set(1, text(required(value.message, "SubscribeTrashItemsError.PermissionDenied.message")));
       return [1, fields];
     }
   }
 }
 
-export function decodeSubscribeTrashItemsErrorValue(
-  value: CborValue,
-): SubscribeTrashItemsError {
+export function decodeSubscribeTrashItemsErrorValue(value: CborValue): SubscribeTrashItemsError {
   const [variantId, fields] = expectUnion(value);
   switch (variantId) {
     case 0:
       return {
         type: "failed",
-        message: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
     case 1:
       return {
         type: "permissionDenied",
-        message: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
   }
   throw new Error(`unknown SubscribeTrashItemsError variant ${variantId}`);
@@ -6470,42 +4670,27 @@ export function encodeReadFileErrorValue(value: ReadFileError): CborValue {
   switch (value.type) {
     case "failed": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(required(value.message, "ReadFileError.Failed.message")),
-      );
+      fields.set(1, text(required(value.message, "ReadFileError.Failed.message")));
       return [0, fields];
     }
     case "permissionDenied": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(required(value.message, "ReadFileError.PermissionDenied.message")),
-      );
+      fields.set(1, text(required(value.message, "ReadFileError.PermissionDenied.message")));
       return [1, fields];
     }
     case "notFound": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(required(value.message, "ReadFileError.NotFound.message")),
-      );
+      fields.set(1, text(required(value.message, "ReadFileError.NotFound.message")));
       return [2, fields];
     }
     case "notFile": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(required(value.message, "ReadFileError.NotFile.message")),
-      );
+      fields.set(1, text(required(value.message, "ReadFileError.NotFile.message")));
       return [3, fields];
     }
     case "invalidPath": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(required(value.message, "ReadFileError.InvalidPath.message")),
-      );
+      fields.set(1, text(required(value.message, "ReadFileError.InvalidPath.message")));
       return [4, fields];
     }
   }
@@ -6517,47 +4702,27 @@ export function decodeReadFileErrorValue(value: CborValue): ReadFileError {
     case 0:
       return {
         type: "failed",
-        message: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
     case 1:
       return {
         type: "permissionDenied",
-        message: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
     case 2:
       return {
         type: "notFound",
-        message: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
     case 3:
       return {
         type: "notFile",
-        message: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
     case 4:
       return {
         type: "invalidPath",
-        message: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
   }
   throw new Error(`unknown ReadFileError variant ${variantId}`);
@@ -6567,60 +4732,37 @@ export function encodeWriteFileErrorValue(value: WriteFileError): CborValue {
   switch (value.type) {
     case "failed": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(required(value.message, "WriteFileError.Failed.message")),
-      );
+      fields.set(1, text(required(value.message, "WriteFileError.Failed.message")));
       return [0, fields];
     }
     case "permissionDenied": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(
-          required(value.message, "WriteFileError.PermissionDenied.message"),
-        ),
-      );
+      fields.set(1, text(required(value.message, "WriteFileError.PermissionDenied.message")));
       return [1, fields];
     }
     case "notFound": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(required(value.message, "WriteFileError.NotFound.message")),
-      );
+      fields.set(1, text(required(value.message, "WriteFileError.NotFound.message")));
       return [2, fields];
     }
     case "alreadyExists": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(required(value.message, "WriteFileError.AlreadyExists.message")),
-      );
+      fields.set(1, text(required(value.message, "WriteFileError.AlreadyExists.message")));
       return [3, fields];
     }
     case "notDirectory": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(required(value.message, "WriteFileError.NotDirectory.message")),
-      );
+      fields.set(1, text(required(value.message, "WriteFileError.NotDirectory.message")));
       return [4, fields];
     }
     case "notFile": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(required(value.message, "WriteFileError.NotFile.message")),
-      );
+      fields.set(1, text(required(value.message, "WriteFileError.NotFile.message")));
       return [5, fields];
     }
     case "invalidPath": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(required(value.message, "WriteFileError.InvalidPath.message")),
-      );
+      fields.set(1, text(required(value.message, "WriteFileError.InvalidPath.message")));
       return [6, fields];
     }
   }
@@ -6632,65 +4774,37 @@ export function decodeWriteFileErrorValue(value: CborValue): WriteFileError {
     case 0:
       return {
         type: "failed",
-        message: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
     case 1:
       return {
         type: "permissionDenied",
-        message: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
     case 2:
       return {
         type: "notFound",
-        message: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
     case 3:
       return {
         type: "alreadyExists",
-        message: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
     case 4:
       return {
         type: "notDirectory",
-        message: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
     case 5:
       return {
         type: "notFile",
-        message: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
     case 6:
       return {
         type: "invalidPath",
-        message: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
   }
   throw new Error(`unknown WriteFileError variant ${variantId}`);
@@ -6700,10 +4814,7 @@ export function encodeFsMutationErrorValue(value: FsMutationError): CborValue {
   switch (value.type) {
     case "failed": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(required(value.message, "FsMutationError.Failed.message")),
-      );
+      fields.set(1, text(required(value.message, "FsMutationError.Failed.message")));
       return [0, fields];
     }
   }
@@ -6715,11 +4826,7 @@ export function decodeFsMutationErrorValue(value: CborValue): FsMutationError {
     case 0:
       return {
         type: "failed",
-        message: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
   }
   throw new Error(`unknown FsMutationError variant ${variantId}`);
@@ -6727,12 +4834,7 @@ export function decodeFsMutationErrorValue(value: CborValue): FsMutationError {
 
 export function encodeDaemonInfoValue(value: DaemonInfo): CborValue {
   const fields = new Map<number, CborValue>();
-  fields.set(
-    1,
-    required(value.supportedProcIds, "DaemonInfo.supportedProcIds").map((
-      item,
-    ) => u53(item)),
-  );
+  fields.set(1, required(value.supportedProcIds, "DaemonInfo.supportedProcIds").map((item) => u53(item)));
   fields.set(2, text(required(value.version, "DaemonInfo.version")));
   fields.set(3, text(required(value.os, "DaemonInfo.os")));
   fields.set(4, text(required(value.instanceId, "DaemonInfo.instanceId")));
@@ -6744,56 +4846,25 @@ export function encodeDaemonInfoValue(value: DaemonInfo): CborValue {
 export function decodeDaemonInfoValue(value: CborValue): DaemonInfo {
   const fields = expectMap(value);
   return {
-    supportedProcIds: fieldOrDefault(
-      fields.get(1),
-      (value) => array(value).map((item) => integer(item)),
-      () => [],
-    ),
-    version: fieldOrDefault(
-      fields.get(2),
-      (value) => textValue(value),
-      () => "",
-    ),
+    supportedProcIds: fieldOrDefault(fields.get(1), (value) => array(value).map((item) => integer(item)), () => []),
+    version: fieldOrDefault(fields.get(2), (value) => textValue(value), () => ""),
     os: fieldOrDefault(fields.get(3), (value) => textValue(value), () => ""),
-    instanceId: fieldOrDefault(
-      fields.get(4),
-      (value) => textValue(value),
-      () => "",
-    ),
-    startedAtMs: fieldOrDefault(
-      fields.get(5),
-      (value) => integer(value),
-      () => 0,
-    ),
-    serverTimeMs: fieldOrDefault(
-      fields.get(6),
-      (value) => integer(value),
-      () => 0,
-    ),
+    instanceId: fieldOrDefault(fields.get(4), (value) => textValue(value), () => ""),
+    startedAtMs: fieldOrDefault(fields.get(5), (value) => integer(value), () => 0),
+    serverTimeMs: fieldOrDefault(fields.get(6), (value) => integer(value), () => 0),
   };
 }
 
-export function encodeDaemonEnvironmentValue(
-  value: DaemonEnvironment,
-): CborValue {
+export function encodeDaemonEnvironmentValue(value: DaemonEnvironment): CborValue {
   const fields = new Map<number, CborValue>();
-  fields.set(
-    1,
-    text(required(value.homeDirectory, "DaemonEnvironment.homeDirectory")),
-  );
+  fields.set(1, text(required(value.homeDirectory, "DaemonEnvironment.homeDirectory")));
   return fields;
 }
 
-export function decodeDaemonEnvironmentValue(
-  value: CborValue,
-): DaemonEnvironment {
+export function decodeDaemonEnvironmentValue(value: CborValue): DaemonEnvironment {
   const fields = expectMap(value);
   return {
-    homeDirectory: fieldOrDefault(
-      fields.get(1),
-      (value) => textValue(value),
-      () => "",
-    ),
+    homeDirectory: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
   };
 }
 
@@ -6809,85 +4880,42 @@ export function encodeClientInfoValue(value: ClientInfo): CborValue {
 export function decodeClientInfoValue(value: CborValue): ClientInfo {
   const fields = expectMap(value);
   return {
-    clientId: fieldOrDefault(
-      fields.get(1),
-      (value) => textValue(value),
-      () => "",
-    ),
+    clientId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
     label: fieldOrDefault(fields.get(2), (value) => textValue(value), () => ""),
-    createdAtUnix: fieldOrDefault(
-      fields.get(3),
-      (value) => integer(value),
-      () => 0,
-    ),
-    expiresAtUnix: fieldOrDefault(
-      fields.get(4),
-      (value) => integer(value),
-      () => 0,
-    ),
+    createdAtUnix: fieldOrDefault(fields.get(3), (value) => integer(value), () => 0),
+    expiresAtUnix: fieldOrDefault(fields.get(4), (value) => integer(value), () => 0),
   };
 }
 
-export function encodeClientsTableEventValue(
-  value: ClientsTableEvent,
-): CborValue {
+export function encodeClientsTableEventValue(value: ClientsTableEvent): CborValue {
   switch (value.type) {
     case "snapshot": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        required(value.rows, "ClientsTableEvent.Snapshot.rows").map((item) =>
-          encodeClientInfoValue(item)
-        ),
-      );
+      fields.set(1, required(value.rows, "ClientsTableEvent.Snapshot.rows").map((item) => encodeClientInfoValue(item)));
       return [1, fields];
     }
     case "patch": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        required(value.removes, "ClientsTableEvent.Patch.removes").map((item) =>
-          encodeClientKeyValue(item)
-        ),
-      );
-      fields.set(
-        2,
-        required(value.upserts, "ClientsTableEvent.Patch.upserts").map((item) =>
-          encodeClientInfoValue(item)
-        ),
-      );
+      fields.set(1, required(value.removes, "ClientsTableEvent.Patch.removes").map((item) => encodeClientKeyValue(item)));
+      fields.set(2, required(value.upserts, "ClientsTableEvent.Patch.upserts").map((item) => encodeClientInfoValue(item)));
       return [2, fields];
     }
   }
 }
 
-export function decodeClientsTableEventValue(
-  value: CborValue,
-): ClientsTableEvent {
+export function decodeClientsTableEventValue(value: CborValue): ClientsTableEvent {
   const [variantId, fields] = expectUnion(value);
   switch (variantId) {
     case 1:
       return {
         type: "snapshot",
-        rows: fieldOrDefault(
-          fields.get(1),
-          (value) => array(value).map((item) => decodeClientInfoValue(item)),
-          () => [],
-        ),
+        rows: fieldOrDefault(fields.get(1), (value) => array(value).map((item) => decodeClientInfoValue(item)), () => []),
       };
     case 2:
       return {
         type: "patch",
-        removes: fieldOrDefault(
-          fields.get(1),
-          (value) => array(value).map((item) => decodeClientKeyValue(item)),
-          () => [],
-        ),
-        upserts: fieldOrDefault(
-          fields.get(2),
-          (value) => array(value).map((item) => decodeClientInfoValue(item)),
-          () => [],
-        ),
+        removes: fieldOrDefault(fields.get(1), (value) => array(value).map((item) => decodeClientKeyValue(item)), () => []),
+        upserts: fieldOrDefault(fields.get(2), (value) => array(value).map((item) => decodeClientInfoValue(item)), () => []),
       };
   }
   throw new Error(`unknown ClientsTableEvent variant ${variantId}`);
@@ -6902,135 +4930,1465 @@ export function encodeClientKeyValue(value: ClientKey): CborValue {
 export function decodeClientKeyValue(value: CborValue): ClientKey {
   const fields = expectMap(value);
   return {
-    clientId: fieldOrDefault(
-      fields.get(1),
-      (value) => textValue(value),
-      () => "",
-    ),
+    clientId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
   };
 }
 
-export function encodeGetDaemonInfoErrorValue(
-  value: GetDaemonInfoError,
-): CborValue {
+export function encodeGetDaemonInfoErrorValue(value: GetDaemonInfoError): CborValue {
   switch (value.type) {
     case "failed": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(required(value.message, "GetDaemonInfoError.Failed.message")),
-      );
+      fields.set(1, text(required(value.message, "GetDaemonInfoError.Failed.message")));
       return [0, fields];
     }
   }
 }
 
-export function decodeGetDaemonInfoErrorValue(
-  value: CborValue,
-): GetDaemonInfoError {
+export function decodeGetDaemonInfoErrorValue(value: CborValue): GetDaemonInfoError {
   const [variantId, fields] = expectUnion(value);
   switch (variantId) {
     case 0:
       return {
         type: "failed",
-        message: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
   }
   throw new Error(`unknown GetDaemonInfoError variant ${variantId}`);
 }
 
-export function encodeGetDaemonEnvironmentErrorValue(
-  value: GetDaemonEnvironmentError,
-): CborValue {
+export function encodeGetDaemonEnvironmentErrorValue(value: GetDaemonEnvironmentError): CborValue {
   switch (value.type) {
     case "failed": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(
-          required(value.message, "GetDaemonEnvironmentError.Failed.message"),
-        ),
-      );
+      fields.set(1, text(required(value.message, "GetDaemonEnvironmentError.Failed.message")));
       return [0, fields];
     }
   }
 }
 
-export function decodeGetDaemonEnvironmentErrorValue(
-  value: CborValue,
-): GetDaemonEnvironmentError {
+export function decodeGetDaemonEnvironmentErrorValue(value: CborValue): GetDaemonEnvironmentError {
   const [variantId, fields] = expectUnion(value);
   switch (variantId) {
     case 0:
       return {
         type: "failed",
-        message: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
   }
   throw new Error(`unknown GetDaemonEnvironmentError variant ${variantId}`);
 }
 
-export function encodeSubscribeClientsErrorValue(
-  value: SubscribeClientsError,
-): CborValue {
+export function encodeSubscribeClientsErrorValue(value: SubscribeClientsError): CborValue {
   switch (value.type) {
     case "failed": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(required(value.message, "SubscribeClientsError.Failed.message")),
-      );
+      fields.set(1, text(required(value.message, "SubscribeClientsError.Failed.message")));
       return [0, fields];
     }
     case "permissionDenied": {
       const fields = new Map<number, CborValue>();
-      fields.set(
-        1,
-        text(
-          required(
-            value.message,
-            "SubscribeClientsError.PermissionDenied.message",
-          ),
-        ),
-      );
+      fields.set(1, text(required(value.message, "SubscribeClientsError.PermissionDenied.message")));
       return [1, fields];
     }
   }
 }
 
-export function decodeSubscribeClientsErrorValue(
-  value: CborValue,
-): SubscribeClientsError {
+export function decodeSubscribeClientsErrorValue(value: CborValue): SubscribeClientsError {
   const [variantId, fields] = expectUnion(value);
   switch (variantId) {
     case 0:
       return {
         type: "failed",
-        message: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
     case 1:
       return {
         type: "permissionDenied",
-        message: fieldOrDefault(
-          fields.get(1),
-          (value) => textValue(value),
-          () => "",
-        ),
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
   }
   throw new Error(`unknown SubscribeClientsError variant ${variantId}`);
+}
+
+export function encodeCommandLaunchSpecValue(value: CommandLaunchSpec): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, text(required(value.command, "CommandLaunchSpec.command")));
+  fields.set(2, required(value.args, "CommandLaunchSpec.args").map((item) => text(item)));
+  if (value.cwd !== undefined) fields.set(3, text(value.cwd));
+  if (value.env !== undefined) fields.set(4, encodeCommandEnvPatchValue(value.env));
+  if (value.stdin !== undefined) fields.set(5, encodeCommandStdinValue(value.stdin));
+  if (value.elevated !== undefined) fields.set(6, bool(value.elevated));
+  return fields;
+}
+
+export function decodeCommandLaunchSpecValue(value: CborValue): CommandLaunchSpec {
+  const fields = expectMap(value);
+  return {
+    command: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+    args: fieldOrDefault(fields.get(2), (value) => array(value).map((item) => textValue(item)), () => []),
+    cwd: optionalField(fields.get(3), (value) => textValue(value)),
+    env: optionalField(fields.get(4), (value) => decodeCommandEnvPatchValue(value)),
+    stdin: optionalField(fields.get(5), (value) => decodeCommandStdinValue(value)),
+    elevated: optionalField(fields.get(6), (value) => boolValue(value)),
+  };
+}
+
+export function encodeCommandEnvPatchValue(value: CommandEnvPatch): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, required(value.set, "CommandEnvPatch.set").map((item) => encodeCommandEnvVarValue(item)));
+  fields.set(2, required(value.unset, "CommandEnvPatch.unset").map((item) => text(item)));
+  return fields;
+}
+
+export function decodeCommandEnvPatchValue(value: CborValue): CommandEnvPatch {
+  const fields = expectMap(value);
+  return {
+    set: fieldOrDefault(fields.get(1), (value) => array(value).map((item) => decodeCommandEnvVarValue(item)), () => []),
+    unset: fieldOrDefault(fields.get(2), (value) => array(value).map((item) => textValue(item)), () => []),
+  };
+}
+
+export function encodeCommandEnvVarValue(value: CommandEnvVar): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, text(required(value.name, "CommandEnvVar.name")));
+  fields.set(2, text(required(value.value, "CommandEnvVar.value")));
+  return fields;
+}
+
+export function decodeCommandEnvVarValue(value: CborValue): CommandEnvVar {
+  const fields = expectMap(value);
+  return {
+    name: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+    value: fieldOrDefault(fields.get(2), (value) => textValue(value), () => ""),
+  };
+}
+
+export function encodeCommandStdinValue(value: CommandStdin): CborValue {
+  switch (value.type) {
+    case "text": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.text, "CommandStdin.Text.text")));
+      return [1, fields];
+    }
+    case "bytes": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, bytes(required(value.bytes, "CommandStdin.Bytes.bytes")));
+      return [2, fields];
+    }
+  }
+}
+
+export function decodeCommandStdinValue(value: CborValue): CommandStdin {
+  const [variantId, fields] = expectUnion(value);
+  switch (variantId) {
+    case 1:
+      return {
+        type: "text",
+        text: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+    case 2:
+      return {
+        type: "bytes",
+        bytes: fieldOrDefault(fields.get(1), (value) => bytesValue(value), () => new Uint8Array()),
+      };
+  }
+  throw new Error(`unknown CommandStdin variant ${variantId}`);
+}
+
+export function encodeRunCommandReqValue(value: RunCommandReq): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, encodeCommandLaunchSpecValue(required(value.launch, "RunCommandReq.launch")));
+  if (value.timeoutMs !== undefined) fields.set(2, u53(value.timeoutMs));
+  if (value.maxStdoutBytes !== undefined) fields.set(3, u53(value.maxStdoutBytes));
+  if (value.maxStderrBytes !== undefined) fields.set(4, u53(value.maxStderrBytes));
+  return fields;
+}
+
+export function decodeRunCommandReqValue(value: CborValue): RunCommandReq {
+  const fields = expectMap(value);
+  return {
+    launch: fieldOrDefault(fields.get(1), (value) => decodeCommandLaunchSpecValue(value), () => defaultCommandLaunchSpec()),
+    timeoutMs: optionalField(fields.get(2), (value) => integer(value)),
+    maxStdoutBytes: optionalField(fields.get(3), (value) => integer(value)),
+    maxStderrBytes: optionalField(fields.get(4), (value) => integer(value)),
+  };
+}
+
+export function encodeRunCommandResValue(value: RunCommandRes): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, encodeCommandExitValue(required(value.exit, "RunCommandRes.exit")));
+  fields.set(2, encodeCommandOutputCaptureValue(required(value.stdout, "RunCommandRes.stdout")));
+  fields.set(3, encodeCommandOutputCaptureValue(required(value.stderr, "RunCommandRes.stderr")));
+  return fields;
+}
+
+export function decodeRunCommandResValue(value: CborValue): RunCommandRes {
+  const fields = expectMap(value);
+  return {
+    exit: fieldOrDefault(fields.get(1), (value) => decodeCommandExitValue(value), () => defaultCommandExit()),
+    stdout: fieldOrDefault(fields.get(2), (value) => decodeCommandOutputCaptureValue(value), () => defaultCommandOutputCapture()),
+    stderr: fieldOrDefault(fields.get(3), (value) => decodeCommandOutputCaptureValue(value), () => defaultCommandOutputCapture()),
+  };
+}
+
+export function encodeCommandOutputCaptureValue(value: CommandOutputCapture): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, bytes(required(value.bytes, "CommandOutputCapture.bytes")));
+  fields.set(2, bool(required(value.truncated, "CommandOutputCapture.truncated")));
+  return fields;
+}
+
+export function decodeCommandOutputCaptureValue(value: CborValue): CommandOutputCapture {
+  const fields = expectMap(value);
+  return {
+    bytes: fieldOrDefault(fields.get(1), (value) => bytesValue(value), () => new Uint8Array()),
+    truncated: fieldOrDefault(fields.get(2), (value) => boolValue(value), () => false),
+  };
+}
+
+export function encodeCreateJobReqValue(value: CreateJobReq): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, encodeCommandLaunchSpecValue(required(value.launch, "CreateJobReq.launch")));
+  if (value.timeoutMs !== undefined) fields.set(2, u53(value.timeoutMs));
+  fields.set(3, encodeJobLogOptionsValue(required(value.log, "CreateJobReq.log")));
+  if (value.title !== undefined) fields.set(4, text(value.title));
+  return fields;
+}
+
+export function decodeCreateJobReqValue(value: CborValue): CreateJobReq {
+  const fields = expectMap(value);
+  return {
+    launch: fieldOrDefault(fields.get(1), (value) => decodeCommandLaunchSpecValue(value), () => defaultCommandLaunchSpec()),
+    timeoutMs: optionalField(fields.get(2), (value) => integer(value)),
+    log: fieldOrDefault(fields.get(3), (value) => decodeJobLogOptionsValue(value), () => defaultJobLogOptions()),
+    title: optionalField(fields.get(4), (value) => textValue(value)),
+  };
+}
+
+export function encodeJobLogOptionsValue(value: JobLogOptions): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, bool(required(value.stdout, "JobLogOptions.stdout")));
+  fields.set(2, bool(required(value.stderr, "JobLogOptions.stderr")));
+  if (value.maxStdoutBytes !== undefined) fields.set(3, u53(value.maxStdoutBytes));
+  if (value.maxStderrBytes !== undefined) fields.set(4, u53(value.maxStderrBytes));
+  return fields;
+}
+
+export function decodeJobLogOptionsValue(value: CborValue): JobLogOptions {
+  const fields = expectMap(value);
+  return {
+    stdout: fieldOrDefault(fields.get(1), (value) => boolValue(value), () => false),
+    stderr: fieldOrDefault(fields.get(2), (value) => boolValue(value), () => false),
+    maxStdoutBytes: optionalField(fields.get(3), (value) => integer(value)),
+    maxStderrBytes: optionalField(fields.get(4), (value) => integer(value)),
+  };
+}
+
+export function encodeJobInfoValue(value: JobInfo): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, text(required(value.jobId, "JobInfo.jobId")));
+  if (value.title !== undefined) fields.set(2, text(value.title));
+  fields.set(3, encodeCommandLaunchSpecValue(required(value.launch, "JobInfo.launch")));
+  fields.set(4, u53(required(value.createdAtMs, "JobInfo.createdAtMs")));
+  if (value.startedAtMs !== undefined) fields.set(5, u53(value.startedAtMs));
+  if (value.finishedAtMs !== undefined) fields.set(6, u53(value.finishedAtMs));
+  fields.set(7, encodeJobStatusValue(required(value.status, "JobInfo.status")));
+  fields.set(8, encodeJobRunReasonValue(required(value.reason, "JobInfo.reason")));
+  fields.set(9, encodeJobLogStateValue(required(value.log, "JobInfo.log")));
+  return fields;
+}
+
+export function decodeJobInfoValue(value: CborValue): JobInfo {
+  const fields = expectMap(value);
+  return {
+    jobId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+    title: optionalField(fields.get(2), (value) => textValue(value)),
+    launch: fieldOrDefault(fields.get(3), (value) => decodeCommandLaunchSpecValue(value), () => defaultCommandLaunchSpec()),
+    createdAtMs: fieldOrDefault(fields.get(4), (value) => integer(value), () => 0),
+    startedAtMs: optionalField(fields.get(5), (value) => integer(value)),
+    finishedAtMs: optionalField(fields.get(6), (value) => integer(value)),
+    status: fieldOrDefault(fields.get(7), (value) => decodeJobStatusValue(value), () => defaultJobStatus()),
+    reason: fieldOrDefault(fields.get(8), (value) => decodeJobRunReasonValue(value), () => defaultJobRunReason()),
+    log: fieldOrDefault(fields.get(9), (value) => decodeJobLogStateValue(value), () => defaultJobLogState()),
+  };
+}
+
+export function encodeJobRunReasonValue(value: JobRunReason): CborValue {
+  switch (value.type) {
+    case "manual": {
+      const fields = new Map<number, CborValue>();
+      return [1, fields];
+    }
+    case "schedule": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.scheduleId, "JobRunReason.Schedule.scheduleId")));
+      fields.set(2, text(required(value.rruleSet, "JobRunReason.Schedule.rruleSet")));
+      return [2, fields];
+    }
+  }
+}
+
+export function decodeJobRunReasonValue(value: CborValue): JobRunReason {
+  const [variantId, fields] = expectUnion(value);
+  switch (variantId) {
+    case 1:
+      return {
+        type: "manual",
+      };
+    case 2:
+      return {
+        type: "schedule",
+        scheduleId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+        rruleSet: fieldOrDefault(fields.get(2), (value) => textValue(value), () => ""),
+      };
+  }
+  throw new Error(`unknown JobRunReason variant ${variantId}`);
+}
+
+export function encodeJobStatusValue(value: JobStatus): CborValue {
+  switch (value.type) {
+    case "running": {
+      const fields = new Map<number, CborValue>();
+      return [1, fields];
+    }
+    case "exited": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, encodeCommandExitValue(required(value.exit, "JobStatus.Exited.exit")));
+      return [2, fields];
+    }
+  }
+}
+
+export function decodeJobStatusValue(value: CborValue): JobStatus {
+  const [variantId, fields] = expectUnion(value);
+  switch (variantId) {
+    case 1:
+      return {
+        type: "running",
+      };
+    case 2:
+      return {
+        type: "exited",
+        exit: fieldOrDefault(fields.get(1), (value) => decodeCommandExitValue(value), () => defaultCommandExit()),
+      };
+  }
+  throw new Error(`unknown JobStatus variant ${variantId}`);
+}
+
+export function encodeCommandExitValue(value: CommandExit): CborValue {
+  const fields = new Map<number, CborValue>();
+  if (value.code !== undefined) fields.set(1, i53(value.code));
+  if (value.signal !== undefined) fields.set(2, text(value.signal));
+  fields.set(3, encodeCommandExitReasonValue(required(value.reason, "CommandExit.reason")));
+  fields.set(4, u53(required(value.exitedAtMs, "CommandExit.exitedAtMs")));
+  return fields;
+}
+
+export function decodeCommandExitValue(value: CborValue): CommandExit {
+  const fields = expectMap(value);
+  return {
+    code: optionalField(fields.get(1), (value) => integer(value)),
+    signal: optionalField(fields.get(2), (value) => textValue(value)),
+    reason: fieldOrDefault(fields.get(3), (value) => decodeCommandExitReasonValue(value), () => CommandExitReason.ProcessExit),
+    exitedAtMs: fieldOrDefault(fields.get(4), (value) => integer(value), () => 0),
+  };
+}
+
+export function encodeCommandExitReasonValue(value: CommandExitReason): CborValue {
+  return integer(value);
+}
+
+export function decodeCommandExitReasonValue(value: CborValue): CommandExitReason {
+  const id = integer(value);
+  if (![1, 2, 3, 4, 5].includes(id)) throw new Error(`unknown CommandExitReason variant ${id}`);
+  return id as CommandExitReason;
+}
+
+export function encodeJobLogStateValue(value: JobLogState): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, encodeJobOutputStateValue(required(value.stdout, "JobLogState.stdout")));
+  fields.set(2, encodeJobOutputStateValue(required(value.stderr, "JobLogState.stderr")));
+  return fields;
+}
+
+export function decodeJobLogStateValue(value: CborValue): JobLogState {
+  const fields = expectMap(value);
+  return {
+    stdout: fieldOrDefault(fields.get(1), (value) => decodeJobOutputStateValue(value), () => defaultJobOutputState()),
+    stderr: fieldOrDefault(fields.get(2), (value) => decodeJobOutputStateValue(value), () => defaultJobOutputState()),
+  };
+}
+
+export function encodeJobOutputStateValue(value: JobOutputState): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, bool(required(value.enabled, "JobOutputState.enabled")));
+  fields.set(2, u53(required(value.oldestSeq, "JobOutputState.oldestSeq")));
+  fields.set(3, u53(required(value.latestSeq, "JobOutputState.latestSeq")));
+  fields.set(4, u53(required(value.retainedBytes, "JobOutputState.retainedBytes")));
+  fields.set(5, bool(required(value.truncated, "JobOutputState.truncated")));
+  return fields;
+}
+
+export function decodeJobOutputStateValue(value: CborValue): JobOutputState {
+  const fields = expectMap(value);
+  return {
+    enabled: fieldOrDefault(fields.get(1), (value) => boolValue(value), () => false),
+    oldestSeq: fieldOrDefault(fields.get(2), (value) => integer(value), () => 0),
+    latestSeq: fieldOrDefault(fields.get(3), (value) => integer(value), () => 0),
+    retainedBytes: fieldOrDefault(fields.get(4), (value) => integer(value), () => 0),
+    truncated: fieldOrDefault(fields.get(5), (value) => boolValue(value), () => false),
+  };
+}
+
+export function encodeSubscribeJobsReqValue(value: SubscribeJobsReq): CborValue {
+  const fields = new Map<number, CborValue>();
+  if (value.scheduleId !== undefined) fields.set(1, text(value.scheduleId));
+  return fields;
+}
+
+export function decodeSubscribeJobsReqValue(value: CborValue): SubscribeJobsReq {
+  const fields = expectMap(value);
+  return {
+    scheduleId: optionalField(fields.get(1), (value) => textValue(value)),
+  };
+}
+
+export function encodeJobsTableEventValue(value: JobsTableEvent): CborValue {
+  switch (value.type) {
+    case "snapshot": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, required(value.rows, "JobsTableEvent.Snapshot.rows").map((item) => encodeJobInfoValue(item)));
+      return [1, fields];
+    }
+    case "patch": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, required(value.removes, "JobsTableEvent.Patch.removes").map((item) => text(item)));
+      fields.set(2, required(value.upserts, "JobsTableEvent.Patch.upserts").map((item) => encodeJobInfoValue(item)));
+      return [2, fields];
+    }
+  }
+}
+
+export function decodeJobsTableEventValue(value: CborValue): JobsTableEvent {
+  const [variantId, fields] = expectUnion(value);
+  switch (variantId) {
+    case 1:
+      return {
+        type: "snapshot",
+        rows: fieldOrDefault(fields.get(1), (value) => array(value).map((item) => decodeJobInfoValue(item)), () => []),
+      };
+    case 2:
+      return {
+        type: "patch",
+        removes: fieldOrDefault(fields.get(1), (value) => array(value).map((item) => textValue(item)), () => []),
+        upserts: fieldOrDefault(fields.get(2), (value) => array(value).map((item) => decodeJobInfoValue(item)), () => []),
+      };
+  }
+  throw new Error(`unknown JobsTableEvent variant ${variantId}`);
+}
+
+export function encodeSubscribeJobOutputReqValue(value: SubscribeJobOutputReq): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, text(required(value.jobId, "SubscribeJobOutputReq.jobId")));
+  fields.set(2, encodeJobOutputStreamValue(required(value.stream, "SubscribeJobOutputReq.stream")));
+  if (value.afterSeq !== undefined) fields.set(3, u53(value.afterSeq));
+  return fields;
+}
+
+export function decodeSubscribeJobOutputReqValue(value: CborValue): SubscribeJobOutputReq {
+  const fields = expectMap(value);
+  return {
+    jobId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+    stream: fieldOrDefault(fields.get(2), (value) => decodeJobOutputStreamValue(value), () => JobOutputStream.Stdout),
+    afterSeq: optionalField(fields.get(3), (value) => integer(value)),
+  };
+}
+
+export function encodeJobOutputStreamValue(value: JobOutputStream): CborValue {
+  return integer(value);
+}
+
+export function decodeJobOutputStreamValue(value: CborValue): JobOutputStream {
+  const id = integer(value);
+  if (![1, 2].includes(id)) throw new Error(`unknown JobOutputStream variant ${id}`);
+  return id as JobOutputStream;
+}
+
+export function encodeJobOutputEventValue(value: JobOutputEvent): CborValue {
+  switch (value.type) {
+    case "attached": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, encodeJobInfoValue(required(value.job, "JobOutputEvent.Attached.job")));
+      fields.set(2, u53(required(value.oldestSeq, "JobOutputEvent.Attached.oldestSeq")));
+      fields.set(3, u53(required(value.latestSeq, "JobOutputEvent.Attached.latestSeq")));
+      return [1, fields];
+    }
+    case "chunk": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, u53(required(value.seq, "JobOutputEvent.Chunk.seq")));
+      fields.set(2, bytes(required(value.bytes, "JobOutputEvent.Chunk.bytes")));
+      return [2, fields];
+    }
+    case "historyGap": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, u53(required(value.nextSeq, "JobOutputEvent.HistoryGap.nextSeq")));
+      return [3, fields];
+    }
+    case "truncated": {
+      const fields = new Map<number, CborValue>();
+      return [4, fields];
+    }
+    case "jobExited": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, encodeCommandExitValue(required(value.exit, "JobOutputEvent.JobExited.exit")));
+      return [5, fields];
+    }
+  }
+}
+
+export function decodeJobOutputEventValue(value: CborValue): JobOutputEvent {
+  const [variantId, fields] = expectUnion(value);
+  switch (variantId) {
+    case 1:
+      return {
+        type: "attached",
+        job: fieldOrDefault(fields.get(1), (value) => decodeJobInfoValue(value), () => defaultJobInfo()),
+        oldestSeq: fieldOrDefault(fields.get(2), (value) => integer(value), () => 0),
+        latestSeq: fieldOrDefault(fields.get(3), (value) => integer(value), () => 0),
+      };
+    case 2:
+      return {
+        type: "chunk",
+        seq: fieldOrDefault(fields.get(1), (value) => integer(value), () => 0),
+        bytes: fieldOrDefault(fields.get(2), (value) => bytesValue(value), () => new Uint8Array()),
+      };
+    case 3:
+      return {
+        type: "historyGap",
+        nextSeq: fieldOrDefault(fields.get(1), (value) => integer(value), () => 0),
+      };
+    case 4:
+      return {
+        type: "truncated",
+      };
+    case 5:
+      return {
+        type: "jobExited",
+        exit: fieldOrDefault(fields.get(1), (value) => decodeCommandExitValue(value), () => defaultCommandExit()),
+      };
+  }
+  throw new Error(`unknown JobOutputEvent variant ${variantId}`);
+}
+
+export function encodeKillJobReqValue(value: KillJobReq): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, text(required(value.jobId, "KillJobReq.jobId")));
+  return fields;
+}
+
+export function decodeKillJobReqValue(value: CborValue): KillJobReq {
+  const fields = expectMap(value);
+  return {
+    jobId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+  };
+}
+
+export function encodeDeleteJobsReqValue(value: DeleteJobsReq): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, required(value.jobIds, "DeleteJobsReq.jobIds").map((item) => text(item)));
+  fields.set(2, bool(required(value.killRunning, "DeleteJobsReq.killRunning")));
+  return fields;
+}
+
+export function decodeDeleteJobsReqValue(value: CborValue): DeleteJobsReq {
+  const fields = expectMap(value);
+  return {
+    jobIds: fieldOrDefault(fields.get(1), (value) => array(value).map((item) => textValue(item)), () => []),
+    killRunning: fieldOrDefault(fields.get(2), (value) => boolValue(value), () => false),
+  };
+}
+
+export function encodeClearJobsReqValue(value: ClearJobsReq): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, encodeClearJobsScopeValue(required(value.scope, "ClearJobsReq.scope")));
+  fields.set(2, encodeClearJobsRunningPolicyValue(required(value.running, "ClearJobsReq.running")));
+  return fields;
+}
+
+export function decodeClearJobsReqValue(value: CborValue): ClearJobsReq {
+  const fields = expectMap(value);
+  return {
+    scope: fieldOrDefault(fields.get(1), (value) => decodeClearJobsScopeValue(value), () => defaultClearJobsScope()),
+    running: fieldOrDefault(fields.get(2), (value) => decodeClearJobsRunningPolicyValue(value), () => ClearJobsRunningPolicy.Keep),
+  };
+}
+
+export function encodeClearJobsRunningPolicyValue(value: ClearJobsRunningPolicy): CborValue {
+  return integer(value);
+}
+
+export function decodeClearJobsRunningPolicyValue(value: CborValue): ClearJobsRunningPolicy {
+  const id = integer(value);
+  if (![1, 2].includes(id)) throw new Error(`unknown ClearJobsRunningPolicy variant ${id}`);
+  return id as ClearJobsRunningPolicy;
+}
+
+export function encodeClearJobsScopeValue(value: ClearJobsScope): CborValue {
+  switch (value.type) {
+    case "all": {
+      const fields = new Map<number, CborValue>();
+      return [1, fields];
+    }
+    case "bySchedule": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.scheduleId, "ClearJobsScope.BySchedule.scheduleId")));
+      return [2, fields];
+    }
+  }
+}
+
+export function decodeClearJobsScopeValue(value: CborValue): ClearJobsScope {
+  const [variantId, fields] = expectUnion(value);
+  switch (variantId) {
+    case 1:
+      return {
+        type: "all",
+      };
+    case 2:
+      return {
+        type: "bySchedule",
+        scheduleId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+  }
+  throw new Error(`unknown ClearJobsScope variant ${variantId}`);
+}
+
+export function encodeBulkJobMutationResValue(value: BulkJobMutationRes): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, required(value.results, "BulkJobMutationRes.results").map((item) => encodeJobMutationResultValue(item)));
+  return fields;
+}
+
+export function decodeBulkJobMutationResValue(value: CborValue): BulkJobMutationRes {
+  const fields = expectMap(value);
+  return {
+    results: fieldOrDefault(fields.get(1), (value) => array(value).map((item) => decodeJobMutationResultValue(item)), () => []),
+  };
+}
+
+export function encodeJobMutationResultValue(value: JobMutationResult): CborValue {
+  switch (value.type) {
+    case "deleted": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.jobId, "JobMutationResult.Deleted.jobId")));
+      return [1, fields];
+    }
+    case "killedAndDeleted": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.jobId, "JobMutationResult.KilledAndDeleted.jobId")));
+      return [2, fields];
+    }
+    case "failed": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.jobId, "JobMutationResult.Failed.jobId")));
+      fields.set(2, text(required(value.message, "JobMutationResult.Failed.message")));
+      return [3, fields];
+    }
+  }
+}
+
+export function decodeJobMutationResultValue(value: CborValue): JobMutationResult {
+  const [variantId, fields] = expectUnion(value);
+  switch (variantId) {
+    case 1:
+      return {
+        type: "deleted",
+        jobId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+    case 2:
+      return {
+        type: "killedAndDeleted",
+        jobId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+    case 3:
+      return {
+        type: "failed",
+        jobId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+        message: fieldOrDefault(fields.get(2), (value) => textValue(value), () => ""),
+      };
+  }
+  throw new Error(`unknown JobMutationResult variant ${variantId}`);
+}
+
+export function encodeCreateScheduleReqValue(value: CreateScheduleReq): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, text(required(value.title, "CreateScheduleReq.title")));
+  fields.set(2, encodeCommandLaunchSpecValue(required(value.launch, "CreateScheduleReq.launch")));
+  fields.set(3, encodeScheduledJobOptionsValue(required(value.job, "CreateScheduleReq.job")));
+  fields.set(4, text(required(value.rruleSet, "CreateScheduleReq.rruleSet")));
+  fields.set(5, bool(required(value.enabled, "CreateScheduleReq.enabled")));
+  if (value.note !== undefined) fields.set(6, text(value.note));
+  return fields;
+}
+
+export function decodeCreateScheduleReqValue(value: CborValue): CreateScheduleReq {
+  const fields = expectMap(value);
+  return {
+    title: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+    launch: fieldOrDefault(fields.get(2), (value) => decodeCommandLaunchSpecValue(value), () => defaultCommandLaunchSpec()),
+    job: fieldOrDefault(fields.get(3), (value) => decodeScheduledJobOptionsValue(value), () => defaultScheduledJobOptions()),
+    rruleSet: fieldOrDefault(fields.get(4), (value) => textValue(value), () => ""),
+    enabled: fieldOrDefault(fields.get(5), (value) => boolValue(value), () => false),
+    note: optionalField(fields.get(6), (value) => textValue(value)),
+  };
+}
+
+export function encodeUpdateScheduleReqValue(value: UpdateScheduleReq): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, text(required(value.scheduleId, "UpdateScheduleReq.scheduleId")));
+  if (value.title !== undefined) fields.set(2, text(value.title));
+  if (value.launch !== undefined) fields.set(3, encodeCommandLaunchSpecValue(value.launch));
+  if (value.job !== undefined) fields.set(4, encodeScheduledJobOptionsValue(value.job));
+  if (value.rruleSet !== undefined) fields.set(5, text(value.rruleSet));
+  if (value.enabled !== undefined) fields.set(6, bool(value.enabled));
+  if (value.archived !== undefined) fields.set(7, bool(value.archived));
+  if (value.note !== undefined) fields.set(8, text(value.note));
+  return fields;
+}
+
+export function decodeUpdateScheduleReqValue(value: CborValue): UpdateScheduleReq {
+  const fields = expectMap(value);
+  return {
+    scheduleId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+    title: optionalField(fields.get(2), (value) => textValue(value)),
+    launch: optionalField(fields.get(3), (value) => decodeCommandLaunchSpecValue(value)),
+    job: optionalField(fields.get(4), (value) => decodeScheduledJobOptionsValue(value)),
+    rruleSet: optionalField(fields.get(5), (value) => textValue(value)),
+    enabled: optionalField(fields.get(6), (value) => boolValue(value)),
+    archived: optionalField(fields.get(7), (value) => boolValue(value)),
+    note: optionalField(fields.get(8), (value) => textValue(value)),
+  };
+}
+
+export function encodeScheduledJobOptionsValue(value: ScheduledJobOptions): CborValue {
+  const fields = new Map<number, CborValue>();
+  if (value.timeoutMs !== undefined) fields.set(1, u53(value.timeoutMs));
+  fields.set(2, encodeJobLogOptionsValue(required(value.log, "ScheduledJobOptions.log")));
+  return fields;
+}
+
+export function decodeScheduledJobOptionsValue(value: CborValue): ScheduledJobOptions {
+  const fields = expectMap(value);
+  return {
+    timeoutMs: optionalField(fields.get(1), (value) => integer(value)),
+    log: fieldOrDefault(fields.get(2), (value) => decodeJobLogOptionsValue(value), () => defaultJobLogOptions()),
+  };
+}
+
+export function encodeScheduleInfoValue(value: ScheduleInfo): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, text(required(value.scheduleId, "ScheduleInfo.scheduleId")));
+  fields.set(2, text(required(value.title, "ScheduleInfo.title")));
+  fields.set(3, encodeCommandLaunchSpecValue(required(value.launch, "ScheduleInfo.launch")));
+  fields.set(4, encodeScheduledJobOptionsValue(required(value.job, "ScheduleInfo.job")));
+  fields.set(5, text(required(value.rruleSet, "ScheduleInfo.rruleSet")));
+  fields.set(6, bool(required(value.enabled, "ScheduleInfo.enabled")));
+  fields.set(7, bool(required(value.archived, "ScheduleInfo.archived")));
+  fields.set(8, u53(required(value.createdAtMs, "ScheduleInfo.createdAtMs")));
+  fields.set(9, u53(required(value.updatedAtMs, "ScheduleInfo.updatedAtMs")));
+  if (value.note !== undefined) fields.set(10, text(value.note));
+  return fields;
+}
+
+export function decodeScheduleInfoValue(value: CborValue): ScheduleInfo {
+  const fields = expectMap(value);
+  return {
+    scheduleId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+    title: fieldOrDefault(fields.get(2), (value) => textValue(value), () => ""),
+    launch: fieldOrDefault(fields.get(3), (value) => decodeCommandLaunchSpecValue(value), () => defaultCommandLaunchSpec()),
+    job: fieldOrDefault(fields.get(4), (value) => decodeScheduledJobOptionsValue(value), () => defaultScheduledJobOptions()),
+    rruleSet: fieldOrDefault(fields.get(5), (value) => textValue(value), () => ""),
+    enabled: fieldOrDefault(fields.get(6), (value) => boolValue(value), () => false),
+    archived: fieldOrDefault(fields.get(7), (value) => boolValue(value), () => false),
+    createdAtMs: fieldOrDefault(fields.get(8), (value) => integer(value), () => 0),
+    updatedAtMs: fieldOrDefault(fields.get(9), (value) => integer(value), () => 0),
+    note: optionalField(fields.get(10), (value) => textValue(value)),
+  };
+}
+
+export function encodeGetScheduleNextRunsReqValue(value: GetScheduleNextRunsReq): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, text(required(value.scheduleId, "GetScheduleNextRunsReq.scheduleId")));
+  fields.set(2, u53(required(value.limit, "GetScheduleNextRunsReq.limit")));
+  if (value.fromMs !== undefined) fields.set(3, u53(value.fromMs));
+  if (value.searchUntilMs !== undefined) fields.set(4, u53(value.searchUntilMs));
+  return fields;
+}
+
+export function decodeGetScheduleNextRunsReqValue(value: CborValue): GetScheduleNextRunsReq {
+  const fields = expectMap(value);
+  return {
+    scheduleId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+    limit: fieldOrDefault(fields.get(2), (value) => integer(value), () => 0),
+    fromMs: optionalField(fields.get(3), (value) => integer(value)),
+    searchUntilMs: optionalField(fields.get(4), (value) => integer(value)),
+  };
+}
+
+export function encodeGetScheduleNextRunsResValue(value: GetScheduleNextRunsRes): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, required(value.runAtMs, "GetScheduleNextRunsRes.runAtMs").map((item) => u53(item)));
+  fields.set(2, u53(required(value.searchedUntilMs, "GetScheduleNextRunsRes.searchedUntilMs")));
+  fields.set(3, encodeScheduleNextRunsContinuationValue(required(value.continuation, "GetScheduleNextRunsRes.continuation")));
+  return fields;
+}
+
+export function decodeGetScheduleNextRunsResValue(value: CborValue): GetScheduleNextRunsRes {
+  const fields = expectMap(value);
+  return {
+    runAtMs: fieldOrDefault(fields.get(1), (value) => array(value).map((item) => integer(item)), () => []),
+    searchedUntilMs: fieldOrDefault(fields.get(2), (value) => integer(value), () => 0),
+    continuation: fieldOrDefault(fields.get(3), (value) => decodeScheduleNextRunsContinuationValue(value), () => ScheduleNextRunsContinuation.Exhausted),
+  };
+}
+
+export function encodeScheduleNextRunsContinuationValue(value: ScheduleNextRunsContinuation): CborValue {
+  return integer(value);
+}
+
+export function decodeScheduleNextRunsContinuationValue(value: CborValue): ScheduleNextRunsContinuation {
+  const id = integer(value);
+  if (![1, 2, 3].includes(id)) throw new Error(`unknown ScheduleNextRunsContinuation variant ${id}`);
+  return id as ScheduleNextRunsContinuation;
+}
+
+export function encodeSubscribeSchedulesReqValue(value: SubscribeSchedulesReq): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, encodeScheduleArchiveFilterValue(required(value.archived, "SubscribeSchedulesReq.archived")));
+  return fields;
+}
+
+export function decodeSubscribeSchedulesReqValue(value: CborValue): SubscribeSchedulesReq {
+  const fields = expectMap(value);
+  return {
+    archived: fieldOrDefault(fields.get(1), (value) => decodeScheduleArchiveFilterValue(value), () => ScheduleArchiveFilter.ActiveOnly),
+  };
+}
+
+export function encodeScheduleArchiveFilterValue(value: ScheduleArchiveFilter): CborValue {
+  return integer(value);
+}
+
+export function decodeScheduleArchiveFilterValue(value: CborValue): ScheduleArchiveFilter {
+  const id = integer(value);
+  if (![1, 2, 3].includes(id)) throw new Error(`unknown ScheduleArchiveFilter variant ${id}`);
+  return id as ScheduleArchiveFilter;
+}
+
+export function encodeSchedulesTableEventValue(value: SchedulesTableEvent): CborValue {
+  switch (value.type) {
+    case "snapshot": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, required(value.rows, "SchedulesTableEvent.Snapshot.rows").map((item) => encodeScheduleInfoValue(item)));
+      return [1, fields];
+    }
+    case "patch": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, required(value.removes, "SchedulesTableEvent.Patch.removes").map((item) => text(item)));
+      fields.set(2, required(value.upserts, "SchedulesTableEvent.Patch.upserts").map((item) => encodeScheduleInfoValue(item)));
+      return [2, fields];
+    }
+  }
+}
+
+export function decodeSchedulesTableEventValue(value: CborValue): SchedulesTableEvent {
+  const [variantId, fields] = expectUnion(value);
+  switch (variantId) {
+    case 1:
+      return {
+        type: "snapshot",
+        rows: fieldOrDefault(fields.get(1), (value) => array(value).map((item) => decodeScheduleInfoValue(item)), () => []),
+      };
+    case 2:
+      return {
+        type: "patch",
+        removes: fieldOrDefault(fields.get(1), (value) => array(value).map((item) => textValue(item)), () => []),
+        upserts: fieldOrDefault(fields.get(2), (value) => array(value).map((item) => decodeScheduleInfoValue(item)), () => []),
+      };
+  }
+  throw new Error(`unknown SchedulesTableEvent variant ${variantId}`);
+}
+
+export function encodeDeleteSchedulesReqValue(value: DeleteSchedulesReq): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, required(value.scheduleIds, "DeleteSchedulesReq.scheduleIds").map((item) => text(item)));
+  return fields;
+}
+
+export function decodeDeleteSchedulesReqValue(value: CborValue): DeleteSchedulesReq {
+  const fields = expectMap(value);
+  return {
+    scheduleIds: fieldOrDefault(fields.get(1), (value) => array(value).map((item) => textValue(item)), () => []),
+  };
+}
+
+export function encodeBulkScheduleMutationResValue(value: BulkScheduleMutationRes): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, required(value.results, "BulkScheduleMutationRes.results").map((item) => encodeScheduleMutationResultValue(item)));
+  return fields;
+}
+
+export function decodeBulkScheduleMutationResValue(value: CborValue): BulkScheduleMutationRes {
+  const fields = expectMap(value);
+  return {
+    results: fieldOrDefault(fields.get(1), (value) => array(value).map((item) => decodeScheduleMutationResultValue(item)), () => []),
+  };
+}
+
+export function encodeScheduleMutationResultValue(value: ScheduleMutationResult): CborValue {
+  switch (value.type) {
+    case "deleted": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.scheduleId, "ScheduleMutationResult.Deleted.scheduleId")));
+      return [1, fields];
+    }
+    case "failed": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.scheduleId, "ScheduleMutationResult.Failed.scheduleId")));
+      fields.set(2, text(required(value.message, "ScheduleMutationResult.Failed.message")));
+      return [2, fields];
+    }
+  }
+}
+
+export function decodeScheduleMutationResultValue(value: CborValue): ScheduleMutationResult {
+  const [variantId, fields] = expectUnion(value);
+  switch (variantId) {
+    case 1:
+      return {
+        type: "deleted",
+        scheduleId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+    case 2:
+      return {
+        type: "failed",
+        scheduleId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+        message: fieldOrDefault(fields.get(2), (value) => textValue(value), () => ""),
+      };
+  }
+  throw new Error(`unknown ScheduleMutationResult variant ${variantId}`);
+}
+
+export function encodeRunCommandErrorValue(value: RunCommandError): CborValue {
+  switch (value.type) {
+    case "failed": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.message, "RunCommandError.Failed.message")));
+      return [0, fields];
+    }
+    case "permissionDenied": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.message, "RunCommandError.PermissionDenied.message")));
+      return [1, fields];
+    }
+    case "elevationUnavailable": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.message, "RunCommandError.ElevationUnavailable.message")));
+      return [2, fields];
+    }
+    case "invalidLaunch": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.message, "RunCommandError.InvalidLaunch.message")));
+      return [3, fields];
+    }
+  }
+}
+
+export function decodeRunCommandErrorValue(value: CborValue): RunCommandError {
+  const [variantId, fields] = expectUnion(value);
+  switch (variantId) {
+    case 0:
+      return {
+        type: "failed",
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+    case 1:
+      return {
+        type: "permissionDenied",
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+    case 2:
+      return {
+        type: "elevationUnavailable",
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+    case 3:
+      return {
+        type: "invalidLaunch",
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+  }
+  throw new Error(`unknown RunCommandError variant ${variantId}`);
+}
+
+export function encodeCreateJobErrorValue(value: CreateJobError): CborValue {
+  switch (value.type) {
+    case "failed": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.message, "CreateJobError.Failed.message")));
+      return [0, fields];
+    }
+    case "permissionDenied": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.message, "CreateJobError.PermissionDenied.message")));
+      return [1, fields];
+    }
+    case "elevationUnavailable": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.message, "CreateJobError.ElevationUnavailable.message")));
+      return [2, fields];
+    }
+    case "invalidLaunch": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.message, "CreateJobError.InvalidLaunch.message")));
+      return [3, fields];
+    }
+  }
+}
+
+export function decodeCreateJobErrorValue(value: CborValue): CreateJobError {
+  const [variantId, fields] = expectUnion(value);
+  switch (variantId) {
+    case 0:
+      return {
+        type: "failed",
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+    case 1:
+      return {
+        type: "permissionDenied",
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+    case 2:
+      return {
+        type: "elevationUnavailable",
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+    case 3:
+      return {
+        type: "invalidLaunch",
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+  }
+  throw new Error(`unknown CreateJobError variant ${variantId}`);
+}
+
+export function encodeSubscribeJobsErrorValue(value: SubscribeJobsError): CborValue {
+  switch (value.type) {
+    case "failed": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.message, "SubscribeJobsError.Failed.message")));
+      return [0, fields];
+    }
+    case "permissionDenied": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.message, "SubscribeJobsError.PermissionDenied.message")));
+      return [1, fields];
+    }
+  }
+}
+
+export function decodeSubscribeJobsErrorValue(value: CborValue): SubscribeJobsError {
+  const [variantId, fields] = expectUnion(value);
+  switch (variantId) {
+    case 0:
+      return {
+        type: "failed",
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+    case 1:
+      return {
+        type: "permissionDenied",
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+  }
+  throw new Error(`unknown SubscribeJobsError variant ${variantId}`);
+}
+
+export function encodeSubscribeJobOutputErrorValue(value: SubscribeJobOutputError): CborValue {
+  switch (value.type) {
+    case "failed": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.message, "SubscribeJobOutputError.Failed.message")));
+      return [0, fields];
+    }
+    case "notFound": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.message, "SubscribeJobOutputError.NotFound.message")));
+      return [1, fields];
+    }
+    case "permissionDenied": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.message, "SubscribeJobOutputError.PermissionDenied.message")));
+      return [2, fields];
+    }
+    case "logDisabled": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.message, "SubscribeJobOutputError.LogDisabled.message")));
+      return [3, fields];
+    }
+  }
+}
+
+export function decodeSubscribeJobOutputErrorValue(value: CborValue): SubscribeJobOutputError {
+  const [variantId, fields] = expectUnion(value);
+  switch (variantId) {
+    case 0:
+      return {
+        type: "failed",
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+    case 1:
+      return {
+        type: "notFound",
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+    case 2:
+      return {
+        type: "permissionDenied",
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+    case 3:
+      return {
+        type: "logDisabled",
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+  }
+  throw new Error(`unknown SubscribeJobOutputError variant ${variantId}`);
+}
+
+export function encodeKillJobErrorValue(value: KillJobError): CborValue {
+  switch (value.type) {
+    case "failed": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.message, "KillJobError.Failed.message")));
+      return [0, fields];
+    }
+    case "notFound": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.message, "KillJobError.NotFound.message")));
+      return [1, fields];
+    }
+    case "permissionDenied": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.message, "KillJobError.PermissionDenied.message")));
+      return [2, fields];
+    }
+  }
+}
+
+export function decodeKillJobErrorValue(value: CborValue): KillJobError {
+  const [variantId, fields] = expectUnion(value);
+  switch (variantId) {
+    case 0:
+      return {
+        type: "failed",
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+    case 1:
+      return {
+        type: "notFound",
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+    case 2:
+      return {
+        type: "permissionDenied",
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+  }
+  throw new Error(`unknown KillJobError variant ${variantId}`);
+}
+
+export function encodeJobMutationErrorValue(value: JobMutationError): CborValue {
+  switch (value.type) {
+    case "failed": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.message, "JobMutationError.Failed.message")));
+      return [0, fields];
+    }
+    case "permissionDenied": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.message, "JobMutationError.PermissionDenied.message")));
+      return [1, fields];
+    }
+  }
+}
+
+export function decodeJobMutationErrorValue(value: CborValue): JobMutationError {
+  const [variantId, fields] = expectUnion(value);
+  switch (variantId) {
+    case 0:
+      return {
+        type: "failed",
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+    case 1:
+      return {
+        type: "permissionDenied",
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+  }
+  throw new Error(`unknown JobMutationError variant ${variantId}`);
+}
+
+export function encodeCreateScheduleErrorValue(value: CreateScheduleError): CborValue {
+  switch (value.type) {
+    case "failed": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.message, "CreateScheduleError.Failed.message")));
+      return [0, fields];
+    }
+    case "permissionDenied": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.message, "CreateScheduleError.PermissionDenied.message")));
+      return [1, fields];
+    }
+    case "elevationUnavailable": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.message, "CreateScheduleError.ElevationUnavailable.message")));
+      return [2, fields];
+    }
+    case "invalidLaunch": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.message, "CreateScheduleError.InvalidLaunch.message")));
+      return [3, fields];
+    }
+    case "invalidRRuleSet": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.message, "CreateScheduleError.InvalidRRuleSet.message")));
+      return [4, fields];
+    }
+  }
+}
+
+export function decodeCreateScheduleErrorValue(value: CborValue): CreateScheduleError {
+  const [variantId, fields] = expectUnion(value);
+  switch (variantId) {
+    case 0:
+      return {
+        type: "failed",
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+    case 1:
+      return {
+        type: "permissionDenied",
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+    case 2:
+      return {
+        type: "elevationUnavailable",
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+    case 3:
+      return {
+        type: "invalidLaunch",
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+    case 4:
+      return {
+        type: "invalidRRuleSet",
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+  }
+  throw new Error(`unknown CreateScheduleError variant ${variantId}`);
+}
+
+export function encodeUpdateScheduleErrorValue(value: UpdateScheduleError): CborValue {
+  switch (value.type) {
+    case "failed": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.message, "UpdateScheduleError.Failed.message")));
+      return [0, fields];
+    }
+    case "notFound": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.message, "UpdateScheduleError.NotFound.message")));
+      return [1, fields];
+    }
+    case "permissionDenied": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.message, "UpdateScheduleError.PermissionDenied.message")));
+      return [2, fields];
+    }
+    case "elevationUnavailable": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.message, "UpdateScheduleError.ElevationUnavailable.message")));
+      return [3, fields];
+    }
+    case "invalidLaunch": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.message, "UpdateScheduleError.InvalidLaunch.message")));
+      return [4, fields];
+    }
+    case "invalidRRuleSet": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.message, "UpdateScheduleError.InvalidRRuleSet.message")));
+      return [5, fields];
+    }
+  }
+}
+
+export function decodeUpdateScheduleErrorValue(value: CborValue): UpdateScheduleError {
+  const [variantId, fields] = expectUnion(value);
+  switch (variantId) {
+    case 0:
+      return {
+        type: "failed",
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+    case 1:
+      return {
+        type: "notFound",
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+    case 2:
+      return {
+        type: "permissionDenied",
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+    case 3:
+      return {
+        type: "elevationUnavailable",
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+    case 4:
+      return {
+        type: "invalidLaunch",
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+    case 5:
+      return {
+        type: "invalidRRuleSet",
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+  }
+  throw new Error(`unknown UpdateScheduleError variant ${variantId}`);
+}
+
+export function encodeSubscribeSchedulesErrorValue(value: SubscribeSchedulesError): CborValue {
+  switch (value.type) {
+    case "failed": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.message, "SubscribeSchedulesError.Failed.message")));
+      return [0, fields];
+    }
+    case "permissionDenied": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.message, "SubscribeSchedulesError.PermissionDenied.message")));
+      return [1, fields];
+    }
+  }
+}
+
+export function decodeSubscribeSchedulesErrorValue(value: CborValue): SubscribeSchedulesError {
+  const [variantId, fields] = expectUnion(value);
+  switch (variantId) {
+    case 0:
+      return {
+        type: "failed",
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+    case 1:
+      return {
+        type: "permissionDenied",
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+  }
+  throw new Error(`unknown SubscribeSchedulesError variant ${variantId}`);
+}
+
+export function encodeScheduleMutationErrorValue(value: ScheduleMutationError): CborValue {
+  switch (value.type) {
+    case "failed": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.message, "ScheduleMutationError.Failed.message")));
+      return [0, fields];
+    }
+    case "permissionDenied": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.message, "ScheduleMutationError.PermissionDenied.message")));
+      return [1, fields];
+    }
+  }
+}
+
+export function decodeScheduleMutationErrorValue(value: CborValue): ScheduleMutationError {
+  const [variantId, fields] = expectUnion(value);
+  switch (variantId) {
+    case 0:
+      return {
+        type: "failed",
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+    case 1:
+      return {
+        type: "permissionDenied",
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+  }
+  throw new Error(`unknown ScheduleMutationError variant ${variantId}`);
+}
+
+export function encodeGetScheduleNextRunsErrorValue(value: GetScheduleNextRunsError): CborValue {
+  switch (value.type) {
+    case "failed": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.message, "GetScheduleNextRunsError.Failed.message")));
+      return [0, fields];
+    }
+    case "notFound": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.message, "GetScheduleNextRunsError.NotFound.message")));
+      return [1, fields];
+    }
+    case "permissionDenied": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.message, "GetScheduleNextRunsError.PermissionDenied.message")));
+      return [2, fields];
+    }
+    case "invalidRRuleSet": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.message, "GetScheduleNextRunsError.InvalidRRuleSet.message")));
+      return [3, fields];
+    }
+  }
+}
+
+export function decodeGetScheduleNextRunsErrorValue(value: CborValue): GetScheduleNextRunsError {
+  const [variantId, fields] = expectUnion(value);
+  switch (variantId) {
+    case 0:
+      return {
+        type: "failed",
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+    case 1:
+      return {
+        type: "notFound",
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+    case 2:
+      return {
+        type: "permissionDenied",
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+    case 3:
+      return {
+        type: "invalidRRuleSet",
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+  }
+  throw new Error(`unknown GetScheduleNextRunsError variant ${variantId}`);
 }
 
 function defaultSubscribeWindowDetailReq(): SubscribeWindowDetailReq {
@@ -7053,7 +6411,8 @@ function defaultWindowDetail(): WindowDetail {
 }
 
 function defaultWindowState(): WindowState {
-  return {};
+  return {
+  };
 }
 
 function defaultWindowBounds(): WindowBounds {
@@ -7357,7 +6716,8 @@ function defaultProcessResourceInUseInfo(): ProcessResourceInUseInfo {
 }
 
 function defaultProcessResourceInUseAccess(): ProcessResourceInUseAccess {
-  return {};
+  return {
+  };
 }
 
 function defaultProcessResourcesInUseTableEvent(): ProcessResourcesInUseTableEvent {
@@ -7781,6 +7141,343 @@ function defaultSubscribeClientsError(): SubscribeClientsError {
   };
 }
 
+function defaultCommandLaunchSpec(): CommandLaunchSpec {
+  return {
+    command: "",
+    args: [],
+  };
+}
+
+function defaultCommandEnvPatch(): CommandEnvPatch {
+  return {
+    set: [],
+    unset: [],
+  };
+}
+
+function defaultCommandEnvVar(): CommandEnvVar {
+  return {
+    name: "",
+    value: "",
+  };
+}
+
+function defaultCommandStdin(): CommandStdin {
+  return {
+    type: "text",
+    text: "",
+  };
+}
+
+function defaultRunCommandReq(): RunCommandReq {
+  return {
+    launch: defaultCommandLaunchSpec(),
+  };
+}
+
+function defaultRunCommandRes(): RunCommandRes {
+  return {
+    exit: defaultCommandExit(),
+    stdout: defaultCommandOutputCapture(),
+    stderr: defaultCommandOutputCapture(),
+  };
+}
+
+function defaultCommandOutputCapture(): CommandOutputCapture {
+  return {
+    bytes: new Uint8Array(),
+    truncated: false,
+  };
+}
+
+function defaultCreateJobReq(): CreateJobReq {
+  return {
+    launch: defaultCommandLaunchSpec(),
+    log: defaultJobLogOptions(),
+  };
+}
+
+function defaultJobLogOptions(): JobLogOptions {
+  return {
+    stdout: false,
+    stderr: false,
+  };
+}
+
+function defaultJobInfo(): JobInfo {
+  return {
+    jobId: "",
+    launch: defaultCommandLaunchSpec(),
+    createdAtMs: 0,
+    status: defaultJobStatus(),
+    reason: defaultJobRunReason(),
+    log: defaultJobLogState(),
+  };
+}
+
+function defaultJobRunReason(): JobRunReason {
+  return {
+    type: "manual",
+  };
+}
+
+function defaultJobStatus(): JobStatus {
+  return {
+    type: "running",
+  };
+}
+
+function defaultCommandExit(): CommandExit {
+  return {
+    reason: CommandExitReason.ProcessExit,
+    exitedAtMs: 0,
+  };
+}
+
+function defaultJobLogState(): JobLogState {
+  return {
+    stdout: defaultJobOutputState(),
+    stderr: defaultJobOutputState(),
+  };
+}
+
+function defaultJobOutputState(): JobOutputState {
+  return {
+    enabled: false,
+    oldestSeq: 0,
+    latestSeq: 0,
+    retainedBytes: 0,
+    truncated: false,
+  };
+}
+
+function defaultSubscribeJobsReq(): SubscribeJobsReq {
+  return {
+  };
+}
+
+function defaultJobsTableEvent(): JobsTableEvent {
+  return {
+    type: "snapshot",
+    rows: [],
+  };
+}
+
+function defaultSubscribeJobOutputReq(): SubscribeJobOutputReq {
+  return {
+    jobId: "",
+    stream: JobOutputStream.Stdout,
+  };
+}
+
+function defaultJobOutputEvent(): JobOutputEvent {
+  return {
+    type: "attached",
+    job: defaultJobInfo(),
+    oldestSeq: 0,
+    latestSeq: 0,
+  };
+}
+
+function defaultKillJobReq(): KillJobReq {
+  return {
+    jobId: "",
+  };
+}
+
+function defaultDeleteJobsReq(): DeleteJobsReq {
+  return {
+    jobIds: [],
+    killRunning: false,
+  };
+}
+
+function defaultClearJobsReq(): ClearJobsReq {
+  return {
+    scope: defaultClearJobsScope(),
+    running: ClearJobsRunningPolicy.Keep,
+  };
+}
+
+function defaultClearJobsScope(): ClearJobsScope {
+  return {
+    type: "all",
+  };
+}
+
+function defaultBulkJobMutationRes(): BulkJobMutationRes {
+  return {
+    results: [],
+  };
+}
+
+function defaultJobMutationResult(): JobMutationResult {
+  return {
+    type: "deleted",
+    jobId: "",
+  };
+}
+
+function defaultCreateScheduleReq(): CreateScheduleReq {
+  return {
+    title: "",
+    launch: defaultCommandLaunchSpec(),
+    job: defaultScheduledJobOptions(),
+    rruleSet: "",
+    enabled: false,
+  };
+}
+
+function defaultUpdateScheduleReq(): UpdateScheduleReq {
+  return {
+    scheduleId: "",
+  };
+}
+
+function defaultScheduledJobOptions(): ScheduledJobOptions {
+  return {
+    log: defaultJobLogOptions(),
+  };
+}
+
+function defaultScheduleInfo(): ScheduleInfo {
+  return {
+    scheduleId: "",
+    title: "",
+    launch: defaultCommandLaunchSpec(),
+    job: defaultScheduledJobOptions(),
+    rruleSet: "",
+    enabled: false,
+    archived: false,
+    createdAtMs: 0,
+    updatedAtMs: 0,
+  };
+}
+
+function defaultGetScheduleNextRunsReq(): GetScheduleNextRunsReq {
+  return {
+    scheduleId: "",
+    limit: 0,
+  };
+}
+
+function defaultGetScheduleNextRunsRes(): GetScheduleNextRunsRes {
+  return {
+    runAtMs: [],
+    searchedUntilMs: 0,
+    continuation: ScheduleNextRunsContinuation.Exhausted,
+  };
+}
+
+function defaultSubscribeSchedulesReq(): SubscribeSchedulesReq {
+  return {
+    archived: ScheduleArchiveFilter.ActiveOnly,
+  };
+}
+
+function defaultSchedulesTableEvent(): SchedulesTableEvent {
+  return {
+    type: "snapshot",
+    rows: [],
+  };
+}
+
+function defaultDeleteSchedulesReq(): DeleteSchedulesReq {
+  return {
+    scheduleIds: [],
+  };
+}
+
+function defaultBulkScheduleMutationRes(): BulkScheduleMutationRes {
+  return {
+    results: [],
+  };
+}
+
+function defaultScheduleMutationResult(): ScheduleMutationResult {
+  return {
+    type: "deleted",
+    scheduleId: "",
+  };
+}
+
+function defaultRunCommandError(): RunCommandError {
+  return {
+    type: "failed",
+    message: "",
+  };
+}
+
+function defaultCreateJobError(): CreateJobError {
+  return {
+    type: "failed",
+    message: "",
+  };
+}
+
+function defaultSubscribeJobsError(): SubscribeJobsError {
+  return {
+    type: "failed",
+    message: "",
+  };
+}
+
+function defaultSubscribeJobOutputError(): SubscribeJobOutputError {
+  return {
+    type: "failed",
+    message: "",
+  };
+}
+
+function defaultKillJobError(): KillJobError {
+  return {
+    type: "failed",
+    message: "",
+  };
+}
+
+function defaultJobMutationError(): JobMutationError {
+  return {
+    type: "failed",
+    message: "",
+  };
+}
+
+function defaultCreateScheduleError(): CreateScheduleError {
+  return {
+    type: "failed",
+    message: "",
+  };
+}
+
+function defaultUpdateScheduleError(): UpdateScheduleError {
+  return {
+    type: "failed",
+    message: "",
+  };
+}
+
+function defaultSubscribeSchedulesError(): SubscribeSchedulesError {
+  return {
+    type: "failed",
+    message: "",
+  };
+}
+
+function defaultScheduleMutationError(): ScheduleMutationError {
+  return {
+    type: "failed",
+    message: "",
+  };
+}
+
+function defaultGetScheduleNextRunsError(): GetScheduleNextRunsError {
+  return {
+    type: "failed",
+    message: "",
+  };
+}
+
 function encodeVoidValue(_value: undefined): CborValue {
   return null;
 }
@@ -7795,9 +7492,7 @@ function expectMap(value: CborValue): Map<number, CborValue> {
 }
 
 function expectUnion(value: CborValue): [number, Map<number, CborValue>] {
-  if (!Array.isArray(value) || value.length !== 2) {
-    throw new Error("expected CBOR union tuple");
-  }
+  if (!Array.isArray(value) || value.length !== 2) throw new Error("expected CBOR union tuple");
   return [integer(value[0]), expectMap(value[1])];
 }
 
@@ -7807,17 +7502,12 @@ function array(value: CborValue): CborValue[] {
 }
 
 function integer(value: CborValue): number {
-  if (typeof value !== "number" || !Number.isSafeInteger(value)) {
-    throw new Error("expected CBOR integer");
-  }
+  if (typeof value !== "number" || !Number.isSafeInteger(value)) throw new Error("expected CBOR integer");
   return value;
 }
 
 function f64Value(value: CborValue): number {
-  if (
-    typeof value !== "object" || value === null || !("type" in value) ||
-    value.type !== "f64"
-  ) throw new Error("expected CBOR f64");
+  if (typeof value !== "object" || value === null || !("type" in value) || value.type !== "f64") throw new Error("expected CBOR f64");
   return value.value;
 }
 
@@ -7836,18 +7526,11 @@ function bytesValue(value: CborValue): Uint8Array {
   return value;
 }
 
-function optionalField<T>(
-  value: CborValue | undefined,
-  decode: (value: CborValue) => T,
-): T | undefined {
+function optionalField<T>(value: CborValue | undefined, decode: (value: CborValue) => T): T | undefined {
   return value === undefined ? undefined : decode(value);
 }
 
-function fieldOrDefault<T>(
-  value: CborValue | undefined,
-  decode: (value: CborValue) => T,
-  fallback: () => T,
-): T {
+function fieldOrDefault<T>(value: CborValue | undefined, decode: (value: CborValue) => T, fallback: () => T): T {
   return value === undefined ? fallback() : decode(value);
 }
 
@@ -7857,9 +7540,7 @@ function required<T>(value: T | undefined, label: string): T {
 }
 
 function u53(value: number): CborValue {
-  if (!Number.isSafeInteger(value) || value < 0) {
-    throw new Error("expected u53");
-  }
+  if (!Number.isSafeInteger(value) || value < 0) throw new Error("expected u53");
   return value;
 }
 
