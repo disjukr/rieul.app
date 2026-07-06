@@ -10,8 +10,8 @@ use anyhow::Result;
 use chrono::{DateTime, TimeZone};
 use rrule::{Frequency, RRuleSet, Tz};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::process::Command;
-use tokio::sync::{Mutex, oneshot, watch};
+use tokio::process::{ChildStdin, Command};
+use tokio::sync::{oneshot, watch, Mutex};
 use wgo_daemon_core::rpc::{
     BulkJobMutationRes, BulkScheduleMutationRes, ClearJobsReq, ClearJobsRunningPolicy,
     ClearJobsScope, CommandExit, CommandExitReason, CommandLaunchSpec, CommandOutputCapture,
@@ -23,7 +23,7 @@ use wgo_daemon_core::rpc::{
     UpdateScheduleReq,
 };
 
-use crate::state_db::DaemonStateDb;
+use crate::state_db::{DaemonStateDb, StoredJobOutput};
 
 const DEFAULT_RUN_TIMEOUT_MS: u64 = 1000;
 const DEFAULT_RUN_OUTPUT_LIMIT: u64 = 64 * 1024;
@@ -132,6 +132,25 @@ impl RetainedOutput {
         }
     }
 
+    fn from_persisted(enabled: bool, persisted: Option<StoredJobOutput>) -> Self {
+        let Some(persisted) = persisted else {
+            return Self::new(enabled, None);
+        };
+        Self {
+            enabled: persisted.state.enabled,
+            max_bytes: DEFAULT_JOB_OUTPUT_LIMIT,
+            chunks: persisted
+                .chunks
+                .into_iter()
+                .map(|chunk| OutputChunk {
+                    seq: chunk.seq,
+                    bytes: chunk.bytes,
+                })
+                .collect(),
+            state: persisted.state,
+        }
+    }
+
     fn append(&mut self, bytes: Vec<u8>) -> Option<OutputChunk> {
         if !self.enabled || bytes.is_empty() {
             return None;
@@ -200,11 +219,19 @@ impl CommandManager {
                 info.finished_at_ms = Some(now);
                 db.save_job(&info)?;
             }
+            let stdout = RetainedOutput::from_persisted(
+                info.log.stdout.enabled,
+                db.load_job_output(&info.job_id, JobOutputStream::Stdout)?,
+            );
+            let stderr = RetainedOutput::from_persisted(
+                info.log.stderr.enabled,
+                db.load_job_output(&info.job_id, JobOutputStream::Stderr)?,
+            );
             jobs.insert(
                 info.job_id.clone(),
                 JobRecord {
-                    stdout: RetainedOutput::new(info.log.stdout.enabled, None),
-                    stderr: RetainedOutput::new(info.log.stderr.enabled, None),
+                    stdout,
+                    stderr,
                     info,
                     kill: None,
                 },
@@ -265,52 +292,76 @@ impl CommandManager {
             .stderr
             .take()
             .map(|stderr| tokio::spawn(read_capture_limited(stderr, stderr_limit)));
-        if let Err(err) = write_child_stdin(&mut child, request.launch.stdin.as_ref()).await {
-            let _ = child.start_kill();
-            let _ = child.wait().await;
-            let _ = await_capture(stdout).await;
-            let _ = await_capture(stderr).await;
-            return Err(err);
-        }
-
         tokio::pin!(cancel);
         let timeout_sleep = tokio::time::sleep(timeout);
         tokio::pin!(timeout_sleep);
+        let mut stdin = spawn_stdin_writer(child.stdin.take(), request.launch.stdin.clone());
+        let mut stdin_done = false;
 
-        let exit = tokio::select! {
-            status = child.wait() => match status {
-                Ok(status) => CommandExit {
-                    code: status.code().map(i64::from),
-                    signal: None,
-                    reason: CommandExitReason::ProcessExit,
-                    exited_at_ms: current_unix_ms(),
+        let exit = loop {
+            let exit = tokio::select! {
+                status = child.wait() => match status {
+                    Ok(status) => Some(CommandExit {
+                        code: status.code().map(i64::from),
+                        signal: None,
+                        reason: CommandExitReason::ProcessExit,
+                        exited_at_ms: current_unix_ms(),
+                    }),
+                    Err(err) => {
+                        return Err(CommandError::failed(format!(
+                            "failed to wait for command: {err}"
+                        )));
+                    }
                 },
-                Err(err) => {
-                    return Err(CommandError::failed(format!(
-                        "failed to wait for command: {err}"
-                    )));
+                stdin_result = &mut stdin, if !stdin_done => {
+                    stdin_done = true;
+                    match stdin_result {
+                        Ok(Ok(())) => None,
+                        Ok(Err(err)) => {
+                            let _ = child.start_kill();
+                            let _ = child.wait().await;
+                            let _ = await_capture(stdout).await;
+                            let _ = await_capture(stderr).await;
+                            return Err(err);
+                        }
+                        Err(err) => {
+                            let _ = child.start_kill();
+                            let _ = child.wait().await;
+                            let _ = await_capture(stdout).await;
+                            let _ = await_capture(stderr).await;
+                            return Err(CommandError::failed(format!(
+                                "failed to write stdin: {err}"
+                            )));
+                        }
+                    }
+                },
+                _ = &mut timeout_sleep => {
+                    let _ = child.start_kill();
+                    let _ = child.wait().await;
+                    Some(CommandExit {
+                        code: None,
+                        signal: None,
+                        reason: CommandExitReason::Timeout,
+                        exited_at_ms: current_unix_ms(),
+                    })
+                },
+                _ = &mut cancel => {
+                    let _ = child.start_kill();
+                    let _ = child.wait().await;
+                    Some(CommandExit {
+                        code: None,
+                        signal: None,
+                        reason: CommandExitReason::UserKill,
+                        exited_at_ms: current_unix_ms(),
+                    })
+                },
+            };
+            if let Some(exit) = exit {
+                if !stdin_done {
+                    stdin.abort();
                 }
-            },
-            _ = &mut timeout_sleep => {
-                let _ = child.start_kill();
-                let _ = child.wait().await;
-                CommandExit {
-                    code: None,
-                    signal: None,
-                    reason: CommandExitReason::Timeout,
-                    exited_at_ms: current_unix_ms(),
-                }
-            },
-            _ = &mut cancel => {
-                let _ = child.start_kill();
-                let _ = child.wait().await;
-                CommandExit {
-                    code: None,
-                    signal: None,
-                    reason: CommandExitReason::UserKill,
-                    exited_at_ms: current_unix_ms(),
-                }
-            },
+                break exit;
+            }
         };
         Ok(RunCommandRes {
             exit,
@@ -591,14 +642,17 @@ impl CommandManager {
             .get(job_id)
             .ok_or_else(|| CommandError::not_found("job not found"))?;
         let output = record.output(stream);
-        let (_, chunks) = output.chunks_after(Some(after_seq));
-        let mut events = chunks
-            .into_iter()
-            .map(|chunk| JobOutputEvent::Chunk {
-                seq: chunk.seq,
-                bytes: chunk.bytes,
-            })
-            .collect::<Vec<_>>();
+        let (gap, chunks) = output.chunks_after(Some(after_seq));
+        let mut events = Vec::new();
+        if gap {
+            events.push(JobOutputEvent::HistoryGap {
+                next_seq: output.state.oldest_seq,
+            });
+        }
+        events.extend(chunks.into_iter().map(|chunk| JobOutputEvent::Chunk {
+            seq: chunk.seq,
+            bytes: chunk.bytes,
+        }));
         if let JobStatus::Exited { exit } = &record.info.status {
             events.push(JobOutputEvent::JobExited { exit: exit.clone() });
         }
@@ -723,14 +777,6 @@ impl CommandManager {
                 stderr,
             ));
         }
-        if let Err(err) = write_child_stdin(&mut child, request.launch.stdin.as_ref()).await {
-            self.append_output(
-                job_id,
-                JobOutputStream::Stderr,
-                format!("failed to write stdin: {}\n", err.message).into_bytes(),
-            )
-            .await;
-        }
         let timeout = request.timeout_ms.map(Duration::from_millis);
         let mut timeout_sleep = Box::pin(async {
             if let Some(timeout) = timeout {
@@ -739,34 +785,68 @@ impl CommandManager {
                 std::future::pending::<()>().await;
             }
         });
+        let mut stdin = spawn_stdin_writer(child.stdin.take(), request.launch.stdin.clone());
+        let mut stdin_done = false;
 
-        let exit = tokio::select! {
-            status = child.wait() => {
-                match status {
-                    Ok(status) => CommandExit {
-                        code: status.code().map(i64::from),
-                        signal: None,
-                        reason: CommandExitReason::ProcessExit,
-                        exited_at_ms: current_unix_ms(),
-                    },
-                    Err(_) => CommandExit {
-                        code: None,
-                        signal: None,
-                        reason: CommandExitReason::SpawnFailed,
-                        exited_at_ms: current_unix_ms(),
-                    },
+        let exit = loop {
+            let exit = tokio::select! {
+                status = child.wait() => {
+                    match status {
+                        Ok(status) => Some(CommandExit {
+                            code: status.code().map(i64::from),
+                            signal: None,
+                            reason: CommandExitReason::ProcessExit,
+                            exited_at_ms: current_unix_ms(),
+                        }),
+                        Err(_) => Some(CommandExit {
+                            code: None,
+                            signal: None,
+                            reason: CommandExitReason::SpawnFailed,
+                            exited_at_ms: current_unix_ms(),
+                        }),
+                    }
                 }
-            }
-            reason = &mut kill_rx => {
-                let reason = reason.unwrap_or(CommandExitReason::UserKill);
-                let _ = child.start_kill();
-                let _ = child.wait().await;
-                CommandExit { code: None, signal: None, reason, exited_at_ms: current_unix_ms() }
-            }
-            _ = &mut timeout_sleep => {
-                let _ = child.start_kill();
-                let _ = child.wait().await;
-                CommandExit { code: None, signal: None, reason: CommandExitReason::Timeout, exited_at_ms: current_unix_ms() }
+                stdin_result = &mut stdin, if !stdin_done => {
+                    stdin_done = true;
+                    match stdin_result {
+                        Ok(Ok(())) => None,
+                        Ok(Err(err)) => {
+                            self.append_output(
+                                job_id,
+                                JobOutputStream::Stderr,
+                                format!("failed to write stdin: {}\n", err.message).into_bytes(),
+                            )
+                            .await;
+                            None
+                        }
+                        Err(err) => {
+                            self.append_output(
+                                job_id,
+                                JobOutputStream::Stderr,
+                                format!("failed to write stdin: {err}\n").into_bytes(),
+                            )
+                            .await;
+                            None
+                        }
+                    }
+                }
+                reason = &mut kill_rx => {
+                    let reason = reason.unwrap_or(CommandExitReason::UserKill);
+                    let _ = child.start_kill();
+                    let _ = child.wait().await;
+                    Some(CommandExit { code: None, signal: None, reason, exited_at_ms: current_unix_ms() })
+                }
+                _ = &mut timeout_sleep => {
+                    let _ = child.start_kill();
+                    let _ = child.wait().await;
+                    Some(CommandExit { code: None, signal: None, reason: CommandExitReason::Timeout, exited_at_ms: current_unix_ms() })
+                }
+            };
+            if let Some(exit) = exit {
+                if !stdin_done {
+                    stdin.abort();
+                }
+                break exit;
             }
         };
         await_output_readers(output_readers).await;
@@ -1095,27 +1175,29 @@ fn validate_launch(launch: &CommandLaunchSpec) -> Result<(), CommandError> {
     Ok(())
 }
 
-async fn write_child_stdin(
-    child: &mut tokio::process::Child,
-    stdin: Option<&CommandStdin>,
-) -> Result<(), CommandError> {
-    let Some(stdin) = stdin else {
-        drop(child.stdin.take());
-        return Ok(());
-    };
-    let Some(mut child_stdin) = child.stdin.take() else {
-        return Ok(());
-    };
-    let bytes = match stdin {
-        CommandStdin::Text { text } => text.as_bytes().to_vec(),
-        CommandStdin::Bytes { bytes } => bytes.clone(),
-    };
-    child_stdin
-        .write_all(&bytes)
-        .await
-        .map_err(|err| CommandError::failed(format!("failed to write stdin: {err}")))?;
-    drop(child_stdin);
-    Ok(())
+fn spawn_stdin_writer(
+    child_stdin: Option<ChildStdin>,
+    stdin: Option<CommandStdin>,
+) -> tokio::task::JoinHandle<Result<(), CommandError>> {
+    tokio::spawn(async move {
+        let Some(stdin) = stdin else {
+            drop(child_stdin);
+            return Ok(());
+        };
+        let Some(mut child_stdin) = child_stdin else {
+            return Ok(());
+        };
+        let bytes = match stdin {
+            CommandStdin::Text { text } => text.into_bytes(),
+            CommandStdin::Bytes { bytes } => bytes,
+        };
+        child_stdin
+            .write_all(&bytes)
+            .await
+            .map_err(|err| CommandError::failed(format!("failed to write stdin: {err}")))?;
+        drop(child_stdin);
+        Ok(())
+    })
 }
 
 async fn read_capture_limited<R>(mut reader: R, limit: u64) -> CommandOutputCapture
@@ -1338,6 +1420,45 @@ mod tests {
         }
     }
 
+    fn stdin_blocking_test_launch() -> CommandLaunchSpec {
+        if cfg!(windows) {
+            CommandLaunchSpec {
+                command: "ping".to_string(),
+                args: vec!["-n".to_string(), "6".to_string(), "127.0.0.1".to_string()],
+                ..CommandLaunchSpec::default()
+            }
+        } else {
+            CommandLaunchSpec {
+                command: "sleep".to_string(),
+                args: vec!["5".to_string()],
+                ..CommandLaunchSpec::default()
+            }
+        }
+    }
+
+    fn test_job_info(job_id: &str) -> JobInfo {
+        JobInfo {
+            job_id: job_id.to_string(),
+            title: None,
+            launch: CommandLaunchSpec {
+                command: "test".to_string(),
+                ..CommandLaunchSpec::default()
+            },
+            created_at_ms: 1,
+            started_at_ms: Some(1),
+            finished_at_ms: None,
+            status: JobStatus::Running,
+            reason: JobRunReason::Manual,
+            log: JobLogState {
+                stdout: JobOutputState {
+                    enabled: true,
+                    ..JobOutputState::default()
+                },
+                stderr: JobOutputState::default(),
+            },
+        }
+    }
+
     #[tokio::test]
     async fn job_exit_waits_for_output_readers() {
         let manager = CommandManager::open(DaemonStateDb::open_in_memory_for_tests().unwrap())
@@ -1378,6 +1499,115 @@ mod tests {
             "stdout was {}",
             String::from_utf8_lossy(&stdout)
         );
+    }
+
+    #[tokio::test]
+    async fn run_command_timeout_races_with_blocked_stdin_write() {
+        let manager = CommandManager::open(DaemonStateDb::open_in_memory_for_tests().unwrap())
+            .expect("open command manager");
+        let started = std::time::Instant::now();
+
+        let response = manager
+            .run_command(RunCommandReq {
+                launch: CommandLaunchSpec {
+                    stdin: Some(CommandStdin::Bytes {
+                        bytes: vec![b'x'; 2 * 1024 * 1024],
+                    }),
+                    ..stdin_blocking_test_launch()
+                },
+                timeout_ms: Some(50),
+                ..RunCommandReq::default()
+            })
+            .await
+            .expect("run command");
+
+        assert_eq!(response.exit.reason, CommandExitReason::Timeout);
+        assert!(
+            started.elapsed() < Duration::from_secs(3),
+            "timeout waited for blocked stdin write"
+        );
+    }
+
+    #[tokio::test]
+    async fn live_output_reports_retention_gap() {
+        let manager = CommandManager::open(DaemonStateDb::open_in_memory_for_tests().unwrap())
+            .expect("open command manager");
+        let job = test_job_info("job-gap");
+        {
+            let mut state = manager.state.lock().await;
+            state.jobs.insert(
+                job.job_id.clone(),
+                JobRecord {
+                    info: job.clone(),
+                    stdout: RetainedOutput::new(true, Some(1)),
+                    stderr: RetainedOutput::new(false, None),
+                    kill: None,
+                },
+            );
+        }
+
+        manager
+            .append_output(&job.job_id, JobOutputStream::Stdout, b"a".to_vec())
+            .await;
+        manager
+            .append_output(&job.job_id, JobOutputStream::Stdout, b"b".to_vec())
+            .await;
+
+        let (_, events) = manager
+            .output_chunks_after(&job.job_id, JobOutputStream::Stdout, 1)
+            .await
+            .expect("read output chunks");
+
+        assert!(matches!(
+            events.as_slice(),
+            [
+                JobOutputEvent::HistoryGap { next_seq: 2 },
+                JobOutputEvent::Chunk { seq: 2, bytes }
+            ] if bytes == b"b"
+        ));
+    }
+
+    #[tokio::test]
+    async fn open_restores_persisted_output_chunks() {
+        let db = DaemonStateDb::open_in_memory_for_tests().unwrap();
+        let mut job = test_job_info("job-restored");
+        job.status = JobStatus::Exited {
+            exit: CommandExit {
+                code: Some(0),
+                signal: None,
+                reason: CommandExitReason::ProcessExit,
+                exited_at_ms: 2,
+            },
+        };
+        job.finished_at_ms = Some(2);
+        job.log.stdout = JobOutputState {
+            enabled: true,
+            oldest_seq: 1,
+            latest_seq: 1,
+            retained_bytes: 8,
+            truncated: false,
+        };
+        db.save_job(&job).unwrap();
+        db.save_job_output_state(&job.job_id, JobOutputStream::Stdout, &job.log.stdout)
+            .unwrap();
+        db.append_job_output_chunk(&job.job_id, JobOutputStream::Stdout, 1, b"restored", 2)
+            .unwrap();
+
+        let manager = CommandManager::open(db).expect("open command manager");
+        let (_, state, events) = manager
+            .output_attached(&SubscribeJobOutputReq {
+                job_id: job.job_id,
+                stream: JobOutputStream::Stdout,
+                after_seq: None,
+            })
+            .await
+            .expect("attach restored output");
+
+        assert_eq!(state.latest_seq, 1);
+        assert!(events.iter().any(|event| matches!(
+            event,
+            JobOutputEvent::Chunk { seq: 1, bytes } if bytes == b"restored"
+        )));
     }
 
     fn ms(rfc3339: &str) -> u64 {

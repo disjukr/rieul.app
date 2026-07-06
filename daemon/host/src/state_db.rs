@@ -1,8 +1,8 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result, bail};
-use rusqlite::Connection;
+use anyhow::{bail, Context, Result};
+use rusqlite::{Connection, OptionalExtension};
 use wgo_daemon_core::rpc::{
     JobInfo, JobOutputState, JobOutputStream, JobRunReason, JobStatus, ScheduleInfo,
 };
@@ -70,6 +70,16 @@ pub struct DaemonStateDb {
     connection: Connection,
 }
 
+pub struct StoredJobOutput {
+    pub state: JobOutputState,
+    pub chunks: Vec<StoredJobOutputChunk>,
+}
+
+pub struct StoredJobOutputChunk {
+    pub seq: u64,
+    pub bytes: Vec<u8>,
+}
+
 impl DaemonStateDb {
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref();
@@ -133,6 +143,61 @@ impl DaemonStateDb {
         rows.into_iter()
             .map(|bytes| JobInfo::decode(&bytes).context("decode stored job"))
             .collect()
+    }
+
+    pub fn load_job_output(
+        &self,
+        job_id: &str,
+        stream: JobOutputStream,
+    ) -> Result<Option<StoredJobOutput>> {
+        let stream = job_output_stream_name(stream);
+        let state = self
+            .connection
+            .query_row(
+                r#"
+                SELECT enabled, oldest_seq, latest_seq, retained_bytes, truncated
+                FROM command_job_output_state
+                WHERE job_id = ?1 AND stream = ?2
+                "#,
+                (job_id, stream),
+                |row| {
+                    Ok(JobOutputState {
+                        enabled: i64_to_bool(row.get::<_, i64>(0)?),
+                        oldest_seq: row.get::<_, i64>(1)? as u64,
+                        latest_seq: row.get::<_, i64>(2)? as u64,
+                        retained_bytes: row.get::<_, i64>(3)? as u64,
+                        truncated: i64_to_bool(row.get::<_, i64>(4)?),
+                    })
+                },
+            )
+            .optional()
+            .context("load job output state")?;
+        let Some(state) = state else {
+            return Ok(None);
+        };
+
+        let mut statement = self
+            .connection
+            .prepare(
+                r#"
+                SELECT seq, bytes
+                FROM command_job_output_chunks
+                WHERE job_id = ?1 AND stream = ?2
+                ORDER BY seq
+                "#,
+            )
+            .context("prepare job output chunks load")?;
+        let chunks = statement
+            .query_map((job_id, stream), |row| {
+                Ok(StoredJobOutputChunk {
+                    seq: row.get::<_, i64>(0)? as u64,
+                    bytes: row.get::<_, Vec<u8>>(1)?,
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .context("load job output chunks")?;
+
+        Ok(Some(StoredJobOutput { state, chunks }))
     }
 
     pub fn save_schedule(&self, schedule: &ScheduleInfo) -> Result<()> {
@@ -345,7 +410,15 @@ fn schema_version(connection: &Connection) -> Result<i32> {
 }
 
 fn bool_to_i64(value: bool) -> i64 {
-    if value { 1 } else { 0 }
+    if value {
+        1
+    } else {
+        0
+    }
+}
+
+fn i64_to_bool(value: i64) -> bool {
+    value != 0
 }
 
 fn job_reason_kind(reason: &JobRunReason) -> &'static str {
@@ -472,6 +545,46 @@ mod tests {
 
         let remaining = output_chunk_seqs(&db, &job.job_id, "stdout");
         assert_eq!(remaining, vec![3]);
+    }
+
+    #[test]
+    fn loads_persisted_output_state_and_chunks() {
+        let db = DaemonStateDb::open_in_memory_for_tests().unwrap();
+        let job = test_job();
+        db.save_job(&job).unwrap();
+        db.save_job_output_state(
+            &job.job_id,
+            JobOutputStream::Stdout,
+            &JobOutputState {
+                enabled: true,
+                oldest_seq: 2,
+                latest_seq: 3,
+                retained_bytes: 2,
+                truncated: true,
+            },
+        )
+        .unwrap();
+        db.append_job_output_chunk(&job.job_id, JobOutputStream::Stdout, 2, b"b", 2)
+            .unwrap();
+        db.append_job_output_chunk(&job.job_id, JobOutputStream::Stdout, 3, b"c", 3)
+            .unwrap();
+
+        let output = db
+            .load_job_output(&job.job_id, JobOutputStream::Stdout)
+            .unwrap()
+            .expect("stored output");
+
+        assert_eq!(output.state.oldest_seq, 2);
+        assert_eq!(output.state.latest_seq, 3);
+        assert!(output.state.truncated);
+        assert_eq!(
+            output
+                .chunks
+                .into_iter()
+                .map(|chunk| (chunk.seq, chunk.bytes))
+                .collect::<Vec<_>>(),
+            vec![(2, b"b".to_vec()), (3, b"c".to_vec())]
+        );
     }
 
     fn table_exists(connection: &Connection, table_name: &str) -> bool {
