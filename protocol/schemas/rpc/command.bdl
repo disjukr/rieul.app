@@ -290,6 +290,10 @@ union JobRunReason {
     | created. This is retained so later schedule edits do not rewrite job
     | history.
     rruleSet: string,
+
+    @ id - 3
+    @ description - Scheduled occurrence timestamp that triggered this job.
+    runAtMs: u53,
   ),
 }
 

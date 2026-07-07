@@ -1115,13 +1115,13 @@ impl CommandManager {
                 };
                 let runs = next_runs_for_rule(&rule, request);
                 record.last_checked_ms = next_schedule_checkpoint(now, &runs);
-                for _ in runs.run_at_ms {
-                    due.push(record.info.clone());
+                for run_at_ms in runs.run_at_ms {
+                    due.push((record.info.clone(), run_at_ms));
                 }
             }
             due
         };
-        for schedule in due {
+        for (schedule, run_at_ms) in due {
             let request = CreateJobReq {
                 launch: schedule.launch.clone(),
                 timeout_ms: schedule.job.timeout_ms,
@@ -1131,6 +1131,7 @@ impl CommandManager {
             let reason = JobRunReason::Schedule {
                 schedule_id: schedule.schedule_id.clone(),
                 rrule_set: schedule.rrule_set.clone(),
+                run_at_ms,
             };
             let _ = self.create_job_with_reason(request, reason).await;
         }
@@ -1820,6 +1821,7 @@ mod tests {
                 JobRunReason::Schedule {
                     schedule_id: "deleted-schedule".to_string(),
                     rrule_set: "DTSTART:20260101T000000Z\nRRULE:FREQ=DAILY".to_string(),
+                    run_at_ms: ms("2026-01-01T00:00:00Z"),
                 },
             )
             .await;
@@ -1893,6 +1895,50 @@ mod tests {
             updated.rrule_set,
             "DTSTART:20260102T000000Z\nRRULE:FREQ=WEEKLY"
         );
+    }
+
+    #[tokio::test]
+    async fn scheduled_jobs_record_trigger_run_time() {
+        let manager = CommandManager::open(DaemonStateDb::open_in_memory_for_tests().unwrap())
+            .expect("open command manager");
+        let run_at_ms = normalize_schedule_start_ms(current_unix_ms().saturating_sub(1000));
+        let schedule = manager
+            .create_schedule(CreateScheduleReq {
+                title: "one shot".to_string(),
+                launch: output_test_launch(),
+                job: ScheduledJobOptions::default(),
+                start_at_ms: run_at_ms,
+                rrule_set: "RRULE:FREQ=DAILY;COUNT=1".to_string(),
+                enabled: true,
+                note: None,
+            })
+            .await
+            .expect("create schedule");
+        {
+            let mut state = manager.state.lock().await;
+            let record = state
+                .schedules
+                .get_mut(&schedule.schedule_id)
+                .expect("schedule record");
+            record.last_checked_ms = run_at_ms.saturating_sub(1000);
+        }
+
+        manager.run_due_schedules().await;
+
+        let snapshot = manager
+            .jobs_snapshot(&SubscribeJobsReq {
+                schedule_id: Some(schedule.schedule_id.clone()),
+            })
+            .await;
+        assert_eq!(snapshot.rows.len(), 1);
+        assert!(matches!(
+            &snapshot.rows[0].reason,
+            JobRunReason::Schedule {
+                schedule_id,
+                run_at_ms: triggered_at_ms,
+                ..
+            } if schedule_id == &schedule.schedule_id && *triggered_at_ms == run_at_ms
+        ));
     }
 
     fn ms(rfc3339: &str) -> u64 {
