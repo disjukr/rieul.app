@@ -211,6 +211,16 @@ impl CommandManager {
         let mut jobs = BTreeMap::new();
         let now = current_unix_ms();
         for mut info in db.load_jobs()? {
+            let stdout = RetainedOutput::from_persisted(
+                info.log.stdout.enabled,
+                db.load_job_output(&info.job_id, JobOutputStream::Stdout)?,
+            );
+            let stderr = RetainedOutput::from_persisted(
+                info.log.stderr.enabled,
+                db.load_job_output(&info.job_id, JobOutputStream::Stderr)?,
+            );
+            info.log.stdout = stdout.state.clone();
+            info.log.stderr = stderr.state.clone();
             if matches!(info.status, JobStatus::Running) {
                 let exit = CommandExit {
                     code: None,
@@ -222,14 +232,6 @@ impl CommandManager {
                 info.finished_at_ms = Some(now);
                 db.save_job(&info)?;
             }
-            let stdout = RetainedOutput::from_persisted(
-                info.log.stdout.enabled,
-                db.load_job_output(&info.job_id, JobOutputStream::Stdout)?,
-            );
-            let stderr = RetainedOutput::from_persisted(
-                info.log.stderr.enabled,
-                db.load_job_output(&info.job_id, JobOutputStream::Stderr)?,
-            );
             jobs.insert(
                 info.job_id.clone(),
                 JobRecord {
@@ -722,18 +724,23 @@ impl CommandManager {
             },
         };
         let (kill_tx, kill_rx) = oneshot::channel();
-        self.persist_job(&job)?;
-        {
+        let record = JobRecord {
+            stdout: RetainedOutput::new(request.log.stdout, request.log.max_stdout_bytes),
+            stderr: RetainedOutput::new(request.log.stderr, request.log.max_stderr_bytes),
+            info: job.clone(),
+            kill: Some(kill_tx),
+        };
+        if let JobRunReason::Schedule { schedule_id, .. } = &job.reason {
             let mut state = self.state.lock().await;
-            state.jobs.insert(
-                job.job_id.clone(),
-                JobRecord {
-                    stdout: RetainedOutput::new(request.log.stdout, request.log.max_stdout_bytes),
-                    stderr: RetainedOutput::new(request.log.stderr, request.log.max_stderr_bytes),
-                    info: job.clone(),
-                    kill: Some(kill_tx),
-                },
-            );
+            if !state.schedules.contains_key(schedule_id) {
+                return Err(CommandError::not_found("schedule not found"));
+            }
+            self.persist_job(&job)?;
+            state.jobs.insert(job.job_id.clone(), record);
+        } else {
+            self.persist_job(&job)?;
+            let mut state = self.state.lock().await;
+            state.jobs.insert(job.job_id.clone(), record);
         }
         self.notify_jobs();
         self.spawn_job_task(job.job_id.clone(), request, kill_rx);
@@ -949,12 +956,15 @@ impl CommandManager {
     }
 
     async fn delete_schedule_and_jobs(&self, schedule_id: &str) -> Result<bool, CommandError> {
-        let job_ids = {
-            let state = self.state.lock().await;
+        let mut removed_job = false;
+        {
+            let mut state = self.state.lock().await;
             if !state.schedules.contains_key(schedule_id) {
                 return Ok(false);
             }
-            state
+            self.with_db(|db| db.delete_schedule(schedule_id))
+                .map_err(|err| CommandError::failed(err.to_string()))?;
+            let job_ids = state
                 .jobs
                 .values()
                 .filter_map(|record| match &record.info.reason {
@@ -963,18 +973,24 @@ impl CommandManager {
                     } if id == schedule_id => Some(record.info.job_id.clone()),
                     _ => None,
                 })
-                .collect::<Vec<_>>()
-        };
-        for job_id in job_ids {
-            let _ = self.delete_job(&job_id, true).await;
-        }
-        {
-            let mut state = self.state.lock().await;
+                .collect::<Vec<_>>();
+            for job_id in job_ids {
+                if let Some(mut record) = state.jobs.remove(&job_id) {
+                    removed_job = true;
+                    if matches!(record.info.status, JobStatus::Running) {
+                        if let Some(kill) = record.kill.take() {
+                            let _ = kill.send(CommandExitReason::UserKill);
+                        }
+                    }
+                }
+            }
             state.schedules.remove(schedule_id);
         }
-        self.with_db(|db| db.delete_schedule(schedule_id))
-            .map_err(|err| CommandError::failed(err.to_string()))?;
         self.notify_schedules();
+        self.notify_jobs();
+        if removed_job {
+            self.notify_output();
+        }
         Ok(true)
     }
 
@@ -1683,6 +1699,81 @@ mod tests {
             event,
             JobOutputEvent::Chunk { seq: 1, bytes } if bytes == b"restored"
         )));
+    }
+
+    #[tokio::test]
+    async fn open_saves_abandoned_jobs_with_restored_output_state() {
+        let db = DaemonStateDb::open_in_memory_for_tests().unwrap();
+        let job = test_job_info("job-abandoned");
+        db.save_job(&job).unwrap();
+        let stdout = JobOutputState {
+            enabled: true,
+            oldest_seq: 1,
+            latest_seq: 1,
+            retained_bytes: 8,
+            truncated: false,
+        };
+        db.save_job_output_state(&job.job_id, JobOutputStream::Stdout, &stdout)
+            .unwrap();
+        db.append_job_output_chunk(&job.job_id, JobOutputStream::Stdout, 1, b"restored", 2)
+            .unwrap();
+
+        let manager = CommandManager::open(db).expect("open command manager");
+        let snapshot = manager
+            .jobs_snapshot(&SubscribeJobsReq { schedule_id: None })
+            .await;
+        let restored = snapshot
+            .rows
+            .iter()
+            .find(|row| row.job_id == job.job_id)
+            .expect("restored job");
+
+        assert_eq!(restored.log.stdout.latest_seq, 1);
+        assert!(matches!(
+            restored.status,
+            JobStatus::Exited {
+                exit: CommandExit {
+                    reason: CommandExitReason::DaemonShuttingDown,
+                    ..
+                }
+            }
+        ));
+        let stored = manager
+            .with_db(|db| db.load_jobs())
+            .expect("load stored jobs")
+            .into_iter()
+            .find(|row| row.job_id == job.job_id)
+            .expect("stored abandoned job");
+        assert_eq!(stored.log.stdout.latest_seq, 1);
+    }
+
+    #[tokio::test]
+    async fn scheduled_job_creation_requires_live_schedule() {
+        let manager = CommandManager::open(DaemonStateDb::open_in_memory_for_tests().unwrap())
+            .expect("open command manager");
+        let result = manager
+            .create_job_with_reason(
+                CreateJobReq {
+                    launch: output_test_launch(),
+                    ..CreateJobReq::default()
+                },
+                JobRunReason::Schedule {
+                    schedule_id: "deleted-schedule".to_string(),
+                    rrule_set: "DTSTART:20260101T000000Z\nRRULE:FREQ=DAILY".to_string(),
+                },
+            )
+            .await;
+
+        assert_eq!(result.unwrap_err().kind, CommandErrorKind::NotFound);
+        assert!(manager
+            .jobs_snapshot(&SubscribeJobsReq { schedule_id: None })
+            .await
+            .rows
+            .is_empty());
+        assert!(manager
+            .with_db(|db| db.load_jobs())
+            .expect("load stored jobs")
+            .is_empty());
     }
 
     fn ms(rfc3339: &str) -> u64 {
