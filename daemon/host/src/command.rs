@@ -28,6 +28,7 @@ use crate::state_db::{DaemonStateDb, StoredJobOutput};
 const DEFAULT_RUN_TIMEOUT_MS: u64 = 1000;
 const DEFAULT_RUN_OUTPUT_LIMIT: u64 = 64 * 1024;
 const JOB_OUTPUT_READ_BUFFER: usize = 16 * 1024;
+const JOB_OUTPUT_EXIT_DRAIN_TIMEOUT: Duration = Duration::from_millis(250);
 const DEFAULT_JOB_OUTPUT_LIMIT: u64 = 1024 * 1024;
 const SCHEDULE_TICK: Duration = Duration::from_secs(1);
 const NEXT_RUNS_MAX_LIMIT: u64 = 1000;
@@ -95,6 +96,7 @@ struct JobRecord {
     stdout: RetainedOutput,
     stderr: RetainedOutput,
     kill: Option<oneshot::Sender<CommandExitReason>>,
+    task: Option<tokio::task::JoinHandle<()>>,
 }
 
 struct ScheduleRecord {
@@ -182,7 +184,11 @@ impl RetainedOutput {
 
     fn chunks_after(&self, after_seq: Option<u64>) -> (bool, Vec<OutputChunk>) {
         let after_seq = after_seq.unwrap_or(0);
-        let gap = self.state.oldest_seq > 0 && after_seq > 0 && after_seq < self.state.oldest_seq;
+        let gap = if self.state.oldest_seq > 0 {
+            after_seq > 0 && after_seq < self.state.oldest_seq
+        } else {
+            self.state.truncated && after_seq < self.state.latest_seq
+        };
         let chunks = self
             .chunks
             .iter()
@@ -203,7 +209,7 @@ impl CommandManager {
                     info.schedule_id.clone(),
                     ScheduleRecord {
                         info,
-                        last_checked_ms: current_unix_ms(),
+                        last_checked_ms: new_schedule_checkpoint(),
                     },
                 )
             })
@@ -239,6 +245,7 @@ impl CommandManager {
                     stderr,
                     info,
                     kill: None,
+                    task: None,
                 },
             );
         }
@@ -467,7 +474,7 @@ impl CommandManager {
         let previous = (record.info.clone(), record.last_checked_ms);
         schedule.updated_at_ms = current_unix_ms();
         record.info = schedule.clone();
-        record.last_checked_ms = current_unix_ms();
+        record.last_checked_ms = new_schedule_checkpoint();
         drop(state);
         if let Err(err) = self.persist_schedule(&schedule) {
             let mut state = self.state.lock().await;
@@ -644,7 +651,7 @@ impl CommandManager {
         });
         if gap {
             events.push(JobOutputEvent::HistoryGap {
-                next_seq: output.state.oldest_seq,
+                next_seq: output_gap_next_seq(output, request.after_seq.unwrap_or(0)),
             });
         }
         events.extend(chunks.into_iter().map(|chunk| JobOutputEvent::Chunk {
@@ -676,7 +683,7 @@ impl CommandManager {
         let mut events = Vec::new();
         if gap {
             events.push(JobOutputEvent::HistoryGap {
-                next_seq: output.state.oldest_seq,
+                next_seq: output_gap_next_seq(output, after_seq),
             });
         }
         let chunks_empty = chunks.is_empty();
@@ -737,6 +744,7 @@ impl CommandManager {
             stderr: RetainedOutput::new(request.log.stderr, request.log.max_stderr_bytes),
             info: job.clone(),
             kill: Some(kill_tx),
+            task: None,
         };
         if let JobRunReason::Schedule { schedule_id, .. } = &job.reason {
             let mut state = self.state.lock().await;
@@ -745,13 +753,20 @@ impl CommandManager {
             }
             self.persist_job(&job)?;
             state.jobs.insert(job.job_id.clone(), record);
+            let task = self.spawn_job_task(job.job_id.clone(), request, kill_rx);
+            if let Some(record) = state.jobs.get_mut(&job.job_id) {
+                record.task = Some(task);
+            }
         } else {
             self.persist_job(&job)?;
             let mut state = self.state.lock().await;
             state.jobs.insert(job.job_id.clone(), record);
+            let task = self.spawn_job_task(job.job_id.clone(), request, kill_rx);
+            if let Some(record) = state.jobs.get_mut(&job.job_id) {
+                record.task = Some(task);
+            }
         }
         self.notify_jobs();
-        self.spawn_job_task(job.job_id.clone(), request, kill_rx);
         Ok(job)
     }
 
@@ -760,12 +775,12 @@ impl CommandManager {
         job_id: String,
         request: CreateJobReq,
         kill_rx: oneshot::Receiver<CommandExitReason>,
-    ) {
+    ) -> tokio::task::JoinHandle<()> {
         let manager = self.clone();
         tokio::spawn(async move {
             let exit = manager.run_job_process(&job_id, request, kill_rx).await;
             manager.finish_job(&job_id, exit).await;
-        });
+        })
     }
 
     async fn run_job_process(
@@ -893,7 +908,7 @@ impl CommandManager {
                 break exit;
             }
         };
-        await_output_readers(output_readers).await;
+        drain_output_readers(output_readers).await;
         exit
     }
 
@@ -905,6 +920,7 @@ impl CommandManager {
                 record.info.status = JobStatus::Exited { exit: exit.clone() };
                 record.info.finished_at_ms = Some(exit.exited_at_ms);
                 record.kill = None;
+                record.task = None;
                 record.info.log.stdout = record.stdout.state.clone();
                 record.info.log.stderr = record.stderr.state.clone();
                 maybe_job = Some(record.info.clone());
@@ -955,7 +971,7 @@ impl CommandManager {
                 schedule.schedule_id.clone(),
                 ScheduleRecord {
                     info: schedule.clone(),
-                    last_checked_ms: current_unix_ms(),
+                    last_checked_ms: new_schedule_checkpoint(),
                 },
             );
         }
@@ -965,6 +981,7 @@ impl CommandManager {
 
     async fn delete_schedule_and_jobs(&self, schedule_id: &str) -> Result<bool, CommandError> {
         let mut removed_job = false;
+        let mut tasks = Vec::new();
         {
             let mut state = self.state.lock().await;
             if !state.schedules.contains_key(schedule_id) {
@@ -985,6 +1002,9 @@ impl CommandManager {
             for job_id in job_ids {
                 if let Some(mut record) = state.jobs.remove(&job_id) {
                     removed_job = true;
+                    if let Some(task) = record.task.take() {
+                        tasks.push(task);
+                    }
                     if matches!(record.info.status, JobStatus::Running) {
                         if let Some(kill) = record.kill.take() {
                             let _ = kill.send(CommandExitReason::UserKill);
@@ -993,6 +1013,9 @@ impl CommandManager {
                 }
             }
             state.schedules.remove(schedule_id);
+        }
+        for task in tasks {
+            let _ = task.await;
         }
         self.notify_schedules();
         self.notify_jobs();
@@ -1008,6 +1031,7 @@ impl CommandManager {
         kill_running: bool,
     ) -> Result<DeleteJobOutcome, CommandError> {
         let mut killed = false;
+        let mut task = None;
         {
             let mut state = self.state.lock().await;
             let Some(record) = state.jobs.get_mut(job_id) else {
@@ -1017,15 +1041,22 @@ impl CommandManager {
                 if !kill_running {
                     return Err(CommandError::failed("job is still running"));
                 }
+                killed = true;
+                task = record.task.take();
                 if let Some(kill) = record.kill.take() {
                     let _ = kill.send(CommandExitReason::UserKill);
                 }
-                killed = true;
             }
-            state.jobs.remove(job_id);
+        }
+        if let Some(task) = task {
+            let _ = task.await;
         }
         self.with_db(|db| db.delete_job(job_id))
             .map_err(|err| CommandError::failed(err.to_string()))?;
+        {
+            let mut state = self.state.lock().await;
+            state.jobs.remove(job_id);
+        }
         self.notify_jobs();
         self.notify_output();
         Ok(if killed {
@@ -1164,6 +1195,14 @@ impl JobRecord {
             JobOutputStream::Stdout => &mut self.stdout,
             JobOutputStream::Stderr => &mut self.stderr,
         }
+    }
+}
+
+fn output_gap_next_seq(output: &RetainedOutput, after_seq: u64) -> u64 {
+    if output.state.oldest_seq > 0 {
+        output.state.oldest_seq
+    } else {
+        output.state.latest_seq.max(after_seq.saturating_add(1))
     }
 }
 
@@ -1316,9 +1355,14 @@ where
     })
 }
 
-async fn await_output_readers(readers: Vec<tokio::task::JoinHandle<()>>) {
-    for reader in readers {
-        let _ = reader.await;
+async fn drain_output_readers(readers: Vec<tokio::task::JoinHandle<()>>) {
+    for mut reader in readers {
+        tokio::select! {
+            _ = &mut reader => {}
+            _ = tokio::time::sleep(JOB_OUTPUT_EXIT_DRAIN_TIMEOUT) => {
+                reader.abort();
+            }
+        }
     }
 }
 
@@ -1364,6 +1408,10 @@ fn canonicalize_schedule_rrule_set(
 
 fn normalize_schedule_start_ms(ms: u64) -> u64 {
     ms - (ms % 1000)
+}
+
+fn new_schedule_checkpoint() -> u64 {
+    normalize_schedule_start_ms(current_unix_ms()).saturating_sub(1)
 }
 
 fn unfold_ical_lines(text: &str) -> Vec<String> {
@@ -1543,6 +1591,25 @@ mod tests {
         }
     }
 
+    fn inherited_output_pipe_test_launch() -> CommandLaunchSpec {
+        if cfg!(windows) {
+            CommandLaunchSpec {
+                command: "cmd".to_string(),
+                args: vec![
+                    "/C".to_string(),
+                    "start /B ping -n 6 127.0.0.1 >NUL & echo parent-exit".to_string(),
+                ],
+                ..CommandLaunchSpec::default()
+            }
+        } else {
+            CommandLaunchSpec {
+                command: "sh".to_string(),
+                args: vec!["-c".to_string(), "sleep 5 & printf parent-exit".to_string()],
+                ..CommandLaunchSpec::default()
+            }
+        }
+    }
+
     fn test_job_info(job_id: &str) -> JobInfo {
         JobInfo {
             job_id: job_id.to_string(),
@@ -1636,6 +1703,61 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn job_exit_does_not_wait_forever_for_inherited_output_pipes() {
+        let manager = CommandManager::open(DaemonStateDb::open_in_memory_for_tests().unwrap())
+            .expect("open command manager");
+        let started = std::time::Instant::now();
+        let job = manager
+            .create_job(CreateJobReq {
+                launch: inherited_output_pipe_test_launch(),
+                log: JobLogOptions {
+                    stdout: true,
+                    ..JobLogOptions::default()
+                },
+                ..CreateJobReq::default()
+            })
+            .await
+            .expect("create job");
+
+        wait_for_job_exit(&manager, &job.job_id).await;
+
+        assert!(
+            started.elapsed() < Duration::from_secs(3),
+            "job exit waited for inherited output pipe"
+        );
+    }
+
+    #[tokio::test]
+    async fn delete_running_job_waits_for_job_task() {
+        let manager = CommandManager::open(DaemonStateDb::open_in_memory_for_tests().unwrap())
+            .expect("open command manager");
+        let started = std::time::Instant::now();
+        let job = manager
+            .create_job(CreateJobReq {
+                launch: stdin_blocking_test_launch(),
+                ..CreateJobReq::default()
+            })
+            .await
+            .expect("create job");
+
+        let result = manager
+            .delete_job(&job.job_id, true)
+            .await
+            .expect("delete running job");
+
+        assert!(matches!(result, DeleteJobOutcome::KilledAndDeleted));
+        assert!(
+            started.elapsed() < Duration::from_secs(3),
+            "delete did not return promptly after killing job"
+        );
+        assert!(manager
+            .jobs_snapshot(&SubscribeJobsReq::default())
+            .await
+            .rows
+            .is_empty());
+    }
+
+    #[tokio::test]
     async fn live_output_reports_retention_gap() {
         let manager = CommandManager::open(DaemonStateDb::open_in_memory_for_tests().unwrap())
             .expect("open command manager");
@@ -1649,6 +1771,7 @@ mod tests {
                     stdout: RetainedOutput::new(true, Some(1)),
                     stderr: RetainedOutput::new(false, None),
                     kill: None,
+                    task: None,
                 },
             );
         }
@@ -1689,6 +1812,7 @@ mod tests {
                     stdout: RetainedOutput::new(true, Some(1)),
                     stderr: RetainedOutput::new(false, None),
                     kill: None,
+                    task: None,
                 },
             );
         }
@@ -1713,6 +1837,23 @@ mod tests {
         assert!(matches!(
             events.as_slice(),
             [
+                JobOutputEvent::HistoryGap { next_seq: 1 },
+                JobOutputEvent::Truncated
+            ]
+        ));
+
+        let (_, _, attached_events) = manager
+            .output_attached(&SubscribeJobOutputReq {
+                job_id: job.job_id,
+                stream: JobOutputStream::Stdout,
+                after_seq: Some(0),
+            })
+            .await
+            .expect("attach job output");
+        assert!(matches!(
+            attached_events.as_slice(),
+            [
+                JobOutputEvent::Attached { .. },
                 JobOutputEvent::HistoryGap { next_seq: 1 },
                 JobOutputEvent::Truncated
             ]
@@ -1861,6 +2002,32 @@ mod tests {
             schedule.rrule_set,
             "DTSTART:20260101T000000Z\nRRULE:FREQ=DAILY"
         );
+    }
+
+    #[tokio::test]
+    async fn create_schedule_seeds_checkpoint_before_current_second() {
+        let manager = CommandManager::open(DaemonStateDb::open_in_memory_for_tests().unwrap())
+            .expect("open command manager");
+        let start_at_ms = current_unix_ms();
+        let schedule = manager
+            .create_schedule(CreateScheduleReq {
+                title: "current second".to_string(),
+                launch: output_test_launch(),
+                job: ScheduledJobOptions::default(),
+                start_at_ms,
+                rrule_set: "RRULE:FREQ=DAILY;COUNT=1".to_string(),
+                enabled: true,
+                note: None,
+            })
+            .await
+            .expect("create schedule");
+        let state = manager.state.lock().await;
+        let record = state
+            .schedules
+            .get(&schedule.schedule_id)
+            .expect("schedule record");
+
+        assert!(record.last_checked_ms < schedule.start_at_ms);
     }
 
     #[tokio::test]
