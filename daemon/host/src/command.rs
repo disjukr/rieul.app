@@ -400,14 +400,16 @@ impl CommandManager {
                 "elevated command execution is not implemented yet",
             ));
         }
-        parse_rrule_set(&request.rrule_set)?;
+        let (start_at_ms, rrule_set) =
+            canonicalize_schedule_rrule_set(request.start_at_ms, &request.rrule_set)?;
         let now = current_unix_ms();
         let schedule = ScheduleInfo {
             schedule_id: next_id("schedule", &self.next_id),
             title: request.title,
             launch: request.launch,
             job: request.job,
-            rrule_set: request.rrule_set,
+            start_at_ms,
+            rrule_set,
             enabled: request.enabled,
             archived: false,
             created_at_ms: now,
@@ -443,10 +445,16 @@ impl CommandManager {
         if let Some(job) = request.job {
             schedule.job = job;
         }
+        if let Some(start_at_ms) = request.start_at_ms {
+            schedule.start_at_ms = start_at_ms;
+        }
         if let Some(rrule_set) = request.rrule_set {
-            parse_rrule_set(&rrule_set)?;
             schedule.rrule_set = rrule_set;
         }
+        let (start_at_ms, rrule_set) =
+            canonicalize_schedule_rrule_set(schedule.start_at_ms, &schedule.rrule_set)?;
+        schedule.start_at_ms = start_at_ms;
+        schedule.rrule_set = rrule_set;
         if let Some(enabled) = request.enabled {
             schedule.enabled = enabled;
         }
@@ -1332,6 +1340,58 @@ struct ParsedRRuleSet {
     horizon_freq: Frequency,
 }
 
+fn canonicalize_schedule_rrule_set(
+    start_at_ms: u64,
+    text: &str,
+) -> Result<(u64, String), CommandError> {
+    let start_at_ms = normalize_schedule_start_ms(start_at_ms);
+    let mut lines = Vec::with_capacity(text.lines().count().saturating_add(1));
+    lines.push(format!(
+        "DTSTART:{}",
+        unix_ms_to_datetime(start_at_ms).format("%Y%m%dT%H%M%SZ")
+    ));
+    lines.extend(
+        unfold_ical_lines(text)
+            .into_iter()
+            .filter(|line| !line.trim().is_empty())
+            .filter(|line| !is_dtstart_line(line)),
+    );
+    let canonical = lines.join("\n");
+    parse_rrule_set(&canonical)?;
+    Ok((start_at_ms, canonical))
+}
+
+fn normalize_schedule_start_ms(ms: u64) -> u64 {
+    ms - (ms % 1000)
+}
+
+fn unfold_ical_lines(text: &str) -> Vec<String> {
+    let mut lines: Vec<String> = Vec::new();
+    for raw_line in text.lines() {
+        let line = raw_line.trim_end_matches('\r');
+        if line.starts_with([' ', '\t']) {
+            if let Some(previous) = lines.last_mut() {
+                previous.push_str(&line[1..]);
+                continue;
+            }
+        }
+        lines.push(line.to_string());
+    }
+    lines
+}
+
+fn is_dtstart_line(line: &str) -> bool {
+    let property = line
+        .split_once(':')
+        .map(|(property, _)| property)
+        .unwrap_or(line);
+    let name = property
+        .split_once(';')
+        .map(|(name, _)| name)
+        .unwrap_or(property);
+    name.eq_ignore_ascii_case("DTSTART")
+}
+
 fn parse_rrule_set(text: &str) -> Result<ParsedRRuleSet, CommandError> {
     let set = RRuleSet::new(unix_ms_to_datetime(current_unix_ms()))
         .set_from_string(text)
@@ -1433,7 +1493,7 @@ fn datetime_to_unix_ms(datetime: DateTime<Tz>) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wgo_daemon_core::rpc::JobLogOptions;
+    use wgo_daemon_core::rpc::{JobLogOptions, ScheduledJobOptions};
 
     async fn wait_for_job_exit(manager: &CommandManager, job_id: &str) -> JobInfo {
         for _ in 0..100 {
@@ -1774,6 +1834,65 @@ mod tests {
             .with_db(|db| db.load_jobs())
             .expect("load stored jobs")
             .is_empty());
+    }
+
+    #[tokio::test]
+    async fn create_schedule_canonicalizes_dtstart_from_start_at_ms() {
+        let manager = CommandManager::open(DaemonStateDb::open_in_memory_for_tests().unwrap())
+            .expect("open command manager");
+
+        let schedule = manager
+            .create_schedule(CreateScheduleReq {
+                title: "daily".to_string(),
+                launch: output_test_launch(),
+                job: ScheduledJobOptions::default(),
+                start_at_ms: ms("2026-01-01T00:00:00.999Z"),
+                rrule_set: "DTSTART:19990101T000000Z\nRRULE:FREQ=DAILY".to_string(),
+                enabled: true,
+                note: None,
+            })
+            .await
+            .expect("create schedule");
+
+        assert_eq!(schedule.start_at_ms, ms("2026-01-01T00:00:00Z"));
+        assert_eq!(
+            schedule.rrule_set,
+            "DTSTART:20260101T000000Z\nRRULE:FREQ=DAILY"
+        );
+    }
+
+    #[tokio::test]
+    async fn update_schedule_recanonicalizes_dtstart() {
+        let manager = CommandManager::open(DaemonStateDb::open_in_memory_for_tests().unwrap())
+            .expect("open command manager");
+        let schedule = manager
+            .create_schedule(CreateScheduleReq {
+                title: "daily".to_string(),
+                launch: output_test_launch(),
+                job: ScheduledJobOptions::default(),
+                start_at_ms: ms("2026-01-01T00:00:00Z"),
+                rrule_set: "RRULE:FREQ=DAILY".to_string(),
+                enabled: true,
+                note: None,
+            })
+            .await
+            .expect("create schedule");
+
+        let updated = manager
+            .update_schedule(UpdateScheduleReq {
+                schedule_id: schedule.schedule_id,
+                start_at_ms: Some(ms("2026-01-02T00:00:00Z")),
+                rrule_set: Some("DTSTART:19990101T000000Z\nRRULE:FREQ=WEEKLY".to_string()),
+                ..UpdateScheduleReq::default()
+            })
+            .await
+            .expect("update schedule");
+
+        assert_eq!(updated.start_at_ms, ms("2026-01-02T00:00:00Z"));
+        assert_eq!(
+            updated.rrule_set,
+            "DTSTART:20260102T000000Z\nRRULE:FREQ=WEEKLY"
+        );
     }
 
     fn ms(rfc3339: &str) -> u64 {

@@ -522,13 +522,23 @@ struct CreateScheduleReq {
   job: ScheduledJobOptions,
 
   @ id - 4
-  @ description - RFC5545 recurrence text containing DTSTART/RRULE/RDATE/EXDATE lines.
-  rruleSet: string,
+  @ description
+  | Schedule start timestamp in epoch milliseconds. The daemon canonicalizes
+  | rruleSet by replacing any DTSTART line with this value before storing it.
+  | Because RFC5545 DATE-TIME has second precision, the stored value may be
+  | rounded down to the nearest second.
+  startAtMs: u53,
 
   @ id - 5
-  enabled: bool,
+  @ description
+  | RFC5545 recurrence text containing RRULE/RDATE/EXDATE lines. A DTSTART line
+  | may be present, but the daemon overwrites it from startAtMs before storing.
+  rruleSet: string,
 
   @ id - 6
+  enabled: bool,
+
+  @ id - 7
   note?: string,
 }
 
@@ -546,16 +556,26 @@ struct UpdateScheduleReq {
   job?: ScheduledJobOptions,
 
   @ id - 5
-  @ description - RFC5545 recurrence text containing DTSTART/RRULE/RDATE/EXDATE lines.
-  rruleSet?: string,
+  @ description
+  | Schedule start timestamp in epoch milliseconds. If present, the daemon
+  | canonicalizes rruleSet by replacing any DTSTART line with this value.
+  | Because RFC5545 DATE-TIME has second precision, the stored value may be
+  | rounded down to the nearest second.
+  startAtMs?: u53,
 
   @ id - 6
-  enabled?: bool,
+  @ description
+  | RFC5545 recurrence text containing RRULE/RDATE/EXDATE lines. A DTSTART line
+  | may be present, but the daemon overwrites it from startAtMs before storing.
+  rruleSet?: string,
 
   @ id - 7
-  archived?: bool,
+  enabled?: bool,
 
   @ id - 8
+  archived?: bool,
+
+  @ id - 9
   note?: string,
 }
 
@@ -582,22 +602,31 @@ struct ScheduleInfo {
   job: ScheduledJobOptions,
 
   @ id - 5
-  @ description - RFC5545 recurrence text containing DTSTART/RRULE/RDATE/EXDATE lines.
-  rruleSet: string,
+  @ description
+  | Schedule start timestamp in epoch milliseconds. rruleSet is stored in
+  | canonical form with a DTSTART line derived from this value. Because RFC5545
+  | DATE-TIME has second precision, this value is stored at second precision.
+  startAtMs: u53,
 
   @ id - 6
-  enabled: bool,
+  @ description
+  | Canonical RFC5545 recurrence text containing DTSTART plus RRULE/RDATE/EXDATE
+  | lines.
+  rruleSet: string,
 
   @ id - 7
-  archived: bool,
+  enabled: bool,
 
   @ id - 8
-  createdAtMs: u53,
+  archived: bool,
 
   @ id - 9
-  updatedAtMs: u53,
+  createdAtMs: u53,
 
   @ id - 10
+  updatedAtMs: u53,
+
+  @ id - 11
   note?: string,
 }
 

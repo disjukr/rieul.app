@@ -911,6 +911,7 @@ export interface CreateScheduleReq {
   title: string;
   launch: CommandLaunchSpec;
   job: ScheduledJobOptions;
+  startAtMs: number;
   rruleSet: string;
   enabled: boolean;
   note?: string;
@@ -921,6 +922,7 @@ export interface UpdateScheduleReq {
   title?: string;
   launch?: CommandLaunchSpec;
   job?: ScheduledJobOptions;
+  startAtMs?: number;
   rruleSet?: string;
   enabled?: boolean;
   archived?: boolean;
@@ -937,6 +939,7 @@ export interface ScheduleInfo {
   title: string;
   launch: CommandLaunchSpec;
   job: ScheduledJobOptions;
+  startAtMs: number;
   rruleSet: string;
   enabled: boolean;
   archived: boolean;
@@ -5625,9 +5628,10 @@ export function encodeCreateScheduleReqValue(value: CreateScheduleReq): CborValu
   fields.set(1, text(required(value.title, "CreateScheduleReq.title")));
   fields.set(2, encodeCommandLaunchSpecValue(required(value.launch, "CreateScheduleReq.launch")));
   fields.set(3, encodeScheduledJobOptionsValue(required(value.job, "CreateScheduleReq.job")));
-  fields.set(4, text(required(value.rruleSet, "CreateScheduleReq.rruleSet")));
-  fields.set(5, bool(required(value.enabled, "CreateScheduleReq.enabled")));
-  if (value.note !== undefined) fields.set(6, text(value.note));
+  fields.set(4, u53(required(value.startAtMs, "CreateScheduleReq.startAtMs")));
+  fields.set(5, text(required(value.rruleSet, "CreateScheduleReq.rruleSet")));
+  fields.set(6, bool(required(value.enabled, "CreateScheduleReq.enabled")));
+  if (value.note !== undefined) fields.set(7, text(value.note));
   return fields;
 }
 
@@ -5637,9 +5641,10 @@ export function decodeCreateScheduleReqValue(value: CborValue): CreateScheduleRe
     title: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
     launch: fieldOrDefault(fields.get(2), (value) => decodeCommandLaunchSpecValue(value), () => defaultCommandLaunchSpec()),
     job: fieldOrDefault(fields.get(3), (value) => decodeScheduledJobOptionsValue(value), () => defaultScheduledJobOptions()),
-    rruleSet: fieldOrDefault(fields.get(4), (value) => textValue(value), () => ""),
-    enabled: fieldOrDefault(fields.get(5), (value) => boolValue(value), () => false),
-    note: optionalField(fields.get(6), (value) => textValue(value)),
+    startAtMs: fieldOrDefault(fields.get(4), (value) => integer(value), () => 0),
+    rruleSet: fieldOrDefault(fields.get(5), (value) => textValue(value), () => ""),
+    enabled: fieldOrDefault(fields.get(6), (value) => boolValue(value), () => false),
+    note: optionalField(fields.get(7), (value) => textValue(value)),
   };
 }
 
@@ -5649,10 +5654,11 @@ export function encodeUpdateScheduleReqValue(value: UpdateScheduleReq): CborValu
   if (value.title !== undefined) fields.set(2, text(value.title));
   if (value.launch !== undefined) fields.set(3, encodeCommandLaunchSpecValue(value.launch));
   if (value.job !== undefined) fields.set(4, encodeScheduledJobOptionsValue(value.job));
-  if (value.rruleSet !== undefined) fields.set(5, text(value.rruleSet));
-  if (value.enabled !== undefined) fields.set(6, bool(value.enabled));
-  if (value.archived !== undefined) fields.set(7, bool(value.archived));
-  if (value.note !== undefined) fields.set(8, text(value.note));
+  if (value.startAtMs !== undefined) fields.set(5, u53(value.startAtMs));
+  if (value.rruleSet !== undefined) fields.set(6, text(value.rruleSet));
+  if (value.enabled !== undefined) fields.set(7, bool(value.enabled));
+  if (value.archived !== undefined) fields.set(8, bool(value.archived));
+  if (value.note !== undefined) fields.set(9, text(value.note));
   return fields;
 }
 
@@ -5663,10 +5669,11 @@ export function decodeUpdateScheduleReqValue(value: CborValue): UpdateScheduleRe
     title: optionalField(fields.get(2), (value) => textValue(value)),
     launch: optionalField(fields.get(3), (value) => decodeCommandLaunchSpecValue(value)),
     job: optionalField(fields.get(4), (value) => decodeScheduledJobOptionsValue(value)),
-    rruleSet: optionalField(fields.get(5), (value) => textValue(value)),
-    enabled: optionalField(fields.get(6), (value) => boolValue(value)),
-    archived: optionalField(fields.get(7), (value) => boolValue(value)),
-    note: optionalField(fields.get(8), (value) => textValue(value)),
+    startAtMs: optionalField(fields.get(5), (value) => integer(value)),
+    rruleSet: optionalField(fields.get(6), (value) => textValue(value)),
+    enabled: optionalField(fields.get(7), (value) => boolValue(value)),
+    archived: optionalField(fields.get(8), (value) => boolValue(value)),
+    note: optionalField(fields.get(9), (value) => textValue(value)),
   };
 }
 
@@ -5691,12 +5698,13 @@ export function encodeScheduleInfoValue(value: ScheduleInfo): CborValue {
   fields.set(2, text(required(value.title, "ScheduleInfo.title")));
   fields.set(3, encodeCommandLaunchSpecValue(required(value.launch, "ScheduleInfo.launch")));
   fields.set(4, encodeScheduledJobOptionsValue(required(value.job, "ScheduleInfo.job")));
-  fields.set(5, text(required(value.rruleSet, "ScheduleInfo.rruleSet")));
-  fields.set(6, bool(required(value.enabled, "ScheduleInfo.enabled")));
-  fields.set(7, bool(required(value.archived, "ScheduleInfo.archived")));
-  fields.set(8, u53(required(value.createdAtMs, "ScheduleInfo.createdAtMs")));
-  fields.set(9, u53(required(value.updatedAtMs, "ScheduleInfo.updatedAtMs")));
-  if (value.note !== undefined) fields.set(10, text(value.note));
+  fields.set(5, u53(required(value.startAtMs, "ScheduleInfo.startAtMs")));
+  fields.set(6, text(required(value.rruleSet, "ScheduleInfo.rruleSet")));
+  fields.set(7, bool(required(value.enabled, "ScheduleInfo.enabled")));
+  fields.set(8, bool(required(value.archived, "ScheduleInfo.archived")));
+  fields.set(9, u53(required(value.createdAtMs, "ScheduleInfo.createdAtMs")));
+  fields.set(10, u53(required(value.updatedAtMs, "ScheduleInfo.updatedAtMs")));
+  if (value.note !== undefined) fields.set(11, text(value.note));
   return fields;
 }
 
@@ -5707,12 +5715,13 @@ export function decodeScheduleInfoValue(value: CborValue): ScheduleInfo {
     title: fieldOrDefault(fields.get(2), (value) => textValue(value), () => ""),
     launch: fieldOrDefault(fields.get(3), (value) => decodeCommandLaunchSpecValue(value), () => defaultCommandLaunchSpec()),
     job: fieldOrDefault(fields.get(4), (value) => decodeScheduledJobOptionsValue(value), () => defaultScheduledJobOptions()),
-    rruleSet: fieldOrDefault(fields.get(5), (value) => textValue(value), () => ""),
-    enabled: fieldOrDefault(fields.get(6), (value) => boolValue(value), () => false),
-    archived: fieldOrDefault(fields.get(7), (value) => boolValue(value), () => false),
-    createdAtMs: fieldOrDefault(fields.get(8), (value) => integer(value), () => 0),
-    updatedAtMs: fieldOrDefault(fields.get(9), (value) => integer(value), () => 0),
-    note: optionalField(fields.get(10), (value) => textValue(value)),
+    startAtMs: fieldOrDefault(fields.get(5), (value) => integer(value), () => 0),
+    rruleSet: fieldOrDefault(fields.get(6), (value) => textValue(value), () => ""),
+    enabled: fieldOrDefault(fields.get(7), (value) => boolValue(value), () => false),
+    archived: fieldOrDefault(fields.get(8), (value) => boolValue(value), () => false),
+    createdAtMs: fieldOrDefault(fields.get(9), (value) => integer(value), () => 0),
+    updatedAtMs: fieldOrDefault(fields.get(10), (value) => integer(value), () => 0),
+    note: optionalField(fields.get(11), (value) => textValue(value)),
   };
 }
 
@@ -7323,6 +7332,7 @@ function defaultCreateScheduleReq(): CreateScheduleReq {
     title: "",
     launch: defaultCommandLaunchSpec(),
     job: defaultScheduledJobOptions(),
+    startAtMs: 0,
     rruleSet: "",
     enabled: false,
   };
@@ -7346,6 +7356,7 @@ function defaultScheduleInfo(): ScheduleInfo {
     title: "",
     launch: defaultCommandLaunchSpec(),
     job: defaultScheduledJobOptions(),
+    startAtMs: 0,
     rruleSet: "",
     enabled: false,
     archived: false,
