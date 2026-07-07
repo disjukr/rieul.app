@@ -174,7 +174,10 @@ impl RetainedOutput {
             self.state.truncated = true;
             self.state.oldest_seq = self.chunks.front().map(|chunk| chunk.seq).unwrap_or(0);
         }
-        Some(chunk)
+        self.chunks
+            .back()
+            .filter(|retained| retained.seq == seq)
+            .cloned()
     }
 
     fn chunks_after(&self, after_seq: Option<u64>) -> (bool, Vec<OutputChunk>) {
@@ -693,6 +696,7 @@ impl CommandManager {
             },
         };
         let (kill_tx, kill_rx) = oneshot::channel();
+        self.persist_job(&job)?;
         {
             let mut state = self.state.lock().await;
             state.jobs.insert(
@@ -705,7 +709,6 @@ impl CommandManager {
                 },
             );
         }
-        self.persist_job(&job)?;
         self.notify_jobs();
         self.spawn_job_task(job.job_id.clone(), request, kill_rx);
         Ok(job)
@@ -880,12 +883,13 @@ impl CommandManager {
             let mut state = self.state.lock().await;
             if let Some(record) = state.jobs.get_mut(job_id) {
                 let output = record.output_mut(stream);
-                if let Some(chunk) = output.append(bytes) {
+                let chunk = output.append(bytes);
+                if chunk.is_some() || output.state.latest_seq > 0 {
                     let output_state = output.state.clone();
                     let _ = output;
                     record.info.log.stdout = record.stdout.state.clone();
                     record.info.log.stderr = record.stderr.state.clone();
-                    chunk_to_persist = Some(chunk);
+                    chunk_to_persist = chunk;
                     state_to_persist = Some(output_state);
                 }
             }
@@ -1565,6 +1569,39 @@ mod tests {
                 JobOutputEvent::Chunk { seq: 2, bytes }
             ] if bytes == b"b"
         ));
+    }
+
+    #[tokio::test]
+    async fn append_output_persists_only_retained_chunks() {
+        let manager = CommandManager::open(DaemonStateDb::open_in_memory_for_tests().unwrap())
+            .expect("open command manager");
+        let job = test_job_info("job-evicted-output");
+        manager.persist_job(&job).expect("persist job");
+        {
+            let mut state = manager.state.lock().await;
+            state.jobs.insert(
+                job.job_id.clone(),
+                JobRecord {
+                    info: job.clone(),
+                    stdout: RetainedOutput::new(true, Some(1)),
+                    stderr: RetainedOutput::new(false, None),
+                    kill: None,
+                },
+            );
+        }
+
+        manager
+            .append_output(&job.job_id, JobOutputStream::Stdout, b"too-large".to_vec())
+            .await;
+
+        let stored = manager
+            .with_db(|db| db.load_job_output(&job.job_id, JobOutputStream::Stdout))
+            .expect("load job output")
+            .expect("stored output state");
+        assert_eq!(stored.state.latest_seq, 1);
+        assert_eq!(stored.state.oldest_seq, 0);
+        assert!(stored.state.truncated);
+        assert!(stored.chunks.is_empty());
     }
 
     #[tokio::test]
