@@ -1131,7 +1131,7 @@ impl CommandManager {
             let reason = JobRunReason::Schedule {
                 schedule_id: schedule.schedule_id.clone(),
                 rrule_set: schedule.rrule_set.clone(),
-                run_at_ms,
+                planned_run_at_ms: run_at_ms,
             };
             let _ = self.create_job_with_reason(request, reason).await;
         }
@@ -1821,7 +1821,7 @@ mod tests {
                 JobRunReason::Schedule {
                     schedule_id: "deleted-schedule".to_string(),
                     rrule_set: "DTSTART:20260101T000000Z\nRRULE:FREQ=DAILY".to_string(),
-                    run_at_ms: ms("2026-01-01T00:00:00Z"),
+                    planned_run_at_ms: ms("2026-01-01T00:00:00Z"),
                 },
             )
             .await;
@@ -1935,9 +1935,9 @@ mod tests {
             &snapshot.rows[0].reason,
             JobRunReason::Schedule {
                 schedule_id,
-                run_at_ms: triggered_at_ms,
+                planned_run_at_ms,
                 ..
-            } if schedule_id == &schedule.schedule_id && *triggered_at_ms == run_at_ms
+            } if schedule_id == &schedule.schedule_id && *planned_run_at_ms == run_at_ms
         ));
     }
 

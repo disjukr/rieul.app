@@ -292,8 +292,12 @@ union JobRunReason {
     rruleSet: string,
 
     @ id - 3
-    @ description - Scheduled occurrence timestamp that triggered this job.
-    runAtMs: u53,
+    @ description
+    | Scheduled occurrence timestamp in epoch milliseconds. This is the planned
+    | run time that caused the daemon to create this job. It may differ from
+    | JobInfo.createdAtMs when the scheduler tick runs late or creates multiple
+    | due jobs in one tick.
+    plannedRunAtMs: u53,
   ),
 }
 

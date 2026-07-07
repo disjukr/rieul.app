@@ -809,7 +809,7 @@ export interface JobInfo {
 
 export type JobRunReason =
   | { type: "manual" }
-  | { type: "schedule"; scheduleId: string; rruleSet: string; runAtMs: number }
+  | { type: "schedule"; scheduleId: string; rruleSet: string; plannedRunAtMs: number }
 ;
 
 export type JobStatus =
@@ -5226,7 +5226,7 @@ export function encodeJobRunReasonValue(value: JobRunReason): CborValue {
       const fields = new Map<number, CborValue>();
       fields.set(1, text(required(value.scheduleId, "JobRunReason.Schedule.scheduleId")));
       fields.set(2, text(required(value.rruleSet, "JobRunReason.Schedule.rruleSet")));
-      fields.set(3, u53(required(value.runAtMs, "JobRunReason.Schedule.runAtMs")));
+      fields.set(3, u53(required(value.plannedRunAtMs, "JobRunReason.Schedule.plannedRunAtMs")));
       return [2, fields];
     }
   }
@@ -5244,7 +5244,7 @@ export function decodeJobRunReasonValue(value: CborValue): JobRunReason {
         type: "schedule",
         scheduleId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
         rruleSet: fieldOrDefault(fields.get(2), (value) => textValue(value), () => ""),
-        runAtMs: fieldOrDefault(fields.get(3), (value) => integer(value), () => 0),
+        plannedRunAtMs: fieldOrDefault(fields.get(3), (value) => integer(value), () => 0),
       };
   }
   throw new Error(`unknown JobRunReason variant ${variantId}`);
