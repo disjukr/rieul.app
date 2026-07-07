@@ -11,6 +11,13 @@ import {
 } from "../../../../../../state/explorer.ts";
 import { EntryIcon } from "./entry-icon.tsx";
 import { className } from "../../../../../class-name.ts";
+import { Badge } from "../../../../../ui/badge.tsx";
+import {
+  DataGrid,
+  DataGridCell,
+  DataGridHeaderCell,
+  DataGridRow,
+} from "../../../../../ui/data-grid.tsx";
 
 interface FileTableProps {
   rows: FsEntry[];
@@ -39,51 +46,36 @@ interface FileTableProps {
 }
 
 const fileTableClassName = [
-  "file-table grid",
+  "file-table",
   "[grid-template-columns:minmax(220px,1fr)_minmax(96px,130px)_minmax(88px,120px)_minmax(140px,190px)]",
   "[@container_workbench-tab-page_(max-width:680px)]:[grid-template-columns:minmax(200px,1fr)_96px_88px]",
-  "auto-rows-[2em] min-w-0 min-h-0 overflow-auto bg-white leading-[1.6]",
 ].join(" ");
 const hideInNarrowContainerClassName =
   "[@container_workbench-tab-page_(max-width:680px)]:hidden";
-const fileHeadClassName = [
-  "file-head sticky top-0 z-[1] flex items-center h-[2rem] box-border",
-  "border-b border-b-[#d8dde7] bg-[#f6f8fb] text-[#667085] font-700 px-[8px]",
-].join(" ");
-const fileRowClassName = [
-  "grid [grid-column:1/-1] [grid-template-columns:subgrid]",
-  "h-[2em] min-h-[2em] box-border border-0 border-b border-b-[#eef1f5] rounded-0",
-  "appearance-none cursor-pointer bg-white p-0 text-left leading-[1.6] [font-family:inherit] hover:bg-[#f7faff]",
-  "[&.selected]:bg-[#eaf3ff]",
-].join(" ");
 const fileCellBaseClassName = [
-  "file-cell flex items-center min-w-0 overflow-hidden text-[#303642]",
+  "file-cell",
   "px-[8px] text-ellipsis whitespace-nowrap",
 ].join(" ");
 const fileFirstColumnClassName = "pl-[1rem]";
 const fileNameCellClassName =
   `${fileCellBaseClassName} ${fileFirstColumnClassName} name gap-[6px]`;
-const fileMetaCellClassName = `${fileCellBaseClassName} text-[#667085]`;
+const fileMetaCellClassName = fileCellBaseClassName;
 const fileNameClassName =
   "min-w-0 overflow-hidden text-ellipsis whitespace-nowrap leading-[1.6]";
 const fileNameInputClassName = [
   "block min-w-0 min-h-0 w-full h-[1.8rem] box-border appearance-none rounded-[3px]",
-  "border border-transparent bg-white px-[3px] py-0",
-  "text-[#20242d] [font:inherit] leading-[1.6rem]",
+  "border border-transparent bg-[var(--wgo-bg-primary)] px-[3px] py-0",
+  "text-[var(--wgo-text-primary)] [font:inherit] leading-[1.6rem]",
   "outline-none [outline-offset:0] focus:outline-none focus:[outline:none] focus:[outline-offset:0]",
-  "focus:border-[#2f6fd6]",
+  "focus:border-[var(--wgo-border-focus-strong)]",
   "disabled:opacity-64",
 ].join(" ");
 const fileRenameErrorClassName = [
   "min-w-0 overflow-hidden text-ellipsis whitespace-nowrap",
-  "text-[#b42318]",
-].join(" ");
-const readonlyClassName = [
-  "flex-[0_0_auto] border border-[#e4c778] rounded-full bg-[#fff8df]",
-  "text-[#8a6116] px-[4px] py-0 leading-[1]",
+  "text-[var(--wgo-danger)]",
 ].join(" ");
 const tableEmptyClassName =
-  "[grid-column:1/-1] flex items-center text-[#667085] px-[12px]";
+  "[grid-column:1/-1] flex items-center text-[var(--wgo-text-tertiary)] px-[12px]";
 const tableBottomPaddingClassName = "[grid-column:1/-1] h-[10rem]";
 const newFileEntry: FsEntry = {
   kind: FsEntryKind.File,
@@ -126,46 +118,44 @@ export function FileTable(
   }
 
   return (
-    <div
+    <DataGrid
+      density="compact"
       className={fileTableClassName}
       role="grid"
       aria-label="Files"
       onContextMenu={openFolderContextMenu}
     >
-      <div
-        className={`${fileHeadClassName} ${fileFirstColumnClassName} name`}
+      <DataGridHeaderCell
+        className={`${fileFirstColumnClassName} name`}
         data-file-table-head
       >
         Name
-      </div>
-      <div className={`${fileHeadClassName} kind`} data-file-table-head>
+      </DataGridHeaderCell>
+      <DataGridHeaderCell className="kind" data-file-table-head>
         Kind
-      </div>
-      <div className={`${fileHeadClassName} size`} data-file-table-head>
+      </DataGridHeaderCell>
+      <DataGridHeaderCell className="size" data-file-table-head>
         Size
-      </div>
-      <div
+      </DataGridHeaderCell>
+      <DataGridHeaderCell
         className={className(
-          fileHeadClassName,
           "modified",
           hideInNarrowContainerClassName,
         )}
         data-file-table-head
       >
         Modified
-      </div>
+      </DataGridHeaderCell>
       {rows.length === 0 && !createIsEditing
         ? <div className={tableEmptyClassName}>No rows</div>
         : (
           rows.map((entry) => {
             const renaming = entry.path === renamingPath;
             return (
-              <div
+              <DataGridRow
                 key={entry.path}
-                className={className(
-                  fileRowClassName,
-                  entry.path === selectedPath && "selected",
-                )}
+                interactive
+                selected={entry.path === selectedPath}
                 role="row"
                 tabIndex={0}
                 onClick={() => onSelect(entry)}
@@ -178,7 +168,7 @@ export function FileTable(
                 }}
                 data-file-table-row
               >
-                <span className={fileNameCellClassName}>
+                <DataGridCell className={fileNameCellClassName}>
                   <EntryIcon entry={entry} />
                   {renaming
                     ? (
@@ -197,16 +187,27 @@ export function FileTable(
                       </span>
                     )}
                   {entry.readonly
-                    ? <span className={readonlyClassName}>readonly</span>
+                    ? (
+                      <Badge size="sm" tone="warning">
+                        readonly
+                      </Badge>
+                    )
                     : null}
-                </span>
-                <span className={`${fileMetaCellClassName} kind`}>
+                </DataGridCell>
+                <DataGridCell
+                  tone="secondary"
+                  className={`${fileMetaCellClassName} kind`}
+                >
                   {kindLabel(entry.kind)}
-                </span>
-                <span className={`${fileMetaCellClassName} size`}>
+                </DataGridCell>
+                <DataGridCell
+                  tone="secondary"
+                  className={`${fileMetaCellClassName} size`}
+                >
                   {formatSize(entry.size)}
-                </span>
-                <span
+                </DataGridCell>
+                <DataGridCell
+                  tone="secondary"
                   className={className(
                     fileMetaCellClassName,
                     "modified",
@@ -214,19 +215,19 @@ export function FileTable(
                   )}
                 >
                   {formatDate(entry.modifiedAtMs)}
-                </span>
-              </div>
+                </DataGridCell>
+              </DataGridRow>
             );
           })
         )}
       {createIsEditing
         ? (
-          <div
-            className={className(fileRowClassName, "selected")}
+          <DataGridRow
+            selected
             role="row"
             data-file-table-row
           >
-            <span className={fileNameCellClassName}>
+            <DataGridCell className={fileNameCellClassName}>
               <EntryIcon entry={newFileEntry} />
               <NameInput
                 disabled={createIsCreating}
@@ -236,23 +237,30 @@ export function FileTable(
                 onChange={onCreateDraftChange}
                 onCommit={onCreateCommit}
               />
-            </span>
-            <span className={`${fileMetaCellClassName} kind`}>
+            </DataGridCell>
+            <DataGridCell
+              tone="secondary"
+              className={`${fileMetaCellClassName} kind`}
+            >
               {kindLabel(FsEntryKind.File)}
-            </span>
-            <span className={`${fileMetaCellClassName} size`} />
-            <span
+            </DataGridCell>
+            <DataGridCell
+              tone="secondary"
+              className={`${fileMetaCellClassName} size`}
+            />
+            <DataGridCell
+              tone="secondary"
               className={className(
                 fileMetaCellClassName,
                 "modified",
                 hideInNarrowContainerClassName,
               )}
             />
-          </div>
+          </DataGridRow>
         )
         : null}
       <div className={tableBottomPaddingClassName} aria-hidden="true" />
-    </div>
+    </DataGrid>
   );
 }
 

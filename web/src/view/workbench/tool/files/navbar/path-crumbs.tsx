@@ -13,8 +13,8 @@ interface PathCrumbsProps {
 const pathInputFormClassName = [
   "min-w-0",
   "[&_input]:w-full [&_input]:h-[2em] [&_input]:min-h-[2em]",
-  "[&_input]:min-w-0 [&_input]:box-border [&_input]:border [&_input]:border-[#c7ceda]",
-  "[&_input]:rounded-[3px] [&_input]:bg-white [&_input]:px-[6px] [&_input]:text-[#20242d]",
+  "[&_input]:min-w-0 [&_input]:box-border [&_input]:border [&_input]:border-[var(--wgo-border-control)]",
+  "[&_input]:rounded-[3px] [&_input]:bg-[var(--wgo-bg-primary)] [&_input]:px-[6px] [&_input]:text-[var(--wgo-text-primary)]",
   "[&_input]:[font:inherit] [&_input]:leading-[1.6]",
   "[&_input:focus]:outline-none",
 ].join(" ");
@@ -29,8 +29,8 @@ const crumbsClassName = [
   "[&_button]:min-w-0 [&_button]:max-w-[180px]",
   "[&_button]:h-[2em] [&_button]:min-h-[2em] [&_button]:overflow-hidden [&_button]:leading-[1.6]",
   "[&_button]:box-border [&_button]:border-transparent [&_button]:bg-transparent [&_button]:px-[6px]",
-  "[&_button:hover]:bg-[#eef3fb] [&_button:hover]:text-[#20242d]",
-  "[&_button:focus-visible]:bg-[#eef3fb] [&_button:focus-visible]:outline-none",
+  "[&_button:hover]:bg-[var(--wgo-bg-hover)] [&_button:hover]:text-[var(--wgo-text-primary)]",
+  "[&_button:focus-visible]:bg-[var(--wgo-bg-hover)] [&_button:focus-visible]:outline-none",
   "[&_button]:text-ellipsis [&_button]:whitespace-nowrap",
 ].join(" ");
 

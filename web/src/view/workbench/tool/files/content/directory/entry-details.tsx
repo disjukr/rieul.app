@@ -1,4 +1,3 @@
-import { X } from "lucide-react";
 import type { FsEntry } from "../../../../../../protocol/generated/rpc.ts";
 import {
   displayName,
@@ -6,38 +5,25 @@ import {
   formatSize,
   kindLabel,
 } from "../../../../../../state/explorer.ts";
-import { Button } from "../../../../../ui/button.tsx";
+import { ModalDialog } from "../../../../../ui/dialog.tsx";
 
 const inspectorClassName = [
-  "inspector min-w-0 overflow-auto border-l border-l-[#d8dde7]",
+  "inspector min-w-0 overflow-auto border-l border-l-[var(--wgo-border-light)]",
   "[@container_workbench-tab-page_(max-width:980px)]:hidden",
-  "bg-[#fbfcfe] p-[14px]",
+  "bg-[var(--wgo-bg-subtle)] p-[14px]",
   "[&_dl]:grid [&_dl]:gap-[6px] [&_dl]:m-0",
-  "[&_dt]:text-[#667085] [&_dt]:text-[12px] [&_dt]:font-700",
+  "[&_dt]:text-[var(--wgo-text-tertiary)] [&_dt]:text-[12px] [&_dt]:font-700",
   "[&_dd]:min-w-0 [&_dd]:mt-0 [&_dd]:mx-0 [&_dd]:mb-[8px]",
-  "[&_dd]:[overflow-wrap:anywhere] [&_dd]:text-[#303642] [&_dd]:text-[13px]",
+  "[&_dd]:[overflow-wrap:anywhere] [&_dd]:text-[var(--wgo-text-strong)] [&_dd]:text-[13px]",
 ].join(" ");
-const inspectorTitleClassName = "mb-[12px] text-[#20242d] font-700";
-const modalBackdropClassName =
-  "fixed inset-0 z-[20] grid place-items-center bg-[rgb(32_36_45_/_42%)] p-[24px]";
-const machineModalClassName = [
-  "w-[min(460px,100%)] overflow-hidden border border-[#d8dde7]",
-  "rounded-[8px] bg-white [box-shadow:0_24px_72px_rgb(32_36_45_/_28%)]",
-].join(" ");
-const modalHeadClassName = [
-  "flex items-center justify-between gap-[12px] border-b border-b-[#e4e8ef]",
-  "px-[16px] py-[14px]",
-  "[&_div]:grid [&_div]:gap-[2px] [&_div]:min-w-0",
-  "[&_span]:text-[#667085] [&_span]:text-[12px] [&_span]:font-700",
-  "[&_h2]:m-0 [&_h2]:text-[#20242d] [&_h2]:text-[18px] [&_h2]:tracking-[0]",
-].join(" ");
-const iconButtonClassName = "!w-[36px] !min-w-[36px] !p-0";
+const inspectorTitleClassName =
+  "mb-[12px] text-[var(--wgo-text-primary)] font-700";
 const entryPropertiesBodyClassName = [
   "pt-[14px] px-[16px] pb-[16px]",
   "[&_dl]:grid [&_dl]:gap-[6px] [&_dl]:m-0",
-  "[&_dt]:text-[#667085] [&_dt]:text-[12px] [&_dt]:font-700",
+  "[&_dt]:text-[var(--wgo-text-tertiary)] [&_dt]:text-[12px] [&_dt]:font-700",
   "[&_dd]:min-w-0 [&_dd]:mt-0 [&_dd]:mx-0 [&_dd]:mb-[8px]",
-  "[&_dd]:[overflow-wrap:anywhere] [&_dd]:text-[#303642] [&_dd]:text-[13px]",
+  "[&_dd]:[overflow-wrap:anywhere] [&_dd]:text-[var(--wgo-text-strong)] [&_dd]:text-[13px]",
 ].join(" ");
 
 interface InspectorProps {
@@ -70,38 +56,16 @@ export function EntryPropertiesModal(
   { entry, onClose }: EntryPropertiesModalProps,
 ) {
   return (
-    <div
-      className={modalBackdropClassName}
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose();
-      }}
+    <ModalDialog
+      eyebrow="File"
+      title="Properties"
+      titleId="entry-properties-title"
+      bodyClassName={entryPropertiesBodyClassName}
+      closeLabel="Close properties modal"
+      onClose={onClose}
     >
-      <section
-        className={machineModalClassName}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="entry-properties-title"
-      >
-        <header className={modalHeadClassName}>
-          <div>
-            <span>File</span>
-            <h2 id="entry-properties-title">Properties</h2>
-          </div>
-          <Button
-            onClick={onClose}
-            title="Close"
-            aria-label="Close properties modal"
-            className={iconButtonClassName}
-          >
-            <X size={16} />
-          </Button>
-        </header>
-
-        <div className={entryPropertiesBodyClassName}>
-          <EntryDetails entry={entry} />
-        </div>
-      </section>
-    </div>
+      <EntryDetails entry={entry} />
+    </ModalDialog>
   );
 }
 

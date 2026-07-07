@@ -24,7 +24,7 @@ const browserLayoutClassName = [
 ].join(" ");
 const explorerFooterClassName = [
   "flex items-center justify-end h-[2rem] min-h-[2rem] box-border",
-  "border-t border-t-[#d8dde7] bg-[#fbfcfe] text-[#667085]",
+  "border-t border-t-[var(--wgo-border-light)] bg-[var(--wgo-bg-subtle)] text-[var(--wgo-text-tertiary)]",
   "px-[8px] leading-[1.6]",
 ].join(" ");
 

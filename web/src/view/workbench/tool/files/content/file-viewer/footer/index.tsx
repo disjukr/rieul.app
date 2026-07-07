@@ -6,15 +6,15 @@ import { fileViewerBunja } from "../state.tsx";
 
 const fileViewerFooterClassName = [
   "flex items-center justify-between gap-[12px] h-[2rem] min-h-[2rem] box-border",
-  "border-t border-t-[#d8dde7] bg-[#fbfcfe] text-[#667085]",
+  "border-t border-t-[var(--wgo-border-light)] bg-[var(--wgo-bg-subtle)] text-[var(--wgo-text-tertiary)]",
   "px-[8px] leading-[1.6]",
 ].join(" ");
 const fileViewerImplControlClassName =
-  "inline-flex items-center gap-[7px] min-w-0 text-[#667085]";
+  "inline-flex items-center gap-[7px] min-w-0 text-[var(--wgo-text-tertiary)]";
 const fileViewerImplSelectClassName = [
-  "w-[86px] h-[2rem] min-h-[2rem] box-border border border-[#cfd7e5] rounded-[4px]",
-  "bg-white text-[#344054] font-inherit leading-[1.6] px-[6px]",
-  "disabled:text-[#98a2b3] disabled:bg-[#f4f6fa]",
+  "w-[86px] h-[2rem] min-h-[2rem] box-border border border-[var(--wgo-border-control-soft)] rounded-[4px]",
+  "bg-[var(--wgo-bg-primary)] text-[var(--wgo-text-control)] font-inherit leading-[1.6] px-[6px]",
+  "disabled:text-[var(--wgo-text-disabled)] disabled:bg-[var(--wgo-bg-control-disabled)]",
 ].join(" ");
 const fileViewerFooterSizeClassName = "flex-[0_0_auto]";
 

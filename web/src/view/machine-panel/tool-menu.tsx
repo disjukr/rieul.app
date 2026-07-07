@@ -77,9 +77,9 @@ const toolItemRowClassName = [
 const toolItemClassName = [
   "inline-flex appearance-none items-center justify-start gap-[0.5rem]",
   "w-full h-full min-h-0 border-0 rounded-[0.5rem]",
-  "cursor-pointer bg-transparent px-[0.5rem] text-left text-[#475467] [font-family:inherit]",
-  "hover:bg-[#eef3fb] hover:text-[#20242d]",
-  "[&.active]:bg-[#eef3fb] [&.active]:text-[#20242d]",
+  "cursor-pointer bg-transparent px-[0.5rem] text-left text-[var(--wgo-text-secondary)] [font-family:inherit]",
+  "hover:bg-[var(--wgo-bg-hover)] hover:text-[var(--wgo-text-primary)]",
+  "[&.active]:bg-[var(--wgo-bg-hover)] [&.active]:text-[var(--wgo-text-primary)]",
   "disabled:opacity-56",
   "[&_span]:min-w-0 [&_span]:overflow-hidden [&_span]:text-ellipsis",
   "[&_span]:whitespace-nowrap [&_span]:font-700",
@@ -91,25 +91,25 @@ const terminalMainButtonClassName = [
 const terminalDropdownButtonClassName = [
   "inline-flex appearance-none items-center justify-center",
   "h-full min-h-0 w-[36px] min-w-[36px] p-0 rounded-l-[0.25re,] rounded-r-[0.5rem]",
-  "cursor-pointer border-0 bg-transparent text-[#475467] [font-family:inherit]",
-  "hover:bg-[#eef3fb] hover:text-[#20242d]",
-  "[&.active]:bg-[#eef3fb] [&.active]:text-[#20242d]",
+  "cursor-pointer border-0 bg-transparent text-[var(--wgo-text-secondary)] [font-family:inherit]",
+  "hover:bg-[var(--wgo-bg-hover)] hover:text-[var(--wgo-text-primary)]",
+  "[&.active]:bg-[var(--wgo-bg-hover)] [&.active]:text-[var(--wgo-text-primary)]",
 ].join(" ");
 const shellMenuItemClassName = [
   "!grid min-w-0 grid-cols-[minmax(0,1fr)_auto] !gap-[0.5rem]",
 ].join(" ");
-const shellMenuDefaultItemClassName = "bg-[#eef3fb]";
+const shellMenuDefaultItemClassName = "bg-[var(--wgo-bg-hover)]";
 const shellMenuItemLabelClassName =
   "flex min-w-0 items-center gap-[0.5rem] text-left";
 const shellMenuShellNameClassName =
   "block min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-left";
 const shellMenuDefaultBadgeClassName = [
-  "rounded-[999px] bg-white px-[6px] py-[1px]",
-  "text-[10px] font-700 text-[#475467]",
+  "rounded-[999px] bg-[var(--wgo-bg-primary)] px-[6px] py-[1px]",
+  "text-[10px] font-700 text-[var(--wgo-text-secondary)]",
 ].join(" ");
 const shellMenuCommandClassName = [
   "block max-w-[88px] min-w-0 overflow-hidden text-right",
-  "text-ellipsis whitespace-nowrap text-[#667085]",
+  "text-ellipsis whitespace-nowrap text-[var(--wgo-text-tertiary)]",
 ].join(" ");
 
 interface ToolMenuProps {

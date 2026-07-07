@@ -16,8 +16,8 @@ import { WorkbenchPaneView } from "./pane-view.tsx";
 const paneRootClassName = "w-full h-full min-w-0 min-h-0 overflow-hidden";
 const emptyWorkspaceClassName = [
   "grid content-center justify-items-center w-full h-full gap-[10px]",
-  "min-h-0 text-[#667085]",
-  "[&_h2]:m-0 [&_h2]:text-[#303642] [&_h2]:text-[18px] [&_h2]:tracking-[0]",
+  "min-h-0 text-[var(--wgo-text-tertiary)]",
+  "[&_h2]:m-0 [&_h2]:text-[var(--wgo-text-strong)] [&_h2]:text-[18px] [&_h2]:tracking-[0]",
 ].join(" ");
 
 export function WorkbenchPaneLayout() {

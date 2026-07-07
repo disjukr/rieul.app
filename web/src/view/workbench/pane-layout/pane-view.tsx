@@ -38,6 +38,8 @@ import {
 import { WorkbenchTabItem } from "./tab-item.tsx";
 import { className } from "../../class-name.ts";
 import { Button } from "../../ui/button.tsx";
+import { ModalDialog } from "../../ui/dialog.tsx";
+import { IconButton } from "../../ui/icon-button.tsx";
 import {
   clampFloatingMenuPosition,
   FloatingMenu,
@@ -62,15 +64,15 @@ interface TabContextMenuState {
 
 const workbenchPaneClassName = [
   "workbench-pane relative grid [grid-template-rows:auto_minmax(0,1fr)]",
-  "w-full h-full min-w-0 min-h-0 overflow-hidden bg-white",
+  "w-full h-full min-w-0 min-h-0 overflow-hidden bg-[var(--wgo-bg-primary)]",
 ].join(" ");
 const workbenchPaneHeadClassName = [
   "grid [grid-template-columns:1em_minmax(0,1fr)_auto]",
   "items-center h-[2em] min-h-[2em] box-border leading-[1.6]",
-  "border-b border-b-[#d8dde7] bg-[#f6f8fb]",
+  "border-b border-b-[var(--wgo-border-light)] bg-[var(--wgo-bg-header)]",
 ].join(" ");
 const paneHandleClassName =
-  "flex items-center justify-center self-stretch text-[#98a2b3] cursor-grab";
+  "flex items-center justify-center self-stretch text-[var(--wgo-text-disabled)] cursor-grab";
 const workbenchTabsClassName = [
   "flex items-end min-w-0 h-full overflow-visible",
 ].join(" ");
@@ -85,13 +87,14 @@ const buttonGroupLastClassName = "-ml-px !rounded-l-0 !rounded-r-[4px]";
 const standaloneButtonClassName = "!rounded-[4px]";
 const paneOverflowMenuClassName = "top-full right-0 z-[12] w-[172px]";
 const tabContextMenuWidth = 168;
-const paneOverflowMenuSectionClassName = "border-t border-t-[#e4e8ef]";
+const paneOverflowMenuSectionClassName =
+  "border-t border-t-[var(--wgo-border-muted)]";
 const paneOverflowMenuItemClassName = "";
 const workbenchPaneBodyClassName = [
   "workbench-pane-body relative w-full h-full min-w-0 min-h-0 overflow-visible",
   "before:content-[''] before:absolute before:z-[4]",
-  "before:border-2 before:border-[#4f8cff]",
-  "before:bg-[rgb(79_140_255_/_16%)] before:opacity-0 before:pointer-events-none",
+  "before:border-2 before:border-[var(--wgo-accent)]",
+  "before:bg-[var(--wgo-accent-overlay)] before:opacity-0 before:pointer-events-none",
   "[&.tab-split-left::before]:top-0 [&.tab-split-left::before]:bottom-0",
   "[&.tab-split-left::before]:left-0 [&.tab-split-left::before]:w-1/2",
   "[&.tab-split-left::before]:opacity-100",
@@ -112,31 +115,13 @@ const workbenchTabPageClassName = [
 ].join(" ");
 const activePaneOutlineClassName = [
   "pointer-events-none absolute top-[-2px] right-0 bottom-0 left-0 z-[6]",
-  "[box-shadow:inset_0_0_0_2px_#7f9abf]",
+  "[box-shadow:inset_0_0_0_2px_var(--wgo-accent-shadow)]",
 ].join(" ");
-const closeConfirmBackdropClassName =
-  "fixed inset-0 z-[20] grid place-items-center bg-[rgb(32_36_45_/_42%)] p-[24px]";
-const closeConfirmModalClassName = [
-  "w-[min(420px,100%)] overflow-hidden border border-[#d8dde7]",
-  "rounded-[8px] bg-white [box-shadow:0_24px_72px_rgb(32_36_45_/_28%)]",
-].join(" ");
-const closeConfirmHeadClassName = [
-  "flex items-center justify-between gap-[12px] border-b border-b-[#e4e8ef]",
-  "px-[16px] py-[14px]",
-  "[&_div]:grid [&_div]:gap-[2px] [&_div]:min-w-0",
-  "[&_span]:text-[#667085] [&_span]:text-[12px] [&_span]:font-700",
-  "[&_h2]:m-0 [&_h2]:text-[#20242d] [&_h2]:text-[18px] [&_h2]:tracking-[0]",
-].join(" ");
-const closeConfirmIconButtonClassName = "!w-[36px] !min-w-[36px] !p-0";
 const closeConfirmBodyClassName = [
   "grid gap-[14px] p-[16px]",
-  "[&_p]:m-0 [&_p]:text-[#475467] [&_p]:text-[13px]",
+  "[&_p]:m-0 [&_p]:text-[var(--wgo-text-secondary)] [&_p]:text-[13px]",
 ].join(" ");
 const closeConfirmActionsClassName = "flex justify-end gap-[8px]";
-const closeConfirmDangerButtonClassName = [
-  "border-[#f6c2bd] bg-[#fff4f2] text-[#b42318]",
-  "hover:border-[#f04438] hover:bg-[#fff2f0] hover:text-[#912018]",
-].join(" ");
 
 export function WorkbenchPaneView(
   {
@@ -545,7 +530,7 @@ export function WorkbenchPaneView(
           <div className={paneActionButtonGroupClassName}>
             {topRight
               ? (
-                <Button
+                <IconButton
                   className={className(
                     compactIconButtonClassName,
                     buttonGroupFirstClassName,
@@ -555,14 +540,14 @@ export function WorkbenchPaneView(
                   aria-label="Split right"
                 >
                   <Columns2 size={12} />
-                </Button>
+                </IconButton>
               )
               : null}
             <div
               className={paneOverflowMenuWrapClassName}
               ref={paneOverflowMenuRef}
             >
-              <Button
+              <IconButton
                 className={className(
                   compactIconButtonClassName,
                   topRight
@@ -576,7 +561,7 @@ export function WorkbenchPaneView(
                 aria-expanded={paneOverflowMenuOpen}
               >
                 <MoreHorizontal size={13} />
-              </Button>
+              </IconButton>
               {paneOverflowMenuOpen
                 ? (
                   <FloatingMenu
@@ -692,7 +677,7 @@ export function WorkbenchPaneView(
               )
               : null}
             <FloatingMenuItem
-              danger={Boolean(tabContextMenu.tab.dirty)}
+              tone={tabContextMenu.tab.dirty ? "danger" : "neutral"}
               onClick={() => requestCloseWorkbenchTab(tabContextMenu.tab.id)}
             >
               <X size={14} />
@@ -770,52 +755,33 @@ function UnsavedCloseConfirmModal(
 ) {
   const closingPane = kind === "pane";
   return (
-    <div
-      className={closeConfirmBackdropClassName}
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onCancel();
-      }}
+    <ModalDialog
+      eyebrow={closingPane ? "Pane" : "Tab"}
+      title="Unsaved changes"
+      titleId="unsaved-close-title"
+      size="sm"
+      bodyClassName={closeConfirmBodyClassName}
+      closeLabel="Close unsaved changes dialog"
+      onClose={onCancel}
     >
-      <section
-        className={closeConfirmModalClassName}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="unsaved-close-title"
-      >
-        <header className={closeConfirmHeadClassName}>
-          <div>
-            <span>{closingPane ? "Pane" : "Tab"}</span>
-            <h2 id="unsaved-close-title">Unsaved changes</h2>
-          </div>
-          <Button
-            onClick={onCancel}
-            title="Close"
-            aria-label="Close unsaved changes dialog"
-            className={closeConfirmIconButtonClassName}
-          >
-            <X size={16} />
-          </Button>
-        </header>
-        <div className={closeConfirmBodyClassName}>
-          <p>
-            {closingPane
-              ? dirtyCount === 1
-                ? "This pane contains a tab with unsaved changes."
-                : `This pane contains ${dirtyCount} tabs with unsaved changes.`
-              : "This tab has unsaved changes."}
-          </p>
-          <p>Close it anyway?</p>
-          <div className={closeConfirmActionsClassName}>
-            <Button onClick={onCancel}>Cancel</Button>
-            <Button
-              className={closeConfirmDangerButtonClassName}
-              onClick={onConfirm}
-            >
-              Close without saving
-            </Button>
-          </div>
-        </div>
-      </section>
-    </div>
+      <p>
+        {closingPane
+          ? dirtyCount === 1
+            ? "This pane contains a tab with unsaved changes."
+            : `This pane contains ${dirtyCount} tabs with unsaved changes.`
+          : "This tab has unsaved changes."}
+      </p>
+      <p>Close it anyway?</p>
+      <div className={closeConfirmActionsClassName}>
+        <Button onClick={onCancel}>Cancel</Button>
+        <Button
+          tone="danger"
+          variant="soft"
+          onClick={onConfirm}
+        >
+          Close without saving
+        </Button>
+      </div>
+    </ModalDialog>
   );
 }

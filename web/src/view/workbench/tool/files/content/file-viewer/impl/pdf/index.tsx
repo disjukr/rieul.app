@@ -21,13 +21,13 @@ const pageCssScale = 1.25;
 const maxRenderPixelRatio = 2;
 const fileViewerStatusClassName = [
   "flex items-center justify-center gap-[8px] min-w-0 min-h-0",
-  "text-[#667085] text-[13px]",
+  "text-[var(--wgo-text-tertiary)] text-[13px]",
   "[&.error]:items-start [&.error]:justify-start [&.error]:overflow-auto",
-  "[&.error]:text-[#b42318] [&.error]:p-[14px]",
+  "[&.error]:text-[var(--wgo-danger)] [&.error]:p-[14px]",
 ].join(" ");
 const pdfViewerClassName = [
   "grid [grid-template-rows:minmax(0,1fr)] min-w-0 min-h-0 overflow-hidden",
-  "bg-[#eef1f5]",
+  "bg-[var(--wgo-bg-muted)]",
 ].join(" ");
 const pdfPagesClassName = [
   "min-w-0 min-h-0 overflow-y-scroll overflow-x-auto px-[18px] py-[18px]",
@@ -39,7 +39,7 @@ const pdfPageShellClassName = [
   "last:mb-0",
 ].join(" ");
 const pdfPageCanvasClassName = [
-  "bg-white [box-shadow:0_2px_14px_rgb(32_36_45_/_18%)]",
+  "bg-[var(--wgo-bg-primary)] [box-shadow:var(--wgo-shadow-media)]",
 ].join(" ");
 
 type PdfReadState =
@@ -250,7 +250,7 @@ function PdfRenderStatus(
   { pageCount, renderedPages }: { pageCount?: number; renderedPages: number },
 ) {
   return (
-    <div className="mb-[14px] flex justify-center text-[#667085] text-[12px]">
+    <div className="mb-[14px] flex justify-center text-[var(--wgo-text-tertiary)] text-[12px]">
       {pageCount === undefined
         ? "Opening PDF"
         : `Rendering ${renderedPages}/${pageCount} pages`}

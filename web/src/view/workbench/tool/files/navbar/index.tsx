@@ -14,7 +14,7 @@ import { PathCrumbs } from "./path-crumbs.tsx";
 const pathToolbarClassName = [
   "grid [grid-template-columns:auto_minmax(0,1fr)] gap-[0.5rem]",
   "relative items-center h-[2em] min-h-[2em] box-border overflow-visible",
-  "border-b border-b-[#d8dde7] bg-white px-[0.5rem] py-0 leading-[1.6]",
+  "border-b border-b-[var(--wgo-border-light)] bg-[var(--wgo-bg-primary)] px-[0.5rem] py-0 leading-[1.6]",
 ].join(" ");
 const pathToolbarButtonGroupClassName =
   "inline-flex h-[2rem] items-center box-border py-[2px]";

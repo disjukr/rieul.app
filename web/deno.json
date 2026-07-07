@@ -9,6 +9,10 @@
     "preview": "deno run -A npm:vite@^6.0.0 preview --host 0.0.0.0"
   },
   "imports": {
+    "@base-ui/react": "npm:@base-ui/react@^1.6.0",
+    "@base-ui/react/": "npm:@base-ui/react@^1.6.0/",
+    "@types/react": "npm:@types/react@^19.2.0",
+    "@types/react-dom": "npm:@types/react-dom@^19.2.0",
     "@vitejs/plugin-react": "npm:@vitejs/plugin-react@^4.3.4",
     "@unocss/reset/tailwind.css": "npm:@unocss/reset@66.7.0/tailwind.css",
     "@xterm/addon-fit": "npm:@xterm/addon-fit@^0.10.0",
@@ -16,6 +20,7 @@
     "@xterm/xterm/css/xterm.css": "npm:@xterm/xterm@^5.5.0/css/xterm.css",
     "bunja": "npm:bunja@^3.0.0",
     "bunja/react": "npm:bunja@^3.0.0/react",
+    "class-variance-authority": "npm:class-variance-authority@^0.7.1",
     "jotai": "npm:jotai@^2.15.0",
     "jotai/utils": "npm:jotai@^2.15.0/utils",
     "lucide-react": "npm:lucide-react@^0.468.0",

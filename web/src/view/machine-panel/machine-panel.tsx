@@ -32,7 +32,7 @@ interface MachinePanelProps {
 const machinePanelClassName = [
   "machine-panel relative [grid-column:2] [grid-row:2] grid",
   "[grid-template-rows:auto_minmax(0,1fr)] min-w-0 min-h-0 overflow-hidden",
-  "border-r border-r-[#d8dde7] rounded-tl-[16px] bg-[#fbfcfe]",
+  "border-r border-r-[var(--wgo-border-light)] rounded-tl-[16px] bg-[var(--wgo-bg-subtle)]",
   "[transition:border-color_180ms_ease,border-radius_180ms_ease]",
 ].join(" ");
 const machinePanelInnerClassName = [
@@ -41,7 +41,7 @@ const machinePanelInnerClassName = [
   "[grid-template-rows:auto_minmax(0,1fr)]",
 ].join(" ");
 const machinePanelSummaryClassName =
-  "grid h-[48px] min-h-[48px] border-b border-b-[#d8dde7] px-[0.5rem]";
+  "grid h-[48px] min-h-[48px] border-b border-b-[var(--wgo-border-light)] px-[0.5rem]";
 const machineTitleClassName = [
   "flex items-center min-w-0",
   "[&_h1]:flex [&_h1]:items-center [&_h1]:m-0 [&_h1]:min-w-0",
@@ -49,9 +49,9 @@ const machineTitleClassName = [
 const machineTitleButtonClassName = [
   "machine-title-button inline-flex appearance-none items-center justify-start gap-[0.5rem]",
   "h-[48px] max-w-full min-h-[48px] overflow-visible",
-  "cursor-pointer border-0 rounded-[6px] bg-transparent text-[#20242d]",
+  "cursor-pointer border-0 rounded-[6px] bg-transparent text-[var(--wgo-text-primary)]",
   "px-[0.5rem] text-[1.25rem] font-700 leading-none tracking-[0] [font-family:inherit]",
-  "hover:bg-[#eef2f7] [&_svg]:flex-[0_0_auto]",
+  "hover:bg-[var(--wgo-bg-code)] [&_svg]:flex-[0_0_auto]",
 ].join(" ");
 const machineTitleTextClassName = [
   "machine-title-text block flex-[1_1_auto] min-w-0 overflow-hidden",
@@ -62,8 +62,8 @@ const machinePanelResizerClassName = [
   "absolute top-0 right-[-4px] bottom-0 z-[8] w-[8px] cursor-col-resize touch-none",
   "after:content-[''] after:absolute after:top-0 after:bottom-0 after:left-[3px]",
   "after:w-[1px] after:bg-transparent",
-  "hover:after:w-[2px] hover:after:bg-[#4f8cff]",
-  "focus-visible:after:w-[2px] focus-visible:after:bg-[#4f8cff] focus-visible:outline-0",
+  "hover:after:w-[2px] hover:after:bg-[var(--wgo-accent)]",
+  "focus-visible:after:w-[2px] focus-visible:after:bg-[var(--wgo-accent)] focus-visible:outline-0",
 ].join(" ");
 
 export function MachinePanel(
@@ -155,7 +155,7 @@ function MachineTitleStatus({ connection }: MachineTitleStatusProps) {
       return (
         <Wifi
           size={14}
-          className={`${machineTitleStatusIconClassName} text-[#16a34a]`}
+          className={`${machineTitleStatusIconClassName} text-[var(--wgo-success-icon)]`}
           aria-label="Connected"
         />
       );
@@ -163,7 +163,7 @@ function MachineTitleStatus({ connection }: MachineTitleStatusProps) {
       return (
         <Loader2
           size={14}
-          className={`${machineTitleStatusIconClassName} animate-spin text-[#d68a00]`}
+          className={`${machineTitleStatusIconClassName} animate-spin text-[var(--wgo-warning-icon)]`}
           aria-label="Connecting"
         />
       );
@@ -171,7 +171,7 @@ function MachineTitleStatus({ connection }: MachineTitleStatusProps) {
       return (
         <WifiOff
           size={14}
-          className={`${machineTitleStatusIconClassName} text-[#d92d20]`}
+          className={`${machineTitleStatusIconClassName} text-[var(--wgo-error-icon)]`}
           aria-label="Unconnected"
         />
       );

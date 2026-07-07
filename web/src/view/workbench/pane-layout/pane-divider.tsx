@@ -2,8 +2,8 @@ import type { DividerRenderProps } from "panecake";
 import { className } from "../../class-name.ts";
 
 const paneDividerClassName = [
-  "relative z-[2] bg-[#d8dde7]",
-  "hover:bg-[#4f8cff] focus-visible:bg-[#4f8cff] focus-visible:outline-0",
+  "relative z-[2] bg-[var(--wgo-border-light)]",
+  "hover:bg-[var(--wgo-accent)] focus-visible:bg-[var(--wgo-accent)] focus-visible:outline-0",
 ].join(" ");
 
 export function PaneDivider(

@@ -27,17 +27,17 @@ const wheelZoomSensitivity = 0.002;
 const zoomComparisonTolerance = 0.001;
 const fileViewerStatusClassName = [
   "flex items-center justify-center gap-[8px] min-w-0 min-h-0",
-  "text-[#667085] text-[13px]",
+  "text-[var(--wgo-text-tertiary)] text-[13px]",
   "[&.error]:items-start [&.error]:justify-start [&.error]:overflow-auto",
-  "[&.error]:text-[#b42318] [&.error]:p-[14px]",
+  "[&.error]:text-[var(--wgo-danger)] [&.error]:p-[14px]",
 ].join(" ");
 const imageViewerClassName = [
   "grid [grid-template-rows:auto_minmax(0,1fr)] min-w-0 min-h-0 overflow-hidden",
-  "bg-[#eef1f5]",
+  "bg-[var(--wgo-bg-muted)]",
 ].join(" ");
 const imageToolbarClassName = [
   "flex items-center justify-between gap-[12px] min-w-0 min-h-[38px]",
-  "border-b border-b-[#d8dde7] bg-[#fbfcfe] px-[8px]",
+  "border-b border-b-[var(--wgo-border-light)] bg-[var(--wgo-bg-subtle)] px-[8px]",
 ].join(" ");
 const imageToolbarGroupClassName = "flex items-center gap-[6px] min-w-0";
 const imageToolbarButtonClassName =
@@ -50,7 +50,7 @@ const imageZoomButtonFirstClassName = "!rounded-l-[4px] !rounded-r-0";
 const imageZoomButtonLastClassName = "-ml-px !rounded-l-0 !rounded-r-[4px]";
 const imageMetaClassName = [
   "min-w-0 overflow-hidden text-ellipsis whitespace-nowrap",
-  "text-[#667085] text-[12px]",
+  "text-[var(--wgo-text-tertiary)] text-[12px]",
 ].join(" ");
 const imageStageClassName = [
   "min-w-0 min-h-0 overflow-auto p-[18px]",
@@ -64,11 +64,11 @@ const imageStagePannableClassName = "cursor-grab";
 const imageStagePanningClassName = "cursor-grabbing";
 const imageElementClassName = [
   "block h-auto max-w-none",
-  "[box-shadow:0_2px_14px_rgb(32_36_45_/_18%)]",
+  "[box-shadow:var(--wgo-shadow-media)]",
 ].join(" ");
 const fitImageElementClassName = [
   "block max-w-full max-h-full object-contain",
-  "[box-shadow:0_2px_14px_rgb(32_36_45_/_18%)]",
+  "[box-shadow:var(--wgo-shadow-media)]",
 ].join(" ");
 
 type ImageReadState =
@@ -318,7 +318,7 @@ function ImageCanvas({ objectUrl }: { objectUrl: string }) {
               <Plus size={16} />
             </Button>
           </div>
-          <span className="min-w-[48px] text-center text-[#667085] text-[12px]">
+          <span className="min-w-[48px] text-center text-[var(--wgo-text-tertiary)] text-[12px]">
             {fitToView ? "Fit" : `${Math.round(zoom * 100)}%`}
           </span>
         </div>

@@ -14,7 +14,7 @@ import { WorkbenchRegion } from "./workbench/index.tsx";
 import { className } from "./class-name.ts";
 
 const appShellClassName = [
-  "app-shell grid h-full min-h-0 overflow-hidden bg-[#242832]",
+  "app-shell grid h-full min-h-0 overflow-hidden bg-[var(--wgo-shell-bg)]",
   "[grid-template-columns:48px_var(--machine-panel-width,264px)_minmax(0,1fr)]",
   "[grid-template-rows:2em_minmax(0,1fr)]",
   "[&.machine-panel-transitioning]:[transition:grid-template-columns_180ms_ease]",
