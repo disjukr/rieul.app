@@ -345,11 +345,15 @@ mod tests {
 
     #[test]
     fn state_database_path_lives_next_to_config() {
-        let config_path = PathBuf::from(r"C:\ProgramData\WhatsGoingOn\wgo.yaml");
+        let config_path = PathBuf::from("config-root")
+            .join("WhatsGoingOn")
+            .join("wgo.yaml");
 
         assert_eq!(
             daemon_state_database_path(&config_path),
-            PathBuf::from(r"C:\ProgramData\WhatsGoingOn\daemon-state.sqlite3")
+            PathBuf::from("config-root")
+                .join("WhatsGoingOn")
+                .join("daemon-state.sqlite3")
         );
     }
 

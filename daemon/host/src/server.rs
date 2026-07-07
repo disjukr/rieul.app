@@ -108,6 +108,14 @@ type SharedSendStream = Arc<Mutex<web_transport_quinn::SendStream>>;
 
 static NEXT_RPC_SESSION_ID: AtomicU64 = AtomicU64::new(1);
 
+struct AbortTaskOnDrop(tokio::task::JoinHandle<()>);
+
+impl Drop for AbortTaskOnDrop {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 enum PairingAttemptKey {
     ClientId(String),
@@ -242,6 +250,7 @@ async fn run_system_server_once(
 
     let resolver = Arc::new(ReloadingCertResolver::new(certificate.certified_key));
     let mut server = build_reloadable_server(addr, provider.clone(), resolver.clone())?;
+    let _scheduler = AbortTaskOnDrop(commands.start_scheduler());
     write_daemon_status(&config_path, DaemonStatus::Ready);
 
     tokio::spawn(reload_certificates(

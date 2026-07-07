@@ -244,16 +244,25 @@ impl CommandManager {
         let (jobs_events, _) = watch::channel(0);
         let (schedules_events, _) = watch::channel(0);
         let (output_events, _) = watch::channel(0);
-        let manager = Self {
+        Ok(Self {
             db: Arc::new(StdMutex::new(db)),
             state: Arc::new(Mutex::new(CommandState { jobs, schedules })),
             jobs_events,
             schedules_events,
             output_events,
             next_id: Arc::new(AtomicU64::new(1)),
-        };
-        manager.spawn_scheduler();
-        Ok(manager)
+        })
+    }
+
+    pub fn start_scheduler(&self) -> tokio::task::JoinHandle<()> {
+        let manager = self.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(SCHEDULE_TICK);
+            loop {
+                interval.tick().await;
+                manager.run_due_schedules().await;
+            }
+        })
     }
 
     pub async fn run_command(&self, request: RunCommandReq) -> Result<RunCommandRes, CommandError> {
@@ -1058,17 +1067,6 @@ impl CommandManager {
         let _ = self
             .output_events
             .send(self.output_events.borrow().wrapping_add(1));
-    }
-
-    fn spawn_scheduler(&self) {
-        let manager = self.clone();
-        tokio::spawn(async move {
-            let mut interval = tokio::time::interval(SCHEDULE_TICK);
-            loop {
-                interval.tick().await;
-                manager.run_due_schedules().await;
-            }
-        });
     }
 
     async fn run_due_schedules(&self) {
