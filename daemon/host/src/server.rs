@@ -2318,7 +2318,10 @@ fn update_job_output_cursor(last_seq: &mut u64, exited: &mut bool, event: &JobOu
         JobOutputEvent::JobExited { .. } => {
             *exited = true;
         }
-        JobOutputEvent::HistoryGap { .. } | JobOutputEvent::Truncated => {}
+        JobOutputEvent::HistoryGap { next_seq } => {
+            *last_seq = (*last_seq).max(*next_seq);
+        }
+        JobOutputEvent::Truncated => {}
     }
 }
 

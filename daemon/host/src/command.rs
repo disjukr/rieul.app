@@ -445,11 +445,19 @@ impl CommandManager {
         if let Some(note) = request.note {
             schedule.note = Some(note);
         }
+        let previous = (record.info.clone(), record.last_checked_ms);
         schedule.updated_at_ms = current_unix_ms();
         record.info = schedule.clone();
         record.last_checked_ms = current_unix_ms();
         drop(state);
-        self.persist_schedule(&schedule)?;
+        if let Err(err) = self.persist_schedule(&schedule) {
+            let mut state = self.state.lock().await;
+            if let Some(record) = state.schedules.get_mut(&request.schedule_id) {
+                record.info = previous.0;
+                record.last_checked_ms = previous.1;
+            }
+            return Err(err);
+        }
         self.notify_schedules();
         Ok(schedule)
     }
@@ -652,10 +660,19 @@ impl CommandManager {
                 next_seq: output.state.oldest_seq,
             });
         }
+        let chunks_empty = chunks.is_empty();
         events.extend(chunks.into_iter().map(|chunk| JobOutputEvent::Chunk {
             seq: chunk.seq,
             bytes: chunk.bytes,
         }));
+        if chunks_empty && output.state.truncated && output.state.latest_seq > after_seq {
+            if events.is_empty() {
+                events.push(JobOutputEvent::HistoryGap {
+                    next_seq: output.state.latest_seq,
+                });
+            }
+            events.push(JobOutputEvent::Truncated);
+        }
         if let JobStatus::Exited { exit } = &record.info.status {
             events.push(JobOutputEvent::JobExited { exit: exit.clone() });
         }
@@ -894,16 +911,20 @@ impl CommandManager {
                 }
             }
         }
+        let output_changed = state_to_persist.is_some();
         if let Some(state) = state_to_persist {
             let _ = self.persist_job_output_state(job_id, stream, &state);
         }
         if let Some(chunk) = chunk_to_persist {
             let _ = self.persist_job_output_chunk(job_id, stream, &chunk);
+        }
+        if output_changed {
             self.notify_output();
         }
     }
 
     async fn save_schedule(&self, schedule: ScheduleInfo) -> Result<(), CommandError> {
+        self.persist_schedule(&schedule)?;
         {
             let mut state = self.state.lock().await;
             state.schedules.insert(
@@ -914,7 +935,6 @@ impl CommandManager {
                 },
             );
         }
-        self.persist_schedule(&schedule)?;
         self.notify_schedules();
         Ok(())
     }
@@ -1602,6 +1622,18 @@ mod tests {
         assert_eq!(stored.state.oldest_seq, 0);
         assert!(stored.state.truncated);
         assert!(stored.chunks.is_empty());
+
+        let (_, events) = manager
+            .output_chunks_after(&job.job_id, JobOutputStream::Stdout, 0)
+            .await
+            .expect("read output chunks");
+        assert!(matches!(
+            events.as_slice(),
+            [
+                JobOutputEvent::HistoryGap { next_seq: 1 },
+                JobOutputEvent::Truncated
+            ]
+        ));
     }
 
     #[tokio::test]
