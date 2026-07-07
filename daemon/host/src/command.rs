@@ -1340,14 +1340,22 @@ fn next_runs_for_rule(
         .search_until_ms
         .unwrap_or(policy_until)
         .min(policy_until);
+    let fetch_limit = limit.saturating_add(1).min(u16::MAX as u64) as u16;
     let result = rule
         .set
         .clone()
-        .after(unix_ms_to_datetime(from_ms.saturating_add(1)))
+        .after(unix_ms_to_datetime(from_ms))
         .before(unix_ms_to_datetime(searched_until_ms.saturating_add(1)))
-        .all(limit as u16);
-    let run_at_ms = result.dates.into_iter().map(datetime_to_unix_ms).collect();
-    let continuation = if result.limited {
+        .all(fetch_limit);
+    let mut run_at_ms = result
+        .dates
+        .into_iter()
+        .map(datetime_to_unix_ms)
+        .filter(|run_at_ms| *run_at_ms > from_ms)
+        .collect::<Vec<_>>();
+    let hit_limit = run_at_ms.len() > limit as usize;
+    run_at_ms.truncate(limit as usize);
+    let continuation = if hit_limit || result.limited {
         ScheduleNextRunsContinuation::MoreAvailable
     } else if has_more_runs_after(rule, searched_until_ms) {
         ScheduleNextRunsContinuation::SearchLimitReached
@@ -1774,6 +1782,18 @@ mod tests {
             ms("2026-01-31T00:00:00Z"),
         );
         assert_eq!(second.run_at_ms, vec![ms("2026-01-02T00:00:00Z")]);
+    }
+
+    #[test]
+    fn rrule_next_runs_does_not_skip_run_one_ms_after_from() {
+        let result = next_runs(
+            "DTSTART:20260101T000001Z\nRRULE:FREQ=DAILY",
+            1,
+            ms("2026-01-01T00:00:00.999Z"),
+            ms("2026-01-31T00:00:00Z"),
+        );
+
+        assert_eq!(result.run_at_ms, vec![ms("2026-01-01T00:00:01Z")]);
     }
 
     #[test]
