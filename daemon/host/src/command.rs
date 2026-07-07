@@ -183,12 +183,14 @@ impl RetainedOutput {
     }
 
     fn chunks_after(&self, after_seq: Option<u64>) -> (bool, Vec<OutputChunk>) {
+        let explicit_cursor = after_seq.is_some();
         let after_seq = after_seq.unwrap_or(0);
-        let gap = if self.state.oldest_seq > 0 {
-            after_seq > 0 && after_seq < self.state.oldest_seq
-        } else {
-            self.state.truncated && after_seq < self.state.latest_seq
-        };
+        let gap = explicit_cursor
+            && if self.state.oldest_seq > 0 {
+                after_seq < self.state.oldest_seq
+            } else {
+                self.state.truncated && after_seq < self.state.latest_seq
+            };
         let chunks = self
             .chunks
             .iter()
@@ -1787,6 +1789,19 @@ mod tests {
             .output_chunks_after(&job.job_id, JobOutputStream::Stdout, 1)
             .await
             .expect("read output chunks");
+
+        assert!(matches!(
+            events.as_slice(),
+            [
+                JobOutputEvent::HistoryGap { next_seq: 2 },
+                JobOutputEvent::Chunk { seq: 2, bytes }
+            ] if bytes == b"b"
+        ));
+
+        let (_, events) = manager
+            .output_chunks_after(&job.job_id, JobOutputStream::Stdout, 0)
+            .await
+            .expect("read output chunks from explicit zero cursor");
 
         assert!(matches!(
             events.as_slice(),
