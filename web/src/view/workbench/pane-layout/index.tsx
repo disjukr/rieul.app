@@ -36,13 +36,14 @@ export function WorkbenchPaneLayout() {
   const visiblePane = isMobile
     ? panes.find((pane) => pane.id === activePaneId) ?? panes[0]
     : undefined;
+  const visiblePaneId = visiblePane?.id;
   const renderPanes = visiblePane ? [visiblePane] : panes;
   const renderLayout = useMemo(
     () =>
-      visiblePane
-        ? createLayout((builder) => builder.leaf(visiblePane.id))
+      visiblePaneId
+        ? createLayout((builder) => builder.leaf(visiblePaneId))
         : layout,
-    [layout, visiblePane],
+    [layout, visiblePaneId],
   );
   const topRightNodeId = topRightLeafNodeId(renderLayout);
 
