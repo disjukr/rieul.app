@@ -6,20 +6,22 @@ import { className as joinClassName } from "../class-name.ts";
 import { IconButton } from "./icon-button.tsx";
 
 const backdropVariants = cva(
-  "fixed inset-0 z-[20] grid place-items-center bg-[var(--wgo-overlay-backdrop)] p-[24px]",
+  "fixed inset-0 z-[100] bg-[var(--wgo-overlay-backdrop)]",
 );
 
 const popupVariants = cva(
   [
-    "w-[min(460px,100%)] overflow-hidden",
+    "fixed left-1/2 top-1/2 z-[101] max-h-[calc(100dvh-48px)]",
+    "w-[min(460px,calc(100vw-48px))] -translate-x-1/2 -translate-y-1/2",
+    "overflow-hidden",
     "border border-[var(--wgo-border-light)] rounded-[var(--wgo-radius-lg)]",
     "bg-[var(--wgo-bg-primary)] shadow-wgo-dialog outline-none",
   ],
   {
     variants: {
       size: {
-        md: "w-[min(460px,100%)]",
-        sm: "w-[min(420px,100%)]",
+        md: "w-[min(460px,calc(100vw-48px))]",
+        sm: "w-[min(420px,calc(100vw-48px))]",
       },
     },
     defaultVariants: {

@@ -33,7 +33,9 @@ import { Button } from "../../../ui/button.tsx";
 const terminalToolClassName = [
   "grid [grid-template-rows:minmax(0,1fr)_auto_auto]",
   "w-full h-full min-w-0 min-h-0 overflow-hidden",
+  "rounded-b-[12px]",
   "bg-[rgba(8,12,20,0.72)] text-[#d8dee9] backdrop-blur-2xl",
+  "max-[680px]:rounded-none",
 ].join(" ");
 const terminalSurfaceClassName =
   "relative w-full h-full min-w-0 min-h-0 overflow-hidden";
@@ -44,9 +46,11 @@ const emptyWorkspaceClassName = [
 ].join(" ");
 const terminalFooterClassName = [
   "flex items-center justify-end gap-[12px] h-[2rem] min-h-[2rem] box-border",
+  "rounded-b-[12px]",
   "border-t border-t-white/8 bg-black/14 text-[#9aa6b8] backdrop-blur-xl",
   "shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]",
   "px-[8px] leading-[1.6]",
+  "max-[680px]:rounded-none",
   "[@container_workbench-tab-page_(min-width:520px)]:justify-between",
 ].join(" ");
 const terminalFooterDetailsClassName = [

@@ -1,10 +1,7 @@
 import React, { PropsWithChildren } from "react";
 import { useAtomValue } from "jotai";
 import { useBunja } from "bunja/react";
-import {
-  MachineModalHost,
-  MachinePanelRegion,
-} from "./machine-panel/index.tsx";
+import { MachineModalHost } from "./machine-panel/index.tsx";
 import { MachineBaseUrlContext, MachineIdContext } from "../state/machine.tsx";
 import { machineStoreBunja } from "../state/machine-store.ts";
 import { layoutBunja } from "./state.tsx";
@@ -16,17 +13,16 @@ const appShellClassName = [
   "app-shell relative isolate grid h-full min-h-0 overflow-hidden bg-wgo-canvas",
   "[background:var(--wgo-canvas-background)]",
   "[&>*]:relative [&>*]:z-[1]",
-  "[grid-template-columns:152px_var(--machine-panel-width,232px)_minmax(0,1fr)]",
+  "[grid-template-columns:var(--rail-width,204px)_minmax(0,1fr)]",
   "[grid-template-rows:minmax(0,1fr)]",
   "[&.machine-panel-transitioning]:[transition:grid-template-columns_180ms_ease]",
-  "max-[980px]:[grid-template-columns:154px_var(--machine-panel-width,220px)_minmax(0,1fr)]",
+  "max-[980px]:[grid-template-columns:var(--rail-width,184px)_minmax(0,1fr)]",
   "max-[680px]:![grid-template-columns:minmax(0,1fr)]",
   "max-[680px]:![grid-template-rows:minmax(0,1fr)_76px]",
-  "[&.machine-panel-collapsed_.machine-panel]:pointer-events-none",
-  "[&.machine-panel-collapsed_.machine-panel]:border-r-0",
-  "[&.machine-panel-collapsed_.machine-panel]:rounded-tl-0",
+  "[&.machine-panel-collapsed_.app-rail-label]:hidden",
+  "[&.machine-panel-collapsed_.app-rail-expanded]:hidden",
+  "[&.machine-panel-collapsed_.app-rail]:items-center",
   "[&.machine-panel-collapsed_.workbench]:rounded-tl-wgo-2xl",
-  "max-[680px]:[&_.machine-panel]:![grid-column:1]",
   "max-[680px]:[&_.workbench]:![grid-column:1]",
 ].join(" ");
 
@@ -35,7 +31,6 @@ export default function View() {
     <Layout>
       <SelectedMachineIdProvider>
         <TopBarRegion />
-        <MachinePanelRegion />
         <WorkbenchRegion />
         <MachineModalHost />
       </SelectedMachineIdProvider>
@@ -54,7 +49,6 @@ function Layout({ children }: LayoutProps) {
   const machinePanelTransitioning = useAtomValue(
     layout.machinePanelTransitioningAtom,
   );
-  const machinePanelWidth = useAtomValue(layout.machinePanelWidthAtom);
 
   return (
     <main
@@ -64,10 +58,7 @@ function Layout({ children }: LayoutProps) {
         machinePanelTransitioning && "machine-panel-transitioning",
       )}
       style={{
-        "--machine-panel-width": machinePanelCollapsed
-          ? "0px"
-          : `${machinePanelWidth}px`,
-        "--machine-panel-open-width": `${machinePanelWidth}px`,
+        "--rail-width": machinePanelCollapsed ? "64px" : "204px",
       } as React.CSSProperties}
     >
       {children}

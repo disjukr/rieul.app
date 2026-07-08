@@ -2,15 +2,20 @@ import {
   Activity,
   AppWindow,
   CheckCircle2,
-  ChevronDown,
+  CircuitBoard,
+  Cpu,
   Folder,
+  HardDrive,
+  Laptop,
   Monitor,
-  MoreVertical,
   PanelLeftClose,
   PanelLeftOpen,
+  PcCase,
   Plus,
   Radio,
   RefreshCw,
+  Router,
+  Server,
   Settings,
   Terminal,
   Trash2,
@@ -26,7 +31,7 @@ import {
   useState,
 } from "react";
 import type { AvailableShellInfo } from "../../protocol/generated/rpc.ts";
-import type { Machine } from "../../state/machines.ts";
+import { type Machine, type MachineIconName } from "../../state/machines.ts";
 import type { DaemonInfoState } from "../../state/rpc-session.ts";
 import type { ConnectionState } from "../../state/types.ts";
 import type {
@@ -48,10 +53,10 @@ import {
 const projectLogoUrl = new URL("../../assets/wgo.svg", import.meta.url).href;
 
 const globalTopbarClassName = [
-  "[grid-column:1] [grid-row:1] flex flex-col",
+  "app-rail [grid-column:1] [grid-row:1] flex flex-col",
   "h-full min-h-0 min-w-0 overflow-visible",
-  "box-border border-r wgo-material-chrome",
-  "gap-[10px] px-[10px] py-[12px] leading-[1.45] text-wgo-text-2",
+  "box-border bg-transparent",
+  "gap-[12px] py-[14px] pl-[12px] pr-0 leading-[1.45] text-wgo-text-2",
   "max-[680px]:[grid-row:2] max-[680px]:m-[8px]",
   "max-[680px]:h-[60px] max-[680px]:min-h-0 max-[680px]:flex-row",
   "max-[680px]:items-center max-[680px]:justify-between max-[680px]:gap-[8px]",
@@ -61,22 +66,20 @@ const globalTopbarClassName = [
   "max-[680px]:backdrop-blur-2xl",
 ].join(" ");
 const globalTopbarLeftClassName = [
-  "grid gap-[8px] min-w-0",
-  "max-[680px]:flex max-[680px]:min-w-0 max-[680px]:flex-[0_1_132px]",
+  "grid min-w-0",
+  "max-[680px]:hidden",
 ].join(" ");
 const globalTopbarCenterClassName = "min-w-0 pointer-events-none hidden";
 const globalTopbarRightClassName =
-  "grid min-w-0 content-start gap-[10px] max-[680px]:flex-1";
+  "grid min-w-0 content-start gap-[12px] max-[680px]:flex-1";
 const topbarBrandClassName = [
-  "inline-flex h-[34px] min-w-0 items-center gap-[8px] rounded-[11px] px-[4px]",
+  "inline-flex h-[34px] min-w-0 items-center gap-[8px] rounded-[11px] px-[2px]",
   "text-[13px] font-780 text-wgo-text",
   "[&_img]:h-[23px] [&_img]:w-[23px] [&_img]:rounded-[7px]",
   "[&_img]:shadow-[0_1px_2px_rgba(18,25,38,0.1)]",
-  "[&_span]:leading-none",
   "max-[680px]:hidden",
 ].join(" ");
-const topbarLeftDividerClassName =
-  "h-px w-full bg-[rgba(18,25,38,0.1)] shadow-[0_1px_0_rgba(255,255,255,0.48)] max-[680px]:hidden";
+const topbarLeftDividerClassName = "hidden";
 const globalIconButtonClassName = [
   "inline-flex appearance-none items-center justify-center w-[28px] min-w-[28px] h-[28px] min-h-[28px]",
   "box-border cursor-pointer border border-transparent rounded-wgo-md bg-transparent text-wgo-text-3 p-0 leading-none",
@@ -85,26 +88,16 @@ const globalIconButtonClassName = [
   "active:bg-wgo-active",
   "max-[680px]:hidden",
 ].join(" ");
-const globalMachineTitleClassName = [
-  "flex h-[32px] items-center gap-[3px] min-w-0 rounded-[10px]",
-  "border border-white/46 bg-[rgba(255,255,255,0.42)] px-[7px] text-wgo-text",
-  "shadow-[inset_0_1px_0_rgba(255,255,255,0.74),0_8px_20px_rgba(18,25,38,0.07)]",
-  "font-700 text-[13px]",
-  "[&_span]:min-w-0 [&_span]:overflow-hidden [&_span]:leading-[1.45]",
-  "[&_span]:text-ellipsis [&_span]:whitespace-nowrap",
-  "max-[680px]:h-[44px] max-[680px]:max-w-[132px] max-[680px]:rounded-[14px]",
-  "max-[680px]:px-[8px] max-[680px]:text-[12px]",
-].join(" ");
 const toolSwitcherClassName = [
   "rail-tool-switcher grid w-full min-w-0 content-start gap-[2px] rounded-[14px]",
-  "border border-white/34 bg-[rgba(248,248,248,0.28)] p-[3px] backdrop-blur-2xl",
+  "border border-white/34 bg-[rgba(248,248,248,0.28)] p-[6px] backdrop-blur-2xl",
   "shadow-[inset_0_1px_0_rgba(255,255,255,0.68),0_8px_18px_rgba(18,25,38,0.045)]",
   "max-[680px]:flex max-[680px]:h-[44px] max-[680px]:items-center max-[680px]:justify-center",
   "max-[680px]:gap-[4px] max-[680px]:border-0 max-[680px]:bg-transparent",
   "max-[680px]:p-0 max-[680px]:shadow-none",
 ].join(" ");
 const toolSplitClassName = [
-  "inline-flex h-[27px] w-full min-w-0 items-center gap-[2px] rounded-[10px] px-[2px]",
+  "inline-flex h-[31px] w-full min-w-0 items-center gap-0 rounded-[10px] px-[2px]",
   "border border-transparent text-[12px] font-650 text-wgo-text-3/68",
   "wgo-transition",
   "hover:bg-white/20 hover:text-wgo-text-2",
@@ -114,30 +107,23 @@ const toolSplitClassName = [
   "max-[680px]:rounded-[14px] max-[680px]:px-0",
 ].join(" ");
 const toolNameButtonClassName = [
-  "inline-flex h-[23px] min-w-0 flex-1 appearance-none items-center justify-start gap-[6px]",
+  "inline-flex h-[27px] min-w-0 flex-1 appearance-none items-center justify-start gap-[7px]",
   "rounded-[8px] border-0 bg-transparent px-[7px] py-0 text-inherit [font-family:inherit]",
   "cursor-pointer wgo-transition",
   "hover:bg-white/18 hover:text-wgo-text",
   "[&_svg]:flex-[0_0_auto] [&_svg]:opacity-86 [&_span]:min-w-0 [&_span]:overflow-hidden [&_span]:text-ellipsis [&_span]:whitespace-nowrap",
   "max-[680px]:h-full max-[680px]:justify-center max-[680px]:gap-0 max-[680px]:px-0",
 ].join(" ");
-const toolNameLabelClassName = "max-[680px]:hidden";
+const toolNameLabelClassName = "app-rail-label max-[680px]:hidden";
 const toolPlusButtonClassName = [
-  "inline-flex h-[23px] w-[22px] min-w-[22px] appearance-none items-center justify-center",
+  "relative inline-flex h-[27px] w-[28px] min-w-[28px] appearance-none items-center justify-center",
   "rounded-[8px] border-0 bg-transparent p-0 text-inherit [font-family:inherit]",
+  "before:content-[''] before:pointer-events-none before:absolute before:left-[-1px]",
+  "before:top-[7px] before:bottom-[7px] before:w-px before:rounded-full",
+  "before:bg-[rgba(18,25,38,0.16)]",
   "cursor-pointer opacity-52 wgo-transition hover:bg-white/30 hover:text-wgo-text hover:opacity-100",
   "[.active_&]:opacity-62",
   "max-[680px]:hidden",
-].join(" ");
-const machineChromeButtonClassName = [
-  "inline-flex h-[24px] min-w-[24px] appearance-none items-center justify-center",
-  "rounded-wgo-sm border border-transparent bg-transparent p-0 text-wgo-text-3",
-  "[font-family:inherit] cursor-pointer wgo-transition",
-  "hover:border-white/50 hover:bg-white/42 hover:text-wgo-text",
-].join(" ");
-const machineActionsButtonClassName = [
-  machineChromeButtonClassName,
-  "w-[24px]",
 ].join(" ");
 const topbarMenuClassName = [
   "z-[60] w-[244px] gap-[2px] rounded-wgo-lg p-[4px]",
@@ -152,6 +138,10 @@ const machineMenuClassName = [
   "z-[60] w-[216px] gap-[3px] rounded-wgo-lg p-[5px]",
   "wgo-material-floating text-wgo-text",
 ].join(" ");
+const mobileMachineMenuClassName = [
+  machineMenuClassName,
+  "max-[680px]:w-[252px]",
+].join(" ");
 const machineMenuHeaderClassName =
   "px-[8px] pb-[5px] pt-[6px] text-[11px] font-760 tracking-[0] text-wgo-text-3";
 const machineMenuDividerClassName =
@@ -160,14 +150,15 @@ const machineMenuDangerItemClassName = [
   "text-wgo-danger hover:bg-wgo-danger-soft hover:text-wgo-danger",
   "[&_svg]:text-wgo-danger",
 ].join(" ");
-const connectionButtonClassName = [
-  "inline-flex h-[24px] items-center gap-[3px] rounded-wgo-sm",
-  "border border-transparent bg-transparent px-[4px] text-wgo-text-3",
-  "backdrop-blur-xl [font-family:inherit] cursor-pointer",
-  "hover:border-white/50 hover:bg-white/42 hover:text-wgo-text",
-  "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-wgo-focus",
-].join(" ");
 const statusDotClassName = "h-[6px] w-[6px] rounded-full";
+const railBrandActionsClassName = "inline-flex items-center gap-[4px]";
+const railStatusButtonClassName = [
+  "inline-flex h-[28px] min-w-[22px] appearance-none items-center justify-center",
+  "rounded-wgo-md border border-transparent bg-transparent p-0 [font-family:inherit]",
+  "cursor-pointer opacity-82 wgo-transition",
+  "hover:border-white/44 hover:bg-white/36 hover:opacity-100",
+  "disabled:cursor-default disabled:opacity-45",
+].join(" ");
 const connectionPopoverClassName = [
   "z-[60] w-[320px] gap-0 rounded-wgo-xl p-0",
   "wgo-material-floating text-wgo-text",
@@ -189,27 +180,44 @@ const popoverValueClassName =
 const railBrandRowClassName =
   "flex min-w-0 items-center justify-between gap-[6px] max-[680px]:hidden";
 const railMachineListClassName = [
-  "grid min-w-0 gap-[4px] rounded-[13px] border border-white/28",
-  "bg-[rgba(248,248,248,0.28)] p-[4px] backdrop-blur-xl",
+  "grid min-w-0 grid-cols-[repeat(auto-fill,minmax(38px,1fr))] gap-[7px]",
+  "rounded-[15px] border border-white/28 bg-[rgba(248,248,248,0.28)] p-[7px] backdrop-blur-xl",
   "max-[680px]:hidden",
 ].join(" ");
 const railMachineButtonClassName = [
-  "inline-flex h-[30px] min-w-0 appearance-none items-center gap-[7px]",
-  "rounded-[9px] border border-transparent bg-transparent px-[7px]",
+  "group relative inline-flex aspect-square min-w-0 appearance-none items-center justify-center",
+  "rounded-[12px] border border-transparent bg-white/18 px-0",
   "text-[12px] font-650 text-wgo-text-3 [font-family:inherit]",
   "cursor-pointer wgo-transition hover:border-white/48 hover:bg-white/34 hover:text-wgo-text-2",
   "[&.active]:border-white/74 [&.active]:bg-white/70 [&.active]:text-wgo-text",
   "[&.active]:shadow-[inset_0_1px_0_rgba(255,255,255,0.86),0_6px_16px_rgba(18,25,38,0.08)]",
-  "[&_span]:min-w-0 [&_span]:overflow-hidden [&_span]:text-ellipsis [&_span]:whitespace-nowrap",
+  "[&_svg]:[stroke-width:2]",
 ].join(" ");
 const railAddMachineButtonClassName = [
-  "mt-auto inline-flex h-[30px] w-full appearance-none items-center justify-center gap-[6px]",
-  "rounded-[9px] border border-white/22 bg-white/14 px-[8px]",
-  "text-[12px] font-650 text-wgo-text-3 [font-family:inherit]",
+  "inline-flex aspect-square min-w-0 appearance-none items-center justify-center",
+  "rounded-[12px] border border-dashed border-white/34 bg-white/10 px-0",
+  "text-wgo-text-3 [font-family:inherit]",
   "cursor-pointer wgo-transition hover:border-white/48 hover:bg-white/34 hover:text-wgo-text",
   "max-[680px]:mt-0 max-[680px]:h-[44px] max-[680px]:w-[44px] max-[680px]:min-w-[44px]",
   "max-[680px]:rounded-[14px] max-[680px]:px-0 max-[680px]:text-wgo-text-2",
   "max-[680px]:[&_span]:hidden",
+].join(" ");
+const mobileMachineButtonClassName = [
+  "hidden h-[44px] w-[44px] min-w-[44px] appearance-none items-center justify-center",
+  "relative rounded-[14px] border border-transparent bg-white/18 p-0 text-wgo-text-2",
+  "[font-family:inherit] cursor-pointer wgo-transition",
+  "hover:border-white/48 hover:bg-white/34 hover:text-wgo-text",
+  "max-[680px]:inline-flex",
+].join(" ");
+const railMachineIconDotClassName = [
+  "absolute bottom-[5px] right-[5px] h-[5px] w-[5px] rounded-full",
+  "bg-wgo-text-3/42 group-[.active]:bg-wgo-accent",
+].join(" ");
+const iconPickerMenuClassName = [
+  "grid grid-cols-[repeat(4,minmax(0,1fr))] gap-[5px] px-[5px] pb-[2px]",
+].join(" ");
+const iconPickerItemClassName = [
+  "!h-[38px] !min-h-[38px] !justify-center !rounded-wgo-md !px-0",
 ].join(" ");
 
 const topbarTools: {
@@ -222,6 +230,21 @@ const topbarTools: {
   { icon: Terminal, label: "Terminal", tool: "terminal" },
   { icon: AppWindow, label: "Windows", tool: "windows" },
   { icon: Activity, label: "Processes", tool: "processes" },
+];
+
+const machineIconOptions: {
+  icon: typeof Monitor;
+  label: string;
+  name: MachineIconName;
+}[] = [
+  { icon: Monitor, label: "Monitor", name: "monitor" },
+  { icon: Laptop, label: "Laptop", name: "laptop" },
+  { icon: Server, label: "Server", name: "server" },
+  { icon: Cpu, label: "CPU", name: "cpu" },
+  { icon: HardDrive, label: "Drive", name: "hard-drive" },
+  { icon: Router, label: "Router", name: "router" },
+  { icon: CircuitBoard, label: "Board", name: "circuit-board" },
+  { icon: PcCase, label: "PC case", name: "pc-case" },
 ];
 
 interface AppTopbarProps {
@@ -241,12 +264,13 @@ interface AppTopbarProps {
   onOpenTerminalTab: (config?: WorkbenchTerminalTabConfig) => void;
   onOpenWindowsTab: () => void;
   onSelectTab: (paneId: string, tabId: string) => void;
-  onConfigureMachine: () => void;
-  onDeleteMachine: () => void;
-  onReconnectMachine: () => void;
+  onConfigureMachine: (machineId: string) => void;
+  onDeleteMachine: (machineId: string) => void;
+  onReconnectMachine: (machineId: string) => void;
   onSelectMachine: (machineId: string) => void;
   onToggleMachinePanel: () => void;
-  onUnpairMachine: () => void;
+  onUnpairMachine: (machineId: string) => void;
+  onUpdateMachineIcon: (machineId: string, icon: MachineIconName) => void;
 }
 
 type ToolMenuKind = "tabs" | "create";
@@ -259,7 +283,9 @@ interface ToolMenuState {
 
 interface MachineMenuState {
   kind: "connection" | "actions";
+  machineId?: string;
   position: FloatingMenuPosition;
+  source?: "desktop" | "mobile";
 }
 
 export function AppTopbar(
@@ -286,6 +312,7 @@ export function AppTopbar(
     onSelectMachine,
     onToggleMachinePanel,
     onUnpairMachine,
+    onUpdateMachineIcon,
   }: AppTopbarProps,
 ) {
   const toolMenuRef = useRef<HTMLDivElement | null>(null);
@@ -336,6 +363,10 @@ export function AppTopbar(
     toolMenuHoverTimerRef.current = undefined;
   }
 
+  function closeCreateToolMenu() {
+    setToolMenu((current) => current?.kind === "create" ? undefined : current);
+  }
+
   function openToolMenu(
     tool: WorkbenchTool,
     kind: ToolMenuKind,
@@ -370,17 +401,24 @@ export function AppTopbar(
   function openMachineMenu(
     kind: "connection" | "actions",
     target: HTMLElement,
+    machineId = selectedMachineId,
+    source: MachineMenuState["source"] = "desktop",
   ) {
     const rect = target.getBoundingClientRect();
-    const width = kind === "connection" ? 320 : 216;
+    const width = kind === "connection" ? 320 : source === "mobile" ? 252 : 216;
     setToolMenu(undefined);
     setMachineMenu({
       kind,
+      machineId,
       position: clampFloatingMenuPosition(
         rect.right + 8,
         rect.top,
-        { itemCount: kind === "connection" ? 7 : 6, width },
+        {
+          itemCount: kind === "connection" ? 7 : source === "mobile" ? 18 : 12,
+          width,
+        },
       ),
+      source,
     });
   }
 
@@ -393,9 +431,15 @@ export function AppTopbar(
     onSelectTab(latest.paneId, latest.tab.id);
   }
 
-  function runMachineAction(action: () => void) {
+  function runMachineAction(
+    machineId: string | undefined,
+    action: (
+      machineId: string,
+    ) => void,
+  ) {
+    if (!machineId) return;
     closeMachineMenu();
-    action();
+    action(machineId);
   }
 
   function terminalTabConfigForShell(
@@ -433,12 +477,12 @@ export function AppTopbar(
     openMachineMenu("connection", target);
   }
 
-  function openActionsMenu(target: HTMLElement) {
-    if (machineMenu?.kind === "actions") {
-      closeMachineMenu();
-      return;
-    }
-    openMachineMenu("actions", target);
+  function openActionsMenu(target: HTMLElement, machineId = selectedMachineId) {
+    openMachineMenu("actions", target, machineId);
+  }
+
+  function openMobileMachineMenu(target: HTMLElement) {
+    openMachineMenu("actions", target, selectedMachineId, "mobile");
   }
 
   function openToolTabFromMenu(tool: WorkbenchTool) {
@@ -457,6 +501,10 @@ export function AppTopbar(
 
   function toolMenuTitle(tool: WorkbenchTool) {
     return topbarTools.find((item) => item.tool === tool)?.label ?? tool;
+  }
+
+  function toolHasCreateOptions(tool: WorkbenchTool) {
+    return tool === "files" || tool === "terminal";
   }
 
   function showToolMenuOnFocus(
@@ -481,18 +529,24 @@ export function AppTopbar(
     event: KeyboardEvent<HTMLButtonElement>,
     tool: WorkbenchTool,
   ) {
+    if (!toolHasCreateOptions(tool)) return;
     if (event.key === "ArrowDown") {
       event.preventDefault();
       openToolMenu(tool, "create", event.currentTarget);
     }
   }
 
-  function deviceName() {
-    return machine?.name ?? "No machine";
+  function menuMachine() {
+    return machines.find((item) => item.id === machineMenu?.machineId) ??
+      machine;
   }
 
-  function isPaired() {
-    return Boolean(machine?.clientId && machine?.clientSecret);
+  function deviceName(targetMachine = machine) {
+    return targetMachine?.name ?? "No machine";
+  }
+
+  function isPaired(targetMachine = machine) {
+    return Boolean(targetMachine?.clientId && targetMachine?.clientSecret);
   }
 
   function connectionIcon() {
@@ -510,25 +564,6 @@ export function AppTopbar(
     );
   }
 
-  function openMachineContextMenu(
-    event: MouseEvent<HTMLButtonElement>,
-    kind: "connection" | "actions",
-  ) {
-    event.preventDefault();
-    if (kind === "connection") openConnectionMenu(event.currentTarget);
-    else openActionsMenu(event.currentTarget);
-  }
-
-  function onMachineKeyDown(
-    event: KeyboardEvent<HTMLButtonElement>,
-    kind: "connection" | "actions",
-  ) {
-    if (event.key !== "ArrowDown") return;
-    event.preventDefault();
-    if (kind === "connection") openConnectionMenu(event.currentTarget);
-    else openActionsMenu(event.currentTarget);
-  }
-
   function connectionPopoverPosition() {
     return machineMenu?.kind === "connection"
       ? machineMenu.position
@@ -542,6 +577,45 @@ export function AppTopbar(
   function selectTarget(target: ToolTabTarget) {
     closeToolMenu();
     onSelectTab(target.paneId, target.tab.id);
+  }
+
+  function openMachineLauncherContextMenu(
+    event: MouseEvent<HTMLButtonElement>,
+    machineId: string,
+  ) {
+    event.preventDefault();
+    event.stopPropagation();
+    onSelectMachine(machineId);
+    openActionsMenu(event.currentTarget, machineId);
+  }
+
+  function onMachineLauncherKeyDown(
+    event: KeyboardEvent<HTMLButtonElement>,
+    machineId: string,
+  ) {
+    if (
+      event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10")
+    ) {
+      return;
+    }
+    event.preventDefault();
+    onSelectMachine(machineId);
+    openActionsMenu(event.currentTarget, machineId);
+  }
+
+  function selectMachineIcon(machineId: string, icon: MachineIconName) {
+    onUpdateMachineIcon(machineId, icon);
+    closeMachineMenu();
+  }
+
+  function selectMachineFromMenu(machineId: string) {
+    onSelectMachine(machineId);
+    closeMachineMenu();
+  }
+
+  function addMachineFromMenu() {
+    closeMachineMenu();
+    onAddMachine();
   }
 
   function renderToolMenu() {
@@ -647,36 +721,100 @@ export function AppTopbar(
   function renderMachineActionsMenu() {
     const position = actionsPopoverPosition();
     if (!position) return null;
+    const targetMachine = menuMachine();
+    const machineId = targetMachine?.id;
+    const mobileMenu = machineMenu?.source === "mobile";
+    const otherMachines = machines.filter((item) => item.id !== machineId);
     return (
       <FloatingMenu
-        className={machineMenuClassName}
+        className={mobileMenu
+          ? mobileMachineMenuClassName
+          : machineMenuClassName}
         menuRef={machineMenuRef}
         position={position}
       >
         <div className={machineMenuHeaderClassName}>
-          {deviceName()}
+          {deviceName(targetMachine)}
         </div>
-        <FloatingMenuItem onClick={() => runMachineAction(onReconnectMachine)}>
+        <FloatingMenuItem
+          disabled={!machineId}
+          onClick={() => runMachineAction(machineId, onReconnectMachine)}
+        >
           <RefreshCw size={15} />
           Reconnect
         </FloatingMenuItem>
-        <FloatingMenuItem onClick={() => runMachineAction(onConfigureMachine)}>
+        <FloatingMenuItem
+          disabled={!machineId}
+          onClick={() => runMachineAction(machineId, onConfigureMachine)}
+        >
           <Settings size={15} />
           Configure
         </FloatingMenuItem>
         <div className={machineMenuDividerClassName} aria-hidden="true" />
         <FloatingMenuItem
-          disabled={!isPaired()}
-          onClick={() => runMachineAction(onUnpairMachine)}
+          disabled={!machineId || !isPaired(targetMachine)}
+          onClick={() => runMachineAction(machineId, onUnpairMachine)}
         >
           <Unlink size={15} />
           Unpair
         </FloatingMenuItem>
         <div className={machineMenuDividerClassName} aria-hidden="true" />
+        <div className={machineMenuHeaderClassName}>
+          Icon
+        </div>
+        <div className={iconPickerMenuClassName} role="group">
+          {machineIconOptions.map(({ icon: Icon, label, name }) => (
+            <FloatingMenuItem
+              key={name}
+              className={iconPickerItemClassName}
+              disabled={!machineId}
+              onClick={() => machineId && selectMachineIcon(machineId, name)}
+              title={label}
+              aria-label={label}
+            >
+              <Icon size={17} />
+            </FloatingMenuItem>
+          ))}
+        </div>
+        <div className={machineMenuDividerClassName} aria-hidden="true" />
+        {mobileMenu
+          ? (
+            <>
+              <div className={machineMenuHeaderClassName}>
+                Other Devices
+              </div>
+              {otherMachines.length === 0
+                ? (
+                  <FloatingMenuItem disabled>
+                    <Monitor size={15} />
+                    No Other Devices
+                  </FloatingMenuItem>
+                )
+                : otherMachines.map((item) => (
+                  <FloatingMenuItem
+                    key={item.id}
+                    onClick={() => selectMachineFromMenu(item.id)}
+                  >
+                    <MachineIcon name={item.icon} size={15} />
+                    <span>{item.name}</span>
+                  </FloatingMenuItem>
+                ))}
+              <FloatingMenuItem onClick={addMachineFromMenu}>
+                <Plus size={15} />
+                Add Machine
+              </FloatingMenuItem>
+              <div
+                className={machineMenuDividerClassName}
+                aria-hidden="true"
+              />
+            </>
+          )
+          : null}
         <FloatingMenuItem
           tone="danger"
           className={machineMenuDangerItemClassName}
-          onClick={() => runMachineAction(onDeleteMachine)}
+          disabled={!machineId}
+          onClick={() => runMachineAction(machineId, onDeleteMachine)}
         >
           <Trash2 size={15} />
           Delete
@@ -700,12 +838,30 @@ export function AppTopbar(
     );
   }
 
-  function machineActionDisabled() {
-    return !machine;
-  }
-
   function canOpenMachineMenu() {
     return Boolean(machine);
+  }
+
+  function renderConnectionStatusButton() {
+    return (
+      <button
+        type="button"
+        className={railStatusButtonClassName}
+        aria-haspopup="dialog"
+        aria-expanded={machineMenu?.kind === "connection"}
+        aria-label={`Connection: ${connectionDetail(connection, daemonInfo)}`}
+        disabled={!canOpenMachineMenu()}
+        onClick={(event) => openConnectionMenu(event.currentTarget)}
+        onKeyDown={(event) => {
+          if (event.key !== "ArrowDown") return;
+          event.preventDefault();
+          openConnectionMenu(event.currentTarget);
+        }}
+        title="Connection details"
+      >
+        {connectionIcon()}
+      </button>
+    );
   }
 
   function renderToolLaunchers() {
@@ -737,14 +893,25 @@ export function AppTopbar(
         <button
           type="button"
           className={toolPlusButtonClassName}
-          aria-haspopup="menu"
+          aria-haspopup={toolHasCreateOptions(tool) ? "menu" : undefined}
           aria-label={`New ${label} Tab`}
           onClick={() => openToolTabFromMenu(tool)}
-          onFocus={(event) =>
-            showToolMenuOnFocus(tool, "create", event.currentTarget)}
+          onFocus={(event) => {
+            if (!toolHasCreateOptions(tool)) {
+              closeCreateToolMenu();
+              return;
+            }
+            showToolMenuOnFocus(tool, "create", event.currentTarget);
+          }}
           onKeyDown={(event) => onToolPlusKeyDown(event, tool)}
-          onMouseEnter={(event) =>
-            scheduleToolMenu(tool, "create", event.currentTarget)}
+          onMouseEnter={(event) => {
+            if (!toolHasCreateOptions(tool)) {
+              clearPendingToolMenu();
+              closeCreateToolMenu();
+              return;
+            }
+            scheduleToolMenu(tool, "create", event.currentTarget);
+          }}
           onMouseLeave={clearPendingToolMenu}
           title={`New ${label} Tab`}
         >
@@ -755,7 +922,6 @@ export function AppTopbar(
   }
 
   function renderMachineLaunchers() {
-    if (machines.length <= 1) return null;
     return (
       <nav className={railMachineListClassName} aria-label="Machines">
         {machines.map((item) => (
@@ -767,48 +933,51 @@ export function AppTopbar(
               item.id === selectedMachineId && "active",
             )}
             onClick={() => onSelectMachine(item.id)}
+            onContextMenu={(event) =>
+              openMachineLauncherContextMenu(event, item.id)}
+            onKeyDown={(event) => onMachineLauncherKeyDown(event, item.id)}
             title={item.name}
             aria-label={item.name}
+            aria-haspopup="menu"
             aria-current={item.id === selectedMachineId ? "true" : undefined}
           >
-            <Monitor size={13} />
-            <span>{item.name}</span>
+            <MachineIcon name={item.icon} size={18} />
+            <span className={railMachineIconDotClassName} />
           </button>
         ))}
+        <button
+          type="button"
+          className={railAddMachineButtonClassName}
+          onClick={onAddMachine}
+          title="Add machine"
+          aria-label="Add machine"
+        >
+          <Plus size={17} strokeWidth={2.2} />
+        </button>
       </nav>
     );
   }
 
-  function machineTitleControls() {
+  function renderMobileMachineButton() {
     return (
-      <div className={globalMachineTitleClassName}>
-        {connectionIcon()}
-        <span>{deviceName()}</span>
-        <button
-          type="button"
-          className={connectionButtonClassName}
-          aria-haspopup="dialog"
-          aria-expanded={machineMenu?.kind === "connection"}
-          disabled={!canOpenMachineMenu()}
-          onClick={(event) => openMachineContextMenu(event, "connection")}
-          onKeyDown={(event) => onMachineKeyDown(event, "connection")}
-          title="Connection details"
-        >
-          <ChevronDown size={13} />
-        </button>
-        <button
-          type="button"
-          className={machineActionsButtonClassName}
-          aria-haspopup="menu"
-          aria-expanded={machineMenu?.kind === "actions"}
-          disabled={machineActionDisabled()}
-          onClick={(event) => openMachineContextMenu(event, "actions")}
-          onKeyDown={(event) => onMachineKeyDown(event, "actions")}
-          title="Machine actions"
-        >
-          <MoreVertical size={13} />
-        </button>
-      </div>
+      <button
+        type="button"
+        className={mobileMachineButtonClassName}
+        aria-haspopup="menu"
+        aria-expanded={machineMenu?.kind === "actions" &&
+          machineMenu.source === "mobile"}
+        aria-label="Device management"
+        onClick={(event) => openMobileMachineMenu(event.currentTarget)}
+        onKeyDown={(event) => {
+          if (event.key !== "ArrowDown") return;
+          event.preventDefault();
+          openMobileMachineMenu(event.currentTarget);
+        }}
+        title="Device management"
+      >
+        <MachineIcon name={machine?.icon} size={18} />
+        <span className={railMachineIconDotClassName} />
+      </button>
     );
   }
 
@@ -817,54 +986,43 @@ export function AppTopbar(
       <header className={globalTopbarClassName}>
         <div className={globalTopbarLeftClassName}>
           <div className={railBrandRowClassName}>
-            <div className={topbarBrandClassName} aria-label="Whats Going On">
-              <img src={projectLogoUrl} alt="" aria-hidden="true" />
-              <span>WGO</span>
-            </div>
-            <button
-              type="button"
-              className={globalIconButtonClassName}
-              onClick={onToggleMachinePanel}
-              title={machinePanelCollapsed
-                ? "Expand machine panel"
-                : "Collapse machine panel"}
-              aria-label={machinePanelCollapsed
-                ? "Expand machine panel"
-                : "Collapse machine panel"}
-              aria-pressed={machinePanelCollapsed}
+            <div
+              className={className(topbarBrandClassName, "app-rail-expanded")}
+              aria-label="Whats Going On"
             >
-              {machinePanelCollapsed
-                ? <PanelLeftOpen size={12} />
-                : <PanelLeftClose size={12} />}
-            </button>
+              <img src={projectLogoUrl} alt="" aria-hidden="true" />
+            </div>
+            <div className={railBrandActionsClassName}>
+              {renderConnectionStatusButton()}
+              <button
+                type="button"
+                className={globalIconButtonClassName}
+                onClick={onToggleMachinePanel}
+                title={machinePanelCollapsed
+                  ? "Expand sidebar"
+                  : "Collapse sidebar"}
+                aria-label={machinePanelCollapsed
+                  ? "Expand sidebar"
+                  : "Collapse sidebar"}
+                aria-pressed={machinePanelCollapsed}
+              >
+                {machinePanelCollapsed
+                  ? <PanelLeftOpen size={12} />
+                  : <PanelLeftClose size={12} />}
+              </button>
+            </div>
           </div>
-          {machineTitleControls()}
         </div>
         <div className={topbarLeftDividerClassName} aria-hidden="true" />
-        {machines.length > 1
-          ? (
-            <>
-              {renderMachineLaunchers()}
-              <div className={topbarLeftDividerClassName} aria-hidden="true" />
-            </>
-          )
-          : null}
+        {renderMachineLaunchers()}
+        <div className={topbarLeftDividerClassName} aria-hidden="true" />
+        {renderMobileMachineButton()}
         <div className={globalTopbarCenterClassName} aria-hidden="true" />
         <div className={globalTopbarRightClassName}>
           <nav className={toolSwitcherClassName} aria-label="Workbench tools">
             {renderToolLaunchers()}
           </nav>
         </div>
-        <button
-          type="button"
-          className={railAddMachineButtonClassName}
-          onClick={onAddMachine}
-          title="Add machine"
-          aria-label="Add machine"
-        >
-          <Plus size={13} />
-          <span>Add</span>
-        </button>
       </header>
       {renderToolMenu()}
       {renderConnectionPopover()}
@@ -992,4 +1150,13 @@ function ToolIcon(
   if (tool === "processes") return <Activity size={size} />;
   if (tool === "files") return <Folder size={size} />;
   return <Radio size={size} />;
+}
+
+function MachineIcon(
+  { name = "monitor", size }: { name?: MachineIconName; size: number },
+) {
+  const option = machineIconOptions.find((item) => item.name === name) ??
+    machineIconOptions[0];
+  const Icon = option.icon;
+  return <Icon size={size} />;
 }

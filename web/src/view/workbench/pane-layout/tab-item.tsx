@@ -78,9 +78,9 @@ const workbenchTabButtonClassName = [
 const workbenchTabCloseClassName = [
   "tab-close ml-auto mr-[6px] inline-flex h-[18px] min-h-[18px]",
   "w-[18px] min-w-[18px] flex-[0_0_auto] appearance-none items-center",
-  "justify-center rounded-full border-0 bg-transparent p-0 text-wgo-text-3",
-  "opacity-0 hover:bg-[rgba(58,74,96,0.09)] hover:text-wgo-text-2",
-  "group-[.active]:opacity-54 group-hover:opacity-100",
+  "justify-center rounded-full border-0 bg-transparent p-0 text-wgo-text-2",
+  "opacity-48 hover:bg-[rgba(58,74,96,0.12)] hover:text-wgo-text",
+  "group-[.active]:opacity-78 group-hover:opacity-100",
 ].join(" ");
 const workbenchTabIconClassName = "flex-[0_0_auto] text-wgo-text-3";
 const workbenchTabTitleClassName =

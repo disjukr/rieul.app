@@ -73,7 +73,7 @@ export function AddMachineForm(
           : null}
         <Button
           type="submit"
-          className="border-wgo-chrome bg-wgo-chrome px-[12px] text-wgo-inverse hover:border-wgo-chrome hover:bg-wgo-chrome-muted"
+          className="border-wgo-chrome bg-wgo-chrome px-[12px] !text-wgo-inverse hover:border-wgo-chrome hover:bg-wgo-chrome-muted hover:!text-wgo-inverse"
         >
           <Plus size={16} />
           Continue

@@ -29,26 +29,23 @@ export function TopBarRegion() {
     layout.machinePanelCollapsedAtom,
   );
 
-  function reconnectMachine() {
-    if (selected) machineStore.selectMachine(selected.id);
+  function reconnectMachine(machineId: string) {
+    machineStore.selectMachine(machineId);
     void rpcSession.reconnect();
   }
 
-  function configureMachine() {
-    if (!selected) return;
-    machineModal.openConfigMachineModal(selected.id);
+  function configureMachine(machineId: string) {
+    machineModal.openConfigMachineModal(machineId);
   }
 
-  function unpairMachine() {
-    if (!selected) return;
-    machineStore.clearMachineCredentials(selected.id);
-    machineStore.selectMachine(selected.id);
+  function unpairMachine(machineId: string) {
+    machineStore.clearMachineCredentials(machineId);
+    machineStore.selectMachine(machineId);
     rpcSession.resetController();
   }
 
-  function deleteMachine() {
-    if (!selected) return;
-    machineModal.openDeleteMachineModal(selected.id);
+  function deleteMachine(machineId: string) {
+    machineModal.openDeleteMachineModal(machineId);
   }
 
   function addMachine() {
@@ -79,6 +76,11 @@ export function TopBarRegion() {
       onSelectMachine={machineStore.selectMachine}
       onToggleMachinePanel={layout.toggleMachinePanel}
       onUnpairMachine={unpairMachine}
+      onUpdateMachineIcon={(machineId, icon) =>
+        machineStore.updateMachine(machineId, (machine) => ({
+          ...machine,
+          icon,
+        }))}
     />
   );
 }

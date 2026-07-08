@@ -1,31 +1,11 @@
 import React, { FormEvent } from "react";
-import {
-  KeyRound,
-  Loader2,
-  RefreshCw,
-  Settings,
-  Trash2,
-  X,
-} from "lucide-react";
+import { KeyRound, Loader2, RefreshCw, Settings, Trash2 } from "lucide-react";
 import type { Machine } from "../../state/machines.ts";
 import type { MachineModalMode } from "../../state/types.ts";
 import { Button } from "../ui/button.tsx";
+import { ModalDialog } from "../ui/dialog.tsx";
 import { AddMachineForm } from "./add-machine-form.tsx";
 
-const modalBackdropClassName =
-  "fixed inset-0 z-[20] grid place-items-center bg-wgo-overlay p-[24px]";
-const machineModalClassName = [
-  "w-[min(460px,100%)] overflow-hidden border border-wgo-border",
-  "rounded-wgo-xl bg-wgo-surface shadow-wgo-lg",
-].join(" ");
-const modalHeadClassName = [
-  "flex items-center justify-between gap-[0.5rem] border-b border-b-wgo-border",
-  "px-[16px] py-[14px]",
-  "[&_div]:grid [&_div]:gap-[0.5rem] [&_div]:min-w-0",
-  "[&_span]:text-wgo-text-3 [&_span]:text-[13px] [&_span]:font-600",
-  "[&_h2]:m-0 [&_h2]:text-wgo-text [&_h2]:text-[18px] [&_h2]:tracking-[0]",
-].join(" ");
-const iconButtonClassName = "!w-[36px] !min-w-[36px] !p-0";
 const machineModalFormClassName = [
   "grid gap-[0.5rem] p-[16px]",
   "[&_label]:grid [&_label]:gap-[0.5rem] [&_label]:min-w-0",
@@ -178,92 +158,65 @@ export function MachineModal(
   }: MachineModalProps,
 ) {
   return (
-    <div
-      className={modalBackdropClassName}
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) {
-          onClose();
-        }
-      }}
+    <ModalDialog
+      eyebrow="Machine"
+      showClose={machineCount > 0}
+      title={modalTitle}
+      titleId="machine-modal-title"
+      onClose={onClose}
     >
-      <section
-        className={machineModalClassName}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="machine-modal-title"
-      >
-        <header className={modalHeadClassName}>
-          <div>
-            <span>Machine</span>
-            <h2 id="machine-modal-title">{modalTitle}</h2>
-          </div>
-          {machineCount > 0
-            ? (
-              <Button
-                onClick={onClose}
-                title="Close"
-                aria-label="Close machine modal"
-                className={iconButtonClassName}
-              >
-                <X size={16} />
-              </Button>
-            )
-            : null}
-        </header>
-
-        {mode === "pair" && selected
-          ? (
-            <PairMachineForm
-              isRequestingPairingCode={isRequestingPairingCode}
-              isPairing={isPairing}
-              pairingCode={pairingCode}
-              pairingConfirmationCode={pairingConfirmationCode}
-              pairingCodeExpiresInSeconds={pairingCodeExpiresInSeconds}
-              pairingCodeInputRef={pairingCodeInputRef}
-              selected={selected}
-              onClose={onClose}
-              onPairingCodeChange={onPairingCodeChange}
-              onRequestPairingCode={onRequestPairingCode}
-              onSubmit={onPairSelected}
-            />
-          )
-          : mode === "config" && selected
-          ? (
-            <MachineConfigForm
-              configNameDraft={configNameDraft}
-              configNameInputRef={configNameInputRef}
-              configUrlDraft={configUrlDraft}
-              error={machineFormError}
-              selected={selected}
-              onClose={onClose}
-              onConfigNameChange={onConfigNameChange}
-              onConfigUrlChange={onConfigUrlChange}
-              onSubmit={onSaveMachineConfig}
-            />
-          )
-          : mode === "delete" && selected
-          ? (
-            <DeleteMachineForm
-              selected={selected}
-              onClose={onClose}
-              onDelete={onDeleteSelectedMachine}
-            />
-          )
-          : (
-            <AddMachineForm
-              baseUrl={baseUrl}
-              error={machineFormError}
-              machineName={machineName}
-              machineNameInputRef={machineNameInputRef}
-              showCancel
-              onBaseUrlChange={onBaseUrlChange}
-              onCancel={onClose}
-              onMachineNameChange={onMachineNameChange}
-              onSubmit={onAddMachine}
-            />
-          )}
-      </section>
-    </div>
+      {mode === "pair" && selected
+        ? (
+          <PairMachineForm
+            isRequestingPairingCode={isRequestingPairingCode}
+            isPairing={isPairing}
+            pairingCode={pairingCode}
+            pairingConfirmationCode={pairingConfirmationCode}
+            pairingCodeExpiresInSeconds={pairingCodeExpiresInSeconds}
+            pairingCodeInputRef={pairingCodeInputRef}
+            selected={selected}
+            onClose={onClose}
+            onPairingCodeChange={onPairingCodeChange}
+            onRequestPairingCode={onRequestPairingCode}
+            onSubmit={onPairSelected}
+          />
+        )
+        : mode === "config" && selected
+        ? (
+          <MachineConfigForm
+            configNameDraft={configNameDraft}
+            configNameInputRef={configNameInputRef}
+            configUrlDraft={configUrlDraft}
+            error={machineFormError}
+            selected={selected}
+            onClose={onClose}
+            onConfigNameChange={onConfigNameChange}
+            onConfigUrlChange={onConfigUrlChange}
+            onSubmit={onSaveMachineConfig}
+          />
+        )
+        : mode === "delete" && selected
+        ? (
+          <DeleteMachineForm
+            selected={selected}
+            onClose={onClose}
+            onDelete={onDeleteSelectedMachine}
+          />
+        )
+        : (
+          <AddMachineForm
+            baseUrl={baseUrl}
+            error={machineFormError}
+            machineName={machineName}
+            machineNameInputRef={machineNameInputRef}
+            showCancel
+            onBaseUrlChange={onBaseUrlChange}
+            onCancel={onClose}
+            onMachineNameChange={onMachineNameChange}
+            onSubmit={onAddMachine}
+          />
+        )}
+    </ModalDialog>
   );
 }
 
