@@ -437,6 +437,10 @@ impl CommandManager {
             return Err(CommandError::not_found("schedule not found"));
         };
         let mut schedule = record.info.clone();
+        let previous_start_at_ms = schedule.start_at_ms;
+        let previous_rrule_set = schedule.rrule_set.clone();
+        let previous_enabled = schedule.enabled;
+        let previous_archived = schedule.archived;
         if let Some(title) = request.title {
             schedule.title = title;
         }
@@ -474,8 +478,14 @@ impl CommandManager {
         }
         schedule.updated_at_ms = next_schedule_revision(record.info.updated_at_ms);
         self.persist_schedule(&schedule)?;
+        let should_reset_checkpoint = schedule.start_at_ms != previous_start_at_ms
+            || schedule.rrule_set != previous_rrule_set
+            || schedule.enabled != previous_enabled
+            || schedule.archived != previous_archived;
         record.info = schedule.clone();
-        record.last_checked_ms = new_schedule_checkpoint();
+        if should_reset_checkpoint {
+            record.last_checked_ms = new_schedule_checkpoint();
+        }
         self.notify_schedules();
         Ok(schedule)
     }
@@ -2388,6 +2398,61 @@ mod tests {
             .expect("update schedule");
 
         assert!(updated.updated_at_ms > previous_updated_at_ms);
+    }
+
+    #[tokio::test]
+    async fn update_schedule_metadata_preserves_checkpoint() {
+        let manager = CommandManager::open(DaemonStateDb::open_in_memory_for_tests().unwrap())
+            .expect("open command manager");
+        let run_at_ms = normalize_schedule_start_ms(current_unix_ms());
+        let schedule = manager
+            .create_schedule(CreateScheduleReq {
+                title: "one shot".to_string(),
+                launch: output_test_launch(),
+                job: ScheduledJobOptions::default(),
+                start_at_ms: run_at_ms,
+                rrule_set: "RRULE:FREQ=DAILY;COUNT=1".to_string(),
+                enabled: true,
+                note: None,
+            })
+            .await
+            .expect("create schedule");
+        {
+            let mut state = manager.state.lock().await;
+            let record = state
+                .schedules
+                .get_mut(&schedule.schedule_id)
+                .expect("schedule record");
+            record.last_checked_ms = run_at_ms;
+        }
+
+        manager
+            .update_schedule(UpdateScheduleReq {
+                schedule_id: schedule.schedule_id.clone(),
+                title: Some("renamed".to_string()),
+                note: Some("metadata only".to_string()),
+                ..UpdateScheduleReq::default()
+            })
+            .await
+            .expect("update schedule");
+
+        {
+            let state = manager.state.lock().await;
+            let record = state
+                .schedules
+                .get(&schedule.schedule_id)
+                .expect("schedule record");
+            assert_eq!(record.last_checked_ms, run_at_ms);
+        }
+
+        manager.run_due_schedules().await;
+
+        let snapshot = manager
+            .jobs_snapshot(&SubscribeJobsReq {
+                schedule_id: Some(schedule.schedule_id),
+            })
+            .await;
+        assert!(snapshot.rows.is_empty());
     }
 
     #[tokio::test]
