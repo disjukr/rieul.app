@@ -1,7 +1,9 @@
 use std::collections::{BTreeMap, VecDeque};
 use std::future::Future;
+#[cfg(unix)]
+use std::os::unix::process::ExitStatusExt;
 use std::path::PathBuf;
-use std::process::Stdio;
+use std::process::{ExitStatus, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
@@ -324,12 +326,10 @@ impl CommandManager {
         let exit = loop {
             let exit = tokio::select! {
                 status = child.wait() => match status {
-                    Ok(status) => Some(CommandExit {
-                        code: status.code().map(i64::from),
-                        signal: None,
-                        reason: CommandExitReason::ProcessExit,
-                        exited_at_ms: current_unix_ms(),
-                    }),
+                    Ok(status) => Some(command_exit_from_status(
+                        status,
+                        CommandExitReason::ProcessExit,
+                    )),
                     Err(err) => {
                         return Err(CommandError::failed(format!(
                             "failed to wait for command: {err}"
@@ -360,23 +360,17 @@ impl CommandManager {
                 },
                 _ = &mut timeout_sleep => {
                     let _ = child.start_kill();
-                    let _ = child.wait().await;
-                    Some(CommandExit {
-                        code: None,
-                        signal: None,
-                        reason: CommandExitReason::Timeout,
-                        exited_at_ms: current_unix_ms(),
-                    })
+                    Some(command_exit_from_wait_result(
+                        child.wait().await,
+                        CommandExitReason::Timeout,
+                    ))
                 },
                 _ = &mut cancel => {
                     let _ = child.start_kill();
-                    let _ = child.wait().await;
-                    Some(CommandExit {
-                        code: None,
-                        signal: None,
-                        reason: CommandExitReason::UserKill,
-                        exited_at_ms: current_unix_ms(),
-                    })
+                    Some(command_exit_from_wait_result(
+                        child.wait().await,
+                        CommandExitReason::UserKill,
+                    ))
                 },
             };
             if let Some(exit) = exit {
@@ -851,22 +845,18 @@ impl CommandManager {
 
         let exit = loop {
             let exit = tokio::select! {
-                status = child.wait() => {
-                    match status {
-                        Ok(status) => Some(CommandExit {
-                            code: status.code().map(i64::from),
-                            signal: None,
-                            reason: CommandExitReason::ProcessExit,
-                            exited_at_ms: current_unix_ms(),
-                        }),
-                        Err(_) => Some(CommandExit {
-                            code: None,
-                            signal: None,
-                            reason: CommandExitReason::SpawnFailed,
-                            exited_at_ms: current_unix_ms(),
-                        }),
-                    }
-                }
+                status = child.wait() => match status {
+                    Ok(status) => Some(command_exit_from_status(
+                        status,
+                        CommandExitReason::ProcessExit,
+                    )),
+                    Err(_) => Some(CommandExit {
+                        code: None,
+                        signal: None,
+                        reason: CommandExitReason::SpawnFailed,
+                        exited_at_ms: current_unix_ms(),
+                    }),
+                },
                 stdin_result = &mut stdin, if !stdin_done => {
                     stdin_done = true;
                     match stdin_result {
@@ -894,13 +884,14 @@ impl CommandManager {
                 reason = &mut kill_rx => {
                     let reason = reason.unwrap_or(CommandExitReason::UserKill);
                     let _ = child.start_kill();
-                    let _ = child.wait().await;
-                    Some(CommandExit { code: None, signal: None, reason, exited_at_ms: current_unix_ms() })
+                    Some(command_exit_from_wait_result(child.wait().await, reason))
                 }
                 _ = &mut timeout_sleep => {
                     let _ = child.start_kill();
-                    let _ = child.wait().await;
-                    Some(CommandExit { code: None, signal: None, reason: CommandExitReason::Timeout, exited_at_ms: current_unix_ms() })
+                    Some(command_exit_from_wait_result(
+                        child.wait().await,
+                        CommandExitReason::Timeout,
+                    ))
                 }
             };
             if let Some(exit) = exit {
@@ -1147,14 +1138,33 @@ impl CommandManager {
                     search_until_ms: Some(now),
                 };
                 let runs = next_runs_for_rule(&rule, request);
-                record.last_checked_ms = next_schedule_checkpoint(now, &runs);
-                for run_at_ms in runs.run_at_ms {
-                    due.push((record.info.clone(), run_at_ms));
+                if runs.run_at_ms.is_empty() {
+                    record.last_checked_ms = next_schedule_checkpoint(now, &runs);
+                    continue;
+                }
+                let final_checkpoint = next_schedule_checkpoint(now, &runs);
+                let run_count = runs.run_at_ms.len();
+                for (index, run_at_ms) in runs.run_at_ms.into_iter().enumerate() {
+                    let checkpoint_after_success = if index + 1 == run_count {
+                        final_checkpoint
+                    } else {
+                        run_at_ms
+                    };
+                    due.push(DueScheduleRun {
+                        schedule: record.info.clone(),
+                        run_at_ms,
+                        checkpoint_after_success,
+                    });
                 }
             }
             due
         };
-        for (schedule, run_at_ms) in due {
+        let mut failed_schedules = std::collections::BTreeSet::new();
+        for due_run in due {
+            if failed_schedules.contains(&due_run.schedule.schedule_id) {
+                continue;
+            }
+            let schedule = due_run.schedule;
             let request = CreateJobReq {
                 launch: schedule.launch.clone(),
                 timeout_ms: schedule.job.timeout_ms,
@@ -1164,11 +1174,40 @@ impl CommandManager {
             let reason = JobRunReason::Schedule {
                 schedule_id: schedule.schedule_id.clone(),
                 rrule_set: schedule.rrule_set.clone(),
-                planned_run_at_ms: run_at_ms,
+                planned_run_at_ms: due_run.run_at_ms,
             };
-            let _ = self.create_job_with_reason(request, reason).await;
+            if self.create_job_with_reason(request, reason).await.is_ok() {
+                self.advance_schedule_checkpoint(
+                    &schedule.schedule_id,
+                    schedule.updated_at_ms,
+                    due_run.checkpoint_after_success,
+                )
+                .await;
+            } else {
+                failed_schedules.insert(schedule.schedule_id);
+            }
         }
     }
+
+    async fn advance_schedule_checkpoint(
+        &self,
+        schedule_id: &str,
+        schedule_updated_at_ms: u64,
+        checkpoint: u64,
+    ) {
+        let mut state = self.state.lock().await;
+        if let Some(record) = state.schedules.get_mut(schedule_id) {
+            if record.info.updated_at_ms == schedule_updated_at_ms {
+                record.last_checked_ms = record.last_checked_ms.max(checkpoint);
+            }
+        }
+    }
+}
+
+struct DueScheduleRun {
+    schedule: ScheduleInfo,
+    run_at_ms: u64,
+    checkpoint_after_success: u64,
 }
 
 pub struct JobsSnapshot {
@@ -1206,6 +1245,40 @@ fn output_gap_next_seq(output: &RetainedOutput, after_seq: u64) -> u64 {
     } else {
         output.state.latest_seq.max(after_seq.saturating_add(1))
     }
+}
+
+fn command_exit_from_status(status: ExitStatus, reason: CommandExitReason) -> CommandExit {
+    CommandExit {
+        code: status.code().map(i64::from),
+        signal: command_exit_signal(&status),
+        reason,
+        exited_at_ms: current_unix_ms(),
+    }
+}
+
+fn command_exit_from_wait_result(
+    status: std::io::Result<ExitStatus>,
+    reason: CommandExitReason,
+) -> CommandExit {
+    match status {
+        Ok(status) => command_exit_from_status(status, reason),
+        Err(_) => CommandExit {
+            code: None,
+            signal: None,
+            reason,
+            exited_at_ms: current_unix_ms(),
+        },
+    }
+}
+
+#[cfg(unix)]
+fn command_exit_signal(status: &ExitStatus) -> Option<String> {
+    status.signal().map(|signal| signal.to_string())
+}
+
+#[cfg(not(unix))]
+fn command_exit_signal(_: &ExitStatus) -> Option<String> {
+    None
 }
 
 trait CommandExitExt {
@@ -1704,6 +1777,29 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn run_command_reports_unix_signal_exit() {
+        let manager = CommandManager::open(DaemonStateDb::open_in_memory_for_tests().unwrap())
+            .expect("open command manager");
+
+        let response = manager
+            .run_command(RunCommandReq {
+                launch: CommandLaunchSpec {
+                    command: "sh".to_string(),
+                    args: vec!["-c".to_string(), "kill -TERM $$".to_string()],
+                    ..CommandLaunchSpec::default()
+                },
+                ..RunCommandReq::default()
+            })
+            .await
+            .expect("run command");
+
+        assert_eq!(response.exit.code, None);
+        assert_eq!(response.exit.signal.as_deref(), Some("15"));
+        assert_eq!(response.exit.reason, CommandExitReason::ProcessExit);
+    }
+
     #[tokio::test]
     async fn job_exit_does_not_wait_forever_for_inherited_output_pipes() {
         let manager = CommandManager::open(DaemonStateDb::open_in_memory_for_tests().unwrap())
@@ -1727,6 +1823,46 @@ mod tests {
             started.elapsed() < Duration::from_secs(3),
             "job exit waited for inherited output pipe"
         );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn job_reports_unix_signal_exit() {
+        let manager = CommandManager::open(DaemonStateDb::open_in_memory_for_tests().unwrap())
+            .expect("open command manager");
+        let job = manager
+            .create_job(CreateJobReq {
+                launch: CommandLaunchSpec {
+                    command: "sh".to_string(),
+                    args: vec!["-c".to_string(), "kill -TERM $$".to_string()],
+                    ..CommandLaunchSpec::default()
+                },
+                ..CreateJobReq::default()
+            })
+            .await
+            .expect("create job");
+
+        wait_for_job_exit(&manager, &job.job_id).await;
+
+        let snapshot = manager
+            .jobs_snapshot(&SubscribeJobsReq { schedule_id: None })
+            .await;
+        let job = snapshot
+            .rows
+            .iter()
+            .find(|row| row.job_id == job.job_id)
+            .expect("job");
+        assert!(matches!(
+            &job.status,
+            JobStatus::Exited {
+                exit: CommandExit {
+                    code: None,
+                    signal: Some(signal),
+                    reason: CommandExitReason::ProcessExit,
+                    ..
+                }
+            } if signal == "15"
+        ));
     }
 
     #[tokio::test]
