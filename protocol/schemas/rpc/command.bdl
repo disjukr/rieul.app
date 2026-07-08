@@ -113,7 +113,7 @@ proc DeleteSchedules = DeleteSchedulesReq -> BulkScheduleMutationRes throws Sche
 | query derived from the schedule's current rruleSet and daemon time. It does
 | not subscribe to future schedule edits or clock changes. Archived schedules
 | may still be queried; invalid, deleted, or unknown schedules fail with
-| NotFound or InvalidRRuleSet as appropriate.
+| NotFound or InvalidRruleSet as appropriate.
 @ id - 42
 @ stream - unary
 proc GetScheduleNextRuns = GetScheduleNextRunsReq -> GetScheduleNextRunsRes throws GetScheduleNextRunsError
@@ -907,7 +907,7 @@ union CreateScheduleError {
   ),
 
   @ id - 4
-  InvalidRRuleSet(
+  InvalidRruleSet(
     @ id - 1
     message: string,
   ),
@@ -945,7 +945,7 @@ union UpdateScheduleError {
   ),
 
   @ id - 5
-  InvalidRRuleSet(
+  InvalidRruleSet(
     @ id - 1
     message: string,
   ),
@@ -999,7 +999,7 @@ union GetScheduleNextRunsError {
   ),
 
   @ id - 3
-  InvalidRRuleSet(
+  InvalidRruleSet(
     @ id - 1
     message: string,
   ),

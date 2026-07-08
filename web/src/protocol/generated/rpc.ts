@@ -1037,7 +1037,7 @@ export type CreateScheduleError =
   | { type: "permissionDenied"; message: string }
   | { type: "elevationUnavailable"; message: string }
   | { type: "invalidLaunch"; message: string }
-  | { type: "invalidRRuleSet"; message: string }
+  | { type: "invalidRruleSet"; message: string }
 ;
 
 export type UpdateScheduleError =
@@ -1046,7 +1046,7 @@ export type UpdateScheduleError =
   | { type: "permissionDenied"; message: string }
   | { type: "elevationUnavailable"; message: string }
   | { type: "invalidLaunch"; message: string }
-  | { type: "invalidRRuleSet"; message: string }
+  | { type: "invalidRruleSet"; message: string }
 ;
 
 export type SubscribeSchedulesError =
@@ -1063,7 +1063,7 @@ export type GetScheduleNextRunsError =
   | { type: "failed"; message: string }
   | { type: "notFound"; message: string }
   | { type: "permissionDenied"; message: string }
-  | { type: "invalidRRuleSet"; message: string }
+  | { type: "invalidRruleSet"; message: string }
 ;
 
 export interface ProcCodec<Request, Response, ErrorPayload> {
@@ -6174,9 +6174,9 @@ export function encodeCreateScheduleErrorValue(value: CreateScheduleError): Cbor
       fields.set(1, text(required(value.message, "CreateScheduleError.InvalidLaunch.message")));
       return [3, fields];
     }
-    case "invalidRRuleSet": {
+    case "invalidRruleSet": {
       const fields = new Map<number, CborValue>();
-      fields.set(1, text(required(value.message, "CreateScheduleError.InvalidRRuleSet.message")));
+      fields.set(1, text(required(value.message, "CreateScheduleError.InvalidRruleSet.message")));
       return [4, fields];
     }
   }
@@ -6207,7 +6207,7 @@ export function decodeCreateScheduleErrorValue(value: CborValue): CreateSchedule
       };
     case 4:
       return {
-        type: "invalidRRuleSet",
+        type: "invalidRruleSet",
         message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
   }
@@ -6241,9 +6241,9 @@ export function encodeUpdateScheduleErrorValue(value: UpdateScheduleError): Cbor
       fields.set(1, text(required(value.message, "UpdateScheduleError.InvalidLaunch.message")));
       return [4, fields];
     }
-    case "invalidRRuleSet": {
+    case "invalidRruleSet": {
       const fields = new Map<number, CborValue>();
-      fields.set(1, text(required(value.message, "UpdateScheduleError.InvalidRRuleSet.message")));
+      fields.set(1, text(required(value.message, "UpdateScheduleError.InvalidRruleSet.message")));
       return [5, fields];
     }
   }
@@ -6279,7 +6279,7 @@ export function decodeUpdateScheduleErrorValue(value: CborValue): UpdateSchedule
       };
     case 5:
       return {
-        type: "invalidRRuleSet",
+        type: "invalidRruleSet",
         message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
   }
@@ -6367,9 +6367,9 @@ export function encodeGetScheduleNextRunsErrorValue(value: GetScheduleNextRunsEr
       fields.set(1, text(required(value.message, "GetScheduleNextRunsError.PermissionDenied.message")));
       return [2, fields];
     }
-    case "invalidRRuleSet": {
+    case "invalidRruleSet": {
       const fields = new Map<number, CborValue>();
-      fields.set(1, text(required(value.message, "GetScheduleNextRunsError.InvalidRRuleSet.message")));
+      fields.set(1, text(required(value.message, "GetScheduleNextRunsError.InvalidRruleSet.message")));
       return [3, fields];
     }
   }
@@ -6395,7 +6395,7 @@ export function decodeGetScheduleNextRunsErrorValue(value: CborValue): GetSchedu
       };
     case 3:
       return {
-        type: "invalidRRuleSet",
+        type: "invalidRruleSet",
         message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
   }

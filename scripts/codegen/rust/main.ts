@@ -211,7 +211,7 @@ function schemaFromIr(ir: bdl.BdlIr): Schema {
     if (def.type === "Proc") {
       declarations.push({
         kind: "proc",
-        name: rustPascalName(def.name),
+        name: def.name,
         id: requiredId(def, typePath),
         stream: requiredProcStream(def, typePath),
         input: typeRefFromIr(def.inputType),
@@ -221,7 +221,7 @@ function schemaFromIr(ir: bdl.BdlIr): Schema {
     } else if (def.type === "Struct") {
       declarations.push({
         kind: "struct",
-        name: rustPascalName(def.name),
+        name: def.name,
         typePath,
         fields: def.fields.map((field) =>
           fieldFromIr(field, `${typePath}.${field.name}`)
@@ -230,21 +230,21 @@ function schemaFromIr(ir: bdl.BdlIr): Schema {
     } else if (def.type === "Enum") {
       declarations.push({
         kind: "enum",
-        name: rustPascalName(def.name),
+        name: def.name,
         typePath,
         variants: def.items.map((item) => ({
           id: requiredId(item, `${typePath}.${item.name}`),
-          name: rustPascalName(item.name),
+          name: item.name,
         })),
       });
     } else if (def.type === "Union") {
       declarations.push({
         kind: "union",
-        name: rustPascalName(def.name),
+        name: def.name,
         typePath,
         variants: def.items.map((item) => ({
           id: requiredId(item, `${typePath}.${item.name}`),
-          name: rustPascalName(item.name),
+          name: item.name,
           fields: item.fields.map((field) =>
             fieldFromIr(field, `${typePath}.${item.name}.${field.name}`)
           ),
@@ -1698,13 +1698,10 @@ function fieldName(name: string): string {
   return rawIdent(snakeCase(name));
 }
 
-function rustPascalName(name: string): string {
-  return name.replaceAll("RRule", "Rrule");
-}
-
 function snakeCase(name: string): string {
   return name
     .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+    .replace(/([A-Z]+)([A-Z][a-z])/g, "$1_$2")
     .replace(/[-\s]+/g, "_")
     .toLowerCase();
 }
