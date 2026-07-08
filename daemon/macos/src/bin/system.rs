@@ -12,6 +12,9 @@ use wgo_daemon_core::config::{
 use wgo_daemon_host::server::run_system_server;
 use wgo_macos_daemon::fs::MacFileService;
 use wgo_macos_daemon::ipc::MacUserPairingNotifier;
+use wgo_macos_daemon::process_modules::MacProcessModulesService;
+use wgo_macos_daemon::process_resources::MacProcessResourcesInUseService;
+use wgo_macos_daemon::process_sockets::MacProcessSocketsInUseService;
 
 #[derive(Debug, Parser)]
 #[command(name = "wgo-macos-system")]
@@ -67,9 +70,9 @@ async fn main() -> Result<()> {
                 config.unwrap_or_else(macos_system_config_path),
                 Arc::new(MacFileService::default()),
                 None,
-                None,
-                None,
-                None,
+                Some(Arc::new(MacProcessResourcesInUseService)),
+                Some(Arc::new(MacProcessSocketsInUseService)),
+                Some(Arc::new(MacProcessModulesService)),
                 Some(Arc::new(MacUserPairingNotifier)),
                 "macOS system daemon",
             )

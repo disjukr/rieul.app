@@ -19,6 +19,14 @@ pub mod installer {
 pub mod ipc;
 pub mod pairing_ui;
 #[cfg(target_os = "macos")]
+mod process_lsof;
+#[cfg(target_os = "macos")]
+pub mod process_modules;
+#[cfg(target_os = "macos")]
+pub mod process_resources;
+#[cfg(target_os = "macos")]
+pub mod process_sockets;
+#[cfg(target_os = "macos")]
 pub mod tray;
 #[cfg(not(target_os = "macos"))]
 pub mod tray {
