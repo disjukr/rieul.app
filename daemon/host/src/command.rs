@@ -307,6 +307,7 @@ impl CommandManager {
         let stdout_limit = request.max_stdout_bytes.unwrap_or(DEFAULT_RUN_OUTPUT_LIMIT);
         let stderr_limit = request.max_stderr_bytes.unwrap_or(DEFAULT_RUN_OUTPUT_LIMIT);
         let mut command = build_command(&request.launch)?;
+        command.kill_on_drop(true);
         command
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -824,6 +825,7 @@ impl CommandManager {
                 .await;
             }
         };
+        command.kill_on_drop(true);
         command
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
