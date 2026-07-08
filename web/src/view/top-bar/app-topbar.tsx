@@ -53,8 +53,8 @@ import {
 const projectLogoUrl = new URL("../../assets/rieul.svg", import.meta.url).href;
 
 const globalTopbarClassName = [
-  "app-rail [grid-column:1] [grid-row:1] flex flex-col",
-  "h-full min-h-0 min-w-0 overflow-visible",
+  "app-rail relative [grid-column:1] [grid-row:1] flex flex-col",
+  "h-full min-h-0 min-w-0 overflow-hidden",
   "box-border bg-transparent",
   "gap-[12px] py-[14px] pl-[12px] pr-0 leading-[1.45] text-rieul-text-2",
   "max-[680px]:[grid-column:1] max-[680px]:[grid-row:1]",
@@ -63,10 +63,11 @@ const globalTopbarClassName = [
   "max-[680px]:px-[14px] max-[680px]:py-[14px]",
 ].join(" ");
 const globalTopbarLeftClassName = [
-  "grid min-w-0",
+  "app-rail-section grid min-w-0",
 ].join(" ");
 const globalTopbarCenterClassName = "min-w-0 pointer-events-none hidden";
-const globalTopbarRightClassName = "grid min-w-0 content-start gap-[12px]";
+const globalTopbarRightClassName =
+  "app-rail-section grid min-w-0 content-start gap-[12px]";
 const topbarBrandClassName = [
   "inline-flex h-[34px] min-w-0 items-center gap-[8px] px-[2px]",
   "text-[13px] font-780 text-rieul-text",
@@ -159,22 +160,27 @@ const popoverValueClassName =
   "min-w-0 overflow-hidden text-right text-ellipsis whitespace-nowrap font-720 text-rieul-text-2";
 const railBrandRowClassName =
   "flex min-w-0 items-center justify-between gap-[6px]";
+const railMachineNameClassName = [
+  "app-rail-expanded min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap",
+  "text-[13px] font-720 text-rieul-text-2",
+].join(" ");
 const railMachineListClassName = [
-  "grid min-w-0 grid-cols-[repeat(auto-fill,minmax(38px,1fr))] gap-[7px]",
+  "app-rail-section grid min-w-0 grid-cols-[repeat(auto-fill,38px)] justify-start gap-[7px]",
   "rounded-[15px] border border-white/28 bg-[rgba(248,248,248,0.28)] p-[7px] backdrop-blur-xl",
-  "max-[680px]:grid-cols-[repeat(auto-fill,minmax(48px,1fr))] max-[680px]:gap-[8px] max-[680px]:p-[8px]",
+  "max-[680px]:grid-cols-[repeat(auto-fill,48px)] max-[680px]:gap-[8px] max-[680px]:p-[8px]",
 ].join(" ");
 const railMachineButtonClassName = [
-  "group relative inline-flex aspect-square min-w-0 appearance-none items-center justify-center",
+  "group relative inline-flex h-[38px] w-[38px] min-w-[38px] appearance-none items-center justify-center",
   "rounded-[12px] border border-transparent bg-white/18 px-0",
   "text-[12px] font-650 text-rieul-text-3 [font-family:inherit]",
   "cursor-pointer rieul-transition hover:border-white/48 hover:bg-white/34 hover:text-rieul-text-2",
   "[&.active]:border-white/74 [&.active]:bg-white/70 [&.active]:text-rieul-text",
   "[&.active]:shadow-[inset_0_1px_0_rgba(255,255,255,0.86),0_6px_16px_rgba(18,25,38,0.08)]",
   "[&_svg]:[stroke-width:2]",
+  "max-[680px]:h-[48px] max-[680px]:w-[48px] max-[680px]:min-w-[48px]",
 ].join(" ");
 const railAddMachineButtonClassName = [
-  "inline-flex aspect-square min-w-0 appearance-none items-center justify-center",
+  "inline-flex h-[38px] w-[38px] min-w-[38px] appearance-none items-center justify-center",
   "rounded-[12px] border border-dashed border-white/34 bg-white/10 px-0",
   "text-rieul-text-3 [font-family:inherit]",
   "cursor-pointer rieul-transition hover:border-white/48 hover:bg-white/34 hover:text-rieul-text",
@@ -888,6 +894,9 @@ export function AppTopbar(
               aria-label="Rieul"
             >
               <img src={projectLogoUrl} alt="" aria-hidden="true" />
+            </div>
+            <div className={railMachineNameClassName}>
+              {deviceName()}
             </div>
             <div className={railBrandActionsClassName}>
               {renderConnectionStatusButton()}
