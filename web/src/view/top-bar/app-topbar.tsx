@@ -159,6 +159,10 @@ const popoverValueClassName =
   "min-w-0 overflow-hidden text-right text-ellipsis whitespace-nowrap font-720 text-rieul-text-2";
 const railBrandRowClassName =
   "flex min-w-0 items-center justify-between gap-[6px]";
+const railMachineNameClassName = [
+  "app-rail-expanded min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap",
+  "text-[13px] font-720 text-rieul-text-2",
+].join(" ");
 const railMachineListClassName = [
   "grid min-w-0 grid-cols-[repeat(auto-fill,minmax(38px,1fr))] gap-[7px]",
   "rounded-[15px] border border-white/28 bg-[rgba(248,248,248,0.28)] p-[7px] backdrop-blur-xl",
@@ -888,6 +892,9 @@ export function AppTopbar(
               aria-label="Rieul"
             >
               <img src={projectLogoUrl} alt="" aria-hidden="true" />
+            </div>
+            <div className={railMachineNameClassName}>
+              {deviceName()}
             </div>
             <div className={railBrandActionsClassName}>
               {renderConnectionStatusButton()}
