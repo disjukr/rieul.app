@@ -7,13 +7,13 @@ param(
 $ErrorActionPreference = "Stop"
 
 $RepoRoot = Resolve-Path (Join-Path $PSScriptRoot "..\..")
-$ConfigPath = Join-Path $RepoRoot "tmp\dev\system-wgo.yaml"
-$SystemExe = Join-Path $RepoRoot "target\debug\wgo-windows-system.exe"
+$ConfigPath = Join-Path $RepoRoot "tmp\dev\rieul.yaml"
+$SystemExe = Join-Path $RepoRoot "target\debug\rieul-windows-system.exe"
 
 if ($Build -or -not (Test-Path $SystemExe)) {
   Push-Location $RepoRoot
   try {
-    cargo build -p wgo-windows-daemon --bin wgo-windows-system
+    cargo build -p rieul-windows-daemon --bin rieul-windows-system
   } finally {
     Pop-Location
   }

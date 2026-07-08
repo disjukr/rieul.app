@@ -1,4 +1,4 @@
-# standard - wgo-rpc
+# standard - rieul-rpc
 # description
 | Window RPC methods expose desktop window metadata visible to the daemon's
 | active user context. Window information is modeled as reactive tables.

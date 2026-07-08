@@ -83,46 +83,46 @@ const toolItemRowClassName = [
 ].join(" ");
 const toolItemClassName = [
   "inline-flex appearance-none items-center justify-start gap-[0.5rem]",
-  "w-full h-full min-h-0 border border-transparent rounded-wgo-sm",
-  "cursor-pointer bg-transparent px-[7px] text-left text-wgo-text-2 [font-family:inherit]",
-  "wgo-transition",
-  "hover:bg-white/38 hover:text-wgo-text",
-  "[&.active]:border-wgo-border [&.active]:bg-white/42 [&.active]:text-wgo-text",
+  "w-full h-full min-h-0 border border-transparent rounded-rieul-sm",
+  "cursor-pointer bg-transparent px-[7px] text-left text-rieul-text-2 [font-family:inherit]",
+  "rieul-transition",
+  "hover:bg-white/38 hover:text-rieul-text",
+  "[&.active]:border-rieul-border [&.active]:bg-white/42 [&.active]:text-rieul-text",
   "[&.active]:[box-shadow:0_1px_2px_rgba(18,25,38,0.08),inset_0_1px_0_rgba(255,255,255,0.62)]",
   "disabled:opacity-56",
   "max-[680px]:w-[74px] max-[680px]:flex-col max-[680px]:justify-center max-[680px]:gap-[3px]",
   "max-[680px]:px-[5px] max-[680px]:text-center max-[680px]:text-[11px] max-[680px]:leading-[1.1]",
-  "max-[680px]:[&.active]:[box-shadow:inset_0_3px_0_var(--wgo-accent),0_1px_2px_rgba(18,25,38,0.08)]",
+  "max-[680px]:[&.active]:[box-shadow:inset_0_3px_0_var(--rieul-accent),0_1px_2px_rgba(18,25,38,0.08)]",
   "[&_span]:min-w-0 [&_span]:overflow-hidden [&_span]:text-ellipsis",
   "[&_span]:whitespace-nowrap [&_span]:font-500",
 ].join(" ");
 const terminalMainButtonClassName = [
   toolItemClassName,
-  "rounded-wgo-sm max-[680px]:rounded-wgo-md",
+  "rounded-rieul-sm max-[680px]:rounded-rieul-md",
 ].join(" ");
 const terminalDropdownButtonClassName = [
   "inline-flex appearance-none items-center justify-center",
-  "h-full min-h-0 w-[34px] min-w-[34px] p-0 rounded-wgo-sm",
-  "cursor-pointer border border-transparent bg-transparent text-wgo-text-2 [font-family:inherit]",
-  "hover:bg-white/38 hover:text-wgo-text",
-  "[&.active]:border-wgo-border [&.active]:bg-white/42 [&.active]:text-wgo-text",
+  "h-full min-h-0 w-[34px] min-w-[34px] p-0 rounded-rieul-sm",
+  "cursor-pointer border border-transparent bg-transparent text-rieul-text-2 [font-family:inherit]",
+  "hover:bg-white/38 hover:text-rieul-text",
+  "[&.active]:border-rieul-border [&.active]:bg-white/42 [&.active]:text-rieul-text",
   "max-[680px]:hidden",
 ].join(" ");
 const shellMenuItemClassName = [
   "!grid min-w-0 grid-cols-[minmax(0,1fr)_auto] !gap-[0.5rem]",
 ].join(" ");
-const shellMenuDefaultItemClassName = "bg-wgo-accent-soft";
+const shellMenuDefaultItemClassName = "bg-rieul-accent-soft";
 const shellMenuItemLabelClassName =
   "flex min-w-0 items-center gap-[0.5rem] text-left";
 const shellMenuShellNameClassName =
   "block min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-left";
 const shellMenuDefaultBadgeClassName = [
-  "rounded-[999px] bg-wgo-surface px-[6px] py-[1px]",
-  "text-[11px] font-600 text-wgo-text-2",
+  "rounded-[999px] bg-rieul-surface px-[6px] py-[1px]",
+  "text-[11px] font-600 text-rieul-text-2",
 ].join(" ");
 const shellMenuCommandClassName = [
   "block max-w-[88px] min-w-0 overflow-hidden text-right",
-  "text-ellipsis whitespace-nowrap text-wgo-text-3",
+  "text-ellipsis whitespace-nowrap text-rieul-text-3",
 ].join(" ");
 
 interface ToolMenuProps {

@@ -23,7 +23,7 @@ const badgeVariants = cva(
       variant: {
         outline: "bg-transparent",
         soft: "",
-        solid: "text-[var(--wgo-text-inverse)]",
+        solid: "text-[var(--rieul-text-inverse)]",
       },
     },
     compoundVariants: [
@@ -31,84 +31,84 @@ const badgeVariants = cva(
         tone: "neutral",
         variant: "soft",
         className:
-          "border-[var(--wgo-border-light)] bg-[var(--wgo-bg-control-disabled)] text-[var(--wgo-text-control)]",
+          "border-[var(--rieul-border-light)] bg-[var(--rieul-bg-control-disabled)] text-[var(--rieul-text-control)]",
       },
       {
         tone: "neutral",
         variant: "outline",
         className:
-          "border-[var(--wgo-border-light)] text-[var(--wgo-text-secondary)]",
+          "border-[var(--rieul-border-light)] text-[var(--rieul-text-secondary)]",
       },
       {
         tone: "neutral",
         variant: "solid",
         className:
-          "border-[var(--wgo-text-control)] bg-[var(--wgo-text-control)]",
+          "border-[var(--rieul-text-control)] bg-[var(--rieul-text-control)]",
       },
       {
         tone: "accent",
         variant: "soft",
         className:
-          "border-[var(--wgo-accent-soft-strong)] bg-[var(--wgo-accent-soft-strong)] text-[var(--wgo-accent)]",
+          "border-[var(--rieul-accent-soft-strong)] bg-[var(--rieul-accent-soft-strong)] text-[var(--rieul-accent)]",
       },
       {
         tone: "accent",
         variant: "outline",
-        className: "border-[var(--wgo-accent)] text-[var(--wgo-accent)]",
+        className: "border-[var(--rieul-accent)] text-[var(--rieul-accent)]",
       },
       {
         tone: "accent",
         variant: "solid",
-        className: "border-[var(--wgo-accent)] bg-[var(--wgo-accent)]",
+        className: "border-[var(--rieul-accent)] bg-[var(--rieul-accent)]",
       },
       {
         tone: "danger",
         variant: "soft",
         className:
-          "border-[var(--wgo-danger-soft-muted)] bg-[var(--wgo-danger-soft-muted)] text-[var(--wgo-danger)]",
+          "border-[var(--rieul-danger-soft-muted)] bg-[var(--rieul-danger-soft-muted)] text-[var(--rieul-danger)]",
       },
       {
         tone: "danger",
         variant: "outline",
-        className: "border-[var(--wgo-danger-border)] text-[var(--wgo-danger)]",
+        className: "border-[var(--rieul-danger-border)] text-[var(--rieul-danger)]",
       },
       {
         tone: "danger",
         variant: "solid",
-        className: "border-[var(--wgo-danger)] bg-[var(--wgo-danger)]",
+        className: "border-[var(--rieul-danger)] bg-[var(--rieul-danger)]",
       },
       {
         tone: "success",
         variant: "soft",
         className:
-          "border-[var(--wgo-success-soft)] bg-[var(--wgo-success-soft)] text-[var(--wgo-success)]",
+          "border-[var(--rieul-success-soft)] bg-[var(--rieul-success-soft)] text-[var(--rieul-success)]",
       },
       {
         tone: "success",
         variant: "outline",
-        className: "border-[var(--wgo-success)] text-[var(--wgo-success)]",
+        className: "border-[var(--rieul-success)] text-[var(--rieul-success)]",
       },
       {
         tone: "success",
         variant: "solid",
-        className: "border-[var(--wgo-success)] bg-[var(--wgo-success)]",
+        className: "border-[var(--rieul-success)] bg-[var(--rieul-success)]",
       },
       {
         tone: "warning",
         variant: "soft",
         className:
-          "border-[var(--wgo-border-warning)] bg-[var(--wgo-warning-soft)] text-[var(--wgo-warning)]",
+          "border-[var(--rieul-border-warning)] bg-[var(--rieul-warning-soft)] text-[var(--rieul-warning)]",
       },
       {
         tone: "warning",
         variant: "outline",
         className:
-          "border-[var(--wgo-border-warning)] text-[var(--wgo-warning)]",
+          "border-[var(--rieul-border-warning)] text-[var(--rieul-warning)]",
       },
       {
         tone: "warning",
         variant: "solid",
-        className: "border-[var(--wgo-warning)] bg-[var(--wgo-warning)]",
+        className: "border-[var(--rieul-warning)] bg-[var(--rieul-warning)]",
       },
     ],
     defaultVariants: {

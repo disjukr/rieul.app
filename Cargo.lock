@@ -2451,6 +2451,94 @@ dependencies = [
 ]
 
 [[package]]
+name = "rieul-daemon-core"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "rand",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "sha2",
+ "tempfile",
+ "thiserror 2.0.18",
+ "time",
+ "winreg 0.56.0",
+]
+
+[[package]]
+name = "rieul-daemon-host"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "http",
+ "jsonc-parser",
+ "notify",
+ "portable-pty",
+ "rcgen",
+ "rieul-daemon-core",
+ "rrule",
+ "rusqlite",
+ "rustls",
+ "rustls-pemfile",
+ "sysinfo",
+ "tempfile",
+ "time",
+ "tokio",
+ "tracing",
+ "web-transport-quinn",
+]
+
+[[package]]
+name = "rieul-macos-daemon"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "libc",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-foundation",
+ "resvg",
+ "rieul-daemon-core",
+ "rieul-daemon-host",
+ "tao",
+ "tempfile",
+ "time",
+ "tiny-skia",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "trash",
+ "tray-icon",
+]
+
+[[package]]
+name = "rieul-windows-daemon"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "http",
+ "notify",
+ "rcgen",
+ "rieul-daemon-core",
+ "rieul-daemon-host",
+ "rustls",
+ "rustls-pemfile",
+ "tempfile",
+ "time",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "trash",
+ "web-transport-quinn",
+ "windows 0.62.2",
+ "windows-service",
+]
+
+[[package]]
 name = "ring"
 version = "0.17.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3649,94 +3737,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f31141ce3fc3e300ae89b78c0dd67f9708061d1d2eda54b8209346fd6be9a92c"
 dependencies = [
  "rustls-pki-types",
-]
-
-[[package]]
-name = "wgo-daemon-core"
-version = "0.1.0"
-dependencies = [
- "base64",
- "rand",
- "serde",
- "serde_json",
- "serde_yaml",
- "sha2",
- "tempfile",
- "thiserror 2.0.18",
- "time",
- "winreg 0.56.0",
-]
-
-[[package]]
-name = "wgo-daemon-host"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "chrono",
- "http",
- "jsonc-parser",
- "notify",
- "portable-pty",
- "rcgen",
- "rrule",
- "rusqlite",
- "rustls",
- "rustls-pemfile",
- "sysinfo",
- "tempfile",
- "time",
- "tokio",
- "tracing",
- "web-transport-quinn",
- "wgo-daemon-core",
-]
-
-[[package]]
-name = "wgo-macos-daemon"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "libc",
- "objc2",
- "objc2-app-kit",
- "objc2-foundation",
- "resvg",
- "tao",
- "tempfile",
- "time",
- "tiny-skia",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "trash",
- "tray-icon",
- "wgo-daemon-core",
- "wgo-daemon-host",
-]
-
-[[package]]
-name = "wgo-windows-daemon"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "http",
- "notify",
- "rcgen",
- "rustls",
- "rustls-pemfile",
- "tempfile",
- "time",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "trash",
- "web-transport-quinn",
- "wgo-daemon-core",
- "wgo-daemon-host",
- "windows 0.62.2",
- "windows-service",
 ]
 
 [[package]]

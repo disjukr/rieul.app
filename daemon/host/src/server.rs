@@ -8,38 +8,28 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{bail, Context, Result};
 use notify::{Event, RecursiveMode, Watcher};
-use rustls::server::{ClientHello, ResolvesServerCert};
-use rustls::sign::CertifiedKey;
-use sysinfo::{
-    Pid as SysPid, Process as SysProcess, ProcessRefreshKind, ProcessStatus as SysProcessStatus,
-    ProcessesToUpdate, System as SysinfoSystem, UpdateKind,
+use rieul_daemon_core::config::{
+    client_credentials_path, daemon_state_database_path, daemon_status_path,
+    load_client_credentials_or_default, load_or_default, load_or_generated_default, save,
+    save_client_credentials, ClientCredentialRecord, ClientCredentials, SystemConfig,
 };
-use time::OffsetDateTime;
-use tokio::sync::{Mutex, watch};
-use tracing::{info, warn};
-use web_transport_quinn::proto::ConnectResponse;
-use wgo_daemon_core::config::{
-    ClientCredentialRecord, ClientCredentials, SystemConfig, client_credentials_path,
-    daemon_state_database_path, daemon_status_path, load_client_credentials_or_default,
-    load_or_default, load_or_generated_default, save, save_client_credentials,
-};
-use wgo_daemon_core::generated::rpc::{
+use rieul_daemon_core::generated::rpc::{
     WriteFileReq as GeneratedWriteFileReq, WriteTerminalInputReq as GeneratedWriteTerminalInputReq,
 };
-use wgo_daemon_core::pairing::{
-    PairingRecord, create_pairing_code, issue_client_secret, reissue_client_secret,
-    renew_client_credential, verify_client_credential, verify_pairing_code,
+use rieul_daemon_core::pairing::{
+    create_pairing_code, issue_client_secret, reissue_client_secret, renew_client_credential,
+    verify_client_credential, verify_pairing_code, PairingRecord,
 };
-use wgo_daemon_core::rpc::{
+use rieul_daemon_core::rpc::{
     AttachTerminalSessionReq, AvailableShellsTableEvent, BulkMutationItemResult, BulkMutationRes,
     ClearJobsReq, ClientInfo, ClientKey, ClientsTableEvent, CloseTerminalSessionReq,
     CompletePairingRequest, CompletePairingResponse, CreateJobReq, CreateNodesReq,
     CreateScheduleReq, CreateTerminalSessionReq, DaemonEnvironment, DaemonInfo, DeleteJobsReq,
     DeleteMode, DeletePathsReq, DeleteSchedulesReq, DirectoryEntryKey,
     DirectorySubscriptionCloseReason, DirectoryTableEvent, FsEntry, GetScheduleNextRunsReq,
-    JobOutputEvent, JobsTableEvent, KillJobReq, MAX_U53, ProcId, ProcStream, ProcessDetail,
+    JobOutputEvent, JobsTableEvent, KillJobReq, ProcId, ProcStream, ProcessDetail,
     ProcessDetailEvent, ProcessInfo, ProcessIoUsage, ProcessMetadata, ProcessModuleInfo,
     ProcessModulesTableEvent, ProcessResourceInUseInfo, ProcessResourceUsage,
     ProcessResourcesInUseTableEvent, ProcessSocketInUseInfo, ProcessSocketsInUseTableEvent,
@@ -53,16 +43,26 @@ use wgo_daemon_core::rpc::{
     SubscribeWindowDetailReq, TakeTerminalControlReq, TerminalEvent, TerminalSessionsTableEvent,
     TrashItem, TrashItemsSubscriptionCloseReason, TrashItemsTableEvent, UpdateScheduleReq,
     WindowDetail, WindowDetailEvent, WindowInfo, WindowsTableEvent, WriteFileChunk, WriteFileReq,
-    WriteTerminalInputReq,
+    WriteTerminalInputReq, MAX_U53,
 };
-use wgo_daemon_core::traits::{
+use rieul_daemon_core::traits::{
     BoxFutureResult, FileService, ProcessModulesService, ProcessResourcesInUseService,
     ProcessSocketsInUseService, ServiceError, WindowService, WriteFileChunkSource,
 };
-use wgo_daemon_core::wire::{
-    DatagramMessage, MAX_MESSAGE_SEQUENCE_SIZE, PAIRED_SECRET_AUTH_MECHANISM,
-    PairedSecretCredential, ReqResMessage, RpcErrorKind, SessionAuthErrorCode,
+use rieul_daemon_core::wire::{
+    DatagramMessage, PairedSecretCredential, ReqResMessage, RpcErrorKind, SessionAuthErrorCode,
+    MAX_MESSAGE_SEQUENCE_SIZE, PAIRED_SECRET_AUTH_MECHANISM,
 };
+use rustls::server::{ClientHello, ResolvesServerCert};
+use rustls::sign::CertifiedKey;
+use sysinfo::{
+    Pid as SysPid, Process as SysProcess, ProcessRefreshKind, ProcessStatus as SysProcessStatus,
+    ProcessesToUpdate, System as SysinfoSystem, UpdateKind,
+};
+use time::OffsetDateTime;
+use tokio::sync::{watch, Mutex};
+use tracing::{info, warn};
+use web_transport_quinn::proto::ConnectResponse;
 
 use crate::cert::{
     configured_certificate_paths, prepare_server_certificate, uses_scheduled_certificate_refresh,
@@ -260,7 +260,7 @@ async fn run_system_server_once(
         resolver,
     ));
 
-    info!(%addr, daemon = log_label, "wgo system daemon listening");
+    info!(%addr, daemon = log_label, "rieul system daemon listening");
 
     while let Some(request) = server.accept().await {
         let config_path = config_path.clone();
@@ -833,7 +833,7 @@ async fn handle_request(
 ) -> Result<()> {
     let path = request.url.path().to_string();
     match path.as_str() {
-        "/rpc" => {
+        "/rieul/rpc" => {
             let session = request.respond(ConnectResponse::OK).await?;
             run_rpc_session(
                 session,
@@ -855,12 +855,6 @@ async fn handle_request(
                 pairing_notifier,
             )
             .await
-        }
-        "/moqt" => {
-            let session = request.respond(ConnectResponse::OK).await?;
-            info!("accepted reserved /moqt session");
-            session.close(0, b"moqt route reserved");
-            Ok(())
         }
         _ => {
             request.reject(http::StatusCode::NOT_FOUND).await?;
@@ -4760,12 +4754,12 @@ fn method_error_payload(proc_id: u64, code: &str, message: &str) -> Option<Vec<u
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wgo_daemon_core::cbor::Value;
-    use wgo_daemon_core::pairing::{
-        CLIENT_CREDENTIAL_TTL_SECONDS, PAIRING_TTL_SECONDS, create_pairing_code,
-        issue_client_secret, verify_client_secret,
+    use rieul_daemon_core::cbor::Value;
+    use rieul_daemon_core::pairing::{
+        create_pairing_code, issue_client_secret, verify_client_secret,
+        CLIENT_CREDENTIAL_TTL_SECONDS, PAIRING_TTL_SECONDS,
     };
-    use wgo_daemon_core::rpc::{
+    use rieul_daemon_core::rpc::{
         CompletePairingRequest, CreateNodeOp, DeleteMode, FsEntryKind, ReadFileReq,
         StartPairingRequest, WriteFileResult, WriteFileStart,
     };
@@ -4773,7 +4767,7 @@ mod tests {
     #[test]
     fn creates_startup_config_when_missing() {
         let dir = tempfile::tempdir().unwrap();
-        let config_path = dir.path().join("nested").join("wgo.yaml");
+        let config_path = dir.path().join("nested").join("rieul.yaml");
         let addr: SocketAddr = "127.0.0.1:9012".parse().unwrap();
 
         let startup = load_startup_config(&config_path, Some(addr)).unwrap();
@@ -4786,7 +4780,7 @@ mod tests {
     #[test]
     fn startup_config_preserves_existing_listen_without_override() {
         let dir = tempfile::tempdir().unwrap();
-        let config_path = dir.path().join("wgo.yaml");
+        let config_path = dir.path().join("rieul.yaml");
         let config = SystemConfig {
             listen_addr: "127.0.0.1:7777".to_string(),
             ..SystemConfig::default()
@@ -4806,7 +4800,7 @@ mod tests {
     #[test]
     fn startup_config_uses_explicit_listen_override() {
         let dir = tempfile::tempdir().unwrap();
-        let config_path = dir.path().join("wgo.yaml");
+        let config_path = dir.path().join("rieul.yaml");
         let config = SystemConfig {
             listen_addr: "127.0.0.1:7777".to_string(),
             ..SystemConfig::default()
@@ -4827,7 +4821,7 @@ mod tests {
     #[tokio::test]
     async fn get_daemon_info_reports_registered_supported_procs() {
         let dir = tempfile::tempdir().unwrap();
-        let config_path = dir.path().join("wgo.yaml");
+        let config_path = dir.path().join("rieul.yaml");
         let credentials_path = client_credentials_path(&config_path);
 
         let responses = handle_rpc_messages(
@@ -4865,7 +4859,7 @@ mod tests {
     #[tokio::test]
     async fn get_daemon_environment_reports_home_directory() {
         let dir = tempfile::tempdir().unwrap();
-        let config_path = dir.path().join("wgo.yaml");
+        let config_path = dir.path().join("rieul.yaml");
         let credentials_path = client_credentials_path(&config_path);
 
         let responses = handle_rpc_messages(
@@ -4897,7 +4891,7 @@ mod tests {
     #[tokio::test]
     async fn complete_pairing_reads_config_written_after_server_start() {
         let dir = tempfile::tempdir().unwrap();
-        let config_path = dir.path().join("wgo.yaml");
+        let config_path = dir.path().join("rieul.yaml");
         let credentials_path = client_credentials_path(&config_path);
         let pairing = create_pairing_code(now_unix());
         save(&config_path, &SystemConfig::default()).unwrap();
@@ -4948,7 +4942,7 @@ mod tests {
     #[tokio::test]
     async fn complete_pairing_reuses_requested_existing_client_id() {
         let dir = tempfile::tempdir().unwrap();
-        let config_path = dir.path().join("wgo.yaml");
+        let config_path = dir.path().join("rieul.yaml");
         let credentials_path = client_credentials_path(&config_path);
         let pairing = create_pairing_code(now_unix());
         let existing = issue_client_secret("test-browser", now_unix() - 10);
@@ -5014,7 +5008,7 @@ mod tests {
     #[tokio::test]
     async fn complete_pairing_does_not_reuse_client_id_by_label() {
         let dir = tempfile::tempdir().unwrap();
-        let config_path = dir.path().join("wgo.yaml");
+        let config_path = dir.path().join("rieul.yaml");
         let credentials_path = client_credentials_path(&config_path);
         let pairing = create_pairing_code(now_unix());
         let existing = issue_client_secret("test-browser", now_unix() - 10);
@@ -5057,18 +5051,14 @@ mod tests {
         assert_eq!(active_pairing_challenge(&pairing_challenge).await, None);
         assert_ne!(credentials.client_id, existing_client_id);
         assert_eq!(stored.clients.len(), 2);
-        assert!(
-            stored
-                .clients
-                .iter()
-                .any(|record| record.client_id == existing_client_id)
-        );
-        assert!(
-            stored
-                .clients
-                .iter()
-                .any(|record| record.client_id == credentials.client_id)
-        );
+        assert!(stored
+            .clients
+            .iter()
+            .any(|record| record.client_id == existing_client_id));
+        assert!(stored
+            .clients
+            .iter()
+            .any(|record| record.client_id == credentials.client_id));
         assert!(stored.clients.iter().any(|record| {
             record.client_id == credentials.client_id
                 && record.expires_at_unix == credentials.client_credential_expires_at_unix
@@ -5078,7 +5068,7 @@ mod tests {
     #[tokio::test]
     async fn complete_pairing_rejects_matching_code_from_different_session() {
         let dir = tempfile::tempdir().unwrap();
-        let config_path = dir.path().join("wgo.yaml");
+        let config_path = dir.path().join("rieul.yaml");
         let credentials_path = client_credentials_path(&config_path);
         let pairing = create_pairing_code(now_unix());
         save(&config_path, &SystemConfig::default()).unwrap();
@@ -5127,7 +5117,7 @@ mod tests {
     #[tokio::test]
     async fn start_pairing_creates_runtime_pairing_code() {
         let dir = tempfile::tempdir().unwrap();
-        let config_path = dir.path().join("wgo.yaml");
+        let config_path = dir.path().join("rieul.yaml");
         let credentials_path = client_credentials_path(&config_path);
         save(&config_path, &SystemConfig::default()).unwrap();
 
@@ -5173,7 +5163,7 @@ mod tests {
     #[tokio::test]
     async fn start_pairing_notifies_local_pairing_ui() {
         let dir = tempfile::tempdir().unwrap();
-        let config_path = dir.path().join("wgo.yaml");
+        let config_path = dir.path().join("rieul.yaml");
         let credentials_path = client_credentials_path(&config_path);
         save(&config_path, &SystemConfig::default()).unwrap();
 
@@ -5222,7 +5212,7 @@ mod tests {
     #[tokio::test]
     async fn newer_start_pairing_supersedes_pending_attempt_for_same_client_id() {
         let dir = tempfile::tempdir().unwrap();
-        let config_path = dir.path().join("wgo.yaml");
+        let config_path = dir.path().join("rieul.yaml");
         let credentials_path = client_credentials_path(&config_path);
         save(&config_path, &SystemConfig::default()).unwrap();
 
@@ -5303,7 +5293,7 @@ mod tests {
     #[tokio::test]
     async fn start_pairing_fails_when_daemon_cannot_show_pairing_code() {
         let dir = tempfile::tempdir().unwrap();
-        let config_path = dir.path().join("wgo.yaml");
+        let config_path = dir.path().join("rieul.yaml");
         let credentials_path = client_credentials_path(&config_path);
         save(&config_path, &SystemConfig::default()).unwrap();
         let pairing_challenge = test_pairing_challenge();
@@ -5342,7 +5332,7 @@ mod tests {
     #[tokio::test]
     async fn filesystem_rpc_requires_paired_client_credentials() {
         let dir = tempfile::tempdir().unwrap();
-        let config_path = dir.path().join("wgo.yaml");
+        let config_path = dir.path().join("rieul.yaml");
         let credentials_path = client_credentials_path(&config_path);
         save(&config_path, &SystemConfig::default()).unwrap();
 
@@ -5464,7 +5454,7 @@ mod tests {
     #[tokio::test]
     async fn session_authenticate_marks_session_authenticated() {
         let dir = tempfile::tempdir().unwrap();
-        let config_path = dir.path().join("wgo.yaml");
+        let config_path = dir.path().join("rieul.yaml");
         let credentials_path = client_credentials_path(&config_path);
         let issued = issue_client_secret("test-browser", now_unix());
         save(&config_path, &SystemConfig::default()).unwrap();
@@ -5516,7 +5506,7 @@ mod tests {
     #[tokio::test]
     async fn session_authenticate_rejects_expired_client_credential() {
         let dir = tempfile::tempdir().unwrap();
-        let config_path = dir.path().join("wgo.yaml");
+        let config_path = dir.path().join("rieul.yaml");
         let credentials_path = client_credentials_path(&config_path);
         let mut issued = issue_client_secret("test-browser", now_unix());
         issued.record.expires_at_unix = now_unix() - 1;
@@ -5569,7 +5559,7 @@ mod tests {
     #[tokio::test]
     async fn renew_client_credential_extends_authenticated_client_expiry() {
         let dir = tempfile::tempdir().unwrap();
-        let config_path = dir.path().join("wgo.yaml");
+        let config_path = dir.path().join("rieul.yaml");
         let credentials_path = client_credentials_path(&config_path);
         let mut issued = issue_client_secret("test-browser", now_unix() - 10);
         let client_id = issued.client_id.clone();
@@ -5819,7 +5809,7 @@ mod tests {
 
     fn test_terminals() -> SharedTerminalManager {
         Arc::new(TerminalManager::new(
-            std::env::temp_dir().join("WhatsGoingOn-test-shell-integration"),
+            std::env::temp_dir().join("Rieul-test-shell-integration"),
         ))
     }
 
@@ -5827,21 +5817,21 @@ mod tests {
     struct TestFileService;
 
     impl FileService for TestFileService {
-        fn roots(&self) -> wgo_daemon_core::traits::BoxFutureResult<'_, Vec<FsEntry>> {
+        fn roots(&self) -> rieul_daemon_core::traits::BoxFutureResult<'_, Vec<FsEntry>> {
             Box::pin(async { Err(ServiceError::Unsupported) })
         }
 
         fn list_directory(
             &self,
             _path: String,
-        ) -> wgo_daemon_core::traits::BoxFutureResult<'_, Vec<FsEntry>> {
+        ) -> rieul_daemon_core::traits::BoxFutureResult<'_, Vec<FsEntry>> {
             Box::pin(async { Err(ServiceError::Unsupported) })
         }
 
         fn read_file(
             &self,
             _request: ReadFileReq,
-        ) -> wgo_daemon_core::traits::BoxFutureResult<'_, Vec<u8>> {
+        ) -> rieul_daemon_core::traits::BoxFutureResult<'_, Vec<u8>> {
             Box::pin(async { Err(ServiceError::Unsupported) })
         }
 
@@ -5849,14 +5839,14 @@ mod tests {
             &'a self,
             _start: WriteFileStart,
             _chunks: Box<dyn WriteFileChunkSource + 'a>,
-        ) -> wgo_daemon_core::traits::BoxFutureResult<'a, WriteFileResult> {
+        ) -> rieul_daemon_core::traits::BoxFutureResult<'a, WriteFileResult> {
             Box::pin(async { Err(ServiceError::Unsupported) })
         }
 
         fn create_node(
             &self,
             _op: CreateNodeOp,
-        ) -> wgo_daemon_core::traits::BoxFutureResult<'_, ()> {
+        ) -> rieul_daemon_core::traits::BoxFutureResult<'_, ()> {
             Box::pin(async { Err(ServiceError::Unsupported) })
         }
 
@@ -5864,7 +5854,7 @@ mod tests {
             &self,
             _from: String,
             _to: String,
-        ) -> wgo_daemon_core::traits::BoxFutureResult<'_, ()> {
+        ) -> rieul_daemon_core::traits::BoxFutureResult<'_, ()> {
             Box::pin(async { Err(ServiceError::Unsupported) })
         }
 
@@ -5872,13 +5862,13 @@ mod tests {
             &self,
             _path: String,
             _mode: DeleteMode,
-        ) -> wgo_daemon_core::traits::BoxFutureResult<'_, ()> {
+        ) -> rieul_daemon_core::traits::BoxFutureResult<'_, ()> {
             Box::pin(async { Err(ServiceError::Unsupported) })
         }
 
         fn trash_items(
             &self,
-        ) -> wgo_daemon_core::traits::BoxFutureResult<'_, Vec<wgo_daemon_core::rpc::TrashItem>>
+        ) -> rieul_daemon_core::traits::BoxFutureResult<'_, Vec<rieul_daemon_core::rpc::TrashItem>>
         {
             Box::pin(async { Err(ServiceError::Unsupported) })
         }
@@ -5886,14 +5876,14 @@ mod tests {
         fn restore_trash_item(
             &self,
             _item_id: String,
-        ) -> wgo_daemon_core::traits::BoxFutureResult<'_, ()> {
+        ) -> rieul_daemon_core::traits::BoxFutureResult<'_, ()> {
             Box::pin(async { Err(ServiceError::Unsupported) })
         }
 
         fn purge_trash_item(
             &self,
             _item_id: String,
-        ) -> wgo_daemon_core::traits::BoxFutureResult<'_, ()> {
+        ) -> rieul_daemon_core::traits::BoxFutureResult<'_, ()> {
             Box::pin(async { Err(ServiceError::Unsupported) })
         }
     }

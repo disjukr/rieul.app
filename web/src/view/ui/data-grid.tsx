@@ -3,7 +3,7 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { className as joinClassName } from "../class-name.ts";
 
 const dataGridVariants = cva(
-  "grid min-h-0 min-w-0 overflow-auto bg-[var(--wgo-bg-primary)] leading-[1.6]",
+  "grid min-h-0 min-w-0 overflow-auto bg-[var(--rieul-bg-primary)] leading-[1.6]",
   {
     variants: {
       density: {
@@ -20,8 +20,8 @@ const dataGridVariants = cva(
 const dataGridHeaderCellVariants = cva(
   [
     "sticky top-0 z-[1] flex box-border items-center",
-    "border-b border-b-[var(--wgo-border-light)] bg-[var(--wgo-bg-header)]",
-    "font-700 text-[var(--wgo-text-tertiary)]",
+    "border-b border-b-[var(--rieul-border-light)] bg-[var(--rieul-bg-header)]",
+    "font-700 text-[var(--rieul-text-tertiary)]",
   ],
   {
     variants: {
@@ -39,8 +39,8 @@ const dataGridHeaderCellVariants = cva(
 const dataGridRowVariants = cva(
   [
     "grid [grid-column:1/-1] [grid-template-columns:subgrid]",
-    "box-border rounded-0 border-0 border-b border-b-[var(--wgo-bg-muted)]",
-    "bg-[var(--wgo-bg-primary)] text-left leading-[1.6]",
+    "box-border rounded-0 border-0 border-b border-b-[var(--rieul-bg-muted)]",
+    "bg-[var(--rieul-bg-primary)] text-left leading-[1.6]",
   ],
   {
     variants: {
@@ -51,11 +51,11 @@ const dataGridRowVariants = cva(
       interactive: {
         false: "",
         true:
-          "appearance-none cursor-pointer p-0 [font-family:inherit] hover:bg-[var(--wgo-bg-hover-weak)]",
+          "appearance-none cursor-pointer p-0 [font-family:inherit] hover:bg-[var(--rieul-bg-hover-weak)]",
       },
       selected: {
         false: "",
-        true: "bg-[var(--wgo-bg-selected)]",
+        true: "bg-[var(--rieul-bg-selected)]",
       },
     },
     defaultVariants: {
@@ -71,8 +71,8 @@ const dataGridCellVariants = cva(
   {
     variants: {
       tone: {
-        primary: "text-[var(--wgo-text-strong)]",
-        secondary: "text-[var(--wgo-text-tertiary)]",
+        primary: "text-[var(--rieul-text-strong)]",
+        secondary: "text-[var(--rieul-text-tertiary)]",
       },
     },
     defaultVariants: {

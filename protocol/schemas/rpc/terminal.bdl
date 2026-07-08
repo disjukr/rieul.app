@@ -1,4 +1,4 @@
-# standard - wgo-rpc
+# standard - rieul-rpc
 # description
 | Terminal RPC methods manage long-lived pseudo-terminal sessions owned by the
 | daemon process. A terminal session may outlive WebTransport connections and
@@ -9,7 +9,7 @@
 | numbers start at 1; a session with no output has latestOutputSeq 0. Screen
 | snapshots are intentionally not part of this version; terminals are
 | synchronized by raw output replay.
-| Authorization, routing, and malformed wire messages are wgo-wire envelope
+| Authorization, routing, and malformed wire messages are rieul-wire envelope
 | errors.
 
 @ description

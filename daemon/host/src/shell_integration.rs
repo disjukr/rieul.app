@@ -47,7 +47,7 @@ fn integrate_bash(root_dir: &Path, command: &str, args: &[String]) -> Integrated
     next_args.extend(filtered_args);
     let mut env = Vec::new();
     if login {
-        env.push(("WGO_SHELL_LOGIN".to_string(), "1".to_string()));
+        env.push(("RIEUL_SHELL_LOGIN".to_string(), "1".to_string()));
     }
     IntegratedShellLaunch {
         command: command.to_string(),
@@ -92,7 +92,7 @@ fn integrate_zsh(root_dir: &Path, command: &str, args: &[String]) -> IntegratedS
                 "ZDOTDIR".to_string(),
                 zdotdir.to_string_lossy().into_owned(),
             ),
-            ("WGO_USER_ZDOTDIR".to_string(), user_zdotdir),
+            ("RIEUL_USER_ZDOTDIR".to_string(), user_zdotdir),
         ],
     }
 }
@@ -167,7 +167,7 @@ fn is_short_option_with(arg: &str, option: char) -> bool {
 }
 
 fn ensure_script(root_dir: &Path, name: &str, content: &str) -> Option<PathBuf> {
-    let path = root_dir.join(format!("wgo-shell-integration-{name}"));
+    let path = root_dir.join(format!("rieul-shell-integration-{name}"));
     write_if_changed(&path, content).ok()?;
     Some(path)
 }
@@ -176,8 +176,8 @@ fn ensure_zsh_zdotdir(root_dir: &Path, script: &Path) -> Option<PathBuf> {
     let dir = root_dir.join("zsh-zdotdir");
     fs::create_dir_all(&dir).ok()?;
     let zshrc = format!(
-        r#"if [ -n "${{WGO_USER_ZDOTDIR:-}}" ] && [ -r "${{WGO_USER_ZDOTDIR}}/.zshrc" ]; then
-  source "${{WGO_USER_ZDOTDIR}}/.zshrc"
+        r#"if [ -n "${{RIEUL_USER_ZDOTDIR:-}}" ] && [ -r "${{RIEUL_USER_ZDOTDIR}}/.zshrc" ]; then
+  source "${{RIEUL_USER_ZDOTDIR}}/.zshrc"
 fi
 source {}
 "#,
@@ -206,12 +206,12 @@ fn fish_single_quote(value: &str) -> String {
 }
 
 const BASH_INTEGRATION_SCRIPT: &str = r#"
-if [ -n "${WGO_SHELL_INTEGRATION:-}" ]; then
+if [ -n "${RIEUL_SHELL_INTEGRATION:-}" ]; then
   return
 fi
-export WGO_SHELL_INTEGRATION=1
+export RIEUL_SHELL_INTEGRATION=1
 
-if [ "${WGO_SHELL_LOGIN:-}" = "1" ]; then
+if [ "${RIEUL_SHELL_LOGIN:-}" = "1" ]; then
   [ -r /etc/profile ] && . /etc/profile
   if [ -r ~/.bash_profile ]; then
     . ~/.bash_profile
@@ -223,114 +223,114 @@ if [ "${WGO_SHELL_LOGIN:-}" = "1" ]; then
 else
   [ -r ~/.bashrc ] && . ~/.bashrc
 fi
-unset WGO_SHELL_LOGIN
+unset RIEUL_SHELL_LOGIN
 
-__wgo_escape_value() {
+__rieul_escape_value() {
   local value="${1//\\/\\\\}"
   value="${value//;/\\x3b}"
   printf '%s' "$value"
 }
 
-__wgo_prompt_start() { printf '\e]633;A\a'; }
-__wgo_prompt_end() { printf '\e]633;B\a'; }
-__wgo_update_cwd() { printf '\e]633;P;Cwd=%s\a' "$(__wgo_escape_value "$PWD")"; }
+__rieul_prompt_start() { printf '\e]633;A\a'; }
+__rieul_prompt_end() { printf '\e]633;B\a'; }
+__rieul_update_cwd() { printf '\e]633;P;Cwd=%s\a' "$(__rieul_escape_value "$PWD")"; }
 
-__wgo_prompt_command() {
+__rieul_prompt_command() {
   local status="$?"
-  if [ "${__wgo_seen_prompt:-0}" = "1" ]; then
+  if [ "${__rieul_seen_prompt:-0}" = "1" ]; then
     printf '\e]633;D;%s\a' "$status"
   fi
-  __wgo_seen_prompt=1
-  __wgo_update_cwd
-  if [ -n "${__wgo_original_prompt_command:-}" ]; then
-    eval "$__wgo_original_prompt_command"
+  __rieul_seen_prompt=1
+  __rieul_update_cwd
+  if [ -n "${__rieul_original_prompt_command:-}" ]; then
+    eval "$__rieul_original_prompt_command"
   fi
   return "$status"
 }
 
-__wgo_original_prompt_command="${PROMPT_COMMAND:-}"
-PROMPT_COMMAND=__wgo_prompt_command
-PS1="\[$(__wgo_prompt_start)\]${PS1:-\\s-\\v\\\$ }\[$(__wgo_prompt_end)\]"
+__rieul_original_prompt_command="${PROMPT_COMMAND:-}"
+PROMPT_COMMAND=__rieul_prompt_command
+PS1="\[$(__rieul_prompt_start)\]${PS1:-\\s-\\v\\\$ }\[$(__rieul_prompt_end)\]"
 "#;
 
 const FISH_INTEGRATION_SCRIPT: &str = r#"
-if set -q WGO_SHELL_INTEGRATION
+if set -q RIEUL_SHELL_INTEGRATION
   return
 end
-set -gx WGO_SHELL_INTEGRATION 1
+set -gx RIEUL_SHELL_INTEGRATION 1
 
-function __wgo_escape_value --argument-names value
+function __rieul_escape_value --argument-names value
   set value (string replace --all '\' '\\' -- "$value")
   set value (string replace --all ';' '\x3b' -- "$value")
   printf '%s' "$value"
 end
 
-function __wgo_esc
+function __rieul_esc
   printf "\e]633;%s\a" (string join ';' -- $argv)
 end
 
-function __wgo_cmd_executed --on-event fish_preexec
-  __wgo_esc E (__wgo_escape_value "$argv")
-  __wgo_esc C
+function __rieul_cmd_executed --on-event fish_preexec
+  __rieul_esc E (__rieul_escape_value "$argv")
+  __rieul_esc C
 end
 
-function __wgo_cmd_finished --on-event fish_postexec
-  __wgo_esc D $status
+function __rieul_cmd_finished --on-event fish_postexec
+  __rieul_esc D $status
 end
 
-function __wgo_update_cwd --on-event fish_prompt
-  __wgo_esc P Cwd=(__wgo_escape_value "$PWD")
+function __rieul_update_cwd --on-event fish_prompt
+  __rieul_esc P Cwd=(__rieul_escape_value "$PWD")
 end
 
 if functions --query fish_prompt
-  functions --copy fish_prompt __wgo_original_fish_prompt
+  functions --copy fish_prompt __rieul_original_fish_prompt
 else
-  function __wgo_original_fish_prompt
+  function __rieul_original_fish_prompt
     printf '%s@%s %s> ' (whoami) (prompt_hostname) (prompt_pwd)
   end
 end
 
 function fish_prompt
-  __wgo_esc A
-  __wgo_original_fish_prompt
-  __wgo_esc B
+  __rieul_esc A
+  __rieul_original_fish_prompt
+  __rieul_esc B
 end
 "#;
 
 const ZSH_INTEGRATION_SCRIPT: &str = r#"
-if [ -n "${WGO_SHELL_INTEGRATION:-}" ]; then
+if [ -n "${RIEUL_SHELL_INTEGRATION:-}" ]; then
   return
 fi
-export WGO_SHELL_INTEGRATION=1
+export RIEUL_SHELL_INTEGRATION=1
 
 autoload -Uz add-zsh-hook
 
-__wgo_escape_value() {
+__rieul_escape_value() {
   local value="${1//\\/\\\\}"
   value="${value//;/\\x3b}"
   printf '%s' "$value"
 }
 
-__wgo_prompt_start() { printf '\e]633;A\a'; }
-__wgo_prompt_end() { printf '\e]633;B\a'; }
-__wgo_update_cwd() { printf '\e]633;P;Cwd=%s\a' "$(__wgo_escape_value "$PWD")"; }
+__rieul_prompt_start() { printf '\e]633;A\a'; }
+__rieul_prompt_end() { printf '\e]633;B\a'; }
+__rieul_update_cwd() { printf '\e]633;P;Cwd=%s\a' "$(__rieul_escape_value "$PWD")"; }
 
-__wgo_precmd() {
+__rieul_precmd() {
   local status="$?"
-  if [ "${__wgo_seen_prompt:-0}" = "1" ]; then
+  if [ "${__rieul_seen_prompt:-0}" = "1" ]; then
     printf '\e]633;D;%s\a' "$status"
   fi
-  __wgo_seen_prompt=1
-  __wgo_update_cwd
+  __rieul_seen_prompt=1
+  __rieul_update_cwd
 }
 
-__wgo_preexec() {
-  printf '\e]633;E;%s\a' "$(__wgo_escape_value "$1")"
+__rieul_preexec() {
+  printf '\e]633;E;%s\a' "$(__rieul_escape_value "$1")"
   printf '\e]633;C\a'
 }
 
-add-zsh-hook precmd __wgo_precmd
-add-zsh-hook preexec __wgo_preexec
+add-zsh-hook precmd __rieul_precmd
+add-zsh-hook preexec __rieul_preexec
 
-PS1="%{$(__wgo_prompt_start)%}${PS1:-%m%# }%{$(__wgo_prompt_end)%}"
+PS1="%{$(__rieul_prompt_start)%}${PS1:-%m%# }%{$(__rieul_prompt_end)%}"
 "#;

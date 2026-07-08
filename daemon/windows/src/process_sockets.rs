@@ -4,8 +4,8 @@ mod platform {
     use std::mem::size_of;
     use std::net::{Ipv4Addr, Ipv6Addr};
 
-    use wgo_daemon_core::rpc::{ProcessSocketInUseInfo, ProcessSocketInUseKind, SocketEndpoint};
-    use wgo_daemon_core::traits::{BoxFutureResult, ProcessSocketsInUseService, ServiceError};
+    use rieul_daemon_core::rpc::{ProcessSocketInUseInfo, ProcessSocketInUseKind, SocketEndpoint};
+    use rieul_daemon_core::traits::{BoxFutureResult, ProcessSocketsInUseService, ServiceError};
     use windows::core::Error as WindowsError;
     use windows::Win32::Foundation::{CloseHandle, ERROR_INSUFFICIENT_BUFFER, NO_ERROR};
     use windows::Win32::NetworkManagement::IpHelper::{

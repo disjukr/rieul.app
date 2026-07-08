@@ -2,13 +2,13 @@
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
+use rieul_daemon_core::config::windows_program_data_config_path;
+use rieul_windows_daemon::tray::run_pairing_tray;
 use std::path::PathBuf;
-use wgo_daemon_core::config::windows_program_data_config_path;
-use wgo_windows_daemon::tray::run_pairing_tray;
 
 #[derive(Debug, Parser)]
-#[command(name = "wgo-windows-gui")]
-#[command(about = "Windows tray GUI for whats-going-on")]
+#[command(name = "rieul-windows-gui")]
+#[command(about = "Windows tray GUI for rieul")]
 struct Args {
     #[command(subcommand)]
     command: Option<Command>,

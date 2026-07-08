@@ -1,7 +1,7 @@
-use wgo_daemon_core::rpc::{
+use rieul_daemon_core::rpc::{
     ProcessResourceInUseAccess, ProcessResourceInUseInfo, ProcessResourceInUseKind,
 };
-use wgo_daemon_core::traits::{BoxFutureResult, ProcessResourcesInUseService, ServiceError};
+use rieul_daemon_core::traits::{BoxFutureResult, ProcessResourcesInUseService, ServiceError};
 
 use crate::process_lsof::{ensure_process_exists, run_lsof, LsofEntry};
 

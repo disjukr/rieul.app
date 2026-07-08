@@ -3,7 +3,7 @@
 param(
   [string]$Version,
   [string]$OutDir,
-  [string]$PackageIdentityName = "JongChanChoi.WhatsGoingOn",
+  [string]$PackageIdentityName = "JongChanChoi.Rieul",
   [string]$Publisher = "CN=A4D057B4-3412-495C-B2DA-D651AD80D736",
   [string]$PublisherDisplayName = "JongChan Choi",
   [string]$CertificatePath,
@@ -111,7 +111,7 @@ for (const [name, size] of assets) {
 }
 '@
 
-  $rendererPath = Join-Path ([System.IO.Path]::GetTempPath()) "wgo-render-msix-assets-$PID.ts"
+  $rendererPath = Join-Path ([System.IO.Path]::GetTempPath()) "rieul-render-msix-assets-$PID.ts"
   Set-Content -LiteralPath $rendererPath -Value $renderer -Encoding UTF8
   try {
     & $deno.Source run --quiet --no-lock -A $rendererPath $SourceSvg $DestinationDir
@@ -154,7 +154,7 @@ function New-AppxManifest {
     Version="$identityVersion"
     ProcessorArchitecture="x64" />
   <Properties>
-    <DisplayName>Whats Going On</DisplayName>
+    <DisplayName>Rieul</DisplayName>
     <PublisherDisplayName>$displayPublisher</PublisherDisplayName>
     <Logo>Assets\StoreLogo.png</Logo>
   </Properties>
@@ -169,11 +169,11 @@ function New-AppxManifest {
   </Resources>
   <Applications>
     <Application
-      Id="WgoGui"
-      Executable="wgo-windows-gui.exe"
+      Id="RieulGui"
+      Executable="rieul-windows-gui.exe"
       EntryPoint="Windows.FullTrustApplication">
       <uap:VisualElements
-        DisplayName="Whats Going On"
+        DisplayName="Rieul"
         Description="Remote machine explorer and daemon tray"
         BackgroundColor="transparent"
         Square44x44Logo="Assets\Square44x44Logo.png"
@@ -181,19 +181,19 @@ function New-AppxManifest {
       <Extensions>
         <desktop:Extension
           Category="windows.startupTask"
-          Executable="wgo-windows-gui.exe"
+          Executable="rieul-windows-gui.exe"
           EntryPoint="Windows.FullTrustApplication">
           <desktop:StartupTask
-            TaskId="WgoGui"
+            TaskId="RieulGui"
             Enabled="true"
-            DisplayName="Whats Going On" />
+            DisplayName="Rieul" />
         </desktop:Extension>
         <desktop7:Extension
           Category="windows.service"
-          Executable="wgo-windows-system.exe"
+          Executable="rieul-windows-system.exe"
           EntryPoint="Windows.FullTrustApplication">
           <desktop7:Service
-            Name="wgo-windows-system"
+            Name="rieul-windows-system"
             StartupType="delayedStart"
             StartAccount="localSystem"
             Arguments="service run" />
@@ -201,24 +201,24 @@ function New-AppxManifest {
       </Extensions>
     </Application>
     <Application
-      Id="WgoUser"
-      Executable="wgo-windows-user.exe"
+      Id="RieulUser"
+      Executable="rieul-windows-user.exe"
       EntryPoint="Windows.FullTrustApplication">
       <uap:VisualElements
-        DisplayName="Whats Going On User Agent"
-        Description="User-session data agent for Whats Going On"
+        DisplayName="Rieul User Agent"
+        Description="User-session data agent for Rieul"
         BackgroundColor="transparent"
         Square44x44Logo="Assets\Square44x44Logo.png"
         Square150x150Logo="Assets\Square150x150Logo.png" />
       <Extensions>
         <desktop:Extension
           Category="windows.startupTask"
-          Executable="wgo-windows-user.exe"
+          Executable="rieul-windows-user.exe"
           EntryPoint="Windows.FullTrustApplication">
           <desktop:StartupTask
-            TaskId="WgoUserAgent"
+            TaskId="RieulUserAgent"
             Enabled="true"
-            DisplayName="Whats Going On User Agent" />
+            DisplayName="Rieul User Agent" />
         </desktop:Extension>
       </Extensions>
     </Application>
@@ -274,7 +274,7 @@ if (-not $SkipSign) {
   $SignTool = Find-WindowsSdkTool "signtool.exe"
 }
 
-$PackageBaseName = "wgo-windows-daemon-$Version"
+$PackageBaseName = "rieul-windows-daemon-$Version"
 $StagingDir = Join-Path $OutDir "$PackageBaseName-msix"
 if ($SkipSign) {
   $MsixPath = Join-Path $OutDir "$PackageBaseName.unsigned.msix"
@@ -282,14 +282,14 @@ if ($SkipSign) {
   $MsixPath = Join-Path $OutDir "$PackageBaseName.msix"
 }
 $ReleaseDir = Join-Path $RepoRoot "target\release"
-$SystemExe = Join-Path $ReleaseDir "wgo-windows-system.exe"
-$UserExe = Join-Path $ReleaseDir "wgo-windows-user.exe"
-$GuiExe = Join-Path $ReleaseDir "wgo-windows-gui.exe"
+$SystemExe = Join-Path $ReleaseDir "rieul-windows-system.exe"
+$UserExe = Join-Path $ReleaseDir "rieul-windows-user.exe"
+$GuiExe = Join-Path $ReleaseDir "rieul-windows-gui.exe"
 
 if (-not $SkipBuild) {
   Push-Location $RepoRoot
   try {
-    cargo build -p wgo-windows-daemon --release --bins
+    cargo build -p rieul-windows-daemon --release --bins
   } finally {
     Pop-Location
   }
@@ -312,11 +312,11 @@ New-Item -ItemType Directory -Force -Path $StagingDir | Out-Null
 $AssetsDir = Join-Path $StagingDir "Assets"
 New-Item -ItemType Directory -Force -Path $AssetsDir | Out-Null
 
-Copy-Item -LiteralPath $SystemExe -Destination (Join-Path $StagingDir "wgo-windows-system.exe")
-Copy-Item -LiteralPath $UserExe -Destination (Join-Path $StagingDir "wgo-windows-user.exe")
-Copy-Item -LiteralPath $GuiExe -Destination (Join-Path $StagingDir "wgo-windows-gui.exe")
+Copy-Item -LiteralPath $SystemExe -Destination (Join-Path $StagingDir "rieul-windows-system.exe")
+Copy-Item -LiteralPath $UserExe -Destination (Join-Path $StagingDir "rieul-windows-user.exe")
+Copy-Item -LiteralPath $GuiExe -Destination (Join-Path $StagingDir "rieul-windows-gui.exe")
 
-$LogoSvgPath = Join-Path $RepoRoot "wgo.svg"
+$LogoSvgPath = Join-Path $RepoRoot "rieul.svg"
 if (-not (Test-Path -LiteralPath $LogoSvgPath)) {
   throw "Missing project logo: $LogoSvgPath"
 }

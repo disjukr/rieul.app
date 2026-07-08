@@ -5,10 +5,10 @@ mod platform {
     use std::sync::mpsc;
     use std::time::Duration;
 
-    use wgo_daemon_core::rpc::{
+    use rieul_daemon_core::rpc::{
         ProcessResourceInUseAccess, ProcessResourceInUseInfo, ProcessResourceInUseKind,
     };
-    use wgo_daemon_core::traits::{BoxFutureResult, ProcessResourcesInUseService, ServiceError};
+    use rieul_daemon_core::traits::{BoxFutureResult, ProcessResourcesInUseService, ServiceError};
     use windows::core::{Error as WindowsError, PCWSTR};
     use windows::Wdk::Foundation::{
         NtQueryObject, ObjectTypeInformation, OBJECT_INFORMATION_CLASS,

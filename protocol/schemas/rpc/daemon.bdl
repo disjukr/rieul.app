@@ -1,4 +1,4 @@
-# standard - wgo-rpc
+# standard - rieul-rpc
 # description
 | Daemon RPC methods expose daemon metadata. Process identity fields are fixed
 | for the lifetime of one daemon process, while time fields are sampled when the

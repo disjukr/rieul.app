@@ -6,7 +6,7 @@ use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Result};
-use wgo_daemon_core::config::windows_program_data_config_path;
+use rieul_daemon_core::config::windows_program_data_config_path;
 use windows_service::define_windows_service;
 use windows_service::service::{
     ServiceAccess, ServiceAction, ServiceActionType, ServiceControl, ServiceControlAccept,
@@ -22,12 +22,12 @@ use crate::ipc::{UserSessionWindowService, UserTrayPairingNotifier};
 use crate::process_modules::WindowsProcessModulesService;
 use crate::process_resources::WindowsProcessResourcesInUseService;
 use crate::process_sockets::WindowsProcessSocketsInUseService;
+use rieul_daemon_host::server::run_system_server;
 use std::sync::Arc;
-use wgo_daemon_host::server::run_system_server;
 
-pub const SERVICE_NAME: &str = "wgo-windows-system";
-pub const SERVICE_DISPLAY_NAME: &str = "Whats Going On System Daemon";
-const SERVICE_DESCRIPTION: &str = "Runs the whats-going-on Windows system daemon.";
+pub const SERVICE_NAME: &str = "rieul-windows-system";
+pub const SERVICE_DISPLAY_NAME: &str = "Rieul System Daemon";
+const SERVICE_DESCRIPTION: &str = "Runs the rieul Windows system daemon.";
 const SERVICE_TYPE: ServiceType = ServiceType::OWN_PROCESS;
 
 static SERVICE_OPTIONS: OnceLock<ServiceRunOptions> = OnceLock::new();

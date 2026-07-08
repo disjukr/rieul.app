@@ -26,25 +26,25 @@ pub use crate::generated::rpc::{
     GetScheduleNextRunsError, GetScheduleNextRunsReq, GetScheduleNextRunsRes, JobInfo,
     JobLogOptions, JobLogState, JobMutationError, JobMutationResult, JobOutputEvent,
     JobOutputState, JobOutputStream, JobRunReason, JobStatus, JobsTableEvent, KillJobError,
-    KillJobReq, PROC_DEFINITIONS, ProcDefinition, ProcId, ProcStream, ProcessDetail,
-    ProcessDetailEvent, ProcessInfo, ProcessIoUsage, ProcessMetadata, ProcessModuleInfo,
-    ProcessModuleKind, ProcessModulesTableEvent, ProcessResourceInUseAccess,
-    ProcessResourceInUseInfo, ProcessResourceInUseKind, ProcessResourceUsage,
-    ProcessResourcesInUseTableEvent, ProcessSocketInUseInfo, ProcessSocketInUseKind,
-    ProcessSocketsInUseTableEvent, ProcessStatus, ProcessesTableEvent, PurgeTrashItemsReq,
-    ReadFileChunk, ReadFileError, ReadFileReq, RenamePathOp, RenamePathsReq,
-    RenewClientCredentialError, RenewClientCredentialRes, RestoreTrashItemsReq, RootEntryKey,
-    RootsSubscriptionCloseReason, RootsTableEvent, RpcHandlerFn, RpcHandlerFuture, RpcHandlers,
-    RpcRequest, RpcRequestDecodeError, RpcResponse, RunCommandError, RunCommandReq, RunCommandRes,
-    ScheduleArchiveFilter, ScheduleInfo, ScheduleMutationError, ScheduleMutationResult,
-    ScheduleNextRunsContinuation, ScheduledJobOptions, SchedulesTableEvent, SocketEndpoint,
-    StartPairingError, StartPairingReq, StartPairingRes, SubscribeAvailableShellsError,
-    SubscribeClientsError, SubscribeDirectoryError, SubscribeDirectoryReq, SubscribeJobOutputError,
-    SubscribeJobOutputReq, SubscribeJobsError, SubscribeJobsReq, SubscribeProcessDetailError,
-    SubscribeProcessDetailReq, SubscribeProcessModulesError, SubscribeProcessModulesReq,
-    SubscribeProcessResourcesInUseError, SubscribeProcessResourcesInUseReq,
-    SubscribeProcessSocketsInUseError, SubscribeProcessSocketsInUseReq, SubscribeProcessesError,
-    SubscribeRootsError, SubscribeSchedulesError, SubscribeSchedulesReq, SubscribeTrashItemsError,
+    KillJobReq, ProcDefinition, ProcId, ProcStream, ProcessDetail, ProcessDetailEvent, ProcessInfo,
+    ProcessIoUsage, ProcessMetadata, ProcessModuleInfo, ProcessModuleKind,
+    ProcessModulesTableEvent, ProcessResourceInUseAccess, ProcessResourceInUseInfo,
+    ProcessResourceInUseKind, ProcessResourceUsage, ProcessResourcesInUseTableEvent,
+    ProcessSocketInUseInfo, ProcessSocketInUseKind, ProcessSocketsInUseTableEvent, ProcessStatus,
+    ProcessesTableEvent, PurgeTrashItemsReq, ReadFileChunk, ReadFileError, ReadFileReq,
+    RenamePathOp, RenamePathsReq, RenewClientCredentialError, RenewClientCredentialRes,
+    RestoreTrashItemsReq, RootEntryKey, RootsSubscriptionCloseReason, RootsTableEvent,
+    RpcHandlerFn, RpcHandlerFuture, RpcHandlers, RpcRequest, RpcRequestDecodeError, RpcResponse,
+    RunCommandError, RunCommandReq, RunCommandRes, ScheduleArchiveFilter, ScheduleInfo,
+    ScheduleMutationError, ScheduleMutationResult, ScheduleNextRunsContinuation,
+    ScheduledJobOptions, SchedulesTableEvent, SocketEndpoint, StartPairingError, StartPairingReq,
+    StartPairingRes, SubscribeAvailableShellsError, SubscribeClientsError, SubscribeDirectoryError,
+    SubscribeDirectoryReq, SubscribeJobOutputError, SubscribeJobOutputReq, SubscribeJobsError,
+    SubscribeJobsReq, SubscribeProcessDetailError, SubscribeProcessDetailReq,
+    SubscribeProcessModulesError, SubscribeProcessModulesReq, SubscribeProcessResourcesInUseError,
+    SubscribeProcessResourcesInUseReq, SubscribeProcessSocketsInUseError,
+    SubscribeProcessSocketsInUseReq, SubscribeProcessesError, SubscribeRootsError,
+    SubscribeSchedulesError, SubscribeSchedulesReq, SubscribeTrashItemsError,
     SubscribeWindowDetailError, SubscribeWindowDetailReq, SubscribeWindowsError,
     TakeTerminalControlError, TakeTerminalControlReq, TakeTerminalControlRes, TerminalEvent,
     TerminalExit, TerminalLaunchSpec, TerminalSessionCloseReason, TerminalSessionInfo,
@@ -52,6 +52,7 @@ pub use crate::generated::rpc::{
     TrashItemsSubscriptionCloseReason, TrashItemsTableEvent, UpdateScheduleError,
     UpdateScheduleReq, WindowBounds, WindowDetail, WindowDetailEvent, WindowInfo, WindowState,
     WindowsTableEvent, WriteFileError, WriteFileMode, WriteFileResult, WriteTerminalInputError,
+    PROC_DEFINITIONS,
 };
 
 pub type StartPairingRequest = StartPairingReq;
@@ -288,8 +289,8 @@ fn current_os_name() -> String {
 
 #[cfg(windows)]
 fn platform_os_name() -> String {
-    use winreg::RegKey;
     use winreg::enums::{HKEY_LOCAL_MACHINE, KEY_READ, KEY_WOW64_64KEY};
+    use winreg::RegKey;
 
     let current_version = RegKey::predef(HKEY_LOCAL_MACHINE)
         .open_subkey_with_flags(

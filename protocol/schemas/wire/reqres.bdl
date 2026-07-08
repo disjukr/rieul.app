@@ -1,6 +1,6 @@
-# standard - wgo-wire
+# standard - rieul-wire
 # description
-| wgo-wire reqres defines the reliable request/response-direction envelope
+| rieul-wire reqres defines the reliable request/response-direction envelope
 | carried inside one WebTransport bidirectional stream. It defines the stream
 | grammar for RPC invocations and session-control commands, not domain RPC
 | payload contracts.
@@ -31,7 +31,7 @@
 | extra length prefix, frame header, section table, or varint layer. Malformed
 | CBOR or an invalid message closes the affected stream/session.
 |
-| The proc's wgo-rpc stream shape defines request and response direction
+| The proc's rieul-rpc stream shape defines request and response direction
 | cardinality:
 |
 |   unary:  request=RequestUnary; response=ResponseUnaryOk | ResponseUnaryError
@@ -191,7 +191,7 @@ enum SessionAuthErrorCode {
 }
 
 @ description
-| Mechanism-specific payload for mechanism "wgo.paired-secret.v1". This struct
+| Mechanism-specific payload for mechanism "rieul.paired-secret.v1". This struct
 | is encoded as deterministic CBOR and carried as SessionAuthenticate.payload.
 struct PairedSecretCredential {
   @ id - 1
@@ -215,7 +215,7 @@ enum RpcErrorKind {
 @ description
 | Generic wire/envelope error codes. These are used only when the failure is
 | outside a proc's declared throws union. Method-specific errors stay in the
-| relevant wgo-rpc schema.
+| relevant rieul-rpc schema.
 enum RpcErrorCode {
   @ id - 1
   @ description - Received message is not valid for the current RPC endpoint.

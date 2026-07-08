@@ -3,14 +3,14 @@ import { cva } from "class-variance-authority";
 import { className as joinClassName } from "../class-name.ts";
 
 const tabListClassName =
-  "flex min-w-0 items-end overflow-visible border-b border-b-[var(--wgo-border-light)] bg-[var(--wgo-bg-header)]";
+  "flex min-w-0 items-end overflow-visible border-b border-b-[var(--rieul-border-light)] bg-[var(--rieul-bg-header)]";
 const tabClassName = cva(
   [
     "inline-flex min-w-0 appearance-none items-center justify-center",
-    "border-0 bg-[var(--wgo-bg-muted)] text-[var(--wgo-text-control)]",
+    "border-0 bg-[var(--rieul-bg-muted)] text-[var(--rieul-text-control)]",
     "[font-family:inherit] font-700 leading-[1.6] cursor-pointer",
-    "data-[selected]:bg-[var(--wgo-bg-primary)]",
-    "data-[selected]:text-[var(--wgo-text-primary)]",
+    "data-[selected]:bg-[var(--rieul-bg-primary)]",
+    "data-[selected]:text-[var(--rieul-text-primary)]",
   ],
   {
     variants: {

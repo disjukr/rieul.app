@@ -2,10 +2,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
-use rusqlite::{Connection, OptionalExtension};
-use wgo_daemon_core::rpc::{
+use rieul_daemon_core::rpc::{
     JobInfo, JobOutputState, JobOutputStream, JobRunReason, JobStatus, ScheduleInfo,
 };
+use rusqlite::{Connection, OptionalExtension};
 
 const SCHEMA_VERSION: i32 = 1;
 
@@ -656,7 +656,7 @@ mod tests {
         JobInfo {
             job_id: "job-test".to_string(),
             title: None,
-            launch: wgo_daemon_core::rpc::CommandLaunchSpec {
+            launch: rieul_daemon_core::rpc::CommandLaunchSpec {
                 command: "test".to_string(),
                 args: Vec::new(),
                 cwd: None,
@@ -669,7 +669,7 @@ mod tests {
             finished_at_ms: None,
             status: JobStatus::Running,
             reason: JobRunReason::Manual,
-            log: wgo_daemon_core::rpc::JobLogState {
+            log: rieul_daemon_core::rpc::JobLogState {
                 stdout: JobOutputState {
                     enabled: true,
                     oldest_seq: 0,

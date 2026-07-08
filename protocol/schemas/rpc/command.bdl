@@ -1,11 +1,11 @@
-# standard - wgo-rpc
+# standard - rieul-rpc
 # description
 | Command RPC methods execute host commands as short session-bound runs,
 | daemon-lifetime jobs, or scheduled jobs. RunCommand is intended for client
 | features that need a small command result quickly. Jobs and schedules are
 | user-visible daemon-local work items that survive WebTransport reconnection
 | but not daemon process restart.
-| Authorization, routing, and malformed wire messages are wgo-wire envelope
+| Authorization, routing, and malformed wire messages are rieul-wire envelope
 | errors.
 
 @ description

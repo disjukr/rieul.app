@@ -6,19 +6,19 @@ import { className as joinClassName } from "../class-name.ts";
 
 const fieldRootVariants = cva("grid min-w-0 gap-[0.5rem]");
 const labelVariants = cva(
-  "text-[1rem] font-700 text-[var(--wgo-text-secondary)]",
+  "text-[1rem] font-700 text-[var(--rieul-text-secondary)]",
 );
 const inputVariants = cva(
   [
-    "min-h-[34px] min-w-0 rounded-[var(--wgo-radius-md)]",
-    "border border-[var(--wgo-border-control)] bg-[var(--wgo-bg-primary)] px-[1rem]",
-    "text-[var(--wgo-text-primary)] [font:inherit]",
-    "focus:outline focus:outline-2 focus:outline-[var(--wgo-focus)]",
+    "min-h-[34px] min-w-0 rounded-[var(--rieul-radius-md)]",
+    "border border-[var(--rieul-border-control)] bg-[var(--rieul-bg-primary)] px-[1rem]",
+    "text-[var(--rieul-text-primary)] [font:inherit]",
+    "focus:outline focus:outline-2 focus:outline-[var(--rieul-focus)]",
     "focus:outline-offset-1",
     "disabled:cursor-not-allowed disabled:opacity-48",
   ],
 );
-const errorVariants = cva("text-[1rem] text-[var(--wgo-danger)]");
+const errorVariants = cva("text-[1rem] text-[var(--rieul-danger)]");
 
 export interface TextFieldProps
   extends

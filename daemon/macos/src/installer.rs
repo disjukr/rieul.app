@@ -7,10 +7,10 @@ use anyhow::{anyhow, Context, Result};
 
 use crate::pairing_ui::{show_confirmation_window, show_error_window, show_message_window};
 
-const DEFAULT_APP_INSTALL_PATH: &str = "/Applications/Whats Going On.app";
-const DEFAULT_SYSTEM_LABEL: &str = "com.disjukr.whats-going-on.system";
-const DEFAULT_USER_LABEL: &str = "com.disjukr.whats-going-on.user";
-const SYSTEM_DAEMON_PATH: &str = "/Library/Application Support/wgo/bin/wgo-macos-system";
+const DEFAULT_APP_INSTALL_PATH: &str = "/Applications/Rieul.app";
+const DEFAULT_SYSTEM_LABEL: &str = "app.rieul.system";
+const DEFAULT_USER_LABEL: &str = "app.rieul.user";
+const SYSTEM_DAEMON_PATH: &str = "/Library/Application Support/rieul/bin/rieul-macos-system";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StartupAction {
@@ -31,15 +31,15 @@ impl InstallSettings {
         let Some(source_app) = source_app_bundle_path()? else {
             return Ok(None);
         };
-        let install_path = env::var_os("WGO_APP_INSTALL_PATH")
+        let install_path = env::var_os("RIEUL_APP_INSTALL_PATH")
             .map(PathBuf::from)
             .unwrap_or_else(|| default_install_path(&source_app));
         Ok(Some(Self {
             source_app,
             install_path,
-            system_label: env::var("WGO_SYSTEM_LABEL")
+            system_label: env::var("RIEUL_SYSTEM_LABEL")
                 .unwrap_or_else(|_| DEFAULT_SYSTEM_LABEL.to_string()),
-            user_label: env::var("WGO_USER_LABEL")
+            user_label: env::var("RIEUL_USER_LABEL")
                 .unwrap_or_else(|_| DEFAULT_USER_LABEL.to_string()),
         }))
     }
@@ -107,20 +107,20 @@ pub fn ensure_installed_or_prompt() -> Result<StartupAction> {
     }
 
     let message = format!(
-        "Whats Going On needs to install a system daemon to stay available after reboot.\n\n\
+        "Rieul needs to install a system daemon to stay available after reboot.\n\n\
 This will copy the app to:\n{}\n\n\
 It will also add launchd jobs under /Library/LaunchDaemons and /Library/LaunchAgents. \
 macOS will ask for an administrator password.",
         settings.install_path.display()
     );
-    if !show_confirmation_window("Install Whats Going On?", &message)? {
+    if !show_confirmation_window("Install Rieul?", &message)? {
         return Ok(StartupAction::Exit);
     }
 
     match install_with_administrator_privileges(&settings) {
         Ok(()) => {
             show_message_window(
-                "Whats Going On Installed",
+                "Rieul Installed",
                 "The daemon has been installed and registered with launchd.",
             )?;
             if !current_user_agent_is_loaded(&settings) {
@@ -129,7 +129,7 @@ macOS will ask for an administrator password.",
             Ok(StartupAction::Exit)
         }
         Err(err) => {
-            show_error_window(&format!("Failed to install Whats Going On:\n\n{err}"))?;
+            show_error_window(&format!("Failed to install Rieul:\n\n{err}"))?;
             Ok(StartupAction::Exit)
         }
     }
@@ -137,34 +137,34 @@ macOS will ask for an administrator password.",
 
 pub fn uninstall_or_prompt() -> Result<bool> {
     let Some(settings) = InstallSettings::from_environment()? else {
-        show_error_window("Whats Going On is not running from an app bundle.")?;
+        show_error_window("Rieul is not running from an app bundle.")?;
         return Ok(false);
     };
 
     let message = "\
-This will stop Whats Going On, unregister its launchd jobs, and remove the installed system daemon.\n\n\
+This will stop Rieul, unregister its launchd jobs, and remove the installed system daemon.\n\n\
 The app bundle and configuration files will be left in place.";
-    if !show_confirmation_window("Uninstall Whats Going On?", message)? {
+    if !show_confirmation_window("Uninstall Rieul?", message)? {
         return Ok(false);
     }
 
     match uninstall_with_administrator_privileges(&settings) {
         Ok(()) => {
             show_message_window(
-                "Whats Going On Uninstalled",
+                "Rieul Uninstalled",
                 "The launchd jobs and system daemon have been removed. You can move the app to the Trash.",
             )?;
             Ok(true)
         }
         Err(err) => {
-            show_error_window(&format!("Failed to uninstall Whats Going On:\n\n{err}"))?;
+            show_error_window(&format!("Failed to uninstall Rieul:\n\n{err}"))?;
             Ok(false)
         }
     }
 }
 
 fn source_app_bundle_path() -> Result<Option<PathBuf>> {
-    if let Some(path) = env::var_os("WGO_APP_BUNDLE_PATH").map(PathBuf::from) {
+    if let Some(path) = env::var_os("RIEUL_APP_BUNDLE_PATH").map(PathBuf::from) {
         return Ok(Some(path));
     }
 

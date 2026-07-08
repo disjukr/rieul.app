@@ -3,10 +3,10 @@
   <assemblyIdentity
     version="1.0.0.0"
     processorArchitecture="*"
-    name="WhatsGoingOn.WindowsDaemon"
+    name="Rieul.WindowsDaemon"
     type="win32"
   />
-  <description>Whats Going On Windows daemon</description>
+  <description>Rieul Windows daemon</description>
   <dependency>
     <dependentAssembly>
       <assemblyIdentity

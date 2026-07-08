@@ -15,7 +15,7 @@ import { MachineContextMenu } from "./machine-context-menu.tsx";
 import { MachineRail } from "./machine-rail.tsx";
 
 const projectLogoUrl = new URL(
-  "../../assets/wgo.svg",
+  "../../assets/rieul.svg",
   import.meta.url,
 ).href;
 

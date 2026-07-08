@@ -1,6 +1,6 @@
 use std::process::Command;
 
-use wgo_daemon_core::traits::ServiceError;
+use rieul_daemon_core::traits::ServiceError;
 
 const LSOF: &str = "/usr/sbin/lsof";
 

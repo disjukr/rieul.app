@@ -3,7 +3,7 @@ set -euo pipefail
 
 VERSION=""
 OUT_DIR=""
-APP_NAME="Whats Going On"
+APP_NAME="Rieul"
 SIGN_IDENTITY=""
 SKIP_BUILD=0
 SKIP_DMG=0
@@ -15,7 +15,7 @@ Usage: scripts/macos/package-daemon-dmg.sh [options]
 Options:
   --version VERSION      Package version. Defaults to daemon/macos/Cargo.toml.
   --out-dir DIR         Output directory. Defaults to dist/macos.
-  --app-name NAME       App bundle display name. Defaults to "Whats Going On".
+  --app-name NAME       App bundle display name. Defaults to "Rieul".
   --sign IDENTITY       Code signing identity for codesign.
   --skip-build          Reuse target/release daemon binaries.
   --skip-dmg            Build only the .app bundle.
@@ -41,7 +41,7 @@ new_icns_from_svg() {
   mkdir -p "$iconset_dir"
 
   local renderer_path
-  if ! renderer_path="$(mktemp "${TMPDIR:-/tmp}/wgo-render-macos-icon.XXXXXX")"; then
+  if ! renderer_path="$(mktemp "${TMPDIR:-/tmp}/rieul-render-macos-icon.XXXXXX")"; then
     echo "Warning: failed to create temporary icon renderer; continuing without .icns." >&2
     return 1
   fi
@@ -178,12 +178,12 @@ if [[ -z "$OUT_DIR" ]]; then
 fi
 
 if [[ "$SKIP_BUILD" != "1" ]]; then
-  (cd "$REPO_ROOT" && cargo build -p wgo-macos-daemon --release --bins)
+  (cd "$REPO_ROOT" && cargo build -p rieul-macos-daemon --release --bins)
 fi
 
 RELEASE_DIR="$REPO_ROOT/target/release"
-SYSTEM_EXE="$RELEASE_DIR/wgo-macos-system"
-USER_EXE="$RELEASE_DIR/wgo-macos-user"
+SYSTEM_EXE="$RELEASE_DIR/rieul-macos-system"
+USER_EXE="$RELEASE_DIR/rieul-macos-user"
 if [[ ! -x "$SYSTEM_EXE" ]]; then
   echo "Missing release binary: $SYSTEM_EXE" >&2
   exit 1
@@ -193,18 +193,18 @@ if [[ ! -x "$USER_EXE" ]]; then
   exit 1
 fi
 
-SYSTEM_LABEL="com.disjukr.whats-going-on.system"
-USER_LABEL="com.disjukr.whats-going-on.user"
-APP_SUPPORT_DIR="/Library/Application Support/wgo"
+SYSTEM_LABEL="app.rieul.system"
+USER_LABEL="app.rieul.user"
+APP_SUPPORT_DIR="/Library/Application Support/rieul"
 BIN_DIR="$APP_SUPPORT_DIR/bin"
-LOG_DIR="/Library/Logs/wgo"
+LOG_DIR="/Library/Logs/rieul"
 SYSTEM_PLIST="/Library/LaunchDaemons/$SYSTEM_LABEL.plist"
 USER_PLIST="/Library/LaunchAgents/$USER_LABEL.plist"
 APP_DEST="/Applications/$APP_NAME.app"
-SYSTEM_DAEMON_EXE="$BIN_DIR/wgo-macos-system"
-APP_USER_LAUNCHER="$APP_DEST/Contents/MacOS/wgo-macos-app"
+SYSTEM_DAEMON_EXE="$BIN_DIR/rieul-macos-system"
+APP_USER_LAUNCHER="$APP_DEST/Contents/MacOS/rieul-macos-app"
 
-PACKAGE_BASE_NAME="wgo-macos-daemon-$VERSION"
+PACKAGE_BASE_NAME="rieul-macos-daemon-$VERSION"
 STAGING_DIR="$OUT_DIR/$PACKAGE_BASE_NAME-app"
 APP_PATH="$STAGING_DIR/$APP_NAME.app"
 DMG_ROOT="$STAGING_DIR/dmg"
@@ -220,30 +220,30 @@ mkdir -p \
   "$APP_PATH/Contents/Resources" \
   "$DMG_ROOT"
 
-install -m 0755 "$USER_EXE" "$APP_PATH/Contents/Resources/wgo-macos-user"
-install -m 0755 "$SYSTEM_EXE" "$APP_PATH/Contents/Resources/wgo-macos-system"
-install -m 0644 "$REPO_ROOT/wgo.svg" "$APP_PATH/Contents/Resources/wgo.svg"
+install -m 0755 "$USER_EXE" "$APP_PATH/Contents/Resources/rieul-macos-user"
+install -m 0755 "$SYSTEM_EXE" "$APP_PATH/Contents/Resources/rieul-macos-system"
+install -m 0644 "$REPO_ROOT/rieul.svg" "$APP_PATH/Contents/Resources/rieul.svg"
 APP_ICON_PLIST=""
 if new_icns_from_svg \
-  "$REPO_ROOT/wgo.svg" \
-  "$APP_PATH/Contents/Resources/wgo.icns" \
-  "$STAGING_DIR/wgo.iconset"; then
+  "$REPO_ROOT/rieul.svg" \
+  "$APP_PATH/Contents/Resources/rieul.icns" \
+  "$STAGING_DIR/rieul.iconset"; then
   APP_ICON_PLIST="  <key>CFBundleIconFile</key>
-  <string>wgo</string>"
+  <string>rieul</string>"
 fi
 
-cat >"$APP_PATH/Contents/MacOS/wgo-macos-app" <<EOF
+cat >"$APP_PATH/Contents/MacOS/rieul-macos-app" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
 
 CONTENTS_DIR="\$(cd "\$(dirname "\$0")/.." && pwd)"
-export WGO_APP_BUNDLE_PATH="\$CONTENTS_DIR/.."
-export WGO_APP_INSTALL_PATH="$APP_DEST"
-export WGO_SYSTEM_LABEL="$SYSTEM_LABEL"
-export WGO_USER_LABEL="$USER_LABEL"
-exec "\$CONTENTS_DIR/Resources/wgo-macos-user" run
+export RIEUL_APP_BUNDLE_PATH="\$CONTENTS_DIR/.."
+export RIEUL_APP_INSTALL_PATH="$APP_DEST"
+export RIEUL_SYSTEM_LABEL="$SYSTEM_LABEL"
+export RIEUL_USER_LABEL="$USER_LABEL"
+exec "\$CONTENTS_DIR/Resources/rieul-macos-user" run
 EOF
-chmod 0755 "$APP_PATH/Contents/MacOS/wgo-macos-app"
+chmod 0755 "$APP_PATH/Contents/MacOS/rieul-macos-app"
 
 cat >"$APP_PATH/Contents/MacOS/install" <<EOF
 #!/usr/bin/env bash
@@ -293,7 +293,7 @@ if [[ "\$SOURCE_APP" != "\$DEST_APP" ]]; then
 fi
 /usr/sbin/chown -R root:wheel "\$DEST_APP"
 
-/usr/bin/install -m 0755 -o root -g wheel "\$DEST_APP/Contents/Resources/wgo-macos-system" "\$SYSTEM_DAEMON_EXE"
+/usr/bin/install -m 0755 -o root -g wheel "\$DEST_APP/Contents/Resources/rieul-macos-system" "\$SYSTEM_DAEMON_EXE"
 
 /bin/cp "\$DEST_APP/Contents/Resources/\$SYSTEM_LABEL.plist" "\$SYSTEM_PLIST"
 /usr/sbin/chown root:wheel "\$SYSTEM_PLIST"
@@ -312,8 +312,8 @@ if [[ -n "\$console_uid" ]]; then
   /bin/launchctl asuser "\$console_uid" /bin/launchctl kickstart -k "gui/\$console_uid/\$USER_LABEL" >/dev/null 2>&1 || true
 fi
 
-echo "Installed Whats Going On."
-echo "Config: $APP_SUPPORT_DIR/wgo.yaml"
+echo "Installed Rieul."
+echo "Config: $APP_SUPPORT_DIR/rieul.yaml"
 echo "System daemon: $SYSTEM_DAEMON_EXE"
 echo "Logs: $LOG_DIR"
 EOF
@@ -332,7 +332,7 @@ SYSTEM_PLIST="$SYSTEM_PLIST"
 USER_PLIST="$USER_PLIST"
 SYSTEM_DAEMON_EXE="$SYSTEM_DAEMON_EXE"
 
-echo "Uninstalling Whats Going On daemons"
+echo "Uninstalling Rieul daemons"
 /bin/launchctl bootout system "\$SYSTEM_PLIST" >/dev/null 2>&1 || true
 
 console_user="\$(/usr/bin/stat -f %Su /dev/console 2>/dev/null || true)"
@@ -351,7 +351,7 @@ echo "The app bundle and configuration files were left in place."
 EOF
 
 chmod 0755 \
-  "$APP_PATH/Contents/MacOS/wgo-macos-app" \
+  "$APP_PATH/Contents/MacOS/rieul-macos-app" \
   "$APP_PATH/Contents/MacOS/install" \
   "$APP_PATH/Contents/MacOS/uninstall"
 
@@ -365,9 +365,9 @@ cat >"$APP_PATH/Contents/Info.plist" <<EOF
   <key>CFBundleDisplayName</key>
   <string>$APP_NAME</string>
   <key>CFBundleExecutable</key>
-  <string>wgo-macos-app</string>
+  <string>rieul-macos-app</string>
   <key>CFBundleIdentifier</key>
-  <string>com.disjukr.whats-going-on</string>
+  <string>app.rieul</string>
 $APP_ICON_PLIST
   <key>CFBundleInfoDictionaryVersion</key>
   <string>6.0</string>
@@ -454,9 +454,9 @@ plutil -lint \
 
 if [[ -n "$SIGN_IDENTITY" ]]; then
   codesign --force --options runtime --timestamp --sign "$SIGN_IDENTITY" \
-    "$APP_PATH/Contents/Resources/wgo-macos-system"
+    "$APP_PATH/Contents/Resources/rieul-macos-system"
   codesign --force --options runtime --timestamp --sign "$SIGN_IDENTITY" \
-    "$APP_PATH/Contents/Resources/wgo-macos-user"
+    "$APP_PATH/Contents/Resources/rieul-macos-user"
   codesign --force --options runtime --timestamp --sign "$SIGN_IDENTITY" \
     "$APP_PATH"
 fi

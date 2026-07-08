@@ -353,7 +353,7 @@ function createRpcSessionController(
 
   async function openRpcSession(machine: Machine): Promise<ManagedRpcSession> {
     const session = manageRpcSession(
-      await openWebTransport(machine, "/rpc"),
+      await openWebTransport(machine),
       setDatagramRtt,
     );
     if (closed) {

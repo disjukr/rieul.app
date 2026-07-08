@@ -1,8 +1,8 @@
 use std::collections::BTreeSet;
 use std::path::Path;
 
-use wgo_daemon_core::rpc::{ProcessModuleInfo, ProcessModuleKind};
-use wgo_daemon_core::traits::{BoxFutureResult, ProcessModulesService, ServiceError};
+use rieul_daemon_core::rpc::{ProcessModuleInfo, ProcessModuleKind};
+use rieul_daemon_core::traits::{BoxFutureResult, ProcessModulesService, ServiceError};
 
 use crate::process_lsof::{ensure_process_exists, run_lsof, LsofEntry};
 

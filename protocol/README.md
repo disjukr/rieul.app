@@ -1,14 +1,14 @@
-# wgo protocol
+# rieul protocol
 
 This directory contains the protocol contracts shared by the daemon and web
 client. The protocol is split into narrow layers so each document has one job.
 
 ## Layers
 
-- `wgo-cbor` defines the deterministic CBOR profile and schema-to-CBOR mapping.
-- `wgo-wire` defines byte-level envelopes carried over WebTransport reqres
+- `rieul-cbor` defines the deterministic CBOR profile and schema-to-CBOR mapping.
+- `rieul-wire` defines byte-level envelopes carried over WebTransport reqres
   streams and datagrams.
-- `wgo-rpc` defines RPC proc ids, stream shapes, payload schema selection, and
+- `rieul-rpc` defines RPC proc ids, stream shapes, payload schema selection, and
   method-level error unions.
 - `schemas/rpc` defines domain RPC contracts such as pairing, filesystem, and
   terminal methods.
@@ -21,7 +21,7 @@ client. The protocol is split into narrow layers so each document has one job.
 WebTransport. It does not mean the whole transport stack, and it does not define
 domain method payloads.
 
-`wgo-wire` currently has two envelope shapes:
+`rieul-wire` currently has two envelope shapes:
 
 - `reqres`: reliable request/response-direction exchanges carried inside one
   WebTransport bidirectional stream.
@@ -139,7 +139,7 @@ application-level request-end or response-end messages.
 
 ## Session Control
 
-Session authentication is part of `wgo-wire`, not an application RPC proc. A
+Session authentication is part of `rieul-wire`, not an application RPC proc. A
 client authenticates the WebTransport session by sending `SessionAuthenticate`
 on a session-control stream. The mechanism name identifies the authentication
 profile, and the payload is mechanism-specific deterministic CBOR bytes.

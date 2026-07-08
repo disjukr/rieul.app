@@ -4,11 +4,11 @@ import { cva } from "class-variance-authority";
 import { className as joinClassName } from "../class-name.ts";
 
 const tooltipPopupVariants = cva([
-  "z-[40] rounded-[var(--wgo-radius-md)] bg-[var(--wgo-bg-inverse)] text-[var(--wgo-text-inverse)]",
+  "z-[40] rounded-[var(--rieul-radius-md)] bg-[var(--rieul-bg-inverse)] text-[var(--rieul-text-inverse)]",
   "px-[9px] py-[6px] text-[12px] font-650 leading-none",
-  "shadow-[var(--wgo-shadow-tooltip)]",
+  "shadow-[var(--rieul-shadow-tooltip)]",
 ]);
-const tooltipArrowClassName = "fill-[var(--wgo-bg-inverse)]";
+const tooltipArrowClassName = "fill-[var(--rieul-bg-inverse)]";
 
 interface AppTooltipProps {
   children: ReactElement;

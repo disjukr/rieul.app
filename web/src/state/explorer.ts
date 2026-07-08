@@ -22,7 +22,7 @@ import { rpcSessionBunja } from "./rpc-session.ts";
 import { StreamState } from "./types.ts";
 
 export const ExplorerPaneScope = createScope<string>();
-export const trashLocationPath = "wgo://trash";
+export const trashLocationPath = "rieul://trash";
 
 export type ExplorerSpecialLocation = "trash";
 
@@ -490,7 +490,7 @@ function explorerNavigationStorageKey(
   machineId: string | undefined,
   paneScopeId: string,
 ): string {
-  return `wgo.explorer.navigation.${machineId ?? "none"}.${paneScopeId}.v2`;
+  return `rieul.explorer.navigation.${machineId ?? "none"}.${paneScopeId}.v2`;
 }
 
 export function copyExplorerNavigationState(

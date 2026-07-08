@@ -2,8 +2,8 @@
 mod platform {
     use std::mem::size_of;
 
-    use wgo_daemon_core::rpc::{ProcessModuleInfo, ProcessModuleKind};
-    use wgo_daemon_core::traits::{BoxFutureResult, ProcessModulesService, ServiceError};
+    use rieul_daemon_core::rpc::{ProcessModuleInfo, ProcessModuleKind};
+    use rieul_daemon_core::traits::{BoxFutureResult, ProcessModulesService, ServiceError};
     use windows::core::Error as WindowsError;
     use windows::Win32::Foundation::{CloseHandle, HANDLE};
     use windows::Win32::System::Diagnostics::ToolHelp::{

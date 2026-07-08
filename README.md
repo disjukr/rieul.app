@@ -1,6 +1,8 @@
-# whats-going-on (wgo)
+# rieul.app (rieul)
 
 An AI-era remote shell/explorer prototype.
+
+The project repository and public web domain are both `rieul.app`.
 
 The product-level model is one daemon per machine. Internally each OS backend
 can choose the process topology that fits that OS. The first backend is Windows
@@ -16,9 +18,9 @@ and uses a system service plus a per-user tray daemon.
 - `protocol`: BDL schemas, RPC/wire standards, and protocol docs.
 - `web`: Vite + React + TypeScript browser client, managed with Deno.
 
-See `protocol/README.md` for protocol layer terminology. In short, `wgo-wire` is
-the byte-level envelope family carried over WebTransport reqres streams and
-datagrams, and `wgo-rpc` defines proc ids, stream shapes, payload schemas, and
+See `protocol/README.md` for protocol layer terminology. In short, `rieul-wire`
+is the byte-level envelope family carried over WebTransport reqres streams and
+datagrams, and `rieul-rpc` defines proc ids, stream shapes, payload schemas, and
 method errors.
 
 ## Development
@@ -32,7 +34,7 @@ deno task windows:dev:daemons
 Dev daemon scripts listen on `0.0.0.0:9019` by default so they can run next to a
 release daemon using the product default port `9012`.
 
-If `tmp/dev/system-wgo.yaml` does not exist, the system daemon creates it. When
+If `tmp/dev/rieul.yaml` does not exist, the system daemon creates it. When
 Tailscale is installed, the generated config uses `tailscale status --json` to
 prefill `domain` from this machine's MagicDNS name. Otherwise, edit that file
 and set `domain` to the Windows machine's Tailscale hostname, or add explicit
@@ -46,7 +48,7 @@ Run the macOS daemon pair in dev mode. The system daemon is launched with
 deno task macos:dev:daemons
 ```
 
-Use the same generated `tmp/dev/system-wgo.yaml` flow for macOS.
+Use the same generated `tmp/dev/rieul.yaml` flow for macOS.
 
 Stop any detached dev daemons:
 
@@ -84,8 +86,8 @@ config:
 ```yaml
 domain: pc.example.com
 tls:
-  certFile: /etc/wgo/cert.pem
-  keyFile: /etc/wgo/key.pem
+  certFile: /etc/rieul/cert.pem
+  keyFile: /etc/rieul/key.pem
 ```
 
 If `domain` ends in `.ts.net` and `tls` is omitted, the daemon runs
@@ -129,8 +131,8 @@ deno task windows:package:daemon
 ```
 
 The default Windows packaging task uses WiX Toolset to write
-`dist/windows/wgo-windows-daemon-<version>.msi`. Install the .NET SDK first; the
-script restores the repo-local WiX CLI tool and required WiX extensions
+`dist/windows/rieul-windows-daemon-<version>.msi`. Install the .NET SDK first;
+the script restores the repo-local WiX CLI tool and required WiX extensions
 automatically when `wix` is not already on `PATH`.
 
 ```sh
@@ -142,17 +144,17 @@ Install the MSI from an elevated prompt, or double-click it and accept the UAC
 prompt:
 
 ```sh
-msiexec /i .\dist\windows\wgo-windows-daemon-0.1.0.msi
+msiexec /i .\dist\windows\rieul-windows-daemon-0.1.0.msi
 ```
 
-The MSI installs `wgo-windows-system.exe` and `wgo-windows-user.exe` under
-`%ProgramFiles%\WhatsGoingOn`, registers `wgo-windows-system` as an automatic
+The MSI installs `rieul-windows-system.exe` and `rieul-windows-user.exe` under
+`%ProgramFiles%\Rieul`, registers `rieul-windows-system` as an automatic
 LocalSystem service, starts the service during install, launches the tray app
 once when install finishes, creates a Start Menu shortcut for the tray app, and
 adds an HKLM Run entry so the tray app starts on user logon. The installer uses
 the standard WiX wizard UI, including a completion dialog. Daemon data under
-`%ProgramData%\WhatsGoingOn` is intentionally outside the install directory and
-is not removed by uninstall.
+`%ProgramData%\Rieul` is intentionally outside the install directory and is not
+removed by uninstall.
 
 The MSI is intentionally unsigned for now. Windows may still show an unknown
 publisher or SmartScreen warning for downloaded installers, but MSI packaging
@@ -167,7 +169,7 @@ Build the older development MSIX package:
 deno task windows:package:daemon:msix
 ```
 
-The MSIX script stages `wgo-windows-system.exe`, `wgo-windows-user.exe`,
+The MSIX script stages `rieul-windows-system.exe`, `rieul-windows-user.exe`,
 generated app icons, and an `AppxManifest.xml`, then invokes the Windows SDK
 `MakeAppx.exe` tool. By default it also creates a development code-signing
 certificate and signs the package. The generated `.cer` must be trusted on the
@@ -179,19 +181,19 @@ deno task windows:trust:daemon:dev-cert
 ```
 
 ```sh
-Add-AppxPackage .\dist\windows\wgo-windows-daemon-0.1.0.msix
+Add-AppxPackage .\dist\windows\rieul-windows-daemon-0.1.0.msix
 ```
 
-After installing, launch Whats Going On from the Start menu once if you want the
-tray icon immediately.
+After installing, launch Rieul from the Start menu once if you want the tray
+icon immediately.
 
-Passing `-SkipSign` writes `wgo-windows-daemon-0.1.0.unsigned.msix` so it cannot
-accidentally replace the signed installable package.
+Passing `-SkipSign` writes `rieul-windows-daemon-0.1.0.unsigned.msix` so it
+cannot accidentally replace the signed installable package.
 
-The MSIX manifest declares `wgo-windows-system.exe` as a delayed-start
-LocalSystem packaged service and `wgo-windows-user.exe` as the interactive tray
-app. Uninstalling the package removes the packaged service and app binaries.
-Daemon data under `%ProgramData%\WhatsGoingOn` is intentionally outside the
+The MSIX manifest declares `rieul-windows-system.exe` as a delayed-start
+LocalSystem packaged service and `rieul-windows-user.exe` as the interactive
+tray app. Uninstalling the package removes the packaged service and app
+binaries. Daemon data under `%ProgramData%\Rieul` is intentionally outside the
 package and is not removed by MSIX uninstall.
 
 For production signing, pass `-CertificatePath` and `-CertificatePassword` to
@@ -205,33 +207,33 @@ Build a macOS app bundle and DMG:
 deno task macos:package:daemon
 ```
 
-The DMG contains `Whats Going On.app` and an `/Applications` shortcut, laid out
-for the usual drag-to-install flow. The app bundle is the per-user tray app and
+The DMG contains `Rieul.app` and an `/Applications` shortcut, laid out for the
+usual drag-to-install flow. The app bundle is the per-user tray app and
 installer controller.
 
 On first launch from the DMG, the app prompts to install itself. Accepting the
 prompt copies the app to `/Applications`, installs the privileged system daemon
-under `/Library/Application Support/wgo/bin`, installs the LaunchDaemon and
+under `/Library/Application Support/rieul/bin`, installs the LaunchDaemon and
 LaunchAgent plists, and starts the daemon pair. macOS asks for an administrator
 password because the system daemon runs through `/Library/LaunchDaemons`.
 
 The app bundle also exposes Docker Desktop-style CLI entry points:
 
 ```sh
-/Applications/Whats Going On.app/Contents/MacOS/install
-/Applications/Whats Going On.app/Contents/MacOS/uninstall
+/Applications/Rieul.app/Contents/MacOS/install
+/Applications/Rieul.app/Contents/MacOS/uninstall
 ```
 
 The installed system config lives at:
 
 ```sh
-/Library/Application Support/wgo/wgo.yaml
+/Library/Application Support/rieul/rieul.yaml
 ```
 
 Logs are written under:
 
 ```sh
-/Library/Logs/wgo
+/Library/Logs/rieul
 ```
 
 For Developer ID signing, pass a signing identity to the script:

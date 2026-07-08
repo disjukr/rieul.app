@@ -16,7 +16,7 @@ const inspectorClassName = [
   "p-[10px] backdrop-blur-2xl",
 ].join(" ");
 const inspectorTitleClassName =
-  "mb-[8px] flex items-center justify-between px-[2px] text-[11px] font-700 leading-none text-wgo-text-3/82";
+  "mb-[8px] flex items-center justify-between px-[2px] text-[11px] font-700 leading-none text-rieul-text-3/82";
 const inspectorTitleMetaClassName =
   "rounded-[999px] bg-[rgba(47,109,246,0.08)] px-[6px] py-[3px] text-[10.5px] font-660 normal-case text-[rgba(35,84,168,0.82)]";
 const detailsClassName = "grid content-start gap-[8px]";
@@ -28,26 +28,26 @@ const detailsSummaryClassName = [
 const detailsIconClassName =
   "grid h-[30px] w-[30px] place-items-center rounded-[7px] border border-[rgba(255,255,255,0.58)] bg-[rgba(247,247,248,0.48)] text-[rgba(47,82,145,0.78)] [&_svg]:h-[17px] [&_svg]:w-[17px]";
 const detailsTitleClassName =
-  "min-w-0 max-w-full overflow-hidden text-ellipsis whitespace-nowrap text-[14px] font-740 text-wgo-text";
+  "min-w-0 max-w-full overflow-hidden text-ellipsis whitespace-nowrap text-[14px] font-740 text-rieul-text";
 const detailsMetaClassName =
-  "min-w-0 max-w-full overflow-hidden text-ellipsis whitespace-nowrap text-[12px] font-560 text-wgo-text-3";
+  "min-w-0 max-w-full overflow-hidden text-ellipsis whitespace-nowrap text-[12px] font-560 text-rieul-text-3";
 const objectActionButtonClassName = [
   "inline-flex h-[24px] min-h-[24px] appearance-none items-center justify-center gap-[4px]",
   "rounded-[6px] border border-[rgba(47,109,246,0.16)] bg-[rgba(47,109,246,0.075)]",
   "px-[7px] text-[11.5px] font-700 text-[rgba(35,84,168,0.88)] [font-family:inherit]",
   "shadow-[inset_0_1px_0_rgba(255,255,255,0.76)]",
-  "cursor-pointer wgo-transition",
+  "cursor-pointer rieul-transition",
   "hover:border-[rgba(47,109,246,0.24)] hover:bg-[rgba(47,109,246,0.11)] hover:text-[rgba(25,70,152,0.98)]",
-  "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-wgo-focus",
+  "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-rieul-focus",
 ].join(" ");
 const detailsSectionTitleClassName =
-  "px-[2px] pt-[2px] text-[11px] font-700 leading-none text-wgo-text-3/82";
+  "px-[2px] pt-[2px] text-[11px] font-700 leading-none text-rieul-text-3/82";
 const detailsListClassName = [
   "grid m-0 gap-0 px-[2px]",
   "[&_div]:grid [&_div]:grid-cols-[68px_minmax(0,1fr)] [&_div]:items-baseline [&_div]:gap-[9px]",
   "[&_div]:border-b [&_div]:border-b-[rgba(18,25,38,0.045)] [&_div]:py-[5px] [&_div:last-child]:border-b-0",
-  "[&_dt]:m-0 [&_dt]:text-[11px] [&_dt]:font-620 [&_dt]:text-wgo-text-3",
-  "[&_dd]:m-0 [&_dd]:min-w-0 [&_dd]:overflow-hidden [&_dd]:text-ellipsis [&_dd]:text-[12.5px] [&_dd]:font-620 [&_dd]:text-wgo-text-2",
+  "[&_dt]:m-0 [&_dt]:text-[11px] [&_dt]:font-620 [&_dt]:text-rieul-text-3",
+  "[&_dd]:m-0 [&_dd]:min-w-0 [&_dd]:overflow-hidden [&_dd]:text-ellipsis [&_dd]:text-[12.5px] [&_dd]:font-620 [&_dd]:text-rieul-text-2",
 ].join(" ");
 const modalBackdropClassName =
   "fixed inset-0 z-[20] grid place-items-center bg-[rgb(32_36_45_/_42%)] p-[24px]";

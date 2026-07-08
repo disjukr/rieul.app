@@ -6,9 +6,9 @@ import "virtual:uno.css";
 import View from "./view/index.tsx";
 
 const rootHost = globalThis as typeof globalThis & {
-  __wgoReactRoot?: ReturnType<typeof createRoot>;
+  __rieulReactRoot?: ReturnType<typeof createRoot>;
 };
-const reactRoot = rootHost.__wgoReactRoot ??= createRoot(
+const reactRoot = rootHost.__rieulReactRoot ??= createRoot(
   document.getElementById("root")!,
 );
 

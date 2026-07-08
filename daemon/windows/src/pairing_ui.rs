@@ -1,8 +1,8 @@
 use anyhow::Result;
+use rieul_daemon_core::config::{daemon_status_path, load_or_default, SystemConfig, TlsConfig};
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
-use wgo_daemon_core::config::{daemon_status_path, load_or_default, SystemConfig, TlsConfig};
 
 #[cfg(windows)]
 use windows::Win32::Foundation::HWND;
@@ -105,7 +105,7 @@ pub fn show_daemon_info_owned(model: &DaemonInfoWindowModel, owner: HWND) -> Res
 }
 
 pub fn show_error_window(message: &str) -> Result<()> {
-    show_message_box("wgo error", message)
+    show_message_box("rieul error", message)
 }
 
 fn default_daemon_url(config: &SystemConfig) -> String {
@@ -325,7 +325,7 @@ mod task_dialog {
         copy_button_label: &str,
         owner: HWND,
     ) -> Result<()> {
-        let window_title = wide_null("Whats Going On");
+        let window_title = wide_null("Rieul");
         let main_instruction = wide_null(title);
         let content = wide_null(text);
         let copy_button_text = wide_null(copy_button_label);
@@ -373,7 +373,7 @@ mod task_dialog {
         options: &[String],
         owner: HWND,
     ) -> Result<Option<String>> {
-        let window_title = wide_null("Whats Going On");
+        let window_title = wide_null("Rieul");
         let main_instruction = wide_null(title);
         let content = wide_null(text);
         let option_texts: Vec<Vec<u16>> = options.iter().map(|option| wide_null(option)).collect();

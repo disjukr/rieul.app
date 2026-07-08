@@ -1,24 +1,33 @@
 use std::net::SocketAddr;
 use std::path::PathBuf;
+#[cfg(target_os = "macos")]
 use std::sync::Arc;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use tracing::info;
-use wgo_daemon_core::config::{
+#[cfg(target_os = "macos")]
+use rieul_daemon_core::config::{
     client_credentials_path, load_or_generated_default, macos_system_config_path, save,
     SystemConfig,
 };
-use wgo_daemon_host::server::run_system_server;
-use wgo_macos_daemon::fs::MacFileService;
-use wgo_macos_daemon::ipc::MacUserPairingNotifier;
-use wgo_macos_daemon::process_modules::MacProcessModulesService;
-use wgo_macos_daemon::process_resources::MacProcessResourcesInUseService;
-use wgo_macos_daemon::process_sockets::MacProcessSocketsInUseService;
+#[cfg(target_os = "macos")]
+use rieul_daemon_host::server::run_system_server;
+#[cfg(target_os = "macos")]
+use rieul_macos_daemon::fs::MacFileService;
+#[cfg(target_os = "macos")]
+use rieul_macos_daemon::ipc::MacUserPairingNotifier;
+#[cfg(target_os = "macos")]
+use rieul_macos_daemon::process_modules::MacProcessModulesService;
+#[cfg(target_os = "macos")]
+use rieul_macos_daemon::process_resources::MacProcessResourcesInUseService;
+#[cfg(target_os = "macos")]
+use rieul_macos_daemon::process_sockets::MacProcessSocketsInUseService;
+#[cfg(target_os = "macos")]
+use tracing::info;
 
 #[derive(Debug, Parser)]
-#[command(name = "wgo-macos-system")]
-#[command(about = "macOS system daemon for whats-going-on")]
+#[command(name = "rieul-macos-system")]
+#[command(about = "macOS system daemon for rieul")]
 struct Args {
     #[command(subcommand)]
     command: Command,
@@ -58,6 +67,7 @@ enum ServiceCommand {
 }
 
 #[tokio::main]
+#[cfg(target_os = "macos")]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
@@ -114,6 +124,12 @@ async fn main() -> Result<()> {
     }
 }
 
+#[cfg(not(target_os = "macos"))]
+fn main() -> Result<()> {
+    anyhow::bail!("macOS system daemon is only available on macOS")
+}
+
+#[cfg(target_os = "macos")]
 fn default_pairing_url(config: &SystemConfig, listen: SocketAddr) -> String {
     let port = listen.port();
     if let Some(domain) = config

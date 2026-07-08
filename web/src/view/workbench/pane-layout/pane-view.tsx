@@ -73,9 +73,9 @@ const workbenchPaneOuterClassName = [
   "[&:not(.active)_.workbench-pane-actions]:opacity-54",
   "[&:not(.active)_.file-row.selected]:bg-[rgba(62,84,116,0.09)]",
   "[&:not(.active)_.file-row.selected]:shadow-none",
-  "[&:not(.active)_.file-row.selected_.file-cell]:text-wgo-text-2",
+  "[&:not(.active)_.file-row.selected_.file-cell]:text-rieul-text-2",
   "[&.active_.workbench-pane-surface]:after:border-[3px]",
-  "[&.active_.workbench-pane-surface]:after:border-wgo-focus",
+  "[&.active_.workbench-pane-surface]:after:border-rieul-focus",
   "max-[680px]:m-0 max-[680px]:h-full max-[680px]:w-full",
   "max-[680px]:rounded-none",
   "max-[680px]:[&_.workbench-pane-surface]:after:hidden",
@@ -101,7 +101,7 @@ const workbenchPaneHeadClassName = [
   "max-[680px]:px-[4px]",
 ].join(" ");
 const paneHandleClassName =
-  "flex items-center justify-center self-stretch text-wgo-muted cursor-grab max-[680px]:hidden";
+  "flex items-center justify-center self-stretch text-rieul-muted cursor-grab max-[680px]:hidden";
 const workbenchTabsClassName = [
   "flex h-full min-w-0 flex-1 items-center gap-[4px] overflow-x-auto overflow-y-visible",
   "[scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
@@ -116,7 +116,7 @@ const paneActionButtonGroupClassName =
   "inline-flex h-[28px] items-center gap-[4px] box-border p-0";
 const paneOverflowMenuWrapClassName = "relative flex h-full";
 const compactIconButtonClassName =
-  "!w-[28px] !min-w-[28px] !h-full !min-h-0 !box-border !rounded-wgo-sm !p-0 !border-transparent !bg-transparent !text-wgo-text-3 hover:!border-transparent hover:!bg-white/24 hover:!text-wgo-text";
+  "!w-[28px] !min-w-[28px] !h-full !min-h-0 !box-border !rounded-rieul-sm !p-0 !border-transparent !bg-transparent !text-rieul-text-3 hover:!border-transparent hover:!bg-white/24 hover:!text-rieul-text";
 const buttonGroupFirstClassName = "";
 const buttonGroupLastClassName = "";
 const standaloneButtonClassName = "!rounded-[4px]";
@@ -125,15 +125,15 @@ const paneOverflowMenuClassName = "top-full right-0 z-[12] w-[172px]";
 const tabContextMenuWidth = 168;
 const paneOverflowMenuItemClassName = "";
 const paneMobileTabMenuDividerClassName =
-  "hidden max-[680px]:block border-t border-t-wgo-border";
+  "hidden max-[680px]:block border-t border-t-rieul-border";
 const paneMobileTabMenuItemClassName = "hidden max-[680px]:inline-flex";
 const workbenchPaneBodyClassName = [
   "workbench-pane-body relative w-full h-full min-w-0 min-h-0 overflow-hidden",
   "rounded-[12px] border border-white/58 bg-[rgba(253,253,253,0.94)]",
   "max-[680px]:rounded-none max-[680px]:border-x-0 max-[680px]:border-b-0",
   "before:content-[''] before:absolute before:z-[4]",
-  "before:border-2 before:border-wgo-accent",
-  "before:bg-wgo-accent-muted before:opacity-0 before:pointer-events-none",
+  "before:border-2 before:border-rieul-accent",
+  "before:bg-rieul-accent-muted before:opacity-0 before:pointer-events-none",
   "[&.tab-split-left::before]:top-0 [&.tab-split-left::before]:bottom-0",
   "[&.tab-split-left::before]:left-0 [&.tab-split-left::before]:w-1/2",
   "[&.tab-split-left::before]:opacity-100",
@@ -153,27 +153,27 @@ const workbenchTabPageClassName = [
   "[&[hidden]]:hidden",
 ].join(" ");
 const closeConfirmBackdropClassName =
-  "fixed inset-0 z-[20] grid place-items-center bg-wgo-overlay p-[24px]";
+  "fixed inset-0 z-[20] grid place-items-center bg-rieul-overlay p-[24px]";
 const closeConfirmModalClassName = [
-  "w-[min(420px,100%)] overflow-hidden border border-wgo-border",
-  "rounded-wgo-xl bg-wgo-surface shadow-wgo-lg",
+  "w-[min(420px,100%)] overflow-hidden border border-rieul-border",
+  "rounded-rieul-xl bg-rieul-surface shadow-rieul-lg",
 ].join(" ");
 const closeConfirmHeadClassName = [
-  "flex items-center justify-between gap-[12px] border-b border-b-wgo-border",
+  "flex items-center justify-between gap-[12px] border-b border-b-rieul-border",
   "px-[16px] py-[14px]",
   "[&_div]:grid [&_div]:gap-[2px] [&_div]:min-w-0",
-  "[&_span]:text-wgo-text-3 [&_span]:text-[13px] [&_span]:font-600",
-  "[&_h2]:m-0 [&_h2]:text-wgo-text [&_h2]:text-[18px] [&_h2]:tracking-[0]",
+  "[&_span]:text-rieul-text-3 [&_span]:text-[13px] [&_span]:font-600",
+  "[&_h2]:m-0 [&_h2]:text-rieul-text [&_h2]:text-[18px] [&_h2]:tracking-[0]",
 ].join(" ");
 const closeConfirmIconButtonClassName = "!w-[36px] !min-w-[36px] !p-0";
 const closeConfirmBodyClassName = [
   "grid gap-[14px] p-[16px]",
-  "[&_p]:m-0 [&_p]:text-wgo-text-2 [&_p]:text-[14px]",
+  "[&_p]:m-0 [&_p]:text-rieul-text-2 [&_p]:text-[14px]",
 ].join(" ");
 const closeConfirmActionsClassName = "flex justify-end gap-[8px]";
 const closeConfirmDangerButtonClassName = [
-  "border-wgo-danger bg-wgo-danger-soft text-wgo-danger",
-  "hover:border-wgo-danger hover:bg-wgo-danger-soft hover:text-wgo-danger",
+  "border-rieul-danger bg-rieul-danger-soft text-rieul-danger",
+  "hover:border-rieul-danger hover:bg-rieul-danger-soft hover:text-rieul-danger",
 ].join(" ");
 
 export function WorkbenchPaneView(

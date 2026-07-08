@@ -10,11 +10,7 @@ use std::time::Duration;
 
 use anyhow::Result;
 use chrono::{DateTime, TimeZone};
-use rrule::{Frequency, RRuleSet, Tz};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::process::{ChildStdin, Command};
-use tokio::sync::{oneshot, watch, Mutex};
-use wgo_daemon_core::rpc::{
+use rieul_daemon_core::rpc::{
     BulkJobMutationRes, BulkScheduleMutationRes, ClearJobsReq, ClearJobsRunningPolicy,
     ClearJobsScope, CommandExit, CommandExitReason, CommandLaunchSpec, CommandOutputCapture,
     CommandStdin, CreateJobReq, CreateScheduleReq, DeleteJobsReq, DeleteSchedulesReq,
@@ -24,6 +20,10 @@ use wgo_daemon_core::rpc::{
     ScheduleNextRunsContinuation, SubscribeJobOutputReq, SubscribeJobsReq, SubscribeSchedulesReq,
     UpdateScheduleReq,
 };
+use rrule::{Frequency, RRuleSet, Tz};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::process::{ChildStdin, Command};
+use tokio::sync::{oneshot, watch, Mutex};
 
 use crate::state_db::{DaemonStateDb, StoredJobOutput};
 
@@ -1702,7 +1702,7 @@ fn datetime_to_unix_ms(datetime: DateTime<Tz>) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wgo_daemon_core::rpc::{JobLogOptions, ScheduledJobOptions};
+    use rieul_daemon_core::rpc::{JobLogOptions, ScheduledJobOptions};
 
     async fn wait_for_job_exit(manager: &CommandManager, job_id: &str) -> JobInfo {
         for _ in 0..100 {

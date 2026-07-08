@@ -22,7 +22,7 @@ console.log("connected");
 function parseArgs(argv: string[]): Args {
   const args: Args = {
     config: decodeURIComponent(
-      new URL("../../../tmp/dev/system-wgo.yaml", import.meta.url).pathname,
+      new URL("../../../tmp/dev/rieul.yaml", import.meta.url).pathname,
     ),
     timeoutMs: 10_000,
   };
@@ -50,7 +50,7 @@ function parseArgs(argv: string[]): Args {
 function printHelp() {
   console.log(`Usage:
   deno task check:daemon
-  deno run --unstable-net --allow-net --allow-read=.. src/tools/check-daemon.ts [--url https://localhost:9019] [--config ../tmp/dev/system-wgo.yaml]
+  deno run --unstable-net --allow-net --allow-read=.. src/tools/check-daemon.ts [--url https://localhost:9019] [--config ../tmp/dev/rieul.yaml]
 `);
 }
 
@@ -95,7 +95,7 @@ function rpcEndpoint(raw: string): string {
   if (url.protocol !== "https:") {
     throw new Error("WebTransport URL must use https");
   }
-  if (url.pathname === "/" || url.pathname === "") url.pathname = "/rpc";
+  if (url.pathname === "/" || url.pathname === "") url.pathname = "/rieul/rpc";
   return url.toString();
 }
 

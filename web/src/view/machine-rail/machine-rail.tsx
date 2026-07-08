@@ -18,7 +18,7 @@ interface MachineRailProps {
 
 const machineRailClassName = [
   "[grid-column:1] [grid-row:2] grid [grid-template-rows:48px_minmax(0,1fr)_auto]",
-  "justify-items-center gap-0 min-h-0 overflow-hidden bg-[var(--wgo-shell-bg)] p-0",
+  "justify-items-center gap-0 min-h-0 overflow-hidden bg-[var(--rieul-shell-bg)] p-0",
 ].join(" ");
 const railBrandClassName = [
   "flex items-center justify-center w-[48px] h-[48px] overflow-visible",
@@ -31,25 +31,25 @@ const railListClassName = [
 const railItemFrameClassName = "grid h-[48px] w-full place-items-center";
 const railMachineClassName = [
   "relative inline-flex appearance-none items-center justify-center w-[36px] min-w-[36px] h-[36px] min-h-[36px]",
-  "cursor-pointer border-0 rounded-full bg-[var(--wgo-shell-item-bg)] text-[var(--wgo-shell-text)] p-0",
+  "cursor-pointer border-0 rounded-full bg-[var(--rieul-shell-item-bg)] text-[var(--rieul-shell-text)] p-0",
   "[font-family:inherit]",
   "[transition:border-radius_140ms_ease,background_140ms_ease,color_140ms_ease]",
-  "hover:rounded-[13px] hover:bg-[var(--wgo-shell-item-bg)] hover:text-[var(--wgo-shell-text)]",
-  "[&.active]:rounded-[13px] [&.active]:bg-[var(--wgo-accent)] [&.active]:text-[var(--wgo-text-inverse)]",
+  "hover:rounded-[13px] hover:bg-[var(--rieul-shell-item-bg)] hover:text-[var(--rieul-shell-text)]",
+  "[&.active]:rounded-[13px] [&.active]:bg-[var(--rieul-accent)] [&.active]:text-[var(--rieul-text-inverse)]",
   "[&:hover_.rail-indicator]:h-[18px]",
   "[&.active_.rail-indicator]:h-[28px]",
 ].join(" ");
 const railIndicatorClassName = [
   "rail-indicator absolute left-[-6px] w-[3px] h-0 rounded-[0_999px_999px_0]",
-  "bg-[var(--wgo-bg-primary)] [transition:height_140ms_ease]",
+  "bg-[var(--rieul-bg-primary)] [transition:height_140ms_ease]",
 ].join(" ");
 const machineAvatarClassName = "text-[12px] font-750 tracking-[0]";
 const railActionClassName = [
   "relative inline-flex appearance-none items-center justify-center w-[36px] min-w-[36px] h-[36px] min-h-[36px]",
-  "cursor-pointer border-0 rounded-full bg-[var(--wgo-shell-item-bg)] text-[var(--wgo-shell-success)] p-0",
+  "cursor-pointer border-0 rounded-full bg-[var(--rieul-shell-item-bg)] text-[var(--rieul-shell-success)] p-0",
   "[font-family:inherit]",
   "[transition:border-radius_140ms_ease,background_140ms_ease,color_140ms_ease]",
-  "hover:rounded-[13px] hover:bg-[var(--wgo-accent)] hover:text-[var(--wgo-text-inverse)]",
+  "hover:rounded-[13px] hover:bg-[var(--rieul-accent)] hover:text-[var(--rieul-text-inverse)]",
 ].join(" ");
 const railActionFrameClassName = "grid h-[48px] w-full place-items-center";
 export function MachineRail(
@@ -65,8 +65,8 @@ export function MachineRail(
   return (
     <>
       <aside className={machineRailClassName} aria-label="Machine switcher">
-        <div className={railBrandClassName} title="wgo">
-          <img src={projectLogoUrl} alt="wgo" />
+        <div className={railBrandClassName} title="rieul">
+          <img src={projectLogoUrl} alt="rieul" />
         </div>
 
         <nav className={railListClassName} aria-label="Machines">

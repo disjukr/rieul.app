@@ -9,39 +9,39 @@ import { AddMachineForm } from "./add-machine-form.tsx";
 const machineModalFormClassName = [
   "grid gap-[0.5rem] p-[16px]",
   "[&_label]:grid [&_label]:gap-[0.5rem] [&_label]:min-w-0",
-  "[&_label_span]:text-wgo-text-2 [&_label_span]:text-[13px] [&_label_span]:font-600",
-  "[&_input]:min-w-0 [&_input]:min-h-[34px] [&_input]:border [&_input]:border-wgo-border-medium",
-  "[&_input]:rounded-wgo-md [&_input]:bg-wgo-surface [&_input]:px-[10px] [&_input]:text-wgo-text",
+  "[&_label_span]:text-rieul-text-2 [&_label_span]:text-[13px] [&_label_span]:font-600",
+  "[&_input]:min-w-0 [&_input]:min-h-[34px] [&_input]:border [&_input]:border-rieul-border-medium",
+  "[&_input]:rounded-rieul-md [&_input]:bg-rieul-surface [&_input]:px-[10px] [&_input]:text-rieul-text",
   "[&_input]:[font:inherit] [&_input:focus]:outline [&_input:focus]:outline-2",
-  "[&_input:focus]:outline-wgo-accent [&_input:focus]:outline-offset-1",
+  "[&_input:focus]:outline-rieul-accent [&_input:focus]:outline-offset-1",
 ].join(" ");
 const modalMachineSummaryClassName = [
-  "grid gap-[0.5rem] min-w-0 border border-wgo-border rounded-wgo-lg",
-  "bg-wgo-surface-2 p-[10px]",
+  "grid gap-[0.5rem] min-w-0 border border-rieul-border rounded-rieul-lg",
+  "bg-rieul-surface-2 p-[10px]",
   "[&_strong]:min-w-0 [&_strong]:overflow-hidden [&_strong]:text-ellipsis",
-  "[&_strong]:whitespace-nowrap [&_strong]:text-wgo-text [&_strong]:text-[14px]",
+  "[&_strong]:whitespace-nowrap [&_strong]:text-rieul-text [&_strong]:text-[14px]",
   "[&_span]:min-w-0 [&_span]:overflow-hidden [&_span]:text-ellipsis",
-  "[&_span]:whitespace-nowrap [&_span]:text-wgo-text-3 [&_span]:text-[13px]",
+  "[&_span]:whitespace-nowrap [&_span]:text-rieul-text-3 [&_span]:text-[13px]",
 ].join(" ");
-const fieldErrorClassName = "text-wgo-danger text-[13px]";
+const fieldErrorClassName = "text-rieul-danger text-[13px]";
 const modalActionsClassName = "flex justify-end gap-[0.5rem]";
-const modalWarningClassName = "m-0 text-wgo-text-2 text-[13px]";
+const modalWarningClassName = "m-0 text-rieul-text-2 text-[13px]";
 const dangerActionClassName = [
-  "border-wgo-danger bg-wgo-danger-soft text-wgo-danger",
-  "hover:border-wgo-danger hover:bg-wgo-danger-soft hover:text-wgo-danger",
+  "border-rieul-danger bg-rieul-danger-soft text-rieul-danger",
+  "hover:border-rieul-danger hover:bg-rieul-danger-soft hover:text-rieul-danger",
 ].join(" ");
 const pairingControlClassName = [
-  "flex items-center justify-between gap-[0.5rem] rounded-wgo-lg",
-  "border border-wgo-border bg-wgo-surface-2 px-[10px] py-[8px]",
+  "flex items-center justify-between gap-[0.5rem] rounded-rieul-lg",
+  "border border-rieul-border bg-rieul-surface-2 px-[10px] py-[8px]",
 ].join(" ");
 const pairingStepClassName = [
-  "grid min-h-[174px] place-items-center gap-[0.5rem] rounded-wgo-lg",
-  "border border-wgo-border bg-wgo-surface px-[16px] py-[18px] text-center",
+  "grid min-h-[174px] place-items-center gap-[0.5rem] rounded-rieul-lg",
+  "border border-rieul-border bg-rieul-surface px-[16px] py-[18px] text-center",
 ].join(" ");
 const confirmationCodeClassName = [
-  "grid h-[96px] min-w-[156px] place-items-center rounded-wgo-lg",
-  "border border-wgo-border-medium bg-wgo-surface-2 px-[18px]",
-  "font-800 text-wgo-text text-[56px] leading-none tracking-[0]",
+  "grid h-[96px] min-w-[156px] place-items-center rounded-rieul-lg",
+  "border border-rieul-border-medium bg-rieul-surface-2 px-[18px]",
+  "font-800 text-rieul-text text-[56px] leading-none tracking-[0]",
 ].join(" ");
 
 interface MachineModalProps {
@@ -290,9 +290,9 @@ function PairingRestartControl(
 ) {
   return (
     <div className={pairingControlClassName}>
-      <span className="flex min-w-0 items-center gap-[0.5rem] text-wgo-text-2 text-[13px]">
+      <span className="flex min-w-0 items-center gap-[0.5rem] text-rieul-text-2 text-[13px]">
         <span className="shrink-0">Pairing to</span>
-        <strong className="min-w-0 truncate font-700 text-wgo-text">
+        <strong className="min-w-0 truncate font-700 text-rieul-text">
           {machineName}
         </strong>
       </span>
@@ -315,19 +315,19 @@ function PairingConfirmationStep(
   return (
     <section className={pairingStepClassName}>
       <div className="grid justify-items-center gap-[0.5rem]">
-        <span className="text-wgo-text-2 text-[13px] font-600">
+        <span className="text-rieul-text-2 text-[13px] font-600">
           Confirmation code
         </span>
         <div className={confirmationCodeClassName}>
           {confirmationCode ?? "--"}
         </div>
       </div>
-      <p className="m-0 max-w-[320px] text-wgo-text-3 text-[14px] leading-[1.45]">
+      <p className="m-0 max-w-[320px] text-rieul-text-3 text-[14px] leading-[1.45]">
         Select this code on the daemon to reveal the pairing code.
       </p>
       {isRequestingPairingCode
         ? (
-          <div className="flex items-center gap-[0.5rem] text-wgo-text-2 text-[13px]">
+          <div className="flex items-center gap-[0.5rem] text-rieul-text-2 text-[13px]">
             <Loader2 size={14} className="animate-spin" />
             Waiting for confirmation
           </div>
@@ -366,12 +366,12 @@ function PairingCodeStep(
       {pairingCodeExpiresInSeconds !== undefined
         ? pairingCodeExpiresInSeconds <= 0
           ? (
-            <p className="m-0 text-wgo-danger text-[13px]">
+            <p className="m-0 text-rieul-danger text-[13px]">
               Pairing code expired. Restart pairing.
             </p>
           )
           : (
-            <p className="m-0 text-wgo-text-3 text-[13px]">
+            <p className="m-0 text-rieul-text-3 text-[13px]">
               Pairing code expires in{" "}
               {formatRemainingTime(pairingCodeExpiresInSeconds)}.
             </p>

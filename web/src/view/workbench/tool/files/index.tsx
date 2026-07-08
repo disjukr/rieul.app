@@ -59,8 +59,8 @@ import { filesToolBunja } from "./state.ts";
 
 const emptyWorkspaceClassName = [
   "grid content-center justify-items-center w-full h-full gap-[10px]",
-  "min-h-0 text-wgo-text-3",
-  "[&_h2]:m-0 [&_h2]:text-wgo-text [&_h2]:text-[18px] [&_h2]:tracking-[0]",
+  "min-h-0 text-rieul-text-3",
+  "[&_h2]:m-0 [&_h2]:text-rieul-text [&_h2]:text-[18px] [&_h2]:tracking-[0]",
 ].join(" ");
 const explorerClassName = [
   "grid [grid-template-rows:auto_minmax(0,1fr)] gap-[5px]",
@@ -69,37 +69,37 @@ const explorerClassName = [
 ].join(" ");
 const entryContextMenuWidth = 176;
 const modalBackdropClassName =
-  "fixed inset-0 z-[20] grid place-items-center bg-wgo-overlay p-[24px]";
+  "fixed inset-0 z-[20] grid place-items-center bg-rieul-overlay p-[24px]";
 const modalClassName = [
-  "w-[min(460px,100%)] overflow-hidden border border-wgo-border",
-  "rounded-wgo-xl bg-wgo-surface shadow-wgo-lg",
+  "w-[min(460px,100%)] overflow-hidden border border-rieul-border",
+  "rounded-rieul-xl bg-rieul-surface shadow-rieul-lg",
 ].join(" ");
 const modalHeadClassName = [
-  "flex items-center justify-between gap-[12px] border-b border-b-wgo-border",
+  "flex items-center justify-between gap-[12px] border-b border-b-rieul-border",
   "px-[16px] py-[14px]",
   "[&_div]:grid [&_div]:gap-[2px] [&_div]:min-w-0",
-  "[&_span]:text-wgo-text-3 [&_span]:text-[13px] [&_span]:font-600",
-  "[&_h2]:m-0 [&_h2]:text-wgo-text [&_h2]:text-[18px] [&_h2]:tracking-[0]",
+  "[&_span]:text-rieul-text-3 [&_span]:text-[13px] [&_span]:font-600",
+  "[&_h2]:m-0 [&_h2]:text-rieul-text [&_h2]:text-[18px] [&_h2]:tracking-[0]",
 ].join(" ");
 const iconButtonClassName = "!w-[36px] !min-w-[36px] !p-0";
 const deleteDialogBodyClassName = [
   "grid gap-[12px] p-[16px]",
-  "[&_p]:m-0 [&_p]:text-wgo-text-2 [&_p]:text-[14px] [&_p]:leading-[1.45]",
+  "[&_p]:m-0 [&_p]:text-rieul-text-2 [&_p]:text-[14px] [&_p]:leading-[1.45]",
 ].join(" ");
 const entrySummaryClassName = [
-  "grid gap-[2px] min-w-0 border border-wgo-border rounded-wgo-lg",
-  "bg-wgo-surface-2 p-[10px]",
+  "grid gap-[2px] min-w-0 border border-rieul-border rounded-rieul-lg",
+  "bg-rieul-surface-2 p-[10px]",
   "[&_strong]:min-w-0 [&_strong]:overflow-hidden [&_strong]:text-ellipsis",
-  "[&_strong]:whitespace-nowrap [&_strong]:text-wgo-text [&_strong]:text-[14px]",
+  "[&_strong]:whitespace-nowrap [&_strong]:text-rieul-text [&_strong]:text-[14px]",
   "[&_span]:min-w-0 [&_span]:[overflow-wrap:anywhere]",
-  "[&_span]:text-wgo-text-3 [&_span]:text-[13px]",
+  "[&_span]:text-rieul-text-3 [&_span]:text-[13px]",
 ].join(" ");
 const modalActionsClassName = "flex justify-end gap-[8px]";
 const dangerActionClassName = [
-  "border-wgo-danger bg-wgo-danger-soft text-wgo-danger",
-  "hover:border-wgo-danger hover:bg-wgo-danger-soft hover:text-wgo-danger",
+  "border-rieul-danger bg-rieul-danger-soft text-rieul-danger",
+  "hover:border-rieul-danger hover:bg-rieul-danger-soft hover:text-rieul-danger",
 ].join(" ");
-const fieldErrorClassName = "text-wgo-danger text-[13px]";
+const fieldErrorClassName = "text-rieul-danger text-[13px]";
 
 interface EntryMenuState {
   entry: FsEntry;

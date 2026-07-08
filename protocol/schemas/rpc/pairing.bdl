@@ -1,4 +1,4 @@
-# standard - wgo-rpc
+# standard - rieul-rpc
 # description
 | Pairing RPC methods exchange a short-lived local code for persistent paired
 | client credentials. The daemon never exposes the pairing code over remote RPC.

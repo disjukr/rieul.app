@@ -1,6 +1,6 @@
-name: wgo Wire Standard
+name: rieul Wire Standard
 description: |-
-  BDL standard used for wgo wire/envelope messages. In wgo, "wire" means the
+  BDL standard used for rieul wire/envelope messages. In rieul, "wire" means the
   byte-level envelope family carried over WebTransport reqres streams and
   datagrams. It does not mean the whole WebTransport/QUIC stack and it does not
   define domain RPC payload contracts.
@@ -10,11 +10,11 @@ description: |-
   commands. The datagram envelope defines one-message WebTransport datagrams,
   starting with Ping and Pong probes.
 
-  All CBOR values in this layer use the deterministic wgo CBOR profile defined
-  in ./wgo-cbor.md.
+  All CBOR values in this layer use the deterministic rieul CBOR profile defined
+  in ./rieul-cbor.md.
 
   Normal reqres request/response direction completion is represented by
-  WebTransport stream half-close/EOF. wgo-wire does not define
+  WebTransport stream half-close/EOF. rieul-wire does not define
   application-level RequestEnd or ResponseEnd messages.
 
   Session authentication is represented by ReqResMessage session-control

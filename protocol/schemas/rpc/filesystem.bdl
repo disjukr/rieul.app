@@ -1,4 +1,4 @@
-# standard - wgo-rpc
+# standard - rieul-rpc
 # description
 | Filesystem RPC methods for the active user context. These methods require
 | valid paired client credentials. Read-side table state is exposed through
@@ -7,7 +7,7 @@
 | in that view. Mutating commands are best-effort bulk operations with per-item
 | results and no rollback guarantee; subscribed table events are the source of
 | truth for resulting filesystem state.
-| Authorization, routing, and malformed wire messages are wgo-wire envelope
+| Authorization, routing, and malformed wire messages are rieul-wire envelope
 | errors.
 
 @ description
@@ -229,7 +229,7 @@ struct DirectoryEntryKey {
 
 @ description
 | Terminal reason for a roots subscription. These are domain events, not
-| wgo-wire reqres stream errors.
+| rieul-wire reqres stream errors.
 union RootsSubscriptionCloseReason {
   @ id - 0
   Failed(),
@@ -243,7 +243,7 @@ union RootsSubscriptionCloseReason {
 
 @ description
 | Terminal reason for a directory subscription. These are domain events, not
-| wgo-wire reqres stream errors. Moved.to is present only when the daemon can
+| rieul-wire reqres stream errors. Moved.to is present only when the daemon can
 | determine the destination path reliably.
 union DirectorySubscriptionCloseReason {
   @ id - 0
@@ -270,7 +270,7 @@ union DirectorySubscriptionCloseReason {
 
 @ description
 | Terminal reason for a trash item subscription. These are domain events, not
-| wgo-wire reqres stream errors.
+| rieul-wire reqres stream errors.
 union TrashItemsSubscriptionCloseReason {
   @ id - 0
   Failed(),
