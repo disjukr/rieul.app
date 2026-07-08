@@ -59,46 +59,47 @@ import { filesToolBunja } from "./state.ts";
 
 const emptyWorkspaceClassName = [
   "grid content-center justify-items-center w-full h-full gap-[10px]",
-  "min-h-0 text-[#667085]",
-  "[&_h2]:m-0 [&_h2]:text-[#303642] [&_h2]:text-[18px] [&_h2]:tracking-[0]",
+  "min-h-0 text-wgo-text-3",
+  "[&_h2]:m-0 [&_h2]:text-wgo-text [&_h2]:text-[18px] [&_h2]:tracking-[0]",
 ].join(" ");
 const explorerClassName = [
-  "grid [grid-template-rows:auto_minmax(0,1fr)]",
-  "w-full h-full min-h-0 overflow-hidden",
+  "grid [grid-template-rows:auto_minmax(0,1fr)] gap-[5px]",
+  "w-full h-full min-h-0 overflow-hidden p-[6px]",
+  "bg-[rgba(247,247,248,0.72)]",
 ].join(" ");
 const entryContextMenuWidth = 176;
 const modalBackdropClassName =
-  "fixed inset-0 z-[20] grid place-items-center bg-[rgb(32_36_45_/_42%)] p-[24px]";
+  "fixed inset-0 z-[20] grid place-items-center bg-wgo-overlay p-[24px]";
 const modalClassName = [
-  "w-[min(460px,100%)] overflow-hidden border border-[#d8dde7]",
-  "rounded-[8px] bg-white [box-shadow:0_24px_72px_rgb(32_36_45_/_28%)]",
+  "w-[min(460px,100%)] overflow-hidden border border-wgo-border",
+  "rounded-wgo-xl bg-wgo-surface shadow-wgo-lg",
 ].join(" ");
 const modalHeadClassName = [
-  "flex items-center justify-between gap-[12px] border-b border-b-[#e4e8ef]",
+  "flex items-center justify-between gap-[12px] border-b border-b-wgo-border",
   "px-[16px] py-[14px]",
   "[&_div]:grid [&_div]:gap-[2px] [&_div]:min-w-0",
-  "[&_span]:text-[#667085] [&_span]:text-[12px] [&_span]:font-700",
-  "[&_h2]:m-0 [&_h2]:text-[#20242d] [&_h2]:text-[18px] [&_h2]:tracking-[0]",
+  "[&_span]:text-wgo-text-3 [&_span]:text-[13px] [&_span]:font-600",
+  "[&_h2]:m-0 [&_h2]:text-wgo-text [&_h2]:text-[18px] [&_h2]:tracking-[0]",
 ].join(" ");
 const iconButtonClassName = "!w-[36px] !min-w-[36px] !p-0";
 const deleteDialogBodyClassName = [
   "grid gap-[12px] p-[16px]",
-  "[&_p]:m-0 [&_p]:text-[#475467] [&_p]:text-[13px] [&_p]:leading-[1.45]",
+  "[&_p]:m-0 [&_p]:text-wgo-text-2 [&_p]:text-[14px] [&_p]:leading-[1.45]",
 ].join(" ");
 const entrySummaryClassName = [
-  "grid gap-[2px] min-w-0 border border-[#d8dde7] rounded-[8px]",
-  "bg-[#f7f8fb] p-[10px]",
+  "grid gap-[2px] min-w-0 border border-wgo-border rounded-wgo-lg",
+  "bg-wgo-surface-2 p-[10px]",
   "[&_strong]:min-w-0 [&_strong]:overflow-hidden [&_strong]:text-ellipsis",
-  "[&_strong]:whitespace-nowrap [&_strong]:text-[#20242d] [&_strong]:text-[13px]",
+  "[&_strong]:whitespace-nowrap [&_strong]:text-wgo-text [&_strong]:text-[14px]",
   "[&_span]:min-w-0 [&_span]:[overflow-wrap:anywhere]",
-  "[&_span]:text-[#667085] [&_span]:text-[12px]",
+  "[&_span]:text-wgo-text-3 [&_span]:text-[13px]",
 ].join(" ");
 const modalActionsClassName = "flex justify-end gap-[8px]";
 const dangerActionClassName = [
-  "border-[#f6c2bd] bg-[#fff4f2] text-[#b42318]",
-  "hover:border-[#f04438] hover:bg-[#fff2f0] hover:text-[#912018]",
+  "border-wgo-danger bg-wgo-danger-soft text-wgo-danger",
+  "hover:border-wgo-danger hover:bg-wgo-danger-soft hover:text-wgo-danger",
 ].join(" ");
-const fieldErrorClassName = "text-[#b42318] text-[12px]";
+const fieldErrorClassName = "text-wgo-danger text-[13px]";
 
 interface EntryMenuState {
   entry: FsEntry;
@@ -594,7 +595,7 @@ export function FilesTool() {
                     Rename
                   </FloatingMenuItem>
                   <FloatingMenuItem
-                    danger
+                    tone="danger"
                     onClick={() => openDeleteEntry(entryMenu.entry)}
                   >
                     <Trash2 size={15} />

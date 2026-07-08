@@ -3,16 +3,18 @@ import { Plus } from "lucide-react";
 import { Button } from "../ui/button.tsx";
 
 const machineModalFormClassName = [
-  "grid gap-[0.5rem] p-[16px]",
-  "[&_label]:grid [&_label]:gap-[0.5rem] [&_label]:min-w-0",
-  "[&_label_span]:text-[#475467] [&_label_span]:text-[1rem] [&_label_span]:font-700",
-  "[&_input]:min-w-0 [&_input]:min-h-[34px] [&_input]:border [&_input]:border-[#c7ceda]",
-  "[&_input]:rounded-[0.5rem] [&_input]:bg-white [&_input]:px-[1rem] [&_input]:text-[#20242d]",
+  "grid gap-[12px] p-[18px]",
+  "[&_label]:grid [&_label]:gap-[7px] [&_label]:min-w-0",
+  "[&_label_span]:text-wgo-text-2 [&_label_span]:text-[13px] [&_label_span]:font-700",
+  "[&_input]:min-w-0 [&_input]:min-h-[40px] [&_input]:border [&_input]:border-wgo-border-medium",
+  "[&_input]:rounded-wgo-lg [&_input]:bg-wgo-surface-2 [&_input]:px-[12px] [&_input]:text-wgo-text",
+  "[&_input]:shadow-[inset_0_1px_0_rgba(255,255,255,0.75)]",
   "[&_input]:[font:inherit] [&_input:focus]:outline [&_input:focus]:outline-2",
-  "[&_input:focus]:outline-[#4f8cff] [&_input:focus]:outline-offset-1",
+  "[&_input:focus]:bg-wgo-surface [&_input:focus]:outline-wgo-accent [&_input:focus]:outline-offset-1",
 ].join(" ");
-const fieldErrorClassName = "text-[#b42318] text-[1rem]";
-const modalActionsClassName = "flex justify-end gap-[0.5rem]";
+const fieldErrorClassName =
+  "rounded-wgo-lg bg-wgo-danger-soft px-[10px] py-[8px] text-wgo-danger text-[13px]";
+const modalActionsClassName = "mt-[4px] flex justify-end gap-[0.5rem]";
 
 interface AddMachineFormProps {
   baseUrl: string;
@@ -69,7 +71,10 @@ export function AddMachineForm(
             </Button>
           )
           : null}
-        <Button type="submit">
+        <Button
+          type="submit"
+          className="border-wgo-chrome bg-wgo-chrome px-[12px] !text-wgo-inverse hover:border-wgo-chrome hover:bg-wgo-chrome-muted hover:!text-wgo-inverse"
+        >
           <Plus size={16} />
           Continue
         </Button>

@@ -12,25 +12,26 @@ interface PathCrumbsProps {
 
 const pathInputFormClassName = [
   "min-w-0",
-  "[&_input]:w-full [&_input]:h-[2em] [&_input]:min-h-[2em]",
-  "[&_input]:min-w-0 [&_input]:box-border [&_input]:border [&_input]:border-[#c7ceda]",
-  "[&_input]:rounded-[3px] [&_input]:bg-white [&_input]:px-[6px] [&_input]:text-[#20242d]",
-  "[&_input]:[font:inherit] [&_input]:leading-[1.6]",
+  "[&_input]:w-full [&_input]:h-[23px] [&_input]:min-h-[23px]",
+  "[&_input]:min-w-0 [&_input]:box-border [&_input]:border [&_input]:border-wgo-border-medium",
+  "[&_input]:rounded-[6px] [&_input]:bg-white/74 [&_input]:px-[6px] [&_input]:text-wgo-text",
+  "[&_input]:[font:inherit] [&_input]:leading-[1.38]",
   "[&_input:focus]:outline-none",
 ].join(" ");
 const crumbsClassName = [
-  "flex items-center gap-0 w-full h-[2em] min-h-[2em] min-w-0",
-  "box-border leading-[1.6]",
+  "flex items-center gap-[1px] w-full h-[23px] min-h-[23px] min-w-0",
+  "box-border leading-[1.38]",
   "overflow-x-auto overflow-y-hidden overscroll-x-contain [scrollbar-width:none] cursor-text",
   "[&::-webkit-scrollbar]:hidden",
-  "[&_svg]:flex-[0_0_auto] [&_svg]:pointer-events-none",
+  "[&_svg]:flex-[0_0_auto] [&_svg]:pointer-events-none [&_svg]:text-wgo-text-3",
   "[&_button]:inline-flex [&_button]:appearance-none [&_button]:cursor-pointer",
   "[&_button]:items-center [&_button]:flex-[0_0_auto] [&_button]:[font-family:inherit]",
   "[&_button]:min-w-0 [&_button]:max-w-[180px]",
-  "[&_button]:h-[2em] [&_button]:min-h-[2em] [&_button]:overflow-hidden [&_button]:leading-[1.6]",
-  "[&_button]:box-border [&_button]:border-transparent [&_button]:bg-transparent [&_button]:px-[6px]",
-  "[&_button:hover]:bg-[#eef3fb] [&_button:hover]:text-[#20242d]",
-  "[&_button:focus-visible]:bg-[#eef3fb] [&_button:focus-visible]:outline-none",
+  "[&_button]:h-[21px] [&_button]:min-h-[21px] [&_button]:overflow-hidden [&_button]:leading-[1.38]",
+  "[&_button]:box-border [&_button]:rounded-wgo-sm [&_button]:border-transparent [&_button]:bg-transparent",
+  "[&_button]:px-[5px] [&_button]:text-[12.5px] [&_button]:text-wgo-text-2",
+  "[&_button:hover]:bg-white/42 [&_button:hover]:text-wgo-text",
+  "[&_button:focus-visible]:bg-white/42 [&_button:focus-visible]:outline-none",
   "[&_button]:text-ellipsis [&_button]:whitespace-nowrap",
 ].join(" ");
 

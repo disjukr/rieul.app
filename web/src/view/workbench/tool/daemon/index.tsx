@@ -63,27 +63,27 @@ const daemonHeaderClassName = [
 const summaryNoteClassName = "text-[#667085]";
 const procSectionClassName = "mt-[18px] min-w-0";
 const procSectionTitleClassName =
-  "mb-[8px] text-[1rem] font-800 uppercase text-[#667085]";
+  "mb-[8px] text-[1rem] font-800 text-[#667085]";
 const sectionTitleButtonClassName = [
   "mb-[8px] inline-flex h-[24px] appearance-none items-center gap-[3px] rounded-[0.5rem]",
   "cursor-pointer border-transparent bg-transparent px-[4px] text-[1rem]",
-  "font-800 uppercase text-[#667085] [font-family:inherit]",
+  "font-800 text-[#667085] [font-family:inherit]",
   "hover:bg-[#eef3fb] hover:text-[#344054]",
   "[&_svg]:flex-[0_0_auto]",
 ].join(" ");
 const clientsSectionClassName = "mt-[18px] min-w-0";
 const clientOverviewCardClassName = [
   "min-w-0 rounded-[8px] border border-[#d8dde7] bg-[#fbfcfe]",
-  "grid gap-[8px] px-[1rem] py-[1rem] text-[13px] text-[#667085]",
+  "grid gap-[8px] px-[1rem] py-[1rem] text-[14px] text-[#667085]",
 ].join(" ");
 const clientOverviewCurrentButtonClassName = [
   "grid min-w-0 appearance-none gap-[3px] rounded-[0.5rem] px-[8px] py-[7px] text-left",
   "cursor-pointer text-[#344054] hover:bg-[#eef3fb]",
   "[font-family:inherit]",
   "[&_strong]:min-w-0 [&_strong]:overflow-hidden [&_strong]:text-ellipsis",
-  "[&_strong]:whitespace-nowrap [&_strong]:text-[13px] [&_strong]:font-750",
+  "[&_strong]:whitespace-nowrap [&_strong]:text-[14px] [&_strong]:font-750",
   "[&_span]:min-w-0 [&_span]:overflow-hidden [&_span]:text-ellipsis",
-  "[&_span]:whitespace-nowrap [&_span]:text-[11px] [&_span]:text-[#667085]",
+  "[&_span]:whitespace-nowrap [&_span]:text-[12px] [&_span]:text-[#667085]",
 ].join(" ");
 const clientOverviewMetaClassName =
   "px-[8px] text-[1rem] font-650 text-[#667085]";
@@ -103,9 +103,9 @@ const clientButtonClassName = [
   "[font-family:inherit]",
   "[&.selected]:bg-[#e8eef7] [&.selected]:text-[#20242d]",
   "[&_strong]:min-w-0 [&_strong]:overflow-hidden [&_strong]:text-ellipsis",
-  "[&_strong]:whitespace-nowrap [&_strong]:text-[13px] [&_strong]:font-750",
+  "[&_strong]:whitespace-nowrap [&_strong]:text-[14px] [&_strong]:font-750",
   "[&_span]:min-w-0 [&_span]:overflow-hidden [&_span]:text-ellipsis",
-  "[&_span]:whitespace-nowrap [&_span]:text-[11px] [&_span]:text-[#667085]",
+  "[&_span]:whitespace-nowrap [&_span]:text-[12px] [&_span]:text-[#667085]",
 ].join(" ");
 const clientNameRowClassName = "flex min-w-0 items-center gap-[0.5rem]";
 const currentClientBadgeClassName = [
@@ -125,7 +125,7 @@ const clientDetailSectionHeaderClassName = [
   "border-b border-b-[#d8dde7] bg-[#fbfcfe] px-[1rem] py-[9px]",
   "[&_h2]:m-0 [&_h2]:min-w-0 [&_h2]:overflow-hidden",
   "[&_h2]:text-ellipsis [&_h2]:whitespace-nowrap",
-  "[&_h2]:text-[1rem] [&_h2]:font-800 [&_h2]:uppercase",
+  "[&_h2]:text-[1rem] [&_h2]:font-800",
   "[&_h2]:text-[#667085]",
   "[&_span]:flex-[0_0_auto] [&_span]:text-[1rem]",
   "[&_span]:font-650 [&_span]:text-[#667085]",
@@ -163,7 +163,7 @@ const procTableClassName = [
   "[&_div]:min-w-0 [&_div]:border-b [&_div]:border-b-[#edf0f5]",
   "[&_div:last-child]:border-b-0",
   "[&_span]:min-w-0 [&_span]:px-[1rem] [&_span]:py-[8px]",
-  "[&_span]:text-[13px] [&_span]:[overflow-wrap:anywhere]",
+  "[&_span]:text-[14px] [&_span]:[overflow-wrap:anywhere]",
   "[&_span:first-child]:bg-[#fbfcfe] [&_span:first-child]:font-700",
   "[&_span:first-child]:text-[#667085]",
 ].join(" ");
@@ -171,8 +171,8 @@ const messageStateClassName = [
   "grid h-full min-h-[220px] place-items-center text-center",
   "[&_div]:grid [&_div]:justify-items-center [&_div]:gap-[8px]",
   "[&_svg]:text-[#98a2b3]",
-  "[&_strong]:text-[14px] [&_strong]:text-[#20242d]",
-  "[&_p]:m-0 [&_p]:max-w-[420px] [&_p]:text-[13px] [&_p]:text-[#667085]",
+  "[&_strong]:text-[15px] [&_strong]:text-[#20242d]",
+  "[&_p]:m-0 [&_p]:max-w-[420px] [&_p]:text-[14px] [&_p]:text-[#667085]",
 ].join(" ");
 
 interface ClientsState {
@@ -1121,7 +1121,7 @@ interface InlineStateProps {
 
 function InlineState({ message }: InlineStateProps) {
   return (
-    <div className="min-w-0 rounded-[8px] border border-[#d8dde7] bg-[#fbfcfe] px-[1rem] py-[1rem] text-[13px] text-[#667085]">
+    <div className="min-w-0 rounded-[8px] border border-[#d8dde7] bg-[#fbfcfe] px-[1rem] py-[1rem] text-[14px] text-[#667085]">
       {message}
     </div>
   );

@@ -67,49 +67,62 @@ const SHELL_MENU_MAX_HEIGHT = 360;
 const SHELL_MENU_TRIGGER_GAP = 0;
 const FILES_MENU_WIDTH = 176;
 
-const toolMenuClassName =
-  "grid content-start gap-0 min-h-0 overflow-visible px-[0.5rem] py-[1rem]";
-const toolItemFrameClassName = "h-[48px] box-border py-[2px]";
+const toolMenuClassName = [
+  "grid content-start gap-[2px] min-h-0 overflow-visible px-[8px] py-[10px]",
+  "max-[680px]:flex max-[680px]:h-full max-[680px]:items-center max-[680px]:gap-[6px]",
+  "max-[680px]:overflow-x-auto max-[680px]:overflow-y-visible max-[680px]:px-[8px] max-[680px]:py-[7px]",
+  "max-[680px]:[scrollbar-width:none] max-[680px]:[&::-webkit-scrollbar]:hidden",
+].join(" ");
+const toolItemFrameClassName =
+  "h-[34px] box-border max-[680px]:h-[54px] max-[680px]:flex-[0_0_auto]";
 const toolItemRowClassName = [
-  "relative grid h-[48px] box-border py-[2px]",
-  "[grid-template-columns:minmax(0,1fr)_36px]",
+  "relative grid h-[34px] box-border",
+  "[grid-template-columns:minmax(0,1fr)_34px]",
+  "max-[680px]:h-[54px] max-[680px]:w-[78px] max-[680px]:flex-[0_0_78px]",
+  "max-[680px]:[grid-template-columns:minmax(0,1fr)]",
 ].join(" ");
 const toolItemClassName = [
   "inline-flex appearance-none items-center justify-start gap-[0.5rem]",
-  "w-full h-full min-h-0 border-0 rounded-[0.5rem]",
-  "cursor-pointer bg-transparent px-[0.5rem] text-left text-[#475467] [font-family:inherit]",
-  "hover:bg-[#eef3fb] hover:text-[#20242d]",
-  "[&.active]:bg-[#eef3fb] [&.active]:text-[#20242d]",
+  "w-full h-full min-h-0 border border-transparent rounded-wgo-sm",
+  "cursor-pointer bg-transparent px-[7px] text-left text-wgo-text-2 [font-family:inherit]",
+  "wgo-transition",
+  "hover:bg-white/38 hover:text-wgo-text",
+  "[&.active]:border-wgo-border [&.active]:bg-white/42 [&.active]:text-wgo-text",
+  "[&.active]:[box-shadow:0_1px_2px_rgba(18,25,38,0.08),inset_0_1px_0_rgba(255,255,255,0.62)]",
   "disabled:opacity-56",
+  "max-[680px]:w-[74px] max-[680px]:flex-col max-[680px]:justify-center max-[680px]:gap-[3px]",
+  "max-[680px]:px-[5px] max-[680px]:text-center max-[680px]:text-[11px] max-[680px]:leading-[1.1]",
+  "max-[680px]:[&.active]:[box-shadow:inset_0_3px_0_var(--wgo-accent),0_1px_2px_rgba(18,25,38,0.08)]",
   "[&_span]:min-w-0 [&_span]:overflow-hidden [&_span]:text-ellipsis",
-  "[&_span]:whitespace-nowrap [&_span]:font-700",
+  "[&_span]:whitespace-nowrap [&_span]:font-500",
 ].join(" ");
 const terminalMainButtonClassName = [
   toolItemClassName,
-  "rounded-r-[0.25rem]",
+  "rounded-wgo-sm max-[680px]:rounded-wgo-md",
 ].join(" ");
 const terminalDropdownButtonClassName = [
   "inline-flex appearance-none items-center justify-center",
-  "h-full min-h-0 w-[36px] min-w-[36px] p-0 rounded-l-[0.25re,] rounded-r-[0.5rem]",
-  "cursor-pointer border-0 bg-transparent text-[#475467] [font-family:inherit]",
-  "hover:bg-[#eef3fb] hover:text-[#20242d]",
-  "[&.active]:bg-[#eef3fb] [&.active]:text-[#20242d]",
+  "h-full min-h-0 w-[34px] min-w-[34px] p-0 rounded-wgo-sm",
+  "cursor-pointer border border-transparent bg-transparent text-wgo-text-2 [font-family:inherit]",
+  "hover:bg-white/38 hover:text-wgo-text",
+  "[&.active]:border-wgo-border [&.active]:bg-white/42 [&.active]:text-wgo-text",
+  "max-[680px]:hidden",
 ].join(" ");
 const shellMenuItemClassName = [
   "!grid min-w-0 grid-cols-[minmax(0,1fr)_auto] !gap-[0.5rem]",
 ].join(" ");
-const shellMenuDefaultItemClassName = "bg-[#eef3fb]";
+const shellMenuDefaultItemClassName = "bg-wgo-accent-soft";
 const shellMenuItemLabelClassName =
   "flex min-w-0 items-center gap-[0.5rem] text-left";
 const shellMenuShellNameClassName =
   "block min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-left";
 const shellMenuDefaultBadgeClassName = [
-  "rounded-[999px] bg-white px-[6px] py-[1px]",
-  "text-[10px] font-700 text-[#475467]",
+  "rounded-[999px] bg-wgo-surface px-[6px] py-[1px]",
+  "text-[11px] font-600 text-wgo-text-2",
 ].join(" ");
 const shellMenuCommandClassName = [
   "block max-w-[88px] min-w-0 overflow-hidden text-right",
-  "text-ellipsis whitespace-nowrap text-[#667085]",
+  "text-ellipsis whitespace-nowrap text-wgo-text-3",
 ].join(" ");
 
 interface ToolMenuProps {

@@ -27,7 +27,6 @@ export function MachineRailRegion() {
   const selectedId = useAtomValue(machineStore.selectedIdAtom);
   const machineMenu = useAtomValue(machineMenuState.machineMenuAtom);
   const menuMachine = useAtomValue(machineMenuState.menuMachineAtom);
-  const railTooltip = useAtomValue(machineMenuState.railTooltipAtom);
 
   useEffect(() => {
     if (!machineMenu) return;
@@ -61,15 +60,6 @@ export function MachineRailRegion() {
     machineMenuState.openMachineMenu(machine.id, event.clientX, event.clientY);
   }
 
-  function showRailTooltip(target: HTMLElement, name: string) {
-    const rect = target.getBoundingClientRect();
-    machineMenuState.showRailTooltip(
-      name,
-      rect.right + 12,
-      rect.top + rect.height / 2,
-    );
-  }
-
   function openConfigMachineModal(machine: Machine) {
     machineModal.openConfigMachineModal(machine.id);
   }
@@ -87,13 +77,10 @@ export function MachineRailRegion() {
       <MachineRail
         machines={machines}
         projectLogoUrl={projectLogoUrl}
-        railTooltip={railTooltip}
         selectedId={selectedId}
         onAddMachine={openAddMachineModal}
         onContextMenu={openMachineContextMenu}
-        onHideTooltip={machineMenuState.hideRailTooltip}
         onSelectMachine={machineMenuState.selectMachine}
-        onShowTooltip={showRailTooltip}
       />
 
       {machineMenu && menuMachine

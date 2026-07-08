@@ -170,7 +170,7 @@ const processesFooterClassName = [
 const processDetailScrollClassName = "min-h-0 flex-1 overflow-auto";
 const processDetailBodyClassName =
   "grid min-w-0 content-start gap-[14px] px-[18px] py-[16px]";
-const processDetailNoteClassName = "text-[12px] text-[#667085]";
+const processDetailNoteClassName = "text-[13px] text-[#667085]";
 const processDetailFooterClassName = [
   "flex h-[2rem] min-h-[2rem] items-center justify-end border-t border-t-[#d8dde7]",
   "bg-[#fbfcfe] px-[8px] leading-[1.6] text-[#667085]",

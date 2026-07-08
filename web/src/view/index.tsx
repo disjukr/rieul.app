@@ -1,11 +1,7 @@
 import React, { PropsWithChildren } from "react";
 import { useAtomValue } from "jotai";
 import { useBunja } from "bunja/react";
-import {
-  MachineModalHost,
-  MachinePanelRegion,
-} from "./machine-panel/index.tsx";
-import { MachineRailRegion } from "./machine-rail/index.tsx";
+import { MachineModalHost } from "./machine-panel/index.tsx";
 import { MachineBaseUrlContext, MachineIdContext } from "../state/machine.tsx";
 import { machineStoreBunja } from "../state/machine-store.ts";
 import { layoutBunja } from "./state.tsx";
@@ -14,25 +10,27 @@ import { WorkbenchRegion } from "./workbench/index.tsx";
 import { className } from "./class-name.ts";
 
 const appShellClassName = [
-  "app-shell grid h-full min-h-0 overflow-hidden bg-[#242832]",
-  "[grid-template-columns:48px_var(--machine-panel-width,264px)_minmax(0,1fr)]",
-  "[grid-template-rows:2em_minmax(0,1fr)]",
+  "app-shell relative isolate grid h-full min-h-0 overflow-hidden bg-wgo-canvas",
+  "[background:var(--wgo-canvas-background)]",
+  "[&>*]:relative [&>*]:z-[1]",
+  "[grid-template-columns:var(--rail-width,204px)_minmax(0,1fr)]",
+  "[grid-template-rows:minmax(0,1fr)]",
   "[&.machine-panel-transitioning]:[transition:grid-template-columns_180ms_ease]",
-  "max-[980px]:[grid-template-columns:48px_var(--machine-panel-width,236px)_minmax(0,1fr)]",
-  "max-[680px]:[grid-template-columns:48px_var(--machine-panel-width,212px)_minmax(0,1fr)]",
-  "[&.machine-panel-collapsed_.machine-panel]:pointer-events-none",
-  "[&.machine-panel-collapsed_.machine-panel]:border-r-0",
-  "[&.machine-panel-collapsed_.machine-panel]:rounded-tl-0",
-  "[&.machine-panel-collapsed_.workbench]:rounded-tl-[8px]",
+  "max-[980px]:[grid-template-columns:var(--rail-width,184px)_minmax(0,1fr)]",
+  "max-[680px]:![grid-template-columns:minmax(0,1fr)]",
+  "max-[680px]:![grid-template-rows:minmax(0,1fr)_76px]",
+  "[&.machine-panel-collapsed_.app-rail-label]:hidden",
+  "[&.machine-panel-collapsed_.app-rail-expanded]:hidden",
+  "[&.machine-panel-collapsed_.app-rail]:items-center",
+  "[&.machine-panel-collapsed_.workbench]:rounded-tl-wgo-2xl",
+  "max-[680px]:[&_.workbench]:![grid-column:1]",
 ].join(" ");
 
 export default function View() {
   return (
     <Layout>
       <SelectedMachineIdProvider>
-        <MachineRailRegion />
         <TopBarRegion />
-        <MachinePanelRegion />
         <WorkbenchRegion />
         <MachineModalHost />
       </SelectedMachineIdProvider>
@@ -51,7 +49,6 @@ function Layout({ children }: LayoutProps) {
   const machinePanelTransitioning = useAtomValue(
     layout.machinePanelTransitioningAtom,
   );
-  const machinePanelWidth = useAtomValue(layout.machinePanelWidthAtom);
 
   return (
     <main
@@ -61,10 +58,7 @@ function Layout({ children }: LayoutProps) {
         machinePanelTransitioning && "machine-panel-transitioning",
       )}
       style={{
-        "--machine-panel-width": machinePanelCollapsed
-          ? "0px"
-          : `${machinePanelWidth}px`,
-        "--machine-panel-open-width": `${machinePanelWidth}px`,
+        "--rail-width": machinePanelCollapsed ? "64px" : "204px",
       } as React.CSSProperties}
     >
       {children}

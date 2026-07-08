@@ -64,10 +64,7 @@ export function MachineContextMenu(
             Unpair
           </FloatingMenuItem>
         )}
-      <FloatingMenuItem
-        danger
-        onClick={() => onDelete(machine)}
-      >
+      <FloatingMenuItem tone="danger" onClick={() => onDelete(machine)}>
         <Trash2 size={15} />
         Delete
       </FloatingMenuItem>

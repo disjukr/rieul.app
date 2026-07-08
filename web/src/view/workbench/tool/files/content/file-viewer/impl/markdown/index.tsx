@@ -14,20 +14,20 @@ import { fileViewerBunja } from "../../state.tsx";
 const inlineOpenLimitBytes = 1024 * 1024;
 const fileViewerStatusClassName = [
   "flex items-center justify-center gap-[8px] min-w-0 min-h-0",
-  "text-[#667085] text-[13px]",
+  "text-[#667085] text-[14px]",
   "[&.error]:items-start [&.error]:justify-start [&.error]:overflow-auto",
   "[&.error]:text-[#b42318] [&.error]:p-[14px]",
 ].join(" ");
 const markdownContentClassName = [
   "markdown-viewer min-w-0 min-h-0 overflow-auto bg-white",
-  "px-[28px] py-[22px] text-[#20242d] text-[14px] leading-[1.65]",
+  "px-[28px] py-[22px] text-[#20242d] text-[15px] leading-[1.65]",
   "[&_>*:first-child]:mt-0 [&_>*:last-child]:mb-0",
   "[&_a]:text-[#2f6edc] [&_a]:font-650 [&_a]:underline",
   "[&_blockquote]:m-0 [&_blockquote]:my-[14px] [&_blockquote]:border-l-[3px]",
   "[&_blockquote]:border-l-[#cfd7e5] [&_blockquote]:pl-[14px]",
   "[&_blockquote]:text-[#475467]",
   "[&_code]:rounded-[4px] [&_code]:bg-[#eef2f7] [&_code]:px-[4px]",
-  "[&_code]:py-[1px] [&_code]:font-mono [&_code]:text-[13px]",
+  "[&_code]:py-[1px] [&_code]:font-mono [&_code]:text-[14px]",
   "[&_pre]:my-[14px] [&_pre]:overflow-auto [&_pre]:rounded-[6px]",
   "[&_pre]:bg-[#101828] [&_pre]:p-[14px] [&_pre]:text-[#f2f4f7]",
   "[&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_pre_code]:text-inherit",
@@ -41,7 +41,7 @@ const markdownContentClassName = [
   "[&_hr]:border-t-[#d8dde7]",
   "[&_li]:my-[4px] [&_ol]:pl-[24px] [&_ul]:pl-[24px]",
   "[&_p]:my-[11px]",
-  "[&_table]:my-[14px] [&_table]:border-collapse [&_table]:text-[13px]",
+  "[&_table]:my-[14px] [&_table]:border-collapse [&_table]:text-[14px]",
   "[&_td]:border [&_td]:border-[#d8dde7] [&_td]:px-[8px] [&_td]:py-[6px]",
   "[&_th]:border [&_th]:border-[#d8dde7] [&_th]:bg-[#fbfcfe]",
   "[&_th]:px-[8px] [&_th]:py-[6px] [&_th]:text-left",

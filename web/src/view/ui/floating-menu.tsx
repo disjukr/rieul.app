@@ -1,28 +1,57 @@
 import {
+  type ComponentPropsWithoutRef,
   type CSSProperties,
   type MouseEventHandler,
   type ReactNode,
   type RefObject,
   useEffect,
+  useMemo,
 } from "react";
+import { Menu } from "@base-ui/react/menu";
+import { cva, type VariantProps } from "class-variance-authority";
 import { className as joinClassName } from "../class-name.ts";
 
-const menuClassName = [
-  "grid gap-[2px] border border-[#d8dde7] bg-white",
-  "rounded-[4px] p-0",
-  "[box-shadow:0_18px_48px_rgb(32_36_45_/_24%)]",
-].join(" ");
-const fixedMenuClassName = "fixed";
-const absoluteMenuClassName = "absolute";
-const menuItemClassName = [
-  "inline-flex h-[2rem] min-h-[2rem] w-full appearance-none",
-  "items-center justify-start gap-[7px] rounded-0 border-0 bg-transparent",
-  "px-[8px] text-left text-[#20242d] [font:inherit]",
-  "cursor-pointer hover:bg-[#f2f6ff]",
-  "disabled:cursor-not-allowed disabled:opacity-48",
-].join(" ");
-const dangerMenuItemClassName =
-  "text-[#b42318] hover:bg-[#fff2f0] hover:text-[#912018]";
+const menuVariants = cva([
+  "grid gap-[2px] border border-[var(--wgo-border-light)]",
+  "bg-[var(--wgo-bg-primary)] rounded-[var(--wgo-radius-sm)] p-0",
+  "shadow-wgo-menu outline-none",
+]);
+const menuPositionerVariants = cva("z-[30]", {
+  variants: {
+    strategy: {
+      absolute: "absolute",
+      fixed: "fixed",
+    },
+  },
+  defaultVariants: {
+    strategy: "fixed",
+  },
+});
+const menuItemVariants = cva(
+  [
+    "inline-flex h-[2rem] min-h-[2rem] w-full appearance-none",
+    "items-center justify-start gap-[7px] rounded-0 border-0 bg-transparent",
+    "px-[8px] text-left [font:inherit]",
+    "cursor-pointer outline-none",
+    "data-[highlighted]:bg-[var(--wgo-bg-menu-hover)]",
+    "data-[disabled]:cursor-not-allowed data-[disabled]:opacity-48",
+  ],
+  {
+    variants: {
+      tone: {
+        danger: [
+          "text-[var(--wgo-danger)]",
+          "data-[highlighted]:bg-[var(--wgo-danger-soft-hover)]",
+          "data-[highlighted]:text-[var(--wgo-danger-hover)]",
+        ],
+        neutral: "text-[var(--wgo-text-primary)]",
+      },
+    },
+    defaultVariants: {
+      tone: "neutral",
+    },
+  },
+);
 const viewportMargin = 8;
 const menuBorderSize = 2;
 const menuPaddingBlock = 0;
@@ -36,6 +65,8 @@ export interface FloatingMenuPosition {
 }
 
 export interface FloatingMenuProps {
+  align?: "start" | "center" | "end";
+  anchorRef?: RefObject<Element | null>;
   children: ReactNode;
   className?: string;
   menuRef?: RefObject<HTMLDivElement | null>;
@@ -46,9 +77,14 @@ export interface FloatingMenuProps {
   onMouseDown?: MouseEventHandler<HTMLDivElement>;
 }
 
-export interface FloatingMenuItemProps
-  extends React.ButtonHTMLAttributes<HTMLButtonElement> {
-  danger?: boolean;
+export interface FloatingMenuItemProps extends
+  Omit<
+    ComponentPropsWithoutRef<typeof Menu.Item>,
+    "className"
+  >,
+  VariantProps<typeof menuItemVariants> {
+  className?: string;
+  type?: "button";
 }
 
 export interface FloatingMenuSize {
@@ -58,6 +94,8 @@ export interface FloatingMenuSize {
 
 export function FloatingMenu(
   {
+    align = "start",
+    anchorRef,
     children,
     className,
     menuRef,
@@ -68,37 +106,65 @@ export function FloatingMenu(
     onMouseDown,
   }: FloatingMenuProps,
 ) {
-  return (
-    <div
+  const virtualAnchor = useMemo(
+    () => position ? virtualAnchorFromPosition(position) : undefined,
+    [position],
+  );
+  const anchor = virtualAnchor ?? anchorRef;
+  const popup = (
+    <Menu.Popup
       ref={menuRef}
       className={joinClassName(
-        strategy === "fixed" ? fixedMenuClassName : absoluteMenuClassName,
-        menuClassName,
+        menuVariants(),
         className,
       )}
       role={role}
-      style={{ ...position, ...style }}
+      style={{ maxHeight: position?.maxHeight, ...style }}
+      finalFocus={false}
       onMouseDown={(event) => {
         event.stopPropagation();
         onMouseDown?.(event);
       }}
     >
       {children}
-    </div>
+    </Menu.Popup>
+  );
+
+  return (
+    <Menu.Root open modal={false}>
+      <Menu.Portal>
+        <Menu.Positioner
+          anchor={anchor}
+          align={align}
+          className={menuPositionerVariants({ strategy })}
+          collisionPadding={viewportMargin}
+          positionMethod={strategy}
+          side="bottom"
+        >
+          {popup}
+        </Menu.Positioner>
+      </Menu.Portal>
+    </Menu.Root>
   );
 }
 
+function virtualAnchorFromPosition(position: FloatingMenuPosition) {
+  return {
+    getBoundingClientRect() {
+      return new DOMRect(position.left, position.top, 0, 0);
+    },
+  };
+}
+
 export function FloatingMenuItem(
-  { className, danger, type = "button", ...props }: FloatingMenuItemProps,
+  { className, tone, type: _type = "button", ...props }: FloatingMenuItemProps,
 ) {
   return (
-    <button
+    <Menu.Item
       {...props}
-      type={type}
       role={props.role ?? "menuitem"}
       className={joinClassName(
-        menuItemClassName,
-        danger && dangerMenuItemClassName,
+        menuItemVariants({ tone }),
         className,
       )}
     />

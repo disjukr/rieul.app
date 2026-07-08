@@ -12,4 +12,3 @@ export type StreamState =
 
 export type MachineModalMode = "add" | "pair" | "config" | "delete";
 export type MachineMenuState = { machineId: string; x: number; y: number };
-export type RailTooltipState = { name: string; x: number; y: number };

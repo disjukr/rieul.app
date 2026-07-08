@@ -2,10 +2,24 @@ export interface Machine {
   id: string;
   name: string;
   baseUrl: string;
+  icon?: MachineIconName;
   clientId?: string;
   clientSecret?: string;
   clientCredentialExpiresAtUnix?: number;
 }
+
+export const machineIconNames = [
+  "monitor",
+  "laptop",
+  "server",
+  "cpu",
+  "hard-drive",
+  "router",
+  "circuit-board",
+  "pc-case",
+] as const;
+
+export type MachineIconName = typeof machineIconNames[number];
 
 const STORAGE_KEY = "wgo.machines.v1";
 const DEFAULT_MACHINE_PORT = "9012";
@@ -71,6 +85,7 @@ function normalizeMachine(item: unknown): Machine | undefined {
         ? record.name
         : new URL(normalizeMachineUrl(record.baseUrl)).hostname,
       baseUrl: normalizeMachineUrl(record.baseUrl),
+      icon: normalizeMachineIcon(record.icon),
       clientId: typeof record.clientId === "string"
         ? record.clientId
         : undefined,
@@ -87,6 +102,13 @@ function normalizeMachine(item: unknown): Machine | undefined {
   } catch {
     return undefined;
   }
+}
+
+function normalizeMachineIcon(value: unknown): MachineIconName | undefined {
+  return typeof value === "string" &&
+      machineIconNames.includes(value as MachineIconName)
+    ? value as MachineIconName
+    : undefined;
 }
 
 function normalizeStoredMachine(machine: Machine): Machine {

@@ -50,49 +50,42 @@ interface WorkbenchTabItemProps {
 }
 
 const workbenchTabClassName = [
-  "workbench-tab relative flex items-center min-w-0 max-w-[168px] h-full box-border leading-[1.6]",
-  "bg-[#eef1f5]",
+  "workbench-tab group relative flex flex-[0_0_auto] items-center min-w-[136px] max-w-[206px] h-[28px] box-border leading-none",
+  "max-[680px]:min-w-[72px] max-[680px]:max-w-[104px]",
+  "rounded-[999px] border border-transparent bg-transparent",
   "before:content-[''] before:absolute before:top-[4px] before:bottom-[4px]",
   "before:z-[2] before:w-[2px] before:rounded-full before:bg-transparent",
   "before:pointer-events-none before:left-0",
   "after:content-[''] after:absolute after:top-[4px] after:bottom-[4px]",
   "after:z-[2] after:w-[2px] after:rounded-full after:bg-transparent",
   "after:pointer-events-none after:right-0",
-  "[&.drop-before::before]:bg-[#4f8cff]",
-  "[&.drop-after::after]:bg-[#4f8cff]",
+  "[&.drop-before::before]:bg-wgo-accent",
+  "[&.drop-after::after]:bg-wgo-accent",
   "[&.dragging]:opacity-48",
-  "[&:not(.active)]:[box-shadow:inset_-1px_0_0_#e4e8ef]",
-  "[&.active]:bg-white",
-  "[&>button]:inline-flex [&>button]:appearance-none [&>button]:items-center",
-  "[&>button]:justify-center [&>button]:[font-family:inherit] [&>button]:leading-[1.6]",
-  "[&>button]:min-w-0 [&>button]:h-full [&>button]:min-h-0",
-  "[&>button]:cursor-pointer [&>button]:border-0 [&>button]:rounded-0 [&>button]:bg-transparent",
-  "[&>button]:px-[6px] [&>button]:text-[#344054]",
-  "[&>button]:font-700",
-  "[&>button:hover]:bg-transparent",
-  "[&>button[role='tab']]:justify-start",
-  "[&>button[role='tab']]:flex-[1_1_auto]",
-  "[&>button[role='tab']]:gap-[6px]",
-  "[&>button[role='tab']]:overflow-hidden",
-  "[&>button[role='tab']]:text-ellipsis",
-  "[&>button[role='tab']]:whitespace-nowrap",
-  "[&>button[role='tab']]:cursor-grab",
-  "[&>button[role='tab']:active]:cursor-grabbing",
-  "[&.active>button]:text-[#20242d]",
-  "[&_.tab-close]:flex-[0_0_auto] [&_.tab-close]:w-[2em]",
-  "[&_.tab-close]:min-w-[2em] [&_.tab-close]:p-0 [&_.tab-close]:text-[#667085]",
+  "[&:not(.active)]:text-wgo-text-3/76",
+  "[&:not(.active):hover]:border-white/42 [&:not(.active):hover]:bg-white/24",
+  "[&.active]:border-white/74 [&.active]:bg-[rgba(255,255,255,0.78)] [&.active]:backdrop-blur-2xl",
+  "[&.active]:[box-shadow:0_7px_16px_rgba(18,25,38,0.082),inset_0_1px_0_rgba(255,255,255,0.86),inset_0_-1px_0_rgba(18,25,38,0.028)]",
+  "[&.active>button]:text-wgo-text [&.active>button_svg]:text-wgo-accent",
 ].join(" ");
-const workbenchTabIconClassName = "mr-[5px] flex-[0_0_auto] text-[#667085]";
+const workbenchTabButtonClassName = [
+  "inline-flex h-full min-h-0 min-w-0 flex-[1_1_auto] appearance-none",
+  "items-center justify-start gap-[8px] overflow-hidden rounded-none border-0",
+  "bg-transparent pl-[11px] pr-[8px] [font-family:inherit]",
+  "text-ellipsis whitespace-nowrap text-wgo-text-2 font-640 leading-none",
+  "cursor-grab hover:bg-transparent active:cursor-grabbing",
+].join(" ");
+const workbenchTabCloseClassName = [
+  "tab-close ml-auto mr-[6px] inline-flex h-[18px] min-h-[18px]",
+  "w-[18px] min-w-[18px] flex-[0_0_auto] appearance-none items-center",
+  "justify-center rounded-full border-0 bg-transparent p-0 text-wgo-text-2",
+  "opacity-48 hover:bg-[rgba(58,74,96,0.12)] hover:text-wgo-text",
+  "group-[.active]:opacity-78 group-hover:opacity-100",
+].join(" ");
+const workbenchTabIconClassName = "flex-[0_0_auto] text-wgo-text-3";
 const workbenchTabTitleClassName =
   "min-w-0 overflow-hidden text-ellipsis whitespace-nowrap";
-const activePaneTabClassName = [
-  "z-[8]",
-  "[box-shadow:inset_2px_0_0_#7f9abf,inset_-2px_0_0_#7f9abf,inset_0_2px_0_#7f9abf]",
-].join(" ");
-const activeTabBottomCoverClassName = [
-  "pointer-events-none absolute left-[2px] right-[2px] bottom-0",
-  "z-[9] h-[1px] bg-white",
-].join(" ");
+const activePaneTabClassName = "z-[8]";
 
 export function WorkbenchTabItem(
   {
@@ -164,6 +157,7 @@ export function WorkbenchTabItem(
       <button
         type="button"
         role="tab"
+        className={workbenchTabButtonClassName}
         aria-selected={active}
         draggable
         onDragStart={(event) => {
@@ -194,7 +188,7 @@ export function WorkbenchTabItem(
         ? (
           <button
             type="button"
-            className="tab-close"
+            className={workbenchTabCloseClassName}
             draggable={false}
             onMouseDown={(event) => event.stopPropagation()}
             onClick={onClose}
@@ -206,16 +200,13 @@ export function WorkbenchTabItem(
             {dirty
               ? (
                 <span
-                  className="block size-[6px] rounded-full bg-[#667085]"
+                  className="block size-[6px] rounded-full bg-wgo-text-3"
                   aria-hidden="true"
                 />
               )
               : <X size={11} />}
           </button>
         )
-        : null}
-      {active && paneActive
-        ? <span className={activeTabBottomCoverClassName} aria-hidden="true" />
         : null}
     </div>
   );

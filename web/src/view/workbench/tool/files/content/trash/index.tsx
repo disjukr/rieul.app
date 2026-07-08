@@ -234,7 +234,10 @@ export function TrashContent() {
               <RotateCcw size={15} />
               Restore
             </FloatingMenuItem>
-            <FloatingMenuItem danger onClick={() => purgeItem(itemMenu.item)}>
+            <FloatingMenuItem
+              tone="danger"
+              onClick={() => purgeItem(itemMenu.item)}
+            >
               <Trash2 size={15} />
               Delete permanently
             </FloatingMenuItem>

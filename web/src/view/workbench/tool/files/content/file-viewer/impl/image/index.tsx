@@ -27,7 +27,7 @@ const wheelZoomSensitivity = 0.002;
 const zoomComparisonTolerance = 0.001;
 const fileViewerStatusClassName = [
   "flex items-center justify-center gap-[8px] min-w-0 min-h-0",
-  "text-[#667085] text-[13px]",
+  "text-[#667085] text-[14px]",
   "[&.error]:items-start [&.error]:justify-start [&.error]:overflow-auto",
   "[&.error]:text-[#b42318] [&.error]:p-[14px]",
 ].join(" ");
@@ -43,14 +43,12 @@ const imageToolbarGroupClassName = "flex items-center gap-[6px] min-w-0";
 const imageToolbarButtonClassName =
   "w-[28px] h-[28px] min-h-[28px] rounded-[4px] px-0";
 const imageZoomButtonGroupClassName =
-  "inline-flex h-[28px] items-center box-border";
+  "inline-flex h-[28px] items-center gap-[4px] box-border";
 const imageZoomButtonClassName =
-  "!w-[28px] !min-w-[28px] !h-full !min-h-0 !box-border !p-0";
-const imageZoomButtonFirstClassName = "!rounded-l-[4px] !rounded-r-0";
-const imageZoomButtonLastClassName = "-ml-px !rounded-l-0 !rounded-r-[4px]";
+  "!w-[28px] !min-w-[28px] !h-full !min-h-0 !box-border !rounded-[4px] !p-0";
 const imageMetaClassName = [
   "min-w-0 overflow-hidden text-ellipsis whitespace-nowrap",
-  "text-[#667085] text-[12px]",
+  "text-[#667085] text-[14px]",
 ].join(" ");
 const imageStageClassName = [
   "min-w-0 min-h-0 overflow-auto p-[18px]",
@@ -283,10 +281,7 @@ function ImageCanvas({ objectUrl }: { objectUrl: string }) {
           <div className={imageZoomButtonGroupClassName}>
             <Button
               aria-label="Zoom out"
-              className={className(
-                imageZoomButtonClassName,
-                imageZoomButtonFirstClassName,
-              )}
+              className={imageZoomButtonClassName}
               title="Zoom out"
               disabled={!canZoomOut}
               onClick={() => {
@@ -301,10 +296,7 @@ function ImageCanvas({ objectUrl }: { objectUrl: string }) {
             </Button>
             <Button
               aria-label="Zoom in"
-              className={className(
-                imageZoomButtonClassName,
-                imageZoomButtonLastClassName,
-              )}
+              className={imageZoomButtonClassName}
               title="Zoom in"
               disabled={!canZoomIn}
               onClick={() => {
@@ -318,7 +310,7 @@ function ImageCanvas({ objectUrl }: { objectUrl: string }) {
               <Plus size={16} />
             </Button>
           </div>
-          <span className="min-w-[48px] text-center text-[#667085] text-[12px]">
+          <span className="min-w-[48px] text-center text-[#667085] text-[14px]">
             {fitToView ? "Fit" : `${Math.round(zoom * 100)}%`}
           </span>
         </div>

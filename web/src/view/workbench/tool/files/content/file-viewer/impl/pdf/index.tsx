@@ -21,7 +21,7 @@ const pageCssScale = 1.25;
 const maxRenderPixelRatio = 2;
 const fileViewerStatusClassName = [
   "flex items-center justify-center gap-[8px] min-w-0 min-h-0",
-  "text-[#667085] text-[13px]",
+  "text-[#667085] text-[14px]",
   "[&.error]:items-start [&.error]:justify-start [&.error]:overflow-auto",
   "[&.error]:text-[#b42318] [&.error]:p-[14px]",
 ].join(" ");
@@ -250,7 +250,7 @@ function PdfRenderStatus(
   { pageCount, renderedPages }: { pageCount?: number; renderedPages: number },
 ) {
   return (
-    <div className="mb-[14px] flex justify-center text-[#667085] text-[12px]">
+    <div className="mb-[14px] flex justify-center text-[#667085] text-[14px]">
       {pageCount === undefined
         ? "Opening PDF"
         : `Rendering ${renderedPages}/${pageCount} pages`}

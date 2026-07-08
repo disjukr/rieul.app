@@ -26,11 +26,11 @@ const bigFileWarningIconClassName = [
 const bigFileWarningCopyClassName = [
   "grid gap-[5px] min-w-0",
   "[&_h2]:min-w-0 [&_h2]:m-0 [&_h2]:overflow-hidden",
-  "[&_h2]:text-[#20242d] [&_h2]:text-[15px] [&_h2]:tracking-[0]",
+  "[&_h2]:text-[#20242d] [&_h2]:text-[16px] [&_h2]:tracking-[0]",
   "[&_h2]:text-ellipsis [&_h2]:whitespace-nowrap",
   "[&_p]:min-w-0 [&_p]:m-0 [&_p]:[overflow-wrap:anywhere]",
-  "[&_p]:text-[#667085] [&_p]:text-[12px]",
-  "[&_strong]:text-[#303642] [&_strong]:text-[13px]",
+  "[&_p]:text-[#667085] [&_p]:text-[13px]",
+  "[&_strong]:text-[#303642] [&_strong]:text-[14px]",
 ].join(" ");
 const bigFileWarningActionsClassName =
   "[grid-column:1/-1] flex justify-end gap-[8px]";

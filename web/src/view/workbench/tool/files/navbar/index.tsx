@@ -7,22 +7,22 @@ import {
   requireFilesActions,
   requireFilesExplorer,
 } from "../context.tsx";
-import { className } from "../../../../class-name.ts";
 import { Button } from "../../../../ui/button.tsx";
 import { PathCrumbs } from "./path-crumbs.tsx";
 
 const pathToolbarClassName = [
-  "grid [grid-template-columns:auto_minmax(0,1fr)] gap-[0.5rem]",
-  "relative items-center h-[2em] min-h-[2em] box-border overflow-visible",
-  "border-b border-b-[#d8dde7] bg-white px-[0.5rem] py-0 leading-[1.6]",
+  "grid [grid-template-columns:auto_minmax(0,1fr)] gap-[6px]",
+  "relative items-center h-[29px] min-h-[29px] box-border overflow-visible",
+  "rounded-[8px] border border-transparent",
+  "bg-[rgba(248,248,249,0.32)]",
+  "px-[5px] py-0 leading-[1.38] backdrop-blur-2xl",
 ].join(" ");
 const pathToolbarButtonGroupClassName =
-  "inline-flex h-[2rem] items-center box-border py-[2px]";
+  "inline-flex h-[23px] items-center gap-[3px] box-border";
 const pathToolbarButtonClassName = [
-  "!w-[2em] !min-w-[2em] !h-full !min-h-0 !box-border !p-0",
+  "!w-[23px] !min-w-[23px] !h-[23px] !min-h-0 !box-border !rounded-[6px] !p-0",
+  "!border-transparent !bg-white/28 hover:!bg-white/5",
 ].join(" ");
-const pathToolbarButtonFirstClassName = "!rounded-l-[4px] !rounded-r-0";
-const pathToolbarButtonLastClassName = "-ml-px !rounded-l-0 !rounded-r-[4px]";
 
 export function FilesNavbar() {
   const explorer = requireFilesExplorer(useContext(FilesExplorerContext));
@@ -42,10 +42,7 @@ export function FilesNavbar() {
           disabled={!canGoBack}
           title="Back"
           aria-label="Back"
-          className={className(
-            pathToolbarButtonClassName,
-            pathToolbarButtonFirstClassName,
-          )}
+          className={pathToolbarButtonClassName}
         >
           <ArrowLeft size={12} />
         </Button>
@@ -54,10 +51,7 @@ export function FilesNavbar() {
           disabled={!canGoUp}
           title="Up"
           aria-label="Up"
-          className={className(
-            pathToolbarButtonClassName,
-            pathToolbarButtonLastClassName,
-          )}
+          className={pathToolbarButtonClassName}
         >
           <ArrowUp size={12} />
         </Button>

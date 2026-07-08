@@ -14,13 +14,13 @@ import { fileViewerBunja } from "../../state.tsx";
 const inlineOpenLimitBytes = 1024 * 1024;
 const fileViewerStatusClassName = [
   "flex items-center justify-center gap-[8px] min-w-0 min-h-0",
-  "text-[#667085] text-[13px]",
+  "text-[#667085] text-[14px]",
   "[&.error]:items-start [&.error]:justify-start [&.error]:overflow-auto",
   "[&.error]:text-[#b42318] [&.error]:p-[14px]",
 ].join(" ");
 const fileContentClassName = [
   "min-w-0 min-h-0 m-0 overflow-auto bg-white text-[#20242d]",
-  "font-mono text-[12px] leading-[1.55] p-[14px]",
+  "font-mono text-[13px] leading-[1.55] p-[14px]",
   "[tab-size:2] whitespace-pre [overflow-wrap:normal]",
 ].join(" ");
 

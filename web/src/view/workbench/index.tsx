@@ -8,23 +8,24 @@ import { PropsWithChildren } from "react";
 import { className } from "../class-name.ts";
 
 const workbenchClassName = [
-  "workbench [grid-column:3] [grid-row:2]",
-  "min-w-0 min-h-0 overflow-hidden bg-white",
-  "[transition:border-radius_180ms_ease]",
+  "workbench [grid-column:2] [grid-row:1]",
+  "m-0 min-w-0 min-h-0 overflow-visible",
+  "bg-transparent shadow-none",
+  "max-[680px]:[grid-column:1] max-[680px]:[grid-row:1] max-[680px]:m-0",
 ].join(" ");
 const inlineMachineSetupClassName = [
   "grid content-center justify-items-center min-h-0 overflow-auto p-[24px]",
 ].join(" ");
 const inlineMachineCardClassName = [
-  "w-[min(460px,100%)] overflow-hidden border border-[#d8dde7]",
-  "rounded-[8px] bg-white",
+  "w-[min(460px,100%)] overflow-hidden border border-[var(--wgo-border-light)]",
+  "rounded-[8px] bg-[var(--wgo-bg-primary)]",
 ].join(" ");
 const modalHeadClassName = [
-  "flex items-center justify-between gap-[12px] border-b border-b-[#e4e8ef]",
+  "flex items-center justify-between gap-[12px] border-b border-b-[var(--wgo-border-muted)]",
   "px-[16px] py-[14px]",
   "[&_div]:grid [&_div]:gap-[2px] [&_div]:min-w-0",
-  "[&_span]:text-[#667085] [&_span]:text-[12px] [&_span]:font-700",
-  "[&_h2]:m-0 [&_h2]:text-[#20242d] [&_h2]:text-[18px] [&_h2]:tracking-[0]",
+  "[&_span]:text-[var(--wgo-text-tertiary)] [&_span]:text-[12px] [&_span]:font-700",
+  "[&_h2]:m-0 [&_h2]:text-[var(--wgo-text-primary)] [&_h2]:text-[18px] [&_h2]:tracking-[0]",
 ].join(" ");
 
 const workbenchRegionBunja = bunja(() => {
