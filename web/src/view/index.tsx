@@ -27,6 +27,11 @@ const appShellClassName = [
   "[&.machine-panel-collapsed_.app-rail-expanded]:hidden",
   "[&.machine-panel-collapsed_.app-rail]:items-center",
   "[&.machine-panel-collapsed_.workbench]:rounded-tl-rieul-2xl",
+  "[&.machine-panel-transitioning_.app-rail-label]:inline",
+  "[&.machine-panel-transitioning_.app-rail-expanded]:inline-flex",
+  "[&.machine-panel-transitioning_.app-rail]:!items-stretch",
+  "[&.machine-panel-transitioning_.app-rail-section]:!w-[var(--rail-open-section-width)]",
+  "max-[680px]:[&.machine-panel-transitioning_.app-rail-section]:!w-full",
   "max-[680px]:[&.machine-panel-collapsed_.app-rail-label]:!inline",
   "max-[680px]:[&.machine-panel-collapsed_.app-rail-expanded]:!inline-flex",
   "max-[680px]:[&.machine-panel-collapsed_.app-rail]:!items-stretch",
@@ -36,6 +41,19 @@ const mobileRailSnapAnchorClassName = [
   "max-[680px]:block max-[680px]:[grid-column:1] max-[680px]:[grid-row:1]",
   "max-[680px]:w-full max-[680px]:h-full",
   "max-[680px]:[scroll-snap-align:start] max-[680px]:[scroll-snap-stop:always]",
+].join(" ");
+const appRailResizerClassName = [
+  "app-rail-resizer !absolute top-0 bottom-0 !z-[20] w-[8px]",
+  "left-[calc(var(--rail-width,204px)+2px)] cursor-col-resize touch-none bg-transparent",
+  "before:content-[''] before:absolute before:rounded-full",
+  "before:bg-[rgba(108,126,151,0.22)] before:opacity-0 before:rieul-transition",
+  "before:top-[18px] before:bottom-[18px] before:left-[3px] before:w-[2px]",
+  "after:content-[''] after:absolute after:rounded-full after:bg-white/38",
+  "after:opacity-0 after:rieul-transition",
+  "after:top-[42%] after:left-[2px] after:h-[16%] after:w-[4px]",
+  "hover:before:opacity-100 hover:after:opacity-92",
+  "focus-visible:before:opacity-100 focus-visible:after:opacity-92",
+  "focus-visible:outline-0 max-[680px]:hidden",
 ].join(" ");
 
 export default function View() {
@@ -62,6 +80,7 @@ function Layout({ children }: LayoutProps) {
   const machinePanelTransitioning = useAtomValue(
     layout.machinePanelTransitioningAtom,
   );
+  const machinePanelWidth = useAtomValue(layout.machinePanelWidthAtom);
 
   useEffect(() => {
     if (!globalThis.matchMedia("(max-width: 680px)").matches) return;
@@ -87,10 +106,27 @@ function Layout({ children }: LayoutProps) {
         machinePanelTransitioning && "machine-panel-transitioning",
       )}
       style={{
-        "--rail-width": machinePanelCollapsed ? "64px" : "204px",
+        "--rail-width": machinePanelCollapsed
+          ? "64px"
+          : `${machinePanelWidth}px`,
+        "--rail-open-section-width": `${Math.max(machinePanelWidth - 24, 0)}px`,
       } as React.CSSProperties}
     >
       <div className={mobileRailSnapAnchorClassName} aria-hidden="true" />
+      {machinePanelCollapsed ? null : (
+        <div
+          className={appRailResizerClassName}
+          role="separator"
+          aria-label="Resize app rail"
+          aria-orientation="vertical"
+          aria-valuemin={layout.machinePanelMinWidth}
+          aria-valuemax={layout.machinePanelMaxWidth}
+          aria-valuenow={machinePanelWidth}
+          tabIndex={0}
+          onPointerDown={layout.startMachinePanelResize}
+          onKeyDown={layout.resizeMachinePanelWithKeyboard}
+        />
+      )}
       {children}
     </main>
   );

@@ -7,13 +7,13 @@ import { atom } from "jotai";
 import { atomWithStorage } from "jotai/utils";
 import { JotaiStoreScope } from "unsaturated/store";
 
-const machinePanelMinWidth = 212;
-const machinePanelMaxWidth = 420;
+const machinePanelMinWidth = 176;
+const machinePanelMaxWidth = 320;
 const machinePanelTransitionMs = 180;
 const minimumWorkbenchWidth = 360;
 const machineRailWidth = 48;
 const machinePanelCollapsedStorageKey = "rieul.machine-panel-collapsed.v1";
-const machinePanelWidthStorageKey = "rieul.machine-panel-width.v1";
+const machinePanelWidthStorageKey = "rieul.app-rail-width.v1";
 
 type MachinePanelWidthUpdate = number | ((width: number) => number);
 
@@ -21,7 +21,7 @@ export const layoutBunja = bunja(() => {
   const store = bunja.use(JotaiStoreScope);
   const storedMachinePanelWidthAtom = atomWithStorage(
     machinePanelWidthStorageKey,
-    264,
+    204,
   );
   const machinePanelWidthAtom = atom(
     (get) => clampMachinePanelWidth(get(storedMachinePanelWidthAtom)),
