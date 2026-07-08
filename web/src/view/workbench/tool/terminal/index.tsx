@@ -62,8 +62,14 @@ const terminalFooterDetailsClassName = [
   "[&_span]:whitespace-nowrap",
 ].join(" ");
 const terminalFooterSizeClassName = "flex-[0_0_auto]";
-const terminalHostClassName =
-  "box-border w-full h-full min-w-0 min-h-0 overflow-hidden px-[8px]";
+const terminalHostClassName = [
+  "box-border w-full h-full min-w-0 min-h-0 overflow-hidden",
+  "bg-[#0b0f16] px-[8px]",
+  "[&_.xterm]:box-border [&_.xterm]:h-full [&_.xterm]:bg-[#0b0f16]",
+  "[&_.xterm]:pr-[12px]",
+  "[&_.xterm-viewport]:bg-[#0b0f16]",
+  "[&_.xterm-viewport]:[scrollbar-gutter:stable]",
+].join(" ");
 const terminalOverlayNoticeClassName = [
   "absolute inset-0 z-[2] grid place-items-center bg-[rgba(8,12,20,0.78)] backdrop-blur-2xl",
   "px-[18px] text-center text-[#d0d5dd]",
