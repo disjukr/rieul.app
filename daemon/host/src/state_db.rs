@@ -351,7 +351,17 @@ impl DaemonStateDb {
                 r#"
                 INSERT OR REPLACE INTO command_job_output_chunks
                   (job_id, stream, seq, bytes, created_at_ms)
-                VALUES (?1, ?2, ?3, ?4, ?5)
+                SELECT ?1, ?2, ?3, ?4, ?5
+                WHERE EXISTS (
+                  SELECT 1
+                  FROM command_job_output_state
+                  WHERE job_id = ?1
+                    AND stream = ?2
+                    AND enabled != 0
+                    AND oldest_seq > 0
+                    AND ?3 >= oldest_seq
+                    AND ?3 <= latest_seq
+                )
                 "#,
                 (
                     job_id,
@@ -545,6 +555,31 @@ mod tests {
 
         let remaining = output_chunk_seqs(&db, &job.job_id, "stdout");
         assert_eq!(remaining, vec![3]);
+    }
+
+    #[test]
+    fn ignores_output_chunks_not_retained_by_state() {
+        let db = DaemonStateDb::open_in_memory_for_tests().unwrap();
+        let job = test_job();
+        db.save_job(&job).unwrap();
+        db.save_job_output_state(
+            &job.job_id,
+            JobOutputStream::Stdout,
+            &JobOutputState {
+                enabled: true,
+                oldest_seq: 0,
+                latest_seq: 1,
+                retained_bytes: 0,
+                truncated: true,
+            },
+        )
+        .unwrap();
+
+        db.append_job_output_chunk(&job.job_id, JobOutputStream::Stdout, 1, b"evicted", 1)
+            .unwrap();
+
+        let remaining = output_chunk_seqs(&db, &job.job_id, "stdout");
+        assert!(remaining.is_empty());
     }
 
     #[test]

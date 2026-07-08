@@ -467,19 +467,10 @@ impl CommandManager {
         if let Some(note) = request.note {
             schedule.note = Some(note);
         }
-        let previous = (record.info.clone(), record.last_checked_ms);
-        schedule.updated_at_ms = current_unix_ms();
+        schedule.updated_at_ms = next_schedule_revision(record.info.updated_at_ms);
+        self.persist_schedule(&schedule)?;
         record.info = schedule.clone();
         record.last_checked_ms = new_schedule_checkpoint();
-        drop(state);
-        if let Err(err) = self.persist_schedule(&schedule) {
-            let mut state = self.state.lock().await;
-            if let Some(record) = state.schedules.get_mut(&request.schedule_id) {
-                record.info = previous.0;
-                record.last_checked_ms = previous.1;
-            }
-            return Err(err);
-        }
         self.notify_schedules();
         Ok(schedule)
     }
@@ -1522,6 +1513,10 @@ fn new_schedule_checkpoint() -> u64 {
     normalize_schedule_start_ms(current_unix_ms()).saturating_sub(1)
 }
 
+fn next_schedule_revision(previous_updated_at_ms: u64) -> u64 {
+    current_unix_ms().max(previous_updated_at_ms.saturating_add(1))
+}
+
 fn unfold_ical_lines(text: &str) -> Vec<String> {
     let mut lines: Vec<String> = Vec::new();
     for raw_line in text.lines() {
@@ -1550,6 +1545,14 @@ fn is_dtstart_line(line: &str) -> bool {
 }
 
 fn parse_rrule_set(text: &str) -> Result<ParsedRRuleSet, CommandError> {
+    if !unfold_ical_lines(text)
+        .iter()
+        .any(|line| is_dtstart_line(line))
+    {
+        return Err(CommandError::invalid_rrule(
+            "rrule set must include DTSTART",
+        ));
+    }
     let set = RRuleSet::new(unix_ms_to_datetime(current_unix_ms()))
         .set_from_string(text)
         .map_err(|err| CommandError::invalid_rrule(err.to_string()))?;
@@ -2304,6 +2307,53 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn update_schedule_revision_is_monotonic() {
+        let manager = CommandManager::open(DaemonStateDb::open_in_memory_for_tests().unwrap())
+            .expect("open command manager");
+        let schedule = manager
+            .create_schedule(CreateScheduleReq {
+                title: "daily".to_string(),
+                launch: output_test_launch(),
+                job: ScheduledJobOptions::default(),
+                start_at_ms: ms("2026-01-01T00:00:00Z"),
+                rrule_set: "RRULE:FREQ=DAILY".to_string(),
+                enabled: true,
+                note: None,
+            })
+            .await
+            .expect("create schedule");
+        {
+            let mut state = manager.state.lock().await;
+            let record = state
+                .schedules
+                .get_mut(&schedule.schedule_id)
+                .expect("schedule record");
+            record.info.updated_at_ms = current_unix_ms().saturating_add(60_000);
+        }
+        let previous_updated_at_ms = manager
+            .schedules_snapshot(&SubscribeSchedulesReq {
+                archived: ScheduleArchiveFilter::All,
+            })
+            .await
+            .rows
+            .into_iter()
+            .find(|row| row.schedule_id == schedule.schedule_id)
+            .expect("schedule")
+            .updated_at_ms;
+
+        let updated = manager
+            .update_schedule(UpdateScheduleReq {
+                schedule_id: schedule.schedule_id,
+                title: Some("updated".to_string()),
+                ..UpdateScheduleReq::default()
+            })
+            .await
+            .expect("update schedule");
+
+        assert!(updated.updated_at_ms > previous_updated_at_ms);
+    }
+
+    #[tokio::test]
     async fn scheduled_jobs_record_trigger_run_time() {
         let manager = CommandManager::open(DaemonStateDb::open_in_memory_for_tests().unwrap())
             .expect("open command manager");
@@ -2389,6 +2439,13 @@ mod tests {
             ]
         );
         assert_eq!(result.continuation, ScheduleNextRunsContinuation::Exhausted);
+    }
+
+    #[test]
+    fn parse_rrule_set_rejects_missing_dtstart() {
+        let err = parse_rrule_set("RRULE:FREQ=DAILY").unwrap_err();
+        assert_eq!(err.kind, CommandErrorKind::InvalidRRuleSet);
+        assert!(err.message.contains("DTSTART"));
     }
 
     #[test]
