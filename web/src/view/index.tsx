@@ -5,7 +5,6 @@ import {
   MachineModalHost,
   MachinePanelRegion,
 } from "./machine-panel/index.tsx";
-import { MachineRailRegion } from "./machine-rail/index.tsx";
 import { MachineBaseUrlContext, MachineIdContext } from "../state/machine.tsx";
 import { machineStoreBunja } from "../state/machine-store.ts";
 import { layoutBunja } from "./state.tsx";
@@ -14,23 +13,27 @@ import { WorkbenchRegion } from "./workbench/index.tsx";
 import { className } from "./class-name.ts";
 
 const appShellClassName = [
-  "app-shell grid h-full min-h-0 overflow-hidden bg-[var(--wgo-shell-bg)]",
-  "[grid-template-columns:48px_var(--machine-panel-width,264px)_minmax(0,1fr)]",
-  "[grid-template-rows:2em_minmax(0,1fr)]",
+  "app-shell relative isolate grid h-full min-h-0 overflow-hidden bg-wgo-canvas",
+  "[background:var(--wgo-canvas-background)]",
+  "[&>*]:relative [&>*]:z-[1]",
+  "[grid-template-columns:152px_var(--machine-panel-width,232px)_minmax(0,1fr)]",
+  "[grid-template-rows:minmax(0,1fr)]",
   "[&.machine-panel-transitioning]:[transition:grid-template-columns_180ms_ease]",
-  "max-[980px]:[grid-template-columns:48px_var(--machine-panel-width,236px)_minmax(0,1fr)]",
-  "max-[680px]:[grid-template-columns:48px_var(--machine-panel-width,212px)_minmax(0,1fr)]",
+  "max-[980px]:[grid-template-columns:154px_var(--machine-panel-width,220px)_minmax(0,1fr)]",
+  "max-[680px]:![grid-template-columns:minmax(0,1fr)]",
+  "max-[680px]:![grid-template-rows:minmax(0,1fr)_76px]",
   "[&.machine-panel-collapsed_.machine-panel]:pointer-events-none",
   "[&.machine-panel-collapsed_.machine-panel]:border-r-0",
   "[&.machine-panel-collapsed_.machine-panel]:rounded-tl-0",
-  "[&.machine-panel-collapsed_.workbench]:rounded-tl-[8px]",
+  "[&.machine-panel-collapsed_.workbench]:rounded-tl-wgo-2xl",
+  "max-[680px]:[&_.machine-panel]:![grid-column:1]",
+  "max-[680px]:[&_.workbench]:![grid-column:1]",
 ].join(" ");
 
 export default function View() {
   return (
     <Layout>
       <SelectedMachineIdProvider>
-        <MachineRailRegion />
         <TopBarRegion />
         <MachinePanelRegion />
         <WorkbenchRegion />

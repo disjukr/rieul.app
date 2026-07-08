@@ -256,6 +256,24 @@ export const workbenchBunja = bunja(() => {
     store.set(stateAtom, (current) => openTabInActivePane(current, tab));
   }
 
+  function openDaemonTab() {
+    store.set(stateAtom, (current) =>
+      openToolTabInActivePane(
+        current,
+        "daemon",
+      ));
+  }
+
+  function openProcessesTab(config: WorkbenchProcessesTabConfig = {}) {
+    const tab = createProcessesTab(config);
+    store.set(stateAtom, (current) => openTabInActivePane(current, tab));
+  }
+
+  function openWindowsTab(config: WorkbenchWindowsTabConfig = {}) {
+    const tab = createWindowsTab(config);
+    store.set(stateAtom, (current) => openTabInActivePane(current, tab));
+  }
+
   function setTerminalSessionId(
     paneId: string,
     tabId: string,
@@ -660,8 +678,11 @@ export const workbenchBunja = bunja(() => {
     addProcessesTab,
     addWindowsTab,
     addTerminalTab,
+    openDaemonTab,
     openFilesTab,
+    openProcessesTab,
     openTerminalTab,
+    openWindowsTab,
     duplicateTab,
     selectTab,
     closeTab,

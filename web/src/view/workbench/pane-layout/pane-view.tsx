@@ -38,8 +38,6 @@ import {
 import { WorkbenchTabItem } from "./tab-item.tsx";
 import { className } from "../../class-name.ts";
 import { Button } from "../../ui/button.tsx";
-import { ModalDialog } from "../../ui/dialog.tsx";
-import { IconButton } from "../../ui/icon-button.tsx";
 import {
   clampFloatingMenuPosition,
   FloatingMenu,
@@ -48,6 +46,7 @@ import {
 } from "../../ui/floating-menu.tsx";
 
 interface WorkbenchPaneViewProps {
+  canSplit: boolean;
   nodeId: string;
   topRight: boolean;
 }
@@ -62,39 +61,71 @@ interface TabContextMenuState {
   y: number;
 }
 
-const workbenchPaneClassName = [
-  "workbench-pane relative grid [grid-template-rows:auto_minmax(0,1fr)]",
-  "w-full h-full min-w-0 min-h-0 overflow-hidden bg-[var(--wgo-bg-primary)]",
+const workbenchPaneOuterClassName = [
+  "workbench-pane relative",
+  "m-[4px] h-[calc(100%-8px)] w-[calc(100%-8px)] min-w-0 min-h-0",
+  "overflow-visible rounded-[14px]",
+  "shadow-[0_4px_10px_rgba(18,25,38,0.12),0_2px_5px_rgba(18,25,38,0.07),inset_0_1px_0_rgba(255,255,255,0.74)]",
+  "transition-[box-shadow,border-color,filter,opacity,transform] duration-150 ease-out",
+  "[&:not(.active)]:opacity-86",
+  "[&:not(.active)]:shadow-[0_3px_8px_rgba(18,25,38,0.09),0_1px_4px_rgba(18,25,38,0.05),inset_0_1px_0_rgba(255,255,255,0.74)]",
+  "[&:not(.active)_.workbench-pane-surface]:border-white/36",
+  "[&:not(.active)_.workbench-pane-head]:opacity-80",
+  "[&:not(.active)_.workbench-tab.active]:opacity-72",
+  "[&:not(.active)_.workbench-pane-actions]:opacity-54",
+  "[&:not(.active)_.file-row.selected]:bg-[rgba(62,84,116,0.09)]",
+  "[&:not(.active)_.file-row.selected]:shadow-none",
+  "[&:not(.active)_.file-row.selected_.file-cell]:text-wgo-text-2",
+  "[&.active]:shadow-[0_0_0_1px_var(--wgo-focus),0_0_0_3px_rgba(47,109,246,0.09),0_5px_11px_rgba(18,25,38,0.18),0_2px_5px_rgba(18,25,38,0.105),inset_0_1px_0_rgba(255,255,255,0.9)]",
+  "max-[680px]:m-0 max-[680px]:h-full max-[680px]:w-full",
+  "max-[680px]:rounded-none max-[680px]:shadow-none",
+  "max-[680px]:[&.active]:shadow-none max-[680px]:[&:not(.active)]:shadow-none",
+].join(" ");
+const workbenchPaneSurfaceClassName = [
+  "workbench-pane-surface grid h-full w-full min-w-0 min-h-0",
+  "[grid-template-rows:auto_minmax(0,1fr)] overflow-visible rounded-[14px]",
+  "border border-white/48 bg-[rgba(248,248,249,0.72)] backdrop-blur-xl",
+  "transition-[border-color] duration-150 ease-out",
+  "[.active_&]:border-white/64",
+  "max-[680px]:rounded-none max-[680px]:border-x-0 max-[680px]:border-t-0",
 ].join(" ");
 const workbenchPaneHeadClassName = [
+  "workbench-pane-head",
   "grid [grid-template-columns:1em_minmax(0,1fr)_auto]",
-  "items-center h-[2em] min-h-[2em] box-border leading-[1.6]",
-  "border-b border-b-[var(--wgo-border-light)] bg-[var(--wgo-bg-header)]",
+  "items-center h-[36px] min-h-[36px] box-border overflow-visible leading-none",
+  "rounded-t-[14px] bg-transparent",
+  "px-[6px] pt-0 backdrop-blur-2xl",
+  "max-[680px]:[grid-template-columns:minmax(0,1fr)_auto]",
+  "max-[680px]:h-[34px] max-[680px]:min-h-[34px] max-[680px]:rounded-none",
+  "max-[680px]:px-[4px]",
 ].join(" ");
 const paneHandleClassName =
-  "flex items-center justify-center self-stretch text-[var(--wgo-text-disabled)] cursor-grab";
+  "flex items-center justify-center self-stretch text-wgo-muted cursor-grab max-[680px]:hidden";
 const workbenchTabsClassName = [
-  "flex items-end min-w-0 h-full overflow-visible",
+  "flex items-center gap-[4px] min-w-0 h-full overflow-visible",
+  "[scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
 ].join(" ");
-const paneActionsClassName = "flex items-center";
+const paneActionsClassName = "workbench-pane-actions flex items-center";
 const paneActionButtonGroupClassName =
-  "inline-flex h-[2rem] items-center box-border p-[2px]";
+  "inline-flex h-[28px] items-center gap-[4px] box-border p-0";
 const paneOverflowMenuWrapClassName = "relative flex h-full";
 const compactIconButtonClassName =
-  "!w-[2em] !min-w-[2em] !h-full !min-h-0 !box-border !p-0";
-const buttonGroupFirstClassName = "!rounded-l-[4px] !rounded-r-0";
-const buttonGroupLastClassName = "-ml-px !rounded-l-0 !rounded-r-[4px]";
+  "!w-[28px] !min-w-[28px] !h-full !min-h-0 !box-border !rounded-wgo-sm !p-0";
+const buttonGroupFirstClassName = "";
+const buttonGroupLastClassName = "";
 const standaloneButtonClassName = "!rounded-[4px]";
 const paneOverflowMenuClassName = "top-full right-0 z-[12] w-[172px]";
 const tabContextMenuWidth = 168;
-const paneOverflowMenuSectionClassName =
-  "border-t border-t-[var(--wgo-border-muted)]";
+const paneOverflowMenuSectionClassName = "border-t border-t-wgo-border";
 const paneOverflowMenuItemClassName = "";
 const workbenchPaneBodyClassName = [
   "workbench-pane-body relative w-full h-full min-w-0 min-h-0 overflow-visible",
+  "rounded-[12px] border border-white/58 bg-[rgba(253,253,253,0.94)]",
+  "shadow-[inset_0_1px_0_rgba(255,255,255,0.82)]",
+  "max-[680px]:rounded-none max-[680px]:border-x-0 max-[680px]:border-b-0 max-[680px]:shadow-none",
   "before:content-[''] before:absolute before:z-[4]",
-  "before:border-2 before:border-[var(--wgo-accent)]",
-  "before:bg-[var(--wgo-accent-overlay)] before:opacity-0 before:pointer-events-none",
+  "before:border-2 before:border-wgo-accent",
+  "before:bg-wgo-accent-muted before:opacity-0 before:pointer-events-none",
   "[&.tab-split-left::before]:top-0 [&.tab-split-left::before]:bottom-0",
   "[&.tab-split-left::before]:left-0 [&.tab-split-left::before]:w-1/2",
   "[&.tab-split-left::before]:opacity-100",
@@ -114,17 +145,37 @@ const workbenchTabPageClassName = [
   "[&[hidden]]:hidden",
 ].join(" ");
 const activePaneOutlineClassName = [
-  "pointer-events-none absolute top-[-2px] right-0 bottom-0 left-0 z-[6]",
-  "[box-shadow:inset_0_0_0_2px_var(--wgo-accent-shadow)]",
+  "pointer-events-none absolute inset-0 z-[6] rounded-b-[12px]",
+  "shadow-[inset_0_0_0_1px_rgba(47,109,246,0.13),inset_0_1px_0_rgba(255,255,255,0.56)]",
+  "max-[680px]:hidden",
 ].join(" ");
+const closeConfirmBackdropClassName =
+  "fixed inset-0 z-[20] grid place-items-center bg-wgo-overlay p-[24px]";
+const closeConfirmModalClassName = [
+  "w-[min(420px,100%)] overflow-hidden border border-wgo-border",
+  "rounded-wgo-xl bg-wgo-surface shadow-wgo-lg",
+].join(" ");
+const closeConfirmHeadClassName = [
+  "flex items-center justify-between gap-[12px] border-b border-b-wgo-border",
+  "px-[16px] py-[14px]",
+  "[&_div]:grid [&_div]:gap-[2px] [&_div]:min-w-0",
+  "[&_span]:text-wgo-text-3 [&_span]:text-[13px] [&_span]:font-600",
+  "[&_h2]:m-0 [&_h2]:text-wgo-text [&_h2]:text-[18px] [&_h2]:tracking-[0]",
+].join(" ");
+const closeConfirmIconButtonClassName = "!w-[36px] !min-w-[36px] !p-0";
 const closeConfirmBodyClassName = [
   "grid gap-[14px] p-[16px]",
-  "[&_p]:m-0 [&_p]:text-[var(--wgo-text-secondary)] [&_p]:text-[13px]",
+  "[&_p]:m-0 [&_p]:text-wgo-text-2 [&_p]:text-[14px]",
 ].join(" ");
 const closeConfirmActionsClassName = "flex justify-end gap-[8px]";
+const closeConfirmDangerButtonClassName = [
+  "border-wgo-danger bg-wgo-danger-soft text-wgo-danger",
+  "hover:border-wgo-danger hover:bg-wgo-danger-soft hover:text-wgo-danger",
+].join(" ");
 
 export function WorkbenchPaneView(
   {
+    canSplit,
     nodeId,
     topRight,
   }: WorkbenchPaneViewProps,
@@ -188,6 +239,7 @@ export function WorkbenchPaneView(
   }, [hasTabDragState]);
 
   function splitPane(direction: "horizontal" | "vertical") {
+    if (!canSplit) return;
     setPaneOverflowMenuOpen(false);
     const newPaneId = paneState.addPane();
     split(nodeId, direction, newPaneId, "after");
@@ -448,6 +500,7 @@ export function WorkbenchPaneView(
   }
 
   function handlePaneBodyDragOver(event: React.DragEvent<HTMLDivElement>) {
+    if (!canSplit) return;
     if (!hasWorkbenchTabDragData(event)) return;
     event.preventDefault();
     event.stopPropagation();
@@ -456,6 +509,7 @@ export function WorkbenchPaneView(
   }
 
   function handlePaneBodyDrop(event: React.DragEvent<HTMLDivElement>) {
+    if (!canSplit) return;
     const dragData = readWorkbenchTabDragData(event);
     if (!dragData) return;
     event.preventDefault();
@@ -484,174 +538,185 @@ export function WorkbenchPaneView(
 
   return (
     <section
-      className={className(workbenchPaneClassName, active && "active")}
+      className={className(workbenchPaneOuterClassName, active && "active")}
       onPointerDownCapture={paneState.focusPane}
       onFocusCapture={paneState.focusPane}
     >
-      <header className={workbenchPaneHeadClassName}>
-        <Handle className={paneHandleClassName}>
-          <GripVertical size={8} />
-        </Handle>
-        <div
-          className={workbenchTabsClassName}
-          role="tablist"
-          onDragOver={handleTabStripDragOver}
-          onDrop={handleTabStripDrop}
-          onDragLeave={handleTabStripDragLeave}
-        >
-          {pane.tabs.map((tab, index) => (
-            <WorkbenchTabIdContext key={tab.id} value={tab.id}>
-              <WorkbenchTabItem
-                dragging={draggingTabId === tab.id}
-                dropPosition={tabDropPositionForTab(
-                  tabDropTarget,
-                  tab,
-                  index === pane.tabs.length - 1,
-                )}
-                nodeId={nodeId}
-                paneActive={active}
-                onClose={() =>
-                  requestCloseWorkbenchTab(tab.id)}
-                onContextMenu={openTabContextMenu}
-                onDragStart={() =>
-                  setDraggingTabId(tab.id)}
-                onDragEnd={() => {
-                  setDraggingTabId(undefined);
-                  setTabDropTarget(undefined);
-                }}
-                onDragOverTab={(tabId, position) =>
-                  setTabDropTarget({ tabId, position })}
-                onDropTab={moveDroppedTab}
-              />
-            </WorkbenchTabIdContext>
-          ))}
-        </div>
-        <div className={paneActionsClassName}>
-          <div className={paneActionButtonGroupClassName}>
-            {topRight
-              ? (
-                <IconButton
-                  className={className(
-                    compactIconButtonClassName,
-                    buttonGroupFirstClassName,
+      <div className={workbenchPaneSurfaceClassName}>
+        <header className={workbenchPaneHeadClassName}>
+          <Handle className={paneHandleClassName}>
+            <GripVertical size={13} strokeWidth={1.8} />
+          </Handle>
+          <div
+            className={workbenchTabsClassName}
+            role="tablist"
+            onDragOver={handleTabStripDragOver}
+            onDrop={handleTabStripDrop}
+            onDragLeave={handleTabStripDragLeave}
+          >
+            {pane.tabs.map((tab, index) => (
+              <WorkbenchTabIdContext key={tab.id} value={tab.id}>
+                <WorkbenchTabItem
+                  dragging={draggingTabId === tab.id}
+                  dropPosition={tabDropPositionForTab(
+                    tabDropTarget,
+                    tab,
+                    index === pane.tabs.length - 1,
                   )}
-                  onClick={() => splitPane("horizontal")}
-                  title="Split right"
-                  aria-label="Split right"
-                >
-                  <Columns2 size={12} />
-                </IconButton>
-              )
-              : null}
-            <div
-              className={paneOverflowMenuWrapClassName}
-              ref={paneOverflowMenuRef}
-            >
-              <IconButton
-                className={className(
-                  compactIconButtonClassName,
-                  topRight
-                    ? buttonGroupLastClassName
-                    : standaloneButtonClassName,
-                )}
-                onClick={() => setPaneOverflowMenuOpen((open) => !open)}
-                title="Pane actions"
-                aria-label="Pane actions"
-                aria-haspopup="menu"
-                aria-expanded={paneOverflowMenuOpen}
-              >
-                <MoreHorizontal size={13} />
-              </IconButton>
-              {paneOverflowMenuOpen
+                  nodeId={nodeId}
+                  paneActive={active}
+                  onClose={() =>
+                    requestCloseWorkbenchTab(tab.id)}
+                  onContextMenu={openTabContextMenu}
+                  onDragStart={() =>
+                    setDraggingTabId(tab.id)}
+                  onDragEnd={() => {
+                    setDraggingTabId(undefined);
+                    setTabDropTarget(undefined);
+                  }}
+                  onDragOverTab={(tabId, position) =>
+                    setTabDropTarget({ tabId, position })}
+                  onDropTab={moveDroppedTab}
+                />
+              </WorkbenchTabIdContext>
+            ))}
+          </div>
+          <div className={paneActionsClassName}>
+            <div className={paneActionButtonGroupClassName}>
+              {topRight &&
+                  canSplit
                 ? (
-                  <FloatingMenu
-                    className={paneOverflowMenuClassName}
-                    strategy="absolute"
+                  <Button
+                    className={className(
+                      compactIconButtonClassName,
+                      buttonGroupFirstClassName,
+                    )}
+                    onClick={() => splitPane("horizontal")}
+                    title="Split right"
+                    aria-label="Split right"
                   >
-                    <FloatingMenuItem
-                      className={paneOverflowMenuItemClassName}
-                      onClick={openDaemonTab}
-                    >
-                      <Info size={14} />
-                      New daemon tab
-                    </FloatingMenuItem>
-                    <FloatingMenuItem
-                      className={paneOverflowMenuItemClassName}
-                      onClick={openFilesTab}
-                    >
-                      <Folder size={14} />
-                      New files tab
-                    </FloatingMenuItem>
-                    <FloatingMenuItem
-                      className={paneOverflowMenuItemClassName}
-                      onClick={openTerminalTab}
-                    >
-                      <Terminal size={14} />
-                      New terminal tab
-                    </FloatingMenuItem>
-                    <FloatingMenuItem
-                      className={paneOverflowMenuItemClassName}
-                      onClick={openProcessesTab}
-                    >
-                      <Activity size={14} />
-                      New processes tab
-                    </FloatingMenuItem>
-                    <FloatingMenuItem
-                      className={paneOverflowMenuItemClassName}
-                      onClick={openWindowsTab}
-                    >
-                      <AppWindow size={14} />
-                      New windows tab
-                    </FloatingMenuItem>
-                    <FloatingMenuItem
-                      className={className(
-                        paneOverflowMenuItemClassName,
-                        paneOverflowMenuSectionClassName,
-                      )}
-                      onClick={() => splitPane("horizontal")}
-                    >
-                      <Columns2 size={14} />
-                      Split right
-                    </FloatingMenuItem>
-                    <FloatingMenuItem
-                      className={paneOverflowMenuItemClassName}
-                      onClick={() => splitPane("vertical")}
-                    >
-                      <Rows2 size={14} />
-                      Split down
-                    </FloatingMenuItem>
-                    <FloatingMenuItem
-                      className={paneOverflowMenuItemClassName}
-                      onClick={requestClosePane}
-                      disabled={!canClosePane}
-                    >
-                      <X size={14} />
-                      Close pane
-                    </FloatingMenuItem>
-                  </FloatingMenu>
+                    <Columns2 size={12} />
+                  </Button>
                 )
                 : null}
+              <div
+                className={paneOverflowMenuWrapClassName}
+                ref={paneOverflowMenuRef}
+              >
+                <Button
+                  className={className(
+                    compactIconButtonClassName,
+                    topRight
+                      ? buttonGroupLastClassName
+                      : standaloneButtonClassName,
+                  )}
+                  onClick={() => setPaneOverflowMenuOpen((open) => !open)}
+                  title="Pane actions"
+                  aria-label="Pane actions"
+                  aria-haspopup="menu"
+                  aria-expanded={paneOverflowMenuOpen}
+                >
+                  <MoreHorizontal size={13} />
+                </Button>
+                {paneOverflowMenuOpen
+                  ? (
+                    <FloatingMenu
+                      align="end"
+                      anchorRef={paneOverflowMenuRef}
+                      className={paneOverflowMenuClassName}
+                      strategy="absolute"
+                    >
+                      <FloatingMenuItem
+                        className={paneOverflowMenuItemClassName}
+                        onClick={openDaemonTab}
+                      >
+                        <Info size={14} />
+                        New Daemon Tab
+                      </FloatingMenuItem>
+                      <FloatingMenuItem
+                        className={paneOverflowMenuItemClassName}
+                        onClick={openFilesTab}
+                      >
+                        <Folder size={14} />
+                        New Files Tab
+                      </FloatingMenuItem>
+                      <FloatingMenuItem
+                        className={paneOverflowMenuItemClassName}
+                        onClick={openTerminalTab}
+                      >
+                        <Terminal size={14} />
+                        New Terminal Tab
+                      </FloatingMenuItem>
+                      <FloatingMenuItem
+                        className={paneOverflowMenuItemClassName}
+                        onClick={openProcessesTab}
+                      >
+                        <Activity size={14} />
+                        New Processes Tab
+                      </FloatingMenuItem>
+                      <FloatingMenuItem
+                        className={paneOverflowMenuItemClassName}
+                        onClick={openWindowsTab}
+                      >
+                        <AppWindow size={14} />
+                        New Windows Tab
+                      </FloatingMenuItem>
+                      {canSplit
+                        ? (
+                          <>
+                            <FloatingMenuItem
+                              className={className(
+                                paneOverflowMenuItemClassName,
+                                paneOverflowMenuSectionClassName,
+                              )}
+                              onClick={() => splitPane("horizontal")}
+                            >
+                              <Columns2 size={14} />
+                              Split right
+                            </FloatingMenuItem>
+                            <FloatingMenuItem
+                              className={paneOverflowMenuItemClassName}
+                              onClick={() => splitPane("vertical")}
+                            >
+                              <Rows2 size={14} />
+                              Split down
+                            </FloatingMenuItem>
+                          </>
+                        )
+                        : null}
+                      <FloatingMenuItem
+                        className={paneOverflowMenuItemClassName}
+                        onClick={requestClosePane}
+                        disabled={!canClosePane}
+                      >
+                        <X size={14} />
+                        Close pane
+                      </FloatingMenuItem>
+                    </FloatingMenu>
+                  )
+                  : null}
+              </div>
             </div>
           </div>
+        </header>
+        <div
+          className={paneBodyClassName}
+          onDragOver={canSplit ? handlePaneBodyDragOver : undefined}
+          onDrop={canSplit ? handlePaneBodyDrop : undefined}
+          onDragLeave={canSplit ? handlePaneBodyDragLeave : undefined}
+        >
+          {pane.tabs.map((tab) => (
+            <WorkbenchTabIdContext key={tab.id} value={tab.id}>
+              <section
+                className={workbenchTabPageClassName}
+                hidden={tab.id !== pane.activeTabId}
+              >
+                <WorkbenchToolContent />
+              </section>
+            </WorkbenchTabIdContext>
+          ))}
+          {active ? <div className={activePaneOutlineClassName} /> : null}
         </div>
-      </header>
-      <div
-        className={paneBodyClassName}
-        onDragOver={handlePaneBodyDragOver}
-        onDrop={handlePaneBodyDrop}
-        onDragLeave={handlePaneBodyDragLeave}
-      >
-        {pane.tabs.map((tab) => (
-          <WorkbenchTabIdContext key={tab.id} value={tab.id}>
-            <section
-              className={workbenchTabPageClassName}
-              hidden={tab.id !== pane.activeTabId}
-            >
-              <WorkbenchToolContent />
-            </section>
-          </WorkbenchTabIdContext>
-        ))}
-        {active ? <div className={activePaneOutlineClassName} /> : null}
       </div>
       {tabContextMenu
         ? (
@@ -755,33 +820,52 @@ function UnsavedCloseConfirmModal(
 ) {
   const closingPane = kind === "pane";
   return (
-    <ModalDialog
-      eyebrow={closingPane ? "Pane" : "Tab"}
-      title="Unsaved changes"
-      titleId="unsaved-close-title"
-      size="sm"
-      bodyClassName={closeConfirmBodyClassName}
-      closeLabel="Close unsaved changes dialog"
-      onClose={onCancel}
+    <div
+      className={closeConfirmBackdropClassName}
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onCancel();
+      }}
     >
-      <p>
-        {closingPane
-          ? dirtyCount === 1
-            ? "This pane contains a tab with unsaved changes."
-            : `This pane contains ${dirtyCount} tabs with unsaved changes.`
-          : "This tab has unsaved changes."}
-      </p>
-      <p>Close it anyway?</p>
-      <div className={closeConfirmActionsClassName}>
-        <Button onClick={onCancel}>Cancel</Button>
-        <Button
-          tone="danger"
-          variant="soft"
-          onClick={onConfirm}
-        >
-          Close without saving
-        </Button>
-      </div>
-    </ModalDialog>
+      <section
+        className={closeConfirmModalClassName}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="unsaved-close-title"
+      >
+        <header className={closeConfirmHeadClassName}>
+          <div>
+            <span>{closingPane ? "Pane" : "Tab"}</span>
+            <h2 id="unsaved-close-title">Unsaved changes</h2>
+          </div>
+          <Button
+            onClick={onCancel}
+            title="Close"
+            aria-label="Close unsaved changes dialog"
+            className={closeConfirmIconButtonClassName}
+          >
+            <X size={16} />
+          </Button>
+        </header>
+        <div className={closeConfirmBodyClassName}>
+          <p>
+            {closingPane
+              ? dirtyCount === 1
+                ? "This pane contains a tab with unsaved changes."
+                : `This pane contains ${dirtyCount} tabs with unsaved changes.`
+              : "This tab has unsaved changes."}
+          </p>
+          <p>Close it anyway?</p>
+          <div className={closeConfirmActionsClassName}>
+            <Button onClick={onCancel}>Cancel</Button>
+            <Button
+              className={closeConfirmDangerButtonClassName}
+              onClick={onConfirm}
+            >
+              Close without saving
+            </Button>
+          </div>
+        </div>
+      </section>
+    </div>
   );
 }

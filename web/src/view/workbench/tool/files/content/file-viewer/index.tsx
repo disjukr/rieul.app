@@ -8,14 +8,14 @@ import { fileViewerBunja } from "./state.tsx";
 
 const fileViewerStatusClassName = [
   "flex items-center justify-center gap-[8px] min-w-0 min-h-0",
-  "text-[var(--wgo-text-tertiary)] text-[13px]",
+  "text-[#667085] text-[14px]",
   "[&.error]:items-start [&.error]:justify-start [&.error]:overflow-auto",
-  "[&.error]:text-[var(--wgo-danger)] [&.error]:p-[14px]",
+  "[&.error]:text-[#b42318] [&.error]:p-[14px]",
 ].join(" ");
 
 const fileViewerClassName = [
   "grid [grid-template-rows:minmax(0,1fr)_auto]",
-  "w-full h-full min-w-0 min-h-0 overflow-hidden bg-[var(--wgo-bg-primary)]",
+  "w-full h-full min-w-0 min-h-0 overflow-hidden bg-white",
 ].join(" ");
 
 export function FileViewer() {

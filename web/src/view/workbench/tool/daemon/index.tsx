@@ -31,7 +31,6 @@ import {
   workbenchBunja,
   workbenchTabBunja,
 } from "../../../../state/workbench.ts";
-import { Badge } from "../../../ui/badge.tsx";
 import { Button } from "../../../ui/button.tsx";
 import { Breadcrumb, type BreadcrumbItem } from "../../../ui/breadcrumb.tsx";
 import {
@@ -46,126 +45,134 @@ function procName(procId: number): string {
 
 const daemonToolClassName = [
   "grid h-full min-h-0 w-full [grid-template-rows:auto_minmax(0,1fr)]",
-  "overflow-hidden bg-[var(--wgo-bg-primary)]",
-  "text-[var(--wgo-text-primary)]",
+  "overflow-hidden bg-white",
+  "text-[#20242d]",
 ].join(" ");
 const daemonContentClassName = "min-h-0 overflow-auto p-[1rem]";
-const statusPillClassName =
-  "flex-[0_0_auto] gap-[0.5rem] [&_svg]:flex-[0_0_auto]";
+const statusPillClassName = [
+  "inline-flex flex-[0_0_auto] items-center gap-[0.5rem] min-w-0 rounded-[999px]",
+  "bg-[#eef3fb] px-[9px] py-[4px] text-[1rem] font-700 text-[#344054]",
+  "[&_svg]:flex-[0_0_auto]",
+  "[&.reachable]:bg-[#ecfdf3] [&.reachable]:text-[#027a48]",
+  "[&.offline]:bg-[#fff1f3] [&.offline]:text-[#b42318]",
+].join(" ");
 const daemonHeaderClassName = [
   "flex h-[2rem] min-h-[2rem] min-w-0 items-center justify-between gap-[1rem]",
-  "overflow-hidden border-b border-b-[var(--wgo-border-light)] bg-[var(--wgo-bg-subtle)] px-[0.5rem]",
+  "overflow-hidden border-b border-b-[#d8dde7] bg-[#fbfcfe] px-[0.5rem]",
 ].join(" ");
-const summaryNoteClassName = "text-[var(--wgo-text-tertiary)]";
+const summaryNoteClassName = "text-[#667085]";
 const procSectionClassName = "mt-[18px] min-w-0";
 const procSectionTitleClassName =
-  "mb-[8px] text-[1rem] font-800 uppercase text-[var(--wgo-text-tertiary)]";
+  "mb-[8px] text-[1rem] font-800 text-[#667085]";
 const sectionTitleButtonClassName = [
   "mb-[8px] inline-flex h-[24px] appearance-none items-center gap-[3px] rounded-[0.5rem]",
   "cursor-pointer border-transparent bg-transparent px-[4px] text-[1rem]",
-  "font-800 uppercase text-[var(--wgo-text-tertiary)] [font-family:inherit]",
-  "hover:bg-[var(--wgo-bg-hover)] hover:text-[var(--wgo-text-control)]",
+  "font-800 text-[#667085] [font-family:inherit]",
+  "hover:bg-[#eef3fb] hover:text-[#344054]",
   "[&_svg]:flex-[0_0_auto]",
 ].join(" ");
 const clientsSectionClassName = "mt-[18px] min-w-0";
 const clientOverviewCardClassName = [
-  "min-w-0 rounded-[8px] border border-[var(--wgo-border-light)] bg-[var(--wgo-bg-subtle)]",
-  "grid gap-[8px] px-[1rem] py-[1rem] text-[13px] text-[var(--wgo-text-tertiary)]",
+  "min-w-0 rounded-[8px] border border-[#d8dde7] bg-[#fbfcfe]",
+  "grid gap-[8px] px-[1rem] py-[1rem] text-[14px] text-[#667085]",
 ].join(" ");
 const clientOverviewCurrentButtonClassName = [
   "grid min-w-0 appearance-none gap-[3px] rounded-[0.5rem] px-[8px] py-[7px] text-left",
-  "cursor-pointer text-[var(--wgo-text-control)] hover:bg-[var(--wgo-bg-hover)]",
+  "cursor-pointer text-[#344054] hover:bg-[#eef3fb]",
   "[font-family:inherit]",
   "[&_strong]:min-w-0 [&_strong]:overflow-hidden [&_strong]:text-ellipsis",
-  "[&_strong]:whitespace-nowrap [&_strong]:text-[13px] [&_strong]:font-750",
+  "[&_strong]:whitespace-nowrap [&_strong]:text-[14px] [&_strong]:font-750",
   "[&_span]:min-w-0 [&_span]:overflow-hidden [&_span]:text-ellipsis",
-  "[&_span]:whitespace-nowrap [&_span]:text-[11px] [&_span]:text-[var(--wgo-text-tertiary)]",
+  "[&_span]:whitespace-nowrap [&_span]:text-[12px] [&_span]:text-[#667085]",
 ].join(" ");
 const clientOverviewMetaClassName =
-  "px-[8px] text-[1rem] font-650 text-[var(--wgo-text-tertiary)]";
+  "px-[8px] text-[1rem] font-650 text-[#667085]";
 const clientOverviewMetaButtonClassName = [
   "inline min-h-0 appearance-none justify-self-start gap-0 border-0 rounded-0",
-  "cursor-pointer bg-transparent p-0 text-left text-[1rem] font-650 text-[var(--wgo-text-tertiary)]",
+  "cursor-pointer bg-transparent p-0 text-left text-[1rem] font-650 text-[#667085]",
   "[font-family:inherit]",
-  "hover:border-transparent hover:bg-transparent hover:text-[var(--wgo-text-control)]",
+  "hover:border-transparent hover:bg-transparent hover:text-[#344054]",
 ].join(" ");
 const clientListClassName = [
   "grid content-start gap-[0.5rem] min-w-0 rounded-[8px]",
-  "border border-[var(--wgo-border-light)] bg-[var(--wgo-bg-subtle)] p-[0.5rem]",
+  "border border-[#d8dde7] bg-[#fbfcfe] p-[0.5rem]",
 ].join(" ");
 const clientButtonClassName = [
   "grid min-w-0 appearance-none gap-[3px] rounded-[0.5rem] px-[1rem] py-[8px] text-left",
-  "cursor-pointer text-[var(--wgo-text-control)] hover:bg-[var(--wgo-bg-hover)]",
+  "cursor-pointer text-[#344054] hover:bg-[#eef3fb]",
   "[font-family:inherit]",
-  "[&.selected]:bg-[var(--wgo-accent-soft-strong)] [&.selected]:text-[var(--wgo-text-primary)]",
+  "[&.selected]:bg-[#e8eef7] [&.selected]:text-[#20242d]",
   "[&_strong]:min-w-0 [&_strong]:overflow-hidden [&_strong]:text-ellipsis",
-  "[&_strong]:whitespace-nowrap [&_strong]:text-[13px] [&_strong]:font-750",
+  "[&_strong]:whitespace-nowrap [&_strong]:text-[14px] [&_strong]:font-750",
   "[&_span]:min-w-0 [&_span]:overflow-hidden [&_span]:text-ellipsis",
-  "[&_span]:whitespace-nowrap [&_span]:text-[11px] [&_span]:text-[var(--wgo-text-tertiary)]",
+  "[&_span]:whitespace-nowrap [&_span]:text-[12px] [&_span]:text-[#667085]",
 ].join(" ");
 const clientNameRowClassName = "flex min-w-0 items-center gap-[0.5rem]";
-const currentClientBadgeClassName = "flex-[0_0_auto] not-italic";
-const clientInfoCurrentClientBadgeClassName =
-  "flex-[0_0_auto] not-italic font-650";
+const currentClientBadgeClassName = [
+  "flex-[0_0_auto] rounded-[999px] bg-[#dff6e7] px-[0.5rem] py-[1px]",
+  "text-[1rem] not-italic font-800 text-[#027a48]",
+].join(" ");
+const clientInfoCurrentClientBadgeClassName = [
+  "flex-[0_0_auto] rounded-[999px] bg-[#dff6e7] px-[0.5rem] py-[1px]",
+  "text-[1rem] not-italic text-[#027a48]",
+].join(" ");
 const clientDetailPageClassName = "grid min-w-0 gap-[14px]";
 const clientDetailSectionClassName = [
-  "min-w-0 overflow-hidden rounded-[8px] border border-[var(--wgo-border-light)] bg-[var(--wgo-bg-primary)]",
+  "min-w-0 overflow-hidden rounded-[8px] border border-[#d8dde7] bg-white",
 ].join(" ");
 const clientDetailSectionHeaderClassName = [
   "flex min-h-[48px] min-w-0 items-center justify-between gap-[1rem]",
-  "border-b border-b-[var(--wgo-border-light)] bg-[var(--wgo-bg-subtle)] px-[1rem] py-[9px]",
+  "border-b border-b-[#d8dde7] bg-[#fbfcfe] px-[1rem] py-[9px]",
   "[&_h2]:m-0 [&_h2]:min-w-0 [&_h2]:overflow-hidden",
   "[&_h2]:text-ellipsis [&_h2]:whitespace-nowrap",
-  "[&_h2]:text-[1rem] [&_h2]:font-800 [&_h2]:uppercase",
-  "[&_h2]:text-[var(--wgo-text-tertiary)]",
+  "[&_h2]:text-[1rem] [&_h2]:font-800",
+  "[&_h2]:text-[#667085]",
   "[&_span]:flex-[0_0_auto] [&_span]:text-[1rem]",
-  "[&_span]:font-650 [&_span]:text-[var(--wgo-text-tertiary)]",
+  "[&_span]:font-650 [&_span]:text-[#667085]",
 ].join(" ");
 const clientIdValueClassName = "flex min-w-0 flex-wrap items-center gap-[7px]";
-const credentialExpiryRemainingClassName =
-  "text-[1rem] text-[var(--wgo-text-tertiary)]";
+const credentialExpiryRemainingClassName = "text-[1rem] text-[#667085]";
 const credentialCreatedAgeClassName = credentialExpiryRemainingClassName;
 const renewCredentialButtonClassName = "!min-h-[28px] !px-[9px] !text-[1rem]";
-const renewCredentialMessageClassName =
-  "text-[1rem] text-[var(--wgo-text-tertiary)]";
-const renewCredentialErrorClassName = "text-[1rem] text-[var(--wgo-danger)]";
+const renewCredentialMessageClassName = "text-[1rem] text-[#667085]";
+const renewCredentialErrorClassName = "text-[1rem] text-[#b42318]";
 const terminalSessionListClassName = [
   "grid min-w-0",
   "[&_article]:grid [&_article]:min-w-0",
   "[&_article]:grid-cols-[minmax(0,1fr)_auto_auto]",
   "[&_article]:gap-x-[1rem] [&_article]:gap-y-[4px]",
   "[&_article]:items-center",
-  "[&_article]:border-b [&_article]:border-b-[var(--wgo-border-extra-light)]",
+  "[&_article]:border-b [&_article]:border-b-[#edf0f5]",
   "[&_article]:px-[1rem] [&_article]:py-[1rem]",
   "[&_article:last-child]:border-b-0",
   "[&_strong]:min-w-0 [&_strong]:overflow-hidden [&_strong]:text-ellipsis",
   "[&_strong]:whitespace-nowrap [&_strong]:font-750",
-  "[&_span]:text-[var(--wgo-text-tertiary)]",
+  "[&_span]:text-[#667085]",
   "[&_small]:col-span-3 [&_small]:min-w-0 [&_small]:[overflow-wrap:anywhere]",
-  "[&_small]:text-[1rem] [&_small]:text-[var(--wgo-text-tertiary)]",
+  "[&_small]:text-[1rem] [&_small]:text-[#667085]",
 ].join(" ");
 const terminalSessionActionsClassName =
   "flex min-w-0 items-center justify-end gap-[0.5rem]";
 const terminalSessionCloseButtonClassName =
   "!min-h-[24px] !px-[1rem] !text-[1rem]";
-const clientDetailStateClassName = "p-[1rem] text-[var(--wgo-text-tertiary)]";
+const clientDetailStateClassName = "p-[1rem] text-[#667085]";
 const procTableClassName = [
-  "grid overflow-hidden border border-[var(--wgo-border-light)] rounded-[8px]",
-  "bg-[var(--wgo-bg-primary)]",
+  "grid overflow-hidden border border-[#d8dde7] rounded-[8px]",
+  "bg-white",
   "[&_div]:grid [&_div]:grid-cols-[72px_minmax(0,1fr)]",
-  "[&_div]:min-w-0 [&_div]:border-b [&_div]:border-b-[var(--wgo-border-extra-light)]",
+  "[&_div]:min-w-0 [&_div]:border-b [&_div]:border-b-[#edf0f5]",
   "[&_div:last-child]:border-b-0",
   "[&_span]:min-w-0 [&_span]:px-[1rem] [&_span]:py-[8px]",
-  "[&_span]:text-[13px] [&_span]:[overflow-wrap:anywhere]",
-  "[&_span:first-child]:bg-[var(--wgo-bg-subtle)] [&_span:first-child]:font-700",
-  "[&_span:first-child]:text-[var(--wgo-text-tertiary)]",
+  "[&_span]:text-[14px] [&_span]:[overflow-wrap:anywhere]",
+  "[&_span:first-child]:bg-[#fbfcfe] [&_span:first-child]:font-700",
+  "[&_span:first-child]:text-[#667085]",
 ].join(" ");
 const messageStateClassName = [
   "grid h-full min-h-[220px] place-items-center text-center",
   "[&_div]:grid [&_div]:justify-items-center [&_div]:gap-[8px]",
-  "[&_svg]:text-[var(--wgo-text-disabled)]",
-  "[&_strong]:text-[14px] [&_strong]:text-[var(--wgo-text-primary)]",
-  "[&_p]:m-0 [&_p]:max-w-[420px] [&_p]:text-[13px] [&_p]:text-[var(--wgo-text-tertiary)]",
+  "[&_svg]:text-[#98a2b3]",
+  "[&_strong]:text-[15px] [&_strong]:text-[#20242d]",
+  "[&_p]:m-0 [&_p]:max-w-[420px] [&_p]:text-[14px] [&_p]:text-[#667085]",
 ].join(" ");
 
 interface ClientsState {
@@ -399,20 +406,18 @@ export function DaemonTool() {
           onOpenClients={openClientsPage}
           onOpenRoot={openRootPage}
         />
-        {clientsPageOpen ? null : (
-          <Badge
-            tone={connectionBadgeTone(connection.phase)}
-            variant="soft"
-            className={statusPillClassName}
-          >
-            {connection.phase === "reachable"
-              ? <CheckCircle2 size={13} />
-              : connection.phase === "offline"
-              ? <WifiOff size={13} />
-              : <Info size={13} />}
-            {connectionLabel}
-          </Badge>
-        )}
+        {clientsPageOpen
+          ? null
+          : (
+            <span className={`${statusPillClassName} ${connection.phase}`}>
+              {connection.phase === "reachable"
+                ? <CheckCircle2 size={13} />
+                : connection.phase === "offline"
+                ? <WifiOff size={13} />
+                : <Info size={13} />}
+              {connectionLabel}
+            </span>
+          )}
       </div>
       <div className={daemonContentClassName}>
         {daemonInfo.phase === "ready"
@@ -459,14 +464,6 @@ function formatDaemonConnectionLabel(connection: ConnectionState): string {
   }
   if (connection.phase === "idle") return "No machine selected";
   return "Unconnected";
-}
-
-function connectionBadgeTone(
-  phase: ConnectionState["phase"],
-): "danger" | "neutral" | "success" {
-  if (phase === "reachable") return "success";
-  if (phase === "offline") return "danger";
-  return "neutral";
 }
 
 interface DaemonBreadcrumbProps {
@@ -754,13 +751,7 @@ function ClientsOverviewContent(
       >
         <div className={clientNameRowClassName}>
           <strong>{currentClient.label || "Unnamed client"}</strong>
-          <Badge
-            className={currentClientBadgeClassName}
-            size="md"
-            tone="success"
-          >
-            This client
-          </Badge>
+          <em className={currentClientBadgeClassName}>This client</em>
         </div>
         <span>{currentClient.clientId}</span>
       </button>
@@ -866,15 +857,7 @@ function ClientButton(
       <div className={clientNameRowClassName}>
         <strong>{client.label || "Unnamed client"}</strong>
         {isCurrent
-          ? (
-            <Badge
-              className={currentClientBadgeClassName}
-              size="md"
-              tone="success"
-            >
-              This client
-            </Badge>
-          )
+          ? <em className={currentClientBadgeClassName}>This client</em>
           : null}
       </div>
       <span>{client.clientId}</span>
@@ -958,7 +941,7 @@ function ClientInformationSection(
       <header className={clientDetailSectionHeaderClassName}>
         <h2>Client information</h2>
       </header>
-      <PropertyList className="!border-0 !rounded-0 bg-[var(--wgo-border-extra-light)]">
+      <PropertyList className="!border-0 !rounded-0 bg-[#edf0f5]">
         <PropertyListItem label="Label">
           <PropertyValue>{client.label || "Unnamed client"}</PropertyValue>
         </PropertyListItem>
@@ -967,13 +950,9 @@ function ClientInformationSection(
             <PropertyValue>{client.clientId}</PropertyValue>
             {isCurrent
               ? (
-                <Badge
-                  className={clientInfoCurrentClientBadgeClassName}
-                  size="md"
-                  tone="success"
-                >
+                <em className={clientInfoCurrentClientBadgeClassName}>
                   This client
-                </Badge>
+                </em>
               )
               : null}
           </div>
@@ -1142,7 +1121,7 @@ interface InlineStateProps {
 
 function InlineState({ message }: InlineStateProps) {
   return (
-    <div className="min-w-0 rounded-[8px] border border-[var(--wgo-border-light)] bg-[var(--wgo-bg-subtle)] px-[1rem] py-[1rem] text-[13px] text-[var(--wgo-text-tertiary)]">
+    <div className="min-w-0 rounded-[8px] border border-[#d8dde7] bg-[#fbfcfe] px-[1rem] py-[1rem] text-[14px] text-[#667085]">
       {message}
     </div>
   );

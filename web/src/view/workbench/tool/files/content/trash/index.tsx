@@ -34,39 +34,38 @@ interface TrashItemMenuState {
 
 const trashContentClassName = [
   "grid [grid-template-rows:minmax(0,1fr)_auto]",
-  "w-full h-full min-w-0 min-h-0 overflow-hidden bg-[var(--wgo-bg-primary)]",
+  "w-full h-full min-w-0 min-h-0 overflow-hidden bg-white",
 ].join(" ");
 const trashTableClassName = [
   "grid min-h-0 min-w-0 overflow-auto",
   "[grid-template-columns:minmax(180px,1.2fr)_minmax(180px,1.4fr)_minmax(100px,140px)_minmax(140px,190px)]",
-  "auto-rows-[2em] bg-[var(--wgo-bg-primary)] leading-[1.6]",
+  "auto-rows-[2em] bg-white leading-[1.6]",
 ].join(" ");
 const trashHeadClassName = [
   "sticky top-0 z-[1] flex h-[2rem] items-center box-border",
-  "border-b border-b-[var(--wgo-border-light)] bg-[var(--wgo-bg-header)] px-[8px]",
-  "text-[var(--wgo-text-tertiary)] font-700",
+  "border-b border-b-[#d8dde7] bg-[#f6f8fb] px-[8px]",
+  "text-[#667085] font-700",
 ].join(" ");
 const trashRowClassName = [
   "grid [grid-column:1/-1] [grid-template-columns:subgrid]",
-  "h-[2em] min-h-[2em] box-border border-0 border-b border-b-[var(--wgo-bg-muted)]",
-  "cursor-default bg-[var(--wgo-bg-primary)] text-left leading-[1.6] hover:bg-[var(--wgo-bg-hover-weak)]",
-  "[&.selected]:bg-[var(--wgo-bg-selected)]",
+  "h-[2em] min-h-[2em] box-border border-0 border-b border-b-[#eef1f5]",
+  "cursor-default bg-white text-left leading-[1.6] hover:bg-[#f7faff]",
+  "[&.selected]:bg-[#eaf3ff]",
 ].join(" ");
 const trashCellClassName = [
   "flex items-center min-w-0 overflow-hidden px-[8px]",
-  "text-[var(--wgo-text-strong)] text-ellipsis whitespace-nowrap",
+  "text-[#303642] text-ellipsis whitespace-nowrap",
 ].join(" ");
-const trashMetaCellClassName =
-  `${trashCellClassName} text-[var(--wgo-text-tertiary)]`;
+const trashMetaCellClassName = `${trashCellClassName} text-[#667085]`;
 const trashFooterClassName = [
   "flex h-[2rem] min-h-[2rem] items-center justify-end box-border",
-  "border-t border-t-[var(--wgo-border-light)] bg-[var(--wgo-bg-subtle)] px-[8px]",
-  "text-[var(--wgo-text-tertiary)] leading-[1.6]",
+  "border-t border-t-[#d8dde7] bg-[#fbfcfe] px-[8px]",
+  "text-[#667085] leading-[1.6]",
 ].join(" ");
 const trashStatusClassName =
-  "[grid-column:1/-1] flex items-center px-[12px] text-[var(--wgo-text-tertiary)]";
+  "[grid-column:1/-1] flex items-center px-[12px] text-[#667085]";
 const trashErrorClassName =
-  "[grid-column:1/-1] flex items-center px-[12px] text-[var(--wgo-danger)]";
+  "[grid-column:1/-1] flex items-center px-[12px] text-[#b42318]";
 const trashContextMenuWidth = 176;
 
 export function TrashContent() {

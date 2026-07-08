@@ -5,6 +5,7 @@ import {
   type ReactNode,
   type RefObject,
   useEffect,
+  useMemo,
 } from "react";
 import { Menu } from "@base-ui/react/menu";
 import { cva, type VariantProps } from "class-variance-authority";
@@ -64,6 +65,8 @@ export interface FloatingMenuPosition {
 }
 
 export interface FloatingMenuProps {
+  align?: "start" | "center" | "end";
+  anchorRef?: RefObject<Element | null>;
   children: ReactNode;
   className?: string;
   menuRef?: RefObject<HTMLDivElement | null>;
@@ -91,6 +94,8 @@ export interface FloatingMenuSize {
 
 export function FloatingMenu(
   {
+    align = "start",
+    anchorRef,
     children,
     className,
     menuRef,
@@ -101,16 +106,20 @@ export function FloatingMenu(
     onMouseDown,
   }: FloatingMenuProps,
 ) {
+  const virtualAnchor = useMemo(
+    () => position ? virtualAnchorFromPosition(position) : undefined,
+    [position],
+  );
+  const anchor = virtualAnchor ?? anchorRef;
   const popup = (
     <Menu.Popup
       ref={menuRef}
       className={joinClassName(
-        strategy === "absolute" && "absolute",
         menuVariants(),
         className,
       )}
       role={role}
-      style={strategy === "absolute" ? { ...position, ...style } : style}
+      style={{ maxHeight: position?.maxHeight, ...style }}
       finalFocus={false}
       onMouseDown={(event) => {
         event.stopPropagation();
@@ -121,26 +130,30 @@ export function FloatingMenu(
     </Menu.Popup>
   );
 
-  if (strategy === "absolute") {
-    return (
-      <Menu.Root open modal={false}>
-        {popup}
-      </Menu.Root>
-    );
-  }
-
   return (
     <Menu.Root open modal={false}>
       <Menu.Portal>
         <Menu.Positioner
+          anchor={anchor}
+          align={align}
           className={menuPositionerVariants({ strategy })}
-          style={{ ...position }}
+          collisionPadding={viewportMargin}
+          positionMethod={strategy}
+          side="bottom"
         >
           {popup}
         </Menu.Positioner>
       </Menu.Portal>
     </Menu.Root>
   );
+}
+
+function virtualAnchorFromPosition(position: FloatingMenuPosition) {
+  return {
+    getBoundingClientRect() {
+      return new DOMRect(position.left, position.top, 0, 0);
+    },
+  };
 }
 
 export function FloatingMenuItem(

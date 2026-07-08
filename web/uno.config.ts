@@ -68,6 +68,7 @@ const preflightStyles = String.raw`
   --wgo-bg-subtle: var(--wgo-color-gray-25);
   --wgo-bg-header: var(--wgo-color-gray-75);
   --wgo-bg-hover: var(--wgo-color-blue-90);
+  --wgo-bg-active: var(--wgo-color-blue-100);
   --wgo-bg-hover-weak: var(--wgo-color-blue-50);
   --wgo-bg-menu-hover: var(--wgo-color-blue-75);
   --wgo-bg-row-hover: var(--wgo-color-blue-60);
@@ -84,6 +85,9 @@ const preflightStyles = String.raw`
   --wgo-text-control: var(--wgo-color-gray-750);
   --wgo-text-disabled: var(--wgo-color-gray-500);
   --wgo-text-inverse: var(--wgo-color-gray-50);
+  --wgo-canvas-background: var(--wgo-bg-canvas);
+  --wgo-canvas-grain: none;
+  --wgo-bg-overlay: var(--wgo-overlay-backdrop);
   --wgo-border-light: var(--wgo-color-gray-300);
   --wgo-border-medium: var(--wgo-color-gray-400);
   --wgo-border-subtle: var(--wgo-color-gray-150);
@@ -125,13 +129,42 @@ const preflightStyles = String.raw`
   --wgo-shell-text: var(--wgo-color-gray-300);
   --wgo-shell-text-muted: var(--wgo-color-shell-300);
   --wgo-shell-success: var(--wgo-color-shell-success);
+  --wgo-chrome: var(--wgo-color-gray-950);
+  --wgo-chrome-muted: var(--wgo-color-gray-900);
+  --wgo-chrome-hover: rgb(255 255 255 / 11.5%);
+  --wgo-chrome-active: rgb(255 255 255 / 16%);
+  --wgo-chrome-text: rgb(255 255 255 / 88%);
+  --wgo-chrome-text-muted: rgb(255 255 255 / 58%);
   --wgo-tooltip-bg: var(--wgo-color-gray-950);
   --wgo-overlay-backdrop: rgb(var(--wgo-shadow-rgb) / 42%);
+  --wgo-material-chrome-bg: rgb(246 246 247 / 56%);
+  --wgo-material-floating-bg: rgb(255 255 255 / 72%);
+  --wgo-material-window-bg: rgb(248 248 249 / 50%);
+  --wgo-pane-bg: rgb(253 253 253 / 94%);
+  --wgo-pane-head-bg: rgb(241 241 242 / 74%);
+  --wgo-pane-border: rgb(var(--wgo-shadow-rgb) / 8.5%);
+  --wgo-table-bg: rgb(253 253 253 / 96.5%);
+  --wgo-table-head-bg: rgb(246 246 247 / 92%);
   --wgo-shadow-rgb: 32 36 45;
   --wgo-shadow-strong-rgb: 16 24 40;
+  --wgo-radius-xs: 4px;
   --wgo-radius-sm: 4px;
   --wgo-radius-md: 6px;
   --wgo-radius-lg: 8px;
+  --wgo-radius-xl: 12px;
+  --wgo-radius-2xl: 16px;
+  --wgo-shadow-sm: 0 1px 2px rgb(var(--wgo-shadow-rgb) / 6%),
+    0 1px 1px rgb(var(--wgo-shadow-rgb) / 3%);
+  --wgo-shadow-md: 0 7px 18px rgb(var(--wgo-shadow-rgb) / 7.5%),
+    0 1px 3px rgb(var(--wgo-shadow-rgb) / 4.5%);
+  --wgo-shadow-lg: 0 24px 58px rgb(var(--wgo-shadow-rgb) / 18%),
+    0 5px 16px rgb(var(--wgo-shadow-rgb) / 8%);
+  --wgo-shadow-pane: 0 0 0 0.5px rgb(var(--wgo-shadow-rgb) / 10%),
+    0 2px 5px rgb(var(--wgo-shadow-rgb) / 7%),
+    0 18px 42px rgb(var(--wgo-shadow-rgb) / 11%);
+  --wgo-shadow-window: 0 34px 90px rgb(19 27 42 / 21%),
+    0 10px 30px rgb(19 27 42 / 12%),
+    inset 0 1px 0 rgb(255 255 255 / 76%);
   --wgo-shadow-menu: 0 18px 48px rgb(var(--wgo-shadow-rgb) / 24%);
   --wgo-shadow-dialog: 0 24px 72px rgb(var(--wgo-shadow-rgb) / 28%);
   --wgo-shadow-tooltip: 0 12px 32px rgb(var(--wgo-shadow-strong-rgb) / 24%);
@@ -201,6 +234,39 @@ export default defineConfig({
   presets: [presetUno()],
   theme: {
     colors: {
+      "wgo-active": "var(--wgo-bg-active)",
+      "wgo-accent": "var(--wgo-accent)",
+      "wgo-accent-hover": "var(--wgo-accent-hover)",
+      "wgo-accent-muted": "var(--wgo-accent-overlay)",
+      "wgo-accent-soft": "var(--wgo-accent-soft)",
+      "wgo-border": "var(--wgo-border-light)",
+      "wgo-border-medium": "var(--wgo-border-medium)",
+      "wgo-border-strong": "var(--wgo-border-control)",
+      "wgo-border-subtle": "var(--wgo-border-subtle)",
+      "wgo-canvas": "var(--wgo-bg-canvas)",
+      "wgo-chrome": "var(--wgo-chrome)",
+      "wgo-chrome-active": "var(--wgo-chrome-active)",
+      "wgo-chrome-hover": "var(--wgo-chrome-hover)",
+      "wgo-chrome-muted": "var(--wgo-chrome-muted)",
+      "wgo-chrome-subtle": "var(--wgo-chrome-text-muted)",
+      "wgo-chrome-text": "var(--wgo-chrome-text)",
+      "wgo-danger": "var(--wgo-danger)",
+      "wgo-danger-soft": "var(--wgo-danger-soft)",
+      "wgo-focus": "var(--wgo-focus)",
+      "wgo-hover": "var(--wgo-bg-hover)",
+      "wgo-inverse": "var(--wgo-text-inverse)",
+      "wgo-muted": "var(--wgo-text-disabled)",
+      "wgo-overlay": "var(--wgo-bg-overlay)",
+      "wgo-success": "var(--wgo-success)",
+      "wgo-success-soft": "var(--wgo-success-soft)",
+      "wgo-surface": "var(--wgo-bg-primary)",
+      "wgo-surface-2": "var(--wgo-bg-secondary)",
+      "wgo-surface-3": "var(--wgo-bg-muted)",
+      "wgo-text": "var(--wgo-text-primary)",
+      "wgo-text-2": "var(--wgo-text-secondary)",
+      "wgo-text-3": "var(--wgo-text-tertiary)",
+      "wgo-warning": "var(--wgo-warning)",
+      "wgo-warning-soft": "var(--wgo-warning-soft)",
       wgo: {
         accent: "var(--wgo-accent)",
         "accent-overlay": "var(--wgo-accent-overlay)",
@@ -260,17 +326,40 @@ export default defineConfig({
       },
     },
     borderRadius: {
+      "wgo-xs": "var(--wgo-radius-xs)",
       "wgo-sm": "var(--wgo-radius-sm)",
       "wgo-md": "var(--wgo-radius-md)",
       "wgo-lg": "var(--wgo-radius-lg)",
+      "wgo-xl": "var(--wgo-radius-xl)",
+      "wgo-2xl": "var(--wgo-radius-2xl)",
     },
     boxShadow: {
       "wgo-dialog": "var(--wgo-shadow-dialog)",
+      "wgo-lg": "var(--wgo-shadow-lg)",
       "wgo-menu": "var(--wgo-shadow-menu)",
+      "wgo-md": "var(--wgo-shadow-md)",
+      "wgo-pane": "var(--wgo-shadow-pane)",
+      "wgo-sm": "var(--wgo-shadow-sm)",
     },
     fontFamily: {
       wgo: "var(--wgo-font-native)",
     },
+  },
+  shortcuts: {
+    "wgo-icon-button":
+      "inline-flex appearance-none items-center justify-center cursor-pointer border-0 rounded-wgo-md bg-transparent p-0 leading-none font-wgo text-wgo-text-3 hover:bg-wgo-hover hover:text-wgo-text-2 active:bg-wgo-active wgo-transition",
+    "wgo-material-chrome":
+      "border-white/22 bg-[var(--wgo-material-chrome-bg)] backdrop-blur-xl shadow-[inset_0_1px_0_rgb(255_255_255_/_66%),inset_0_-1px_0_rgb(18_25_38_/_4%)]",
+    "wgo-material-dock-control":
+      "border border-white/34 bg-white/24 text-wgo-text-2 backdrop-blur-xl hover:border-white/56 hover:bg-white/44 hover:text-wgo-text",
+    "wgo-material-floating":
+      "border border-white/42 bg-[var(--wgo-material-floating-bg)] backdrop-blur-2xl shadow-[0_24px_70px_rgb(18_25_38_/_22%),0_4px_16px_rgb(18_25_38_/_10%),inset_0_1px_0_rgb(255_255_255_/_82%)]",
+    "wgo-material-window":
+      "border border-white/46 bg-[var(--wgo-material-window-bg)] backdrop-blur-2xl shadow-[var(--wgo-shadow-window)]",
+    "wgo-surface-card":
+      "border border-wgo-border bg-wgo-surface rounded-wgo-xl shadow-wgo-md",
+    "wgo-transition":
+      "[transition:background_var(--wgo-duration-fast,100ms)_var(--wgo-ease-out,cubic-bezier(0.16,1,0.3,1)),color_var(--wgo-duration-fast,100ms)_var(--wgo-ease-out,cubic-bezier(0.16,1,0.3,1)),border-color_var(--wgo-duration-fast,100ms)_var(--wgo-ease-out,cubic-bezier(0.16,1,0.3,1)),box-shadow_var(--wgo-duration-fast,100ms)_var(--wgo-ease-out,cubic-bezier(0.16,1,0.3,1))]",
   },
   preflights: [
     {

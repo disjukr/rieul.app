@@ -32,18 +32,20 @@ import { Button } from "../../../ui/button.tsx";
 
 const terminalToolClassName = [
   "grid [grid-template-rows:minmax(0,1fr)_auto_auto]",
-  "w-full h-full min-w-0 min-h-0 overflow-hidden bg-[#0b0f16]",
+  "w-full h-full min-w-0 min-h-0 overflow-hidden",
+  "bg-[rgba(8,12,20,0.72)] text-[#d8dee9] backdrop-blur-2xl",
 ].join(" ");
 const terminalSurfaceClassName =
   "relative w-full h-full min-w-0 min-h-0 overflow-hidden";
 const emptyWorkspaceClassName = [
   "grid content-center justify-items-center w-full h-full gap-[10px]",
-  "min-h-0 bg-white text-[#667085]",
-  "[&_h2]:m-0 [&_h2]:text-[#303642] [&_h2]:text-[18px] [&_h2]:tracking-[0]",
+  "min-h-0 bg-[rgba(8,12,20,0.72)] text-[#9aa6b8] backdrop-blur-2xl",
+  "[&_h2]:m-0 [&_h2]:text-[#eef3fa] [&_h2]:text-[18px] [&_h2]:tracking-[0]",
 ].join(" ");
 const terminalFooterClassName = [
   "flex items-center justify-end gap-[12px] h-[2rem] min-h-[2rem] box-border",
-  "border-t border-t-[#d8dde7] bg-[#fbfcfe] text-[#667085]",
+  "border-t border-t-white/8 bg-black/14 text-[#9aa6b8] backdrop-blur-xl",
+  "shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]",
   "px-[8px] leading-[1.6]",
   "[@container_workbench-tab-page_(min-width:520px)]:justify-between",
 ].join(" ");
@@ -51,15 +53,14 @@ const terminalFooterDetailsClassName = [
   "hidden min-w-0 items-center gap-[8px]",
   "[@container_workbench-tab-page_(min-width:520px)]:flex",
   "[&_strong]:min-w-0 [&_strong]:overflow-hidden [&_strong]:text-ellipsis",
-  "[&_strong]:whitespace-nowrap [&_strong]:font-650 [&_strong]:text-[#344054]",
+  "[&_strong]:whitespace-nowrap [&_strong]:font-650 [&_strong]:text-[#dce6f4]",
   "[&_span]:min-w-0 [&_span]:overflow-hidden [&_span]:text-ellipsis",
   "[&_span]:whitespace-nowrap",
 ].join(" ");
 const terminalFooterSizeClassName = "flex-[0_0_auto]";
-const terminalHostClassName =
-  "w-full h-full min-w-0 min-h-0 overflow-hidden p-[8px]";
+const terminalHostClassName = "w-full h-full min-w-0 min-h-0 overflow-hidden";
 const terminalOverlayNoticeClassName = [
-  "absolute inset-0 z-[2] grid place-items-center bg-[#0b0f16]",
+  "absolute inset-0 z-[2] grid place-items-center bg-[rgba(8,12,20,0.78)] backdrop-blur-2xl",
   "px-[18px] text-center text-[#d0d5dd]",
   "[&_div]:grid [&_div]:max-w-[360px] [&_div]:justify-items-center",
   "[&_div]:gap-[10px]",
@@ -67,14 +68,14 @@ const terminalOverlayNoticeClassName = [
   "[&_p]:m-0 [&_p]:text-[13px] [&_p]:leading-[1.45]",
 ].join(" ");
 const terminalWaitingNoticeClassName = [
-  "absolute inset-0 z-[1] grid place-items-center bg-[#0b0f16]",
+  "absolute inset-0 z-[1] grid place-items-center bg-[rgba(8,12,20,0.68)] backdrop-blur-xl",
   "px-[18px] text-[#d0d5dd]",
   "[&_div]:flex [&_div]:items-center [&_div]:gap-[8px]",
   "[&_span]:text-[13px] [&_span]:leading-[1.6]",
 ].join(" ");
 const terminalStatusNoticeClassName = [
-  "flex min-h-[2rem] items-center gap-[8px] border-t border-t-[#263244]",
-  "bg-[#0f1520] px-[8px] leading-[1.6] text-[#98a2b3]",
+  "flex min-h-[2rem] items-center gap-[8px] border-t border-t-white/8",
+  "bg-black/18 px-[8px] leading-[1.6] text-[#98a2b3] backdrop-blur-xl",
   "[&_strong]:flex-[0_0_auto] [&_strong]:font-650 [&_strong]:text-[#d0d5dd]",
   "[&_span]:min-w-0 [&_span]:flex-[1_1_auto] [&_span]:overflow-hidden",
   "[&_span]:text-ellipsis [&_span]:whitespace-nowrap",

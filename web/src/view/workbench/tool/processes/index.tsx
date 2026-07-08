@@ -98,97 +98,95 @@ interface ProcessTreeNode {
 
 const processesToolClassName = [
   "flex h-full min-h-0 w-full flex-col",
-  "overflow-hidden bg-[var(--wgo-bg-primary)] text-[var(--wgo-text-primary)]",
+  "overflow-hidden bg-white text-[#20242d]",
 ].join(" ");
 const processesContentClassName =
   "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden";
 const emptyWorkspaceClassName = [
   "grid content-center justify-items-center w-full h-full gap-[10px]",
-  "min-h-0 bg-[var(--wgo-bg-primary)] text-[var(--wgo-text-tertiary)]",
-  "[&_h2]:m-0 [&_h2]:text-[var(--wgo-text-strong)] [&_h2]:text-[18px] [&_h2]:tracking-[0]",
+  "min-h-0 bg-white text-[#667085]",
+  "[&_h2]:m-0 [&_h2]:text-[#303642] [&_h2]:text-[18px] [&_h2]:tracking-[0]",
   "[&_p]:m-0 [&_p]:max-w-[360px] [&_p]:text-center [&_p]:leading-[1.45]",
 ].join(" ");
 const processTableClassName = [
   "grid min-h-0 min-w-0 flex-1 overflow-auto leading-[1.6]",
   "[grid-template-columns:minmax(72px,96px)_minmax(72px,96px)_minmax(180px,1fr)_minmax(104px,132px)]",
-  "auto-rows-[2rem] bg-[var(--wgo-bg-primary)]",
+  "auto-rows-[2rem] bg-white",
 ].join(" ");
 const processTreeTableClassName = [
   "grid min-h-0 min-w-0 flex-1 overflow-auto leading-[1.6]",
   "[grid-template-columns:minmax(240px,1fr)_minmax(72px,96px)_minmax(72px,96px)_minmax(104px,132px)]",
-  "auto-rows-[2rem] bg-[var(--wgo-bg-primary)]",
+  "auto-rows-[2rem] bg-white",
 ].join(" ");
 const processResourceTableClassName = [
   "grid min-h-0 min-w-0 flex-1 overflow-auto leading-[1.6]",
   "[grid-template-columns:minmax(180px,1fr)_minmax(136px,168px)_minmax(96px,120px)_minmax(120px,168px)]",
-  "auto-rows-[2rem] bg-[var(--wgo-bg-primary)]",
+  "auto-rows-[2rem] bg-white",
 ].join(" ");
 const processSocketTableClassName = [
   "grid min-h-0 min-w-0 flex-1 overflow-auto leading-[1.6]",
   "[grid-template-columns:minmax(96px,120px)_minmax(180px,1fr)_minmax(180px,1fr)_minmax(96px,120px)]",
-  "auto-rows-[2rem] bg-[var(--wgo-bg-primary)]",
+  "auto-rows-[2rem] bg-white",
 ].join(" ");
 const processSocketTableEmptyClassName = [
   "grid min-h-0 min-w-0 flex-1 overflow-auto leading-[1.6]",
   "[grid-template-columns:minmax(96px,120px)_minmax(180px,1fr)_minmax(180px,1fr)_minmax(96px,120px)]",
-  "[grid-template-rows:2rem_minmax(0,1fr)] bg-[var(--wgo-bg-primary)]",
+  "[grid-template-rows:2rem_minmax(0,1fr)] bg-white",
 ].join(" ");
 const processModuleTableClassName = [
   "grid min-h-0 min-w-0 flex-1 overflow-auto leading-[1.6]",
   "[grid-template-columns:minmax(180px,1fr)_minmax(120px,148px)_minmax(136px,168px)_minmax(96px,120px)_minmax(240px,2fr)]",
-  "auto-rows-[2rem] bg-[var(--wgo-bg-primary)]",
+  "auto-rows-[2rem] bg-white",
 ].join(" ");
 const processHeadClassName = [
   "sticky top-0 z-[1] flex h-[2rem] box-border items-center",
-  "border-b border-b-[var(--wgo-border-light)] bg-[var(--wgo-bg-header)] px-[8px]",
-  "font-700 text-[var(--wgo-text-tertiary)]",
+  "border-b border-b-[#d8dde7] bg-[#f6f8fb] px-[8px]",
+  "font-700 text-[#667085]",
 ].join(" ");
 const processRowClassName = [
   "grid [grid-column:1/-1] [grid-template-columns:subgrid]",
-  "h-[2rem] min-h-[2rem] box-border border-0 border-b border-b-[var(--wgo-bg-muted)]",
-  "cursor-default bg-[var(--wgo-bg-primary)] hover:bg-[var(--wgo-bg-row-hover)]",
+  "h-[2rem] min-h-[2rem] box-border border-0 border-b border-b-[#eef1f5]",
+  "cursor-default bg-white hover:bg-[#f7f9fc]",
 ].join(" ");
 const processCellClassName = [
   "flex min-w-0 items-center overflow-hidden px-[8px]",
-  "text-ellipsis whitespace-nowrap text-[var(--wgo-text-strong)]",
+  "text-ellipsis whitespace-nowrap text-[#303642]",
 ].join(" ");
 const processFirstColumnClassName = "pl-[1rem]";
 const processPidCellClassName =
-  `${processCellClassName} font-mono text-[var(--wgo-text-secondary)]`;
-const processMetaCellClassName =
-  `${processCellClassName} text-[var(--wgo-text-tertiary)]`;
+  `${processCellClassName} font-mono text-[#475467]`;
+const processMetaCellClassName = `${processCellClassName} text-[#667085]`;
 const processNameClassName =
   "min-w-0 overflow-hidden text-ellipsis whitespace-nowrap";
 const processSocketEmptyCellClassName = [
   "col-start-1 col-end-[-1] flex min-h-0 min-w-0 flex-col",
   "items-center justify-center gap-1 px-[1rem] py-[0.5rem] text-center",
-  "text-[var(--wgo-text-strong)]",
+  "text-[#303642]",
 ].join(" ");
 const processesFooterClassName = [
-  "flex h-[2rem] min-h-[2rem] items-center justify-end border-t border-t-[var(--wgo-border-light)]",
-  "bg-[var(--wgo-bg-subtle)] px-[8px] leading-[1.6] text-[var(--wgo-text-tertiary)]",
+  "flex h-[2rem] min-h-[2rem] items-center justify-end border-t border-t-[#d8dde7]",
+  "bg-[#fbfcfe] px-[8px] leading-[1.6] text-[#667085]",
 ].join(" ");
 const processDetailScrollClassName = "min-h-0 flex-1 overflow-auto";
 const processDetailBodyClassName =
   "grid min-w-0 content-start gap-[14px] px-[18px] py-[16px]";
-const processDetailNoteClassName =
-  "text-[12px] text-[var(--wgo-text-tertiary)]";
+const processDetailNoteClassName = "text-[13px] text-[#667085]";
 const processDetailFooterClassName = [
-  "flex h-[2rem] min-h-[2rem] items-center justify-end border-t border-t-[var(--wgo-border-light)]",
-  "bg-[var(--wgo-bg-subtle)] px-[8px] leading-[1.6] text-[var(--wgo-text-tertiary)]",
+  "flex h-[2rem] min-h-[2rem] items-center justify-end border-t border-t-[#d8dde7]",
+  "bg-[#fbfcfe] px-[8px] leading-[1.6] text-[#667085]",
 ].join(" ");
 const processDetailActionsClassName =
   "flex min-w-0 items-center justify-start gap-[0.5rem]";
 const processResourceDetailPanelClassName = [
-  "relative max-h-[40%] min-h-[9rem] overflow-auto border-t border-t-[var(--wgo-border-light)]",
-  "bg-[var(--wgo-bg-subtle)] px-[18px] py-[16px] pr-[3rem]",
+  "relative max-h-[40%] min-h-[9rem] overflow-auto border-t border-t-[#d8dde7]",
+  "bg-[#fbfcfe] px-[18px] py-[16px] pr-[3rem]",
 ].join(" ");
 const processResourceDetailCloseButtonClassName = [
   "absolute right-[0.75rem] top-[0.75rem]",
   "grid h-[1.6rem] w-[1.6rem] place-items-center rounded-[0.25rem]",
-  "border border-transparent bg-transparent p-0 text-[var(--wgo-text-tertiary)]",
+  "border border-transparent bg-transparent p-0 text-[#667085]",
   "cursor-pointer [font-family:inherit]",
-  "hover:bg-[var(--wgo-bg-hover)] hover:text-[var(--wgo-text-control)]",
+  "hover:bg-[#eef3fb] hover:text-[#344054]",
 ].join(" ");
 
 export function ProcessesTool() {
@@ -416,7 +414,7 @@ function ProcessesBreadcrumb(
   return (
     <Breadcrumb
       ariaLabel="Process location"
-      className="flex-[0_0_auto] border-b border-b-[var(--wgo-border-light)] bg-[var(--wgo-bg-subtle)] px-[0.5rem]"
+      className="flex-[0_0_auto] border-b border-b-[#d8dde7] bg-[#fbfcfe] px-[0.5rem]"
       items={items.map((item, index) => ({
         ...item,
         muted: index === items.length - 1,
@@ -1161,11 +1159,7 @@ function ProcessResourcesInUseView(
                 key={resource.resourceId}
                 className={`${processRowClassName} ${
                   canOpen ? "!cursor-pointer" : ""
-                } ${
-                  selected
-                    ? "!bg-[var(--wgo-bg-selected-soft)] hover:!bg-[var(--wgo-bg-selected-hover)]"
-                    : ""
-                }`}
+                } ${selected ? "!bg-[#eef4ff] hover:!bg-[#e7f0ff]" : ""}`}
                 role="row"
                 title={resource.name ?? resource.resourceId}
                 onClick={() =>

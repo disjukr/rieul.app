@@ -16,16 +16,13 @@ export function MachinePanelRegion() {
   const machinePanel = useBunja(machinePanelBunja);
   const selected = useAtomValue(machinePanel.machineAtom);
   const connection = useAtomValue(machinePanel.connectionAtom);
-  const activeTool = useAtomValue(machinePanel.activeToolAtom);
   const machinePanelCollapsed = useAtomValue(
     machinePanel.machinePanelCollapsedAtom,
   );
   const machinePanelWidth = useAtomValue(machinePanel.machinePanelWidthAtom);
-  const terminalShells = useAtomValue(machinePanel.terminalShellsAtom);
 
   return (
     <MachinePanel
-      activeTool={activeTool}
       connection={connection}
       machine={selected}
       machinePanelCollapsed={machinePanelCollapsed}
@@ -33,12 +30,8 @@ export function MachinePanelRegion() {
       machinePanelMinWidth={machinePanel.machinePanelMinWidth}
       machinePanelWidth={machinePanelWidth}
       onOpenMachineMenu={machinePanel.openMachineTitleMenu}
-      onOpenFilesView={machinePanel.openFilesView}
       onResizeKeyDown={machinePanel.resizeMachinePanelWithKeyboard}
       onResizePointerDown={machinePanel.startMachinePanelResize}
-      onOpenTerminalShell={machinePanel.openTerminalShell}
-      onSelectTool={machinePanel.selectTool}
-      terminalShells={terminalShells}
     />
   );
 }

@@ -10,6 +10,7 @@ import {
   Pencil,
   SquareTerminal,
   Trash2,
+  X,
 } from "lucide-react";
 import {
   createNodes,
@@ -46,8 +47,6 @@ import {
   type FilesRenameState,
 } from "./context.tsx";
 import { Button } from "../../../ui/button.tsx";
-import { ModalDialog } from "../../../ui/dialog.tsx";
-import { Surface } from "../../../ui/surface.tsx";
 import { FilesContent } from "./content/index.tsx";
 import { EntryPropertiesModal } from "./content/directory/index.tsx";
 import { FilesNavbar } from "./navbar/index.tsx";
@@ -60,27 +59,47 @@ import { filesToolBunja } from "./state.ts";
 
 const emptyWorkspaceClassName = [
   "grid content-center justify-items-center w-full h-full gap-[10px]",
-  "min-h-0 text-[var(--wgo-text-tertiary)]",
-  "[&_h2]:m-0 [&_h2]:text-[var(--wgo-text-strong)] [&_h2]:text-[18px] [&_h2]:tracking-[0]",
+  "min-h-0 text-wgo-text-3",
+  "[&_h2]:m-0 [&_h2]:text-wgo-text [&_h2]:text-[18px] [&_h2]:tracking-[0]",
 ].join(" ");
 const explorerClassName = [
-  "grid [grid-template-rows:auto_minmax(0,1fr)]",
-  "w-full h-full min-h-0 overflow-hidden",
+  "grid [grid-template-rows:auto_minmax(0,1fr)] gap-[5px]",
+  "w-full h-full min-h-0 overflow-hidden p-[6px]",
+  "bg-[rgba(247,247,248,0.72)]",
 ].join(" ");
 const entryContextMenuWidth = 176;
+const modalBackdropClassName =
+  "fixed inset-0 z-[20] grid place-items-center bg-wgo-overlay p-[24px]";
+const modalClassName = [
+  "w-[min(460px,100%)] overflow-hidden border border-wgo-border",
+  "rounded-wgo-xl bg-wgo-surface shadow-wgo-lg",
+].join(" ");
+const modalHeadClassName = [
+  "flex items-center justify-between gap-[12px] border-b border-b-wgo-border",
+  "px-[16px] py-[14px]",
+  "[&_div]:grid [&_div]:gap-[2px] [&_div]:min-w-0",
+  "[&_span]:text-wgo-text-3 [&_span]:text-[13px] [&_span]:font-600",
+  "[&_h2]:m-0 [&_h2]:text-wgo-text [&_h2]:text-[18px] [&_h2]:tracking-[0]",
+].join(" ");
+const iconButtonClassName = "!w-[36px] !min-w-[36px] !p-0";
 const deleteDialogBodyClassName = [
   "grid gap-[12px] p-[16px]",
-  "[&_p]:m-0 [&_p]:text-[var(--wgo-text-secondary)] [&_p]:text-[13px] [&_p]:leading-[1.45]",
+  "[&_p]:m-0 [&_p]:text-wgo-text-2 [&_p]:text-[14px] [&_p]:leading-[1.45]",
 ].join(" ");
 const entrySummaryClassName = [
-  "grid gap-[2px] p-[10px]",
+  "grid gap-[2px] min-w-0 border border-wgo-border rounded-wgo-lg",
+  "bg-wgo-surface-2 p-[10px]",
   "[&_strong]:min-w-0 [&_strong]:overflow-hidden [&_strong]:text-ellipsis",
-  "[&_strong]:whitespace-nowrap [&_strong]:text-[var(--wgo-text-primary)] [&_strong]:text-[13px]",
+  "[&_strong]:whitespace-nowrap [&_strong]:text-wgo-text [&_strong]:text-[14px]",
   "[&_span]:min-w-0 [&_span]:[overflow-wrap:anywhere]",
-  "[&_span]:text-[var(--wgo-text-tertiary)] [&_span]:text-[12px]",
+  "[&_span]:text-wgo-text-3 [&_span]:text-[13px]",
 ].join(" ");
 const modalActionsClassName = "flex justify-end gap-[8px]";
-const fieldErrorClassName = "text-[var(--wgo-danger)] text-[12px]";
+const dangerActionClassName = [
+  "border-wgo-danger bg-wgo-danger-soft text-wgo-danger",
+  "hover:border-wgo-danger hover:bg-wgo-danger-soft hover:text-wgo-danger",
+].join(" ");
+const fieldErrorClassName = "text-wgo-danger text-[13px]";
 
 interface EntryMenuState {
   entry: FsEntry;
@@ -671,47 +690,64 @@ function DeleteEntryModal(
   { state, onClose, onDelete }: DeleteEntryModalProps,
 ) {
   return (
-    <ModalDialog
-      eyebrow="File"
-      title="Delete"
-      titleId="delete-entry-title"
-      bodyClassName={deleteDialogBodyClassName}
-      closeDisabled={state.isDeleting}
-      closeLabel="Close delete dialog"
-      disablePointerDismissal={state.isDeleting}
-      onClose={onClose}
+    <div
+      className={modalBackdropClassName}
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget && !state.isDeleting) {
+          onClose();
+        }
+      }}
     >
-      <Surface
-        border="subtle"
-        radius="lg"
-        variant="secondary"
-        className={entrySummaryClassName}
+      <section
+        className={modalClassName}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="delete-entry-title"
       >
-        <strong>{displayName(state.entry)}</strong>
-        <span>{state.entry.path}</span>
-      </Surface>
-      <p>
-        This moves the selected item to the system trash.
-      </p>
-      {state.error
-        ? <div className={fieldErrorClassName}>{state.error}</div>
-        : null}
-      <div className={modalActionsClassName}>
-        <Button onClick={onClose} disabled={state.isDeleting}>
-          Cancel
-        </Button>
-        <Button
-          tone="danger"
-          variant="soft"
-          onClick={onDelete}
-          disabled={state.isDeleting}
-        >
-          {state.isDeleting
-            ? <Loader2 size={16} className="animate-spin" />
-            : <Trash2 size={16} />}
-          Delete
-        </Button>
-      </div>
-    </ModalDialog>
+        <header className={modalHeadClassName}>
+          <div>
+            <span>File</span>
+            <h2 id="delete-entry-title">Delete</h2>
+          </div>
+          <Button
+            onClick={onClose}
+            title="Close"
+            aria-label="Close delete dialog"
+            disabled={state.isDeleting}
+            className={iconButtonClassName}
+          >
+            <X size={16} />
+          </Button>
+        </header>
+
+        <div className={deleteDialogBodyClassName}>
+          <div className={entrySummaryClassName}>
+            <strong>{displayName(state.entry)}</strong>
+            <span>{state.entry.path}</span>
+          </div>
+          <p>
+            This moves the selected item to the system trash.
+          </p>
+          {state.error
+            ? <div className={fieldErrorClassName}>{state.error}</div>
+            : null}
+          <div className={modalActionsClassName}>
+            <Button onClick={onClose} disabled={state.isDeleting}>
+              Cancel
+            </Button>
+            <Button
+              className={dangerActionClassName}
+              onClick={onDelete}
+              disabled={state.isDeleting}
+            >
+              {state.isDeleting
+                ? <Loader2 size={16} className="animate-spin" />
+                : <Trash2 size={16} />}
+              Delete
+            </Button>
+          </div>
+        </div>
+      </section>
+    </div>
   );
 }

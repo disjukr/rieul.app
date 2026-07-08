@@ -1,37 +1,67 @@
 import React, { FormEvent } from "react";
-import { KeyRound, Loader2, RefreshCw, Settings, Trash2 } from "lucide-react";
+import {
+  KeyRound,
+  Loader2,
+  RefreshCw,
+  Settings,
+  Trash2,
+  X,
+} from "lucide-react";
 import type { Machine } from "../../state/machines.ts";
 import type { MachineModalMode } from "../../state/types.ts";
 import { Button } from "../ui/button.tsx";
-import { ModalDialog } from "../ui/dialog.tsx";
-import { TextField } from "../ui/field.tsx";
-import { Surface } from "../ui/surface.tsx";
 import { AddMachineForm } from "./add-machine-form.tsx";
 
-const machineModalFormClassName = "grid gap-[0.5rem] p-[16px]";
-const modalMachineSummaryClassName = [
-  "grid gap-[0.5rem] p-[10px]",
-  "[&_strong]:min-w-0 [&_strong]:overflow-hidden [&_strong]:text-ellipsis",
-  "[&_strong]:whitespace-nowrap [&_strong]:text-[var(--wgo-text-primary)] [&_strong]:text-[13px]",
-  "[&_span]:min-w-0 [&_span]:overflow-hidden [&_span]:text-ellipsis",
-  "[&_span]:whitespace-nowrap [&_span]:text-[var(--wgo-text-tertiary)] [&_span]:text-[12px]",
+const modalBackdropClassName =
+  "fixed inset-0 z-[20] grid place-items-center bg-wgo-overlay p-[24px]";
+const machineModalClassName = [
+  "w-[min(460px,100%)] overflow-hidden border border-wgo-border",
+  "rounded-wgo-xl bg-wgo-surface shadow-wgo-lg",
 ].join(" ");
-const fieldErrorClassName = "text-[var(--wgo-danger)] text-[12px]";
+const modalHeadClassName = [
+  "flex items-center justify-between gap-[0.5rem] border-b border-b-wgo-border",
+  "px-[16px] py-[14px]",
+  "[&_div]:grid [&_div]:gap-[0.5rem] [&_div]:min-w-0",
+  "[&_span]:text-wgo-text-3 [&_span]:text-[13px] [&_span]:font-600",
+  "[&_h2]:m-0 [&_h2]:text-wgo-text [&_h2]:text-[18px] [&_h2]:tracking-[0]",
+].join(" ");
+const iconButtonClassName = "!w-[36px] !min-w-[36px] !p-0";
+const machineModalFormClassName = [
+  "grid gap-[0.5rem] p-[16px]",
+  "[&_label]:grid [&_label]:gap-[0.5rem] [&_label]:min-w-0",
+  "[&_label_span]:text-wgo-text-2 [&_label_span]:text-[13px] [&_label_span]:font-600",
+  "[&_input]:min-w-0 [&_input]:min-h-[34px] [&_input]:border [&_input]:border-wgo-border-medium",
+  "[&_input]:rounded-wgo-md [&_input]:bg-wgo-surface [&_input]:px-[10px] [&_input]:text-wgo-text",
+  "[&_input]:[font:inherit] [&_input:focus]:outline [&_input:focus]:outline-2",
+  "[&_input:focus]:outline-wgo-accent [&_input:focus]:outline-offset-1",
+].join(" ");
+const modalMachineSummaryClassName = [
+  "grid gap-[0.5rem] min-w-0 border border-wgo-border rounded-wgo-lg",
+  "bg-wgo-surface-2 p-[10px]",
+  "[&_strong]:min-w-0 [&_strong]:overflow-hidden [&_strong]:text-ellipsis",
+  "[&_strong]:whitespace-nowrap [&_strong]:text-wgo-text [&_strong]:text-[14px]",
+  "[&_span]:min-w-0 [&_span]:overflow-hidden [&_span]:text-ellipsis",
+  "[&_span]:whitespace-nowrap [&_span]:text-wgo-text-3 [&_span]:text-[13px]",
+].join(" ");
+const fieldErrorClassName = "text-wgo-danger text-[13px]";
 const modalActionsClassName = "flex justify-end gap-[0.5rem]";
-const modalWarningClassName =
-  "m-0 text-[var(--wgo-text-secondary)] text-[13px]";
+const modalWarningClassName = "m-0 text-wgo-text-2 text-[13px]";
+const dangerActionClassName = [
+  "border-wgo-danger bg-wgo-danger-soft text-wgo-danger",
+  "hover:border-wgo-danger hover:bg-wgo-danger-soft hover:text-wgo-danger",
+].join(" ");
 const pairingControlClassName = [
-  "flex items-center justify-between gap-[0.5rem] rounded-[8px]",
-  "border border-[var(--wgo-border-light)] bg-[var(--wgo-bg-secondary)] px-[10px] py-[8px]",
+  "flex items-center justify-between gap-[0.5rem] rounded-wgo-lg",
+  "border border-wgo-border bg-wgo-surface-2 px-[10px] py-[8px]",
 ].join(" ");
 const pairingStepClassName = [
-  "grid min-h-[174px] place-items-center gap-[0.5rem] rounded-[8px]",
-  "border border-[var(--wgo-border-light)] bg-[var(--wgo-bg-primary)] px-[16px] py-[18px] text-center",
+  "grid min-h-[174px] place-items-center gap-[0.5rem] rounded-wgo-lg",
+  "border border-wgo-border bg-wgo-surface px-[16px] py-[18px] text-center",
 ].join(" ");
 const confirmationCodeClassName = [
-  "grid h-[96px] min-w-[156px] place-items-center rounded-[8px]",
-  "border border-[var(--wgo-border-control-muted)] bg-[var(--wgo-bg-secondary)] px-[18px]",
-  "font-800 text-[var(--wgo-text-primary)] text-[56px] leading-none tracking-[0]",
+  "grid h-[96px] min-w-[156px] place-items-center rounded-wgo-lg",
+  "border border-wgo-border-medium bg-wgo-surface-2 px-[18px]",
+  "font-800 text-wgo-text text-[56px] leading-none tracking-[0]",
 ].join(" ");
 
 interface MachineModalProps {
@@ -148,65 +178,92 @@ export function MachineModal(
   }: MachineModalProps,
 ) {
   return (
-    <ModalDialog
-      eyebrow="Machine"
-      title={modalTitle}
-      titleId="machine-modal-title"
-      showClose={machineCount > 0}
-      onClose={onClose}
+    <div
+      className={modalBackdropClassName}
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) {
+          onClose();
+        }
+      }}
     >
-      {mode === "pair" && selected
-        ? (
-          <PairMachineForm
-            isRequestingPairingCode={isRequestingPairingCode}
-            isPairing={isPairing}
-            pairingCode={pairingCode}
-            pairingConfirmationCode={pairingConfirmationCode}
-            pairingCodeExpiresInSeconds={pairingCodeExpiresInSeconds}
-            pairingCodeInputRef={pairingCodeInputRef}
-            selected={selected}
-            onClose={onClose}
-            onPairingCodeChange={onPairingCodeChange}
-            onRequestPairingCode={onRequestPairingCode}
-            onSubmit={onPairSelected}
-          />
-        )
-        : mode === "config" && selected
-        ? (
-          <MachineConfigForm
-            configNameDraft={configNameDraft}
-            configNameInputRef={configNameInputRef}
-            configUrlDraft={configUrlDraft}
-            error={machineFormError}
-            selected={selected}
-            onClose={onClose}
-            onConfigNameChange={onConfigNameChange}
-            onConfigUrlChange={onConfigUrlChange}
-            onSubmit={onSaveMachineConfig}
-          />
-        )
-        : mode === "delete" && selected
-        ? (
-          <DeleteMachineForm
-            selected={selected}
-            onClose={onClose}
-            onDelete={onDeleteSelectedMachine}
-          />
-        )
-        : (
-          <AddMachineForm
-            baseUrl={baseUrl}
-            error={machineFormError}
-            machineName={machineName}
-            machineNameInputRef={machineNameInputRef}
-            showCancel
-            onBaseUrlChange={onBaseUrlChange}
-            onCancel={onClose}
-            onMachineNameChange={onMachineNameChange}
-            onSubmit={onAddMachine}
-          />
-        )}
-    </ModalDialog>
+      <section
+        className={machineModalClassName}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="machine-modal-title"
+      >
+        <header className={modalHeadClassName}>
+          <div>
+            <span>Machine</span>
+            <h2 id="machine-modal-title">{modalTitle}</h2>
+          </div>
+          {machineCount > 0
+            ? (
+              <Button
+                onClick={onClose}
+                title="Close"
+                aria-label="Close machine modal"
+                className={iconButtonClassName}
+              >
+                <X size={16} />
+              </Button>
+            )
+            : null}
+        </header>
+
+        {mode === "pair" && selected
+          ? (
+            <PairMachineForm
+              isRequestingPairingCode={isRequestingPairingCode}
+              isPairing={isPairing}
+              pairingCode={pairingCode}
+              pairingConfirmationCode={pairingConfirmationCode}
+              pairingCodeExpiresInSeconds={pairingCodeExpiresInSeconds}
+              pairingCodeInputRef={pairingCodeInputRef}
+              selected={selected}
+              onClose={onClose}
+              onPairingCodeChange={onPairingCodeChange}
+              onRequestPairingCode={onRequestPairingCode}
+              onSubmit={onPairSelected}
+            />
+          )
+          : mode === "config" && selected
+          ? (
+            <MachineConfigForm
+              configNameDraft={configNameDraft}
+              configNameInputRef={configNameInputRef}
+              configUrlDraft={configUrlDraft}
+              error={machineFormError}
+              selected={selected}
+              onClose={onClose}
+              onConfigNameChange={onConfigNameChange}
+              onConfigUrlChange={onConfigUrlChange}
+              onSubmit={onSaveMachineConfig}
+            />
+          )
+          : mode === "delete" && selected
+          ? (
+            <DeleteMachineForm
+              selected={selected}
+              onClose={onClose}
+              onDelete={onDeleteSelectedMachine}
+            />
+          )
+          : (
+            <AddMachineForm
+              baseUrl={baseUrl}
+              error={machineFormError}
+              machineName={machineName}
+              machineNameInputRef={machineNameInputRef}
+              showCancel
+              onBaseUrlChange={onBaseUrlChange}
+              onCancel={onClose}
+              onMachineNameChange={onMachineNameChange}
+              onSubmit={onAddMachine}
+            />
+          )}
+      </section>
+    </div>
   );
 }
 
@@ -280,9 +337,9 @@ function PairingRestartControl(
 ) {
   return (
     <div className={pairingControlClassName}>
-      <span className="flex min-w-0 items-center gap-[0.5rem] text-[var(--wgo-text-secondary)] text-[12px]">
+      <span className="flex min-w-0 items-center gap-[0.5rem] text-wgo-text-2 text-[13px]">
         <span className="shrink-0">Pairing to</span>
-        <strong className="min-w-0 truncate font-700 text-[var(--wgo-text-primary)]">
+        <strong className="min-w-0 truncate font-700 text-wgo-text">
           {machineName}
         </strong>
       </span>
@@ -305,19 +362,19 @@ function PairingConfirmationStep(
   return (
     <section className={pairingStepClassName}>
       <div className="grid justify-items-center gap-[0.5rem]">
-        <span className="text-[var(--wgo-text-secondary)] text-[12px] font-700">
+        <span className="text-wgo-text-2 text-[13px] font-600">
           Confirmation code
         </span>
         <div className={confirmationCodeClassName}>
           {confirmationCode ?? "--"}
         </div>
       </div>
-      <p className="m-0 max-w-[320px] text-[var(--wgo-text-tertiary)] text-[13px] leading-[1.45]">
+      <p className="m-0 max-w-[320px] text-wgo-text-3 text-[14px] leading-[1.45]">
         Select this code on the daemon to reveal the pairing code.
       </p>
       {isRequestingPairingCode
         ? (
-          <div className="flex items-center gap-[0.5rem] text-[var(--wgo-text-secondary)] text-[12px]">
+          <div className="flex items-center gap-[0.5rem] text-wgo-text-2 text-[13px]">
             <Loader2 size={14} className="animate-spin" />
             Waiting for confirmation
           </div>
@@ -337,30 +394,31 @@ function PairingCodeStep(
 ) {
   return (
     <section className={pairingStepClassName}>
-      <TextField
-        ref={pairingCodeInputRef}
-        className="w-full"
-        label="Pairing code"
-        value={pairingCode}
-        onChange={(event) =>
-          onPairingCodeChange(
-            event.target.value.replace(/\D/g, "").slice(0, 6),
-          )}
-        inputMode="numeric"
-        autoComplete="one-time-code"
-        maxLength={6}
-        placeholder="000000"
-        aria-label="Pairing code"
-      />
+      <label className="w-full">
+        <span>Pairing code</span>
+        <input
+          ref={pairingCodeInputRef}
+          value={pairingCode}
+          onChange={(event) =>
+            onPairingCodeChange(
+              event.target.value.replace(/\D/g, "").slice(0, 6),
+            )}
+          inputMode="numeric"
+          autoComplete="one-time-code"
+          maxLength={6}
+          placeholder="000000"
+          aria-label="Pairing code"
+        />
+      </label>
       {pairingCodeExpiresInSeconds !== undefined
         ? pairingCodeExpiresInSeconds <= 0
           ? (
-            <p className="m-0 text-[var(--wgo-danger)] text-[12px]">
+            <p className="m-0 text-wgo-danger text-[13px]">
               Pairing code expired. Restart pairing.
             </p>
           )
           : (
-            <p className="m-0 text-[var(--wgo-text-tertiary)] text-[12px]">
+            <p className="m-0 text-wgo-text-3 text-[13px]">
               Pairing code expires in{" "}
               {formatRemainingTime(pairingCodeExpiresInSeconds)}.
             </p>
@@ -395,30 +453,29 @@ function MachineConfigForm(
       className={machineModalFormClassName}
       onSubmit={onSubmit}
     >
-      <Surface
-        border="subtle"
-        radius="lg"
-        variant="secondary"
-        className={modalMachineSummaryClassName}
-      >
+      <div className={modalMachineSummaryClassName}>
         <strong>{selected.name}</strong>
         <span>{selected.baseUrl}</span>
-      </Surface>
-      <TextField
-        ref={configNameInputRef}
-        label="Name"
-        value={configNameDraft}
-        onChange={(event) => onConfigNameChange(event.target.value)}
-        placeholder="Machine name"
-        aria-label="Machine name"
-      />
-      <TextField
-        label="URL"
-        value={configUrlDraft}
-        onChange={(event) => onConfigUrlChange(event.target.value)}
-        placeholder="https://host:9012"
-        aria-label="Machine URL"
-      />
+      </div>
+      <label>
+        <span>Name</span>
+        <input
+          ref={configNameInputRef}
+          value={configNameDraft}
+          onChange={(event) => onConfigNameChange(event.target.value)}
+          placeholder="Machine name"
+          aria-label="Machine name"
+        />
+      </label>
+      <label>
+        <span>URL</span>
+        <input
+          value={configUrlDraft}
+          onChange={(event) => onConfigUrlChange(event.target.value)}
+          placeholder="https://host:9012"
+          aria-label="Machine URL"
+        />
+      </label>
       {error ? <div className={fieldErrorClassName}>{error}</div> : null}
       <div className={modalActionsClassName}>
         <Button onClick={onClose}>
@@ -442,15 +499,10 @@ function DeleteMachineForm(
 ) {
   return (
     <div className={machineModalFormClassName}>
-      <Surface
-        border="subtle"
-        radius="lg"
-        variant="secondary"
-        className={modalMachineSummaryClassName}
-      >
+      <div className={modalMachineSummaryClassName}>
         <strong>{selected.name}</strong>
         <span>{selected.baseUrl}</span>
-      </Surface>
+      </div>
       <p className={modalWarningClassName}>
         This removes the machine from this browser.
       </p>
@@ -459,8 +511,7 @@ function DeleteMachineForm(
           Cancel
         </Button>
         <Button
-          tone="danger"
-          variant="soft"
+          className={dangerActionClassName}
           onClick={onDelete}
         >
           <Trash2 size={16} />

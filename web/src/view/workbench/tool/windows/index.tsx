@@ -46,63 +46,62 @@ interface WindowDetailState {
 
 const windowsToolClassName = [
   "flex h-full min-h-0 w-full flex-col",
-  "overflow-hidden bg-[var(--wgo-bg-primary)] text-[var(--wgo-text-primary)]",
+  "overflow-hidden bg-wgo-surface text-wgo-text",
 ].join(" ");
 const windowsContentClassName =
   "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden";
 const emptyWorkspaceClassName = [
   "grid content-center justify-items-center w-full h-full gap-[10px]",
-  "min-h-0 bg-[var(--wgo-bg-primary)] text-[var(--wgo-text-tertiary)]",
-  "[&_h2]:m-0 [&_h2]:text-[var(--wgo-text-strong)] [&_h2]:text-[18px] [&_h2]:tracking-[0]",
+  "min-h-0 bg-wgo-surface text-wgo-text-3",
+  "[&_h2]:m-0 [&_h2]:text-wgo-text [&_h2]:text-[18px] [&_h2]:tracking-[0]",
   "[&_p]:m-0 [&_p]:max-w-[360px] [&_p]:text-center [&_p]:leading-[1.45]",
 ].join(" ");
 const windowTableClassName = [
   "grid min-h-0 min-w-0 flex-1 overflow-auto leading-[1.6]",
   "[grid-template-columns:minmax(240px,1fr)_minmax(80px,112px)_minmax(96px,120px)]",
-  "auto-rows-[2rem] bg-[var(--wgo-bg-primary)]",
+  "auto-rows-[2rem] bg-wgo-surface",
 ].join(" ");
 const windowHeadClassName = [
   "sticky top-0 z-[1] flex h-[2rem] box-border items-center",
-  "border-b border-b-[var(--wgo-border-light)] bg-[var(--wgo-bg-header)] px-[8px]",
-  "font-700 text-[var(--wgo-text-tertiary)]",
+  "border-b border-b-wgo-border bg-wgo-surface-2 px-[8px]",
+  "font-600 text-wgo-text-3",
 ].join(" ");
 const windowRowClassName = [
   "grid [grid-column:1/-1] [grid-template-columns:subgrid]",
-  "h-[2rem] min-h-[2rem] box-border border-0 border-b border-b-[var(--wgo-bg-muted)]",
-  "cursor-default bg-[var(--wgo-bg-primary)] hover:bg-[var(--wgo-bg-row-hover)]",
+  "h-[2rem] min-h-[2rem] box-border border-0 border-b border-b-wgo-border-subtle",
+  "cursor-default bg-wgo-surface hover:bg-wgo-hover",
 ].join(" ");
 const windowCellClassName = [
   "flex min-w-0 items-center overflow-hidden px-[8px]",
-  "text-ellipsis whitespace-nowrap text-[var(--wgo-text-strong)]",
+  "text-ellipsis whitespace-nowrap text-wgo-text",
 ].join(" ");
 const windowFirstColumnClassName = "pl-[1rem]";
-const windowMetaCellClassName =
-  `${windowCellClassName} text-[var(--wgo-text-tertiary)]`;
+const windowMetaCellClassName = `${windowCellClassName} text-wgo-text-3`;
 const windowPidCellClassName =
-  `${windowCellClassName} font-mono text-[var(--wgo-text-secondary)]`;
+  `${windowCellClassName} font-mono text-wgo-text-2`;
 const windowTitleClassName =
   "min-w-0 overflow-hidden text-ellipsis whitespace-nowrap";
 const windowsFooterClassName = [
-  "flex h-[2rem] min-h-[2rem] items-center justify-end border-t border-t-[var(--wgo-border-light)]",
-  "bg-[var(--wgo-bg-subtle)] px-[8px] leading-[1.6] text-[var(--wgo-text-tertiary)]",
+  "flex h-[2rem] min-h-[2rem] items-center justify-end border-t border-t-wgo-border",
+  "bg-wgo-surface-2 px-[8px] leading-[1.6] text-wgo-text-3",
 ].join(" ");
 const windowDetailScrollClassName = "min-h-0 flex-1 overflow-auto";
 const windowDetailBodyClassName =
   "grid min-w-0 content-start gap-[14px] px-[18px] py-[16px]";
-const windowDetailNoteClassName = "text-[12px] text-[var(--wgo-text-tertiary)]";
+const windowDetailNoteClassName = "text-[13px] text-wgo-text-3";
 const windowDetailInlineActionClassName = [
   "inline-flex min-w-0 items-center gap-[0.5rem]",
   "max-w-full flex-wrap",
 ].join(" ");
 const windowDetailOpenButtonClassName = [
   "inline-flex h-[1.6rem] items-center rounded-[0.25rem]",
-  "border border-[var(--wgo-border-light)] bg-[var(--wgo-bg-primary)] px-[0.5rem]",
-  "cursor-pointer text-[var(--wgo-text-control)] [font-family:inherit]",
-  "hover:border-[var(--wgo-border-control-hover)] hover:bg-[var(--wgo-bg-hover)]",
+  "border border-wgo-border bg-wgo-surface px-[0.5rem]",
+  "cursor-pointer text-wgo-text-2 [font-family:inherit]",
+  "hover:border-wgo-border-medium hover:bg-wgo-hover",
 ].join(" ");
 const windowDetailFooterClassName = [
-  "flex h-[2rem] min-h-[2rem] items-center justify-end border-t border-t-[var(--wgo-border-light)]",
-  "bg-[var(--wgo-bg-subtle)] px-[8px] leading-[1.6] text-[var(--wgo-text-tertiary)]",
+  "flex h-[2rem] min-h-[2rem] items-center justify-end border-t border-t-wgo-border",
+  "bg-wgo-surface-2 px-[8px] leading-[1.6] text-wgo-text-3",
 ].join(" ");
 
 export function WindowsTool() {
@@ -195,7 +194,7 @@ function WindowsBreadcrumb(
   return (
     <Breadcrumb
       ariaLabel="Window location"
-      className="flex-[0_0_auto] border-b border-b-[var(--wgo-border-light)] bg-[var(--wgo-bg-subtle)] px-[0.5rem]"
+      className="flex-[0_0_auto] border-b border-b-[#d8dde7] bg-[#fbfcfe] px-[0.5rem]"
       items={[
         {
           label: "Windows",

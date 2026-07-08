@@ -27,9 +27,9 @@ const MonacoTextViewer = lazy(async () => {
 const inlineOpenLimitBytes = 1024 * 1024;
 const fileViewerStatusClassName = [
   "flex items-center justify-center gap-[8px] min-w-0 min-h-0",
-  "text-[var(--wgo-text-tertiary)] text-[13px]",
+  "text-[#667085] text-[14px]",
   "[&.error]:items-start [&.error]:justify-start [&.error]:overflow-auto",
-  "[&.error]:text-[var(--wgo-danger)] [&.error]:p-[14px]",
+  "[&.error]:text-[#b42318] [&.error]:p-[14px]",
 ].join(" ");
 
 type FileReadState =
@@ -251,7 +251,7 @@ export default function TextFileViewer() {
         />
         {state.saving || state.saveError
           ? (
-            <div className="absolute right-[8px] bottom-[8px] z-[2] rounded-[4px] border border-[var(--wgo-border-light)] bg-[var(--wgo-bg-primary)] px-[8px] py-[4px] text-[var(--wgo-text-control)] shadow-[var(--wgo-shadow-floating-control)]">
+            <div className="absolute right-[8px] bottom-[8px] z-[2] rounded-[4px] border border-[#d8dde7] bg-white px-[8px] py-[4px] text-[#344054] shadow-[0_8px_24px_rgb(16_24_40_/_12%)]">
               {state.saving ? "Saving" : state.saveError}
             </div>
           )

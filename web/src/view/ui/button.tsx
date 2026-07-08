@@ -96,13 +96,16 @@ export interface ButtonProps
 }
 
 export function Button(
-  { className, size, type = "button", variant, ...props }: ButtonProps,
+  { className, size, tone, type = "button", variant, ...props }: ButtonProps,
 ) {
   return (
     <BaseButton
       {...props}
       type={type}
-      className={joinClassName(buttonVariants({ size, variant }), className)}
+      className={joinClassName(
+        buttonVariants({ size, tone, variant }),
+        className,
+      )}
     />
   );
 }
