@@ -8,6 +8,7 @@ import {
   HardDrive,
   Laptop,
   Monitor,
+  MoreHorizontal,
   PanelLeftClose,
   PanelLeftOpen,
   PcCase,
@@ -26,7 +27,6 @@ import {
   type MouseEvent,
   type RefObject,
   useCallback,
-  useEffect,
   useRef,
   useState,
 } from "react";
@@ -104,6 +104,14 @@ const toolNameButtonClassName = [
   "hover:bg-white/18 hover:text-rieul-text",
   "[&_svg]:flex-[0_0_auto] [&_svg]:opacity-86 [&_span]:min-w-0 [&_span]:overflow-hidden [&_span]:text-ellipsis [&_span]:whitespace-nowrap",
   "max-[680px]:h-full max-[680px]:justify-start max-[680px]:gap-[8px] max-[680px]:px-[9px]",
+].join(" ");
+const toolMenuButtonClassName = [
+  "app-rail-expanded inline-flex h-[29px] w-[28px] min-w-[28px] appearance-none items-center justify-center",
+  "rounded-[9px] border-0 bg-transparent p-0 text-inherit [font-family:inherit]",
+  "cursor-pointer opacity-72 rieul-transition",
+  "hover:bg-white/18 hover:text-rieul-text hover:opacity-100",
+  "focus-visible:bg-white/18 focus-visible:text-rieul-text focus-visible:opacity-100 focus-visible:outline-0",
+  "max-[680px]:h-full",
 ].join(" ");
 const toolNameLabelClassName = "app-rail-label";
 const topbarMenuClassName = [
@@ -299,7 +307,6 @@ export function AppTopbar(
 ) {
   const toolMenuRef = useRef<HTMLDivElement | null>(null);
   const machineMenuRef = useRef<HTMLDivElement | null>(null);
-  const toolMenuHoverTimerRef = useRef<number | undefined>(undefined);
   const [toolMenu, setToolMenu] = useState<ToolMenuState | undefined>();
   const [machineMenu, setMachineMenu] = useState<
     MachineMenuState | undefined
@@ -331,25 +338,13 @@ export function AppTopbar(
     closeMachineMenu,
     { closeOnScroll: true },
   );
-  useEffect(() => {
-    return () => {
-      clearPendingToolMenu();
-    };
-  }, []);
 
   const tabTargets = tabTargetsForPanes(panes);
-
-  function clearPendingToolMenu() {
-    if (toolMenuHoverTimerRef.current === undefined) return;
-    globalThis.clearTimeout(toolMenuHoverTimerRef.current);
-    toolMenuHoverTimerRef.current = undefined;
-  }
 
   function openToolMenu(
     tool: WorkbenchTool,
     target: HTMLElement,
   ) {
-    clearPendingToolMenu();
     const rect = target.getBoundingClientRect();
     setMachineMenu(undefined);
     setToolMenu({
@@ -360,17 +355,6 @@ export function AppTopbar(
         { itemCount: 4, width: 244 },
       ),
     });
-  }
-
-  function scheduleToolMenu(
-    tool: WorkbenchTool,
-    target: HTMLElement,
-  ) {
-    clearPendingToolMenu();
-    toolMenuHoverTimerRef.current = globalThis.setTimeout(() => {
-      toolMenuHoverTimerRef.current = undefined;
-      openToolMenu(tool, target);
-    }, 170);
   }
 
   function openMachineMenu(
@@ -497,7 +481,7 @@ export function AppTopbar(
   ) {
     if (event.key === "ArrowDown") {
       event.preventDefault();
-      openToolMenu(tool, event.currentTarget);
+      selectLatestToolTab(tool);
     }
   }
 
@@ -793,6 +777,7 @@ export function AppTopbar(
       <div
         key={tool}
         className={className(
+          "group",
           toolSplitClassName,
           activeTool === tool && "active",
         )}
@@ -807,19 +792,30 @@ export function AppTopbar(
             event.preventDefault();
             openToolMenu(tool, event.currentTarget);
           }}
-          onFocus={(event) => {
-            if (!isMobileRailViewport()) {
-              openToolMenu(tool, event.currentTarget);
-            }
-          }}
           onKeyDown={(event) => onToolNameKeyDown(event, tool)}
-          onMouseEnter={(event) => scheduleToolMenu(tool, event.currentTarget)}
-          onMouseLeave={clearPendingToolMenu}
           title={label}
         >
           <Icon size={13} />
           <span className={toolNameLabelClassName}>{label}</span>
         </button>
+        {hasToolMenu(tool)
+          ? (
+            <button
+              type="button"
+              className={toolMenuButtonClassName}
+              aria-label={`${label} menu`}
+              aria-haspopup="menu"
+              aria-expanded={toolMenu?.tool === tool}
+              onClick={(event) => {
+                event.stopPropagation();
+                openToolMenu(tool, event.currentTarget);
+              }}
+              title={`${label} menu`}
+            >
+              <MoreHorizontal size={14} />
+            </button>
+          )
+          : null}
       </div>
     ));
   }
@@ -1047,6 +1043,10 @@ function ToolIcon(
   if (tool === "processes") return <Activity size={size} />;
   if (tool === "files") return <Folder size={size} />;
   return <Radio size={size} />;
+}
+
+function hasToolMenu(tool: WorkbenchTool): boolean {
+  return tool === "files" || tool === "terminal";
 }
 
 function MachineIcon(
