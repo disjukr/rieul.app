@@ -26,7 +26,6 @@ import {
 import {
   displayName,
   explorerBunja,
-  ExplorerPaneScope,
   writeExplorerFileNavigationState,
 } from "../../../../state/explorer.ts";
 import { machineModalBunja } from "../../../../state/machine-modal.ts";
@@ -149,9 +148,7 @@ export function FilesTool() {
   const paneState = useBunja(workbenchPaneBunja);
   const tabState = useBunja(workbenchTabBunja);
   const tab = useAtomValue(tabState.tabAtom);
-  const explorer = useBunja(explorerBunja, [
-    ExplorerPaneScope.bind(tabState.tabId),
-  ]);
+  const explorer = useBunja(explorerBunja);
   const initialFilesLocationAppliedRef = useRef(false);
   const {
     currentPathAtom,
@@ -534,7 +531,6 @@ export function FilesTool() {
         current ? { ...current, draftName, error: undefined } : current
       ),
   };
-
   if (!machine) {
     return (
       <section className={emptyWorkspaceClassName}>

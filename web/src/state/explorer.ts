@@ -1,4 +1,4 @@
-import { bunja, createScope } from "bunja";
+import { bunja } from "bunja";
 import { atom, type PrimitiveAtom } from "jotai";
 import { atomWithStorage } from "jotai/utils";
 import { type JotaiStore, JotaiStoreScope } from "unsaturated/store";
@@ -20,8 +20,8 @@ import { machineBunja, machineStoreBunja } from "./machine-store.ts";
 import { Machine } from "./machines.ts";
 import { rpcSessionBunja } from "./rpc-session.ts";
 import { StreamState } from "./types.ts";
+import { WorkbenchTabIdScope } from "./workbench-context.ts";
 
-export const ExplorerPaneScope = createScope<string>();
 export const trashLocationPath = "rieul://trash";
 
 export type ExplorerSpecialLocation = "trash";
@@ -53,7 +53,7 @@ export const explorerMachineBunja = bunja(() => {
 
 export const explorerRefreshBunja = bunja(() => {
   bunja.use(MachineIdScope);
-  bunja.use(ExplorerPaneScope);
+  bunja.use(WorkbenchTabIdScope);
   const store = bunja.use(JotaiStoreScope);
   const refreshAtom = atom(0);
 
@@ -69,7 +69,10 @@ export const explorerRefreshBunja = bunja(() => {
 
 export const explorerNavigationBunja = bunja(() => {
   const machineId = bunja.use(MachineIdScope);
-  const paneScopeId = bunja.use(ExplorerPaneScope);
+  const paneScopeId = requireScopeValue(
+    bunja.use(WorkbenchTabIdScope),
+    "Workbench tab id",
+  );
   const store = bunja.use(JotaiStoreScope);
 
   const navigationStateAtom = atomWithStorage<ExplorerNavigationState>(
@@ -210,7 +213,7 @@ export const explorerNavigationBunja = bunja(() => {
 
 export const explorerRootsBunja = bunja(() => {
   bunja.use(MachineIdScope);
-  bunja.use(ExplorerPaneScope);
+  bunja.use(WorkbenchTabIdScope);
   const store = bunja.use(JotaiStoreScope);
   const machineState = bunja.use(explorerMachineBunja);
   const machines = bunja.use(machineStoreBunja);
@@ -229,8 +232,9 @@ export const explorerRootsBunja = bunja(() => {
       get(refresh.refreshAtom),
     ].join("\n")
   );
+  const visibleRowsAtom = atom((get) => sortEntries(get(rootsAtom)));
 
-  bunja.effect(() => {
+  rootsAtom.onMount = () => {
     let stopCurrent: (() => void) | undefined;
 
     function start() {
@@ -243,6 +247,7 @@ export const explorerRootsBunja = bunja(() => {
         store.set(rootsStateAtom, { phase: "idle", message: "Roots idle" });
         return;
       }
+      const activeMachine = machine;
 
       let cancelled = false;
       let iterator: AsyncGenerator<RootsTableEvent> | undefined;
@@ -267,7 +272,7 @@ export const explorerRootsBunja = bunja(() => {
           if (!cancelled) {
             if (
               handleInvalidCredentials(
-                machine,
+                activeMachine,
                 err,
                 machines.clearMachineCredentials,
                 rpcSession.closeRpcSession,
@@ -294,17 +299,18 @@ export const explorerRootsBunja = bunja(() => {
       unsubscribe();
       stopCurrent?.();
     };
-  });
+  };
 
   return {
     rootsAtom,
     rootsStateAtom,
+    visibleRowsAtom,
   };
 });
 
 export const explorerDirectoryBunja = bunja(() => {
   bunja.use(MachineIdScope);
-  bunja.use(ExplorerPaneScope);
+  bunja.use(WorkbenchTabIdScope);
   const store = bunja.use(JotaiStoreScope);
   const machineState = bunja.use(explorerMachineBunja);
   const machines = bunja.use(machineStoreBunja);
@@ -325,8 +331,9 @@ export const explorerDirectoryBunja = bunja(() => {
       get(refresh.refreshAtom),
     ].join("\n")
   );
+  const visibleRowsAtom = atom((get) => sortEntries(get(directoryRowsAtom)));
 
-  bunja.effect(() => {
+  directoryRowsAtom.onMount = () => {
     let stopCurrent: (() => void) | undefined;
 
     function start() {
@@ -346,6 +353,7 @@ export const explorerDirectoryBunja = bunja(() => {
         });
         return;
       }
+      const activeMachine = machine;
 
       let cancelled = false;
       let iterator: AsyncGenerator<DirectoryTableEvent> | undefined;
@@ -378,7 +386,7 @@ export const explorerDirectoryBunja = bunja(() => {
           if (!cancelled) {
             if (
               handleInvalidCredentials(
-                machine,
+                activeMachine,
                 err,
                 machines.clearMachineCredentials,
                 rpcSession.closeRpcSession,
@@ -405,17 +413,18 @@ export const explorerDirectoryBunja = bunja(() => {
       unsubscribe();
       stopCurrent?.();
     };
-  });
+  };
 
   return {
     directoryRowsAtom,
     directoryStateAtom,
+    visibleRowsAtom,
   };
 });
 
 export const explorerBunja = bunja(() => {
   bunja.use(MachineIdScope);
-  bunja.use(ExplorerPaneScope);
+  bunja.use(WorkbenchTabIdScope);
   const navigation = bunja.use(explorerNavigationBunja);
   const roots = bunja.use(explorerRootsBunja);
   const directory = bunja.use(explorerDirectoryBunja);
@@ -446,6 +455,7 @@ export const explorerBunja = bunja(() => {
     displayPathAtom: navigation.displayPathAtom,
     historyAtom: navigation.historyAtom,
     openedFileAtom,
+    refreshAtom: refresh.refreshAtom,
     selectedPathAtom: navigation.selectedPathAtom,
     specialLocationAtom: navigation.specialLocationAtom,
     visibleRowsAtom,
@@ -472,6 +482,14 @@ function explorerConnectionKey(machine?: Machine): string {
     machine.clientId ?? "",
     machine.clientSecret ?? "",
   ].join("\n");
+}
+
+function requireScopeValue(
+  value: string | undefined,
+  name: string,
+): string {
+  if (!value) throw new Error(`${name} is not provided.`);
+  return value;
 }
 
 function handleInvalidCredentials(
