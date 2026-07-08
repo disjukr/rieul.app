@@ -706,6 +706,16 @@ impl CommandManager {
         request: CreateJobReq,
         reason: JobRunReason,
     ) -> Result<JobInfo, CommandError> {
+        self.create_job_with_reason_checked(request, reason, None)
+            .await
+    }
+
+    async fn create_job_with_reason_checked(
+        &self,
+        request: CreateJobReq,
+        reason: JobRunReason,
+        schedule_guard: Option<ScheduledJobGuard>,
+    ) -> Result<JobInfo, CommandError> {
         validate_launch(&request.launch)?;
         if request.launch.elevated.unwrap_or(false) {
             return Err(CommandError::new(
@@ -744,8 +754,18 @@ impl CommandManager {
         };
         if let JobRunReason::Schedule { schedule_id, .. } = &job.reason {
             let mut state = self.state.lock().await;
-            if !state.schedules.contains_key(schedule_id) {
-                return Err(CommandError::not_found("schedule not found"));
+            let schedule = state
+                .schedules
+                .get(schedule_id)
+                .ok_or_else(|| CommandError::not_found("schedule not found"))?;
+            if let Some(guard) = &schedule_guard {
+                if guard.schedule_id != *schedule_id
+                    || schedule.info.updated_at_ms != guard.updated_at_ms
+                    || !schedule.info.enabled
+                    || schedule.info.archived
+                {
+                    return Err(CommandError::failed("schedule changed before job creation"));
+                }
             }
             self.persist_job(&job)?;
             state.jobs.insert(job.job_id.clone(), record);
@@ -1176,7 +1196,15 @@ impl CommandManager {
                 rrule_set: schedule.rrule_set.clone(),
                 planned_run_at_ms: due_run.run_at_ms,
             };
-            if self.create_job_with_reason(request, reason).await.is_ok() {
+            let guard = ScheduledJobGuard {
+                schedule_id: schedule.schedule_id.clone(),
+                updated_at_ms: schedule.updated_at_ms,
+            };
+            if self
+                .create_job_with_reason_checked(request, reason, Some(guard))
+                .await
+                .is_ok()
+            {
                 self.advance_schedule_checkpoint(
                     &schedule.schedule_id,
                     schedule.updated_at_ms,
@@ -1208,6 +1236,11 @@ struct DueScheduleRun {
     schedule: ScheduleInfo,
     run_at_ms: u64,
     checkpoint_after_success: u64,
+}
+
+struct ScheduledJobGuard {
+    schedule_id: String,
+    updated_at_ms: u64,
 }
 
 pub struct JobsSnapshot {
@@ -2119,6 +2152,61 @@ mod tests {
             .await;
 
         assert_eq!(result.unwrap_err().kind, CommandErrorKind::NotFound);
+        assert!(manager
+            .jobs_snapshot(&SubscribeJobsReq { schedule_id: None })
+            .await
+            .rows
+            .is_empty());
+        assert!(manager
+            .with_db(|db| db.load_jobs())
+            .expect("load stored jobs")
+            .is_empty());
+    }
+
+    #[tokio::test]
+    async fn scheduled_job_creation_revalidates_schedule_guard() {
+        let manager = CommandManager::open(DaemonStateDb::open_in_memory_for_tests().unwrap())
+            .expect("open command manager");
+        let schedule = manager
+            .create_schedule(CreateScheduleReq {
+                title: "guarded".to_string(),
+                launch: output_test_launch(),
+                job: ScheduledJobOptions::default(),
+                start_at_ms: ms("2026-01-01T00:00:00Z"),
+                rrule_set: "RRULE:FREQ=DAILY".to_string(),
+                enabled: true,
+                note: None,
+            })
+            .await
+            .expect("create schedule");
+        {
+            let mut state = manager.state.lock().await;
+            let record = state
+                .schedules
+                .get_mut(&schedule.schedule_id)
+                .expect("schedule record");
+            record.info.enabled = false;
+        }
+
+        let result = manager
+            .create_job_with_reason_checked(
+                CreateJobReq {
+                    launch: output_test_launch(),
+                    ..CreateJobReq::default()
+                },
+                JobRunReason::Schedule {
+                    schedule_id: schedule.schedule_id.clone(),
+                    rrule_set: schedule.rrule_set.clone(),
+                    planned_run_at_ms: schedule.start_at_ms,
+                },
+                Some(ScheduledJobGuard {
+                    schedule_id: schedule.schedule_id,
+                    updated_at_ms: schedule.updated_at_ms,
+                }),
+            )
+            .await;
+
+        assert_eq!(result.unwrap_err().kind, CommandErrorKind::Failed);
         assert!(manager
             .jobs_snapshot(&SubscribeJobsReq { schedule_id: None })
             .await
