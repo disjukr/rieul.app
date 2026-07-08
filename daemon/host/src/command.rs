@@ -205,22 +205,27 @@ impl RetainedOutput {
 
 impl CommandManager {
     pub fn open(db: DaemonStateDb) -> Result<Self> {
-        let schedules = db
-            .load_schedules()?
+        let schedule_infos = db.load_schedules()?;
+        let job_infos = db.load_jobs()?;
+        let mut schedule_checkpoints = restored_schedule_checkpoints(&schedule_infos, &job_infos);
+        let schedules = schedule_infos
             .into_iter()
             .map(|info| {
+                let last_checked_ms = schedule_checkpoints
+                    .remove(&info.schedule_id)
+                    .unwrap_or_else(new_schedule_checkpoint);
                 (
                     info.schedule_id.clone(),
                     ScheduleRecord {
                         info,
-                        last_checked_ms: new_schedule_checkpoint(),
+                        last_checked_ms,
                     },
                 )
             })
             .collect();
         let mut jobs = BTreeMap::new();
         let now = current_unix_ms();
-        for mut info in db.load_jobs()? {
+        for mut info in job_infos {
             let stdout = RetainedOutput::from_persisted(
                 info.log.stdout.enabled,
                 db.load_job_output(&info.job_id, JobOutputStream::Stdout)?,
@@ -1513,6 +1518,38 @@ fn new_schedule_checkpoint() -> u64 {
     normalize_schedule_start_ms(current_unix_ms()).saturating_sub(1)
 }
 
+fn restored_schedule_checkpoints(
+    schedules: &[ScheduleInfo],
+    jobs: &[JobInfo],
+) -> BTreeMap<String, u64> {
+    let checkpoint = new_schedule_checkpoint();
+    let schedule_rrule_sets = schedules
+        .iter()
+        .map(|schedule| (schedule.schedule_id.clone(), schedule.rrule_set.clone()))
+        .collect::<BTreeMap<_, _>>();
+    let mut checkpoints = schedules
+        .iter()
+        .map(|schedule| (schedule.schedule_id.clone(), checkpoint))
+        .collect::<BTreeMap<_, _>>();
+    for job in jobs {
+        let JobRunReason::Schedule {
+            schedule_id,
+            rrule_set,
+            planned_run_at_ms,
+        } = &job.reason
+        else {
+            continue;
+        };
+        if schedule_rrule_sets.get(schedule_id) != Some(rrule_set) {
+            continue;
+        }
+        if let Some(checkpoint) = checkpoints.get_mut(schedule_id) {
+            *checkpoint = (*checkpoint).max(*planned_run_at_ms);
+        }
+    }
+    checkpoints
+}
+
 fn next_schedule_revision(previous_updated_at_ms: u64) -> u64 {
     current_unix_ms().max(previous_updated_at_ms.saturating_add(1))
 }
@@ -2395,6 +2432,62 @@ mod tests {
                 ..
             } if schedule_id == &schedule.schedule_id && *planned_run_at_ms == run_at_ms
         ));
+    }
+
+    #[tokio::test]
+    async fn open_seeds_schedule_checkpoint_from_existing_scheduled_jobs() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("daemon-state.sqlite3");
+        let run_at_ms = normalize_schedule_start_ms(current_unix_ms());
+        let schedule_id = {
+            let manager = CommandManager::open(DaemonStateDb::open(&db_path).unwrap())
+                .expect("open command manager");
+            let schedule = manager
+                .create_schedule(CreateScheduleReq {
+                    title: "one shot".to_string(),
+                    launch: output_test_launch(),
+                    job: ScheduledJobOptions::default(),
+                    start_at_ms: run_at_ms,
+                    rrule_set: "RRULE:FREQ=DAILY;COUNT=1".to_string(),
+                    enabled: true,
+                    note: None,
+                })
+                .await
+                .expect("create schedule");
+            let job = manager
+                .create_job_with_reason(
+                    CreateJobReq {
+                        launch: output_test_launch(),
+                        ..CreateJobReq::default()
+                    },
+                    JobRunReason::Schedule {
+                        schedule_id: schedule.schedule_id.clone(),
+                        rrule_set: schedule.rrule_set.clone(),
+                        planned_run_at_ms: run_at_ms,
+                    },
+                )
+                .await
+                .expect("create scheduled job");
+            wait_for_job_exit(&manager, &job.job_id).await;
+            schedule.schedule_id
+        };
+
+        let manager = CommandManager::open(DaemonStateDb::open(&db_path).unwrap())
+            .expect("reopen command manager");
+        {
+            let state = manager.state.lock().await;
+            let record = state.schedules.get(&schedule_id).expect("schedule record");
+            assert!(record.last_checked_ms >= run_at_ms);
+        }
+
+        manager.run_due_schedules().await;
+
+        let snapshot = manager
+            .jobs_snapshot(&SubscribeJobsReq {
+                schedule_id: Some(schedule_id),
+            })
+            .await;
+        assert_eq!(snapshot.rows.len(), 1);
     }
 
     fn ms(rfc3339: &str) -> u64 {
