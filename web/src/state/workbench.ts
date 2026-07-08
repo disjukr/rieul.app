@@ -3,7 +3,7 @@ import { bunja } from "bunja";
 import { createScopeFromContext } from "bunja/react";
 import { atom } from "jotai";
 import { atomWithStorage } from "jotai/utils";
-import { createLayout, type LayoutState } from "panecake";
+import { createLayout, layoutReducer, type LayoutState } from "panecake";
 import { JotaiStoreScope } from "unsaturated/store";
 import type { TerminalLaunchSpec } from "../protocol/generated/rpc.ts";
 import { copyExplorerNavigationState } from "./explorer.ts";
@@ -126,7 +126,10 @@ export const workbenchBunja = bunja(() => {
     undefined,
     { getOnInit: true },
   );
-  const layoutAtom = atom((get) => get(stateAtom).layout);
+  const layoutAtom = atom((get) => {
+    const state = get(stateAtom);
+    return pruneStaleLayoutLeaves(state.layout, state.panes);
+  });
   const activePaneIdAtom = atom((get) => {
     const state = get(stateAtom);
     return activePaneFromState(state)?.id;
@@ -138,7 +141,10 @@ export const workbenchBunja = bunja(() => {
   const panesAtom = atom((get) => get(stateAtom).panes);
 
   function setLayout(layout: LayoutState) {
-    store.set(stateAtom, (current) => ({ ...current, layout }));
+    store.set(stateAtom, (current) => ({
+      ...current,
+      layout: pruneStaleLayoutLeaves(layout, current.panes),
+    }));
   }
 
   function selectTool(tool: WorkbenchTool) {
@@ -188,6 +194,7 @@ export const workbenchBunja = bunja(() => {
         const panes = current.panes.filter((pane) => pane.id !== paneId);
         return {
           ...current,
+          layout: pruneStaleLayoutLeaves(current.layout, panes),
           panes,
           activePaneId: current.activePaneId === paneId
             ? panes[0]?.id
@@ -200,10 +207,14 @@ export const workbenchBunja = bunja(() => {
   function updatePanes(update: (panes: WorkbenchPane[]) => WorkbenchPane[]) {
     store.set(
       stateAtom,
-      (current) => ({
-        ...current,
-        panes: update(current.panes),
-      }),
+      (current) => {
+        const panes = update(current.panes);
+        return {
+          ...current,
+          layout: pruneStaleLayoutLeaves(current.layout, panes),
+          panes,
+        };
+      },
     );
   }
 
@@ -604,6 +615,7 @@ export const workbenchBunja = bunja(() => {
 
       return {
         ...current,
+        layout: pruneStaleLayoutLeaves(current.layout, panes),
         panes,
         activePaneId: targetPaneId,
       };
@@ -656,6 +668,7 @@ export const workbenchBunja = bunja(() => {
       return {
         ...current,
         activePaneId: newPaneId,
+        layout: pruneStaleLayoutLeaves(current.layout, panes),
         panes: [...panes, newPane],
       };
     });
@@ -1020,6 +1033,34 @@ function normalizePaneTabHistory(pane: WorkbenchPane): WorkbenchPane {
     return { ...tab, previousActiveTabId: undefined };
   });
   return { ...pane, activeTabId, tabs };
+}
+
+function pruneStaleLayoutLeaves(
+  layout: LayoutState,
+  panes: WorkbenchPane[],
+): LayoutState {
+  if (panes.length === 0) return layout;
+
+  const paneIds = new Set(panes.map((pane) => pane.id));
+  let nextLayout = layout;
+  let changed = false;
+
+  while (true) {
+    const staleNode = Object.values(nextLayout.nodes).find((node) =>
+      node.type === "leaf" && !paneIds.has(node.paneId)
+    );
+    if (!staleNode) break;
+    nextLayout = layoutReducer(nextLayout, {
+      nodeId: staleNode.id,
+      type: "REMOVE_PANE",
+    });
+    changed = true;
+  }
+
+  if (nextLayout.rootId === null) {
+    return createLayout((builder) => builder.leaf(panes[0].id));
+  }
+  return changed ? nextLayout : layout;
 }
 
 function insertTab(

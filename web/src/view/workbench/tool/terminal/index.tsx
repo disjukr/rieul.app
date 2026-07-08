@@ -62,7 +62,8 @@ const terminalFooterDetailsClassName = [
   "[&_span]:whitespace-nowrap",
 ].join(" ");
 const terminalFooterSizeClassName = "flex-[0_0_auto]";
-const terminalHostClassName = "w-full h-full min-w-0 min-h-0 overflow-hidden";
+const terminalHostClassName =
+  "box-border w-full h-full min-w-0 min-h-0 overflow-hidden px-[8px]";
 const terminalOverlayNoticeClassName = [
   "absolute inset-0 z-[2] grid place-items-center bg-[rgba(8,12,20,0.78)] backdrop-blur-2xl",
   "px-[18px] text-center text-[#d0d5dd]",
