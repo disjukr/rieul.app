@@ -13,7 +13,6 @@ import {
 import {
   displayName,
   explorerNavigationBunja,
-  ExplorerPaneScope,
   pathCrumbs,
 } from "../../../state/explorer.ts";
 import {
@@ -106,10 +105,8 @@ export function WorkbenchTabItem(
   const active = useAtomValue(tabState.activeAtom);
   const dirty = useAtomValue(tabState.dirtyAtom);
   const showClose = useAtomValue(tabState.showCloseAtom);
-  const label = useWorkbenchTabLabel(tabState.tabId, tab);
-  const navigation = useBunja(explorerNavigationBunja, [
-    ExplorerPaneScope.bind(tabState.tabId),
-  ]);
+  const label = useWorkbenchTabLabel(tab);
+  const navigation = useBunja(explorerNavigationBunja);
   const specialLocation = useAtomValue(navigation.specialLocationAtom);
   const tabClassName = className(
     workbenchTabClassName,
@@ -240,12 +237,9 @@ function WorkbenchTabIcon(
 }
 
 function useWorkbenchTabLabel(
-  tabId: string,
   tab: WorkbenchTab | undefined,
 ): string {
-  const navigation = useBunja(explorerNavigationBunja, [
-    ExplorerPaneScope.bind(tabId),
-  ]);
+  const navigation = useBunja(explorerNavigationBunja);
   const currentPath = useAtomValue(navigation.currentPathAtom);
   const openedFile = useAtomValue(navigation.openedFileAtom);
   const specialLocation = useAtomValue(navigation.specialLocationAtom);

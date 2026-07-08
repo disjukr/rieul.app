@@ -190,7 +190,6 @@ export function WorkbenchPaneView(
   const paneState = useBunja(workbenchPaneBunja);
   const machine = useAtomValue(machineStore.selectedAtom);
   const defaultShell = useAtomValue(terminalShellsState.defaultShellAtom);
-  const terminalShells = useAtomValue(terminalShellsState.terminalShellsAtom);
   const panes = useAtomValue(workbench.panesAtom);
   const pane = useAtomValue(paneState.paneAtom);
   const paneCount = useAtomValue(paneState.paneCountAtom);

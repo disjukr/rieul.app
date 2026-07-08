@@ -77,7 +77,7 @@ export function DirectoryContent() {
           onOpenEntry={actions.openEntry}
         />
       </div>
-      <DirectoryFooter selectedEntry={selectedEntry} />
+      <DirectoryFooter rowCount={rows.length} selectedEntry={selectedEntry} />
     </div>
   );
 }
@@ -85,19 +85,17 @@ export function DirectoryContent() {
 export { EntryPropertiesModal } from "./entry-details.tsx";
 
 interface DirectoryFooterProps {
+  rowCount: number;
   selectedEntry?: FsEntry;
 }
 
-function DirectoryFooter({ selectedEntry }: DirectoryFooterProps) {
-  const explorer = requireFilesExplorer(useContext(FilesExplorerContext));
-  const rows = useAtomValue(explorer.visibleRowsAtom);
-
+function DirectoryFooter({ rowCount, selectedEntry }: DirectoryFooterProps) {
   return (
     <div className={explorerFooterClassName}>
       <span className={footerSelectionClassName}>
         {selectedEntry ? displayName(selectedEntry) : "No selection"}
       </span>
-      <span>{rows.length} items</span>
+      <span>{rowCount} items</span>
     </div>
   );
 }

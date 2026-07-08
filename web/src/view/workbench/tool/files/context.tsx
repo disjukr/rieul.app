@@ -12,6 +12,7 @@ export interface FilesExplorerState {
   displayPathAtom: Atom<string | undefined>;
   historyAtom: Atom<ExplorerLocation[]>;
   openedFileAtom: Atom<FsEntry | undefined>;
+  refreshAtom: Atom<number>;
   selectedEntryAtom: Atom<FsEntry | undefined>;
   selectedPathAtom: Atom<string | undefined>;
   specialLocationAtom: Atom<ExplorerSpecialLocation | undefined>;
@@ -23,6 +24,7 @@ export interface FilesExplorerState {
   openEntry: (entry: FsEntry) => void;
   openFile: (entry: FsEntry) => void;
   replaceWithPath: (path?: string) => void;
+  replaceWithMovedDirectory: (path?: string) => void;
   replaceWithTrash: () => void;
   refresh: () => void;
   selectEntry: (entry: FsEntry) => void;

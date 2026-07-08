@@ -49,6 +49,7 @@ export function MachineAddFormContainer(
   const machineNameInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
+    if (globalThis.matchMedia("(max-width: 680px)").matches) return;
     if (machines.length === 0 && !machineModalMode) {
       machineNameInputRef.current?.focus();
     }

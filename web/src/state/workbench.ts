@@ -1,6 +1,4 @@
-import { createContext } from "react";
 import { bunja } from "bunja";
-import { createScopeFromContext } from "bunja/react";
 import { atom } from "jotai";
 import { atomWithStorage } from "jotai/utils";
 import { createLayout, layoutReducer, type LayoutState } from "panecake";
@@ -9,6 +7,19 @@ import type { TerminalLaunchSpec } from "../protocol/generated/rpc.ts";
 import { copyExplorerNavigationState } from "./explorer.ts";
 import { copyFileViewerState } from "./file-viewer.ts";
 import { MachineIdScope } from "./machine.tsx";
+import {
+  WorkbenchPaneIdContext,
+  WorkbenchPaneIdScope,
+  WorkbenchTabIdContext,
+  WorkbenchTabIdScope,
+} from "./workbench-context.ts";
+
+export {
+  WorkbenchPaneIdContext,
+  WorkbenchPaneIdScope,
+  WorkbenchTabIdContext,
+  WorkbenchTabIdScope,
+};
 
 export type WorkbenchTool =
   | "daemon"
@@ -89,19 +100,6 @@ interface WorkbenchState {
 }
 
 export type TabDropPosition = "before" | "after" | "end";
-
-export const WorkbenchPaneIdContext = createContext<string | undefined>(
-  undefined,
-);
-export const WorkbenchTabIdContext = createContext<string | undefined>(
-  undefined,
-);
-export const WorkbenchPaneIdScope = createScopeFromContext(
-  WorkbenchPaneIdContext,
-);
-export const WorkbenchTabIdScope = createScopeFromContext(
-  WorkbenchTabIdContext,
-);
 
 export const workbenchBunja = bunja(() => {
   const machineId = bunja.use(MachineIdScope);
