@@ -7,11 +7,14 @@ rust-version.workspace = true
 
 [dependencies]
 anyhow = "1"
+chrono = "0.4"
 http = "1"
 notify = "8"
 portable-pty = "0.9"
+rrule = "0.14"
 rustls = "0.23"
 rustls-pemfile = "2"
+rusqlite = { version = "0.37", default-features = false, features = ["bundled"] }
 sysinfo = { version = "0.38.4", default-features = false, features = ["system"] }
 time = "0.3"
 tokio = { version = "1", features = ["full"] }

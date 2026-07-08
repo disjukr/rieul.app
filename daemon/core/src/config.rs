@@ -153,6 +153,10 @@ pub fn daemon_status_path(config_path: impl AsRef<Path>) -> PathBuf {
     config_path.as_ref().with_file_name("daemon.status")
 }
 
+pub fn daemon_state_database_path(config_path: impl AsRef<Path>) -> PathBuf {
+    config_path.as_ref().with_file_name("daemon-state.sqlite3")
+}
+
 pub fn load_client_credentials_or_default(
     path: impl AsRef<Path>,
 ) -> Result<ClientCredentials, ConfigError> {
@@ -336,6 +340,20 @@ mod tests {
         assert_eq!(
             load_client_credentials_or_default(&path).unwrap(),
             credentials
+        );
+    }
+
+    #[test]
+    fn state_database_path_lives_next_to_config() {
+        let config_path = PathBuf::from("config-root")
+            .join("WhatsGoingOn")
+            .join("wgo.yaml");
+
+        assert_eq!(
+            daemon_state_database_path(&config_path),
+            PathBuf::from("config-root")
+                .join("WhatsGoingOn")
+                .join("daemon-state.sqlite3")
         );
     }
 

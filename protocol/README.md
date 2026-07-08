@@ -97,6 +97,18 @@ Protocol proc id registry:
 | 28 | `SubscribeProcessResourcesInUse` |
 | 29 | `SubscribeProcessSocketsInUse`   |
 | 30 | `SubscribeProcessModules`        |
+| 31 | `RunCommand`                     |
+| 32 | `CreateJob`                      |
+| 33 | `SubscribeJobs`                  |
+| 34 | `SubscribeJobOutput`             |
+| 35 | `KillJob`                        |
+| 36 | `DeleteJobs`                     |
+| 37 | `ClearJobs`                      |
+| 38 | `CreateSchedule`                 |
+| 39 | `UpdateSchedule`                 |
+| 40 | `SubscribeSchedules`             |
+| 41 | `DeleteSchedules`                |
+| 42 | `GetScheduleNextRuns`            |
 
 `GetDaemonInfo` returns daemon metadata: supported proc ids, daemon version, a
 human-readable OS name for the daemon host, daemon instance lifecycle fields,
