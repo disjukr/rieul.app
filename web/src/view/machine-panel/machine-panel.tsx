@@ -21,7 +21,7 @@ interface MachinePanelProps {
 const machinePanelClassName = [
   "machine-panel relative [grid-column:2] [grid-row:1] grid",
   "[grid-template-rows:auto_minmax(0,1fr)] min-w-0 min-h-0 overflow-hidden",
-  "border-r border-r-wgo-border bg-[rgba(242,242,243,0.74)] backdrop-blur-xl",
+  "border-r border-r-rieul-border bg-[rgba(242,242,243,0.74)] backdrop-blur-xl",
   "shadow-[inset_-1px_0_0_rgba(255,255,255,0.54)] transition-[border-color,border-radius] duration-150 ease-out",
   "max-[680px]:hidden",
 ].join(" ");
@@ -32,7 +32,7 @@ const machinePanelInnerClassName = [
   "max-[680px]:w-full max-[680px]:min-w-0 max-[680px]:[grid-template-rows:minmax(0,1fr)]",
 ].join(" ");
 const machinePanelSummaryClassName = [
-  "grid h-[54px] min-h-[54px] border-b border-b-wgo-border px-[10px]",
+  "grid h-[54px] min-h-[54px] border-b border-b-rieul-border px-[10px]",
   "bg-[rgba(255,255,255,0.24)]",
   "max-[680px]:hidden",
 ].join(" ");
@@ -43,9 +43,9 @@ const machineTitleClassName = [
 const machineTitleButtonClassName = [
   "machine-title-button inline-flex appearance-none items-center justify-start gap-[0.5rem]",
   "h-[28px] max-w-full min-h-[28px] overflow-visible",
-  "cursor-pointer border border-transparent rounded-wgo-sm bg-transparent text-wgo-text",
+  "cursor-pointer border border-transparent rounded-rieul-sm bg-transparent text-rieul-text",
   "px-[6px] text-[14px] font-700 leading-none tracking-[0] [font-family:inherit]",
-  "hover:bg-white/28 active:bg-wgo-active [&_svg]:flex-[0_0_auto]",
+  "hover:bg-white/28 active:bg-rieul-active [&_svg]:flex-[0_0_auto]",
 ].join(" ");
 const machineTitleTextClassName = [
   "machine-title-text block flex-[1_1_auto] min-w-0 overflow-hidden",
@@ -54,29 +54,29 @@ const machineTitleTextClassName = [
 const machineTitleStatusIconClassName = "flex-[0_0_auto] [stroke-width:2.4]";
 const machineConnectionLineClassName = [
   "ml-[6px] flex min-w-0 items-center gap-[6px]",
-  "text-[12px] font-650 text-wgo-text-3",
+  "text-[12px] font-650 text-rieul-text-3",
 ].join(" ");
 const machineConnectionDotClassName = [
   "h-[6px] w-[6px] rounded-full",
 ].join(" ");
 const machineContextClassName = [
   "grid content-start gap-[10px] px-[10px] py-[12px]",
-  "text-[12px] text-wgo-text-3",
+  "text-[12px] text-rieul-text-3",
   "max-[680px]:hidden",
 ].join(" ");
 const machineContextRowClassName = [
   "grid min-h-[30px] grid-cols-[72px_minmax(0,1fr)] items-center gap-[8px]",
   "border-b border-b-white/26 px-[6px]",
 ].join(" ");
-const machineContextLabelClassName = "font-650 text-wgo-text-3";
+const machineContextLabelClassName = "font-650 text-rieul-text-3";
 const machineContextValueClassName =
-  "min-w-0 overflow-hidden text-right text-ellipsis whitespace-nowrap font-700 text-wgo-text-2";
+  "min-w-0 overflow-hidden text-right text-ellipsis whitespace-nowrap font-700 text-rieul-text-2";
 const machinePanelResizerClassName = [
   "absolute top-0 right-[-4px] bottom-0 z-[8] w-[8px] cursor-col-resize touch-none",
   "after:content-[''] after:absolute after:top-0 after:bottom-0 after:left-[3px]",
   "after:w-[1px] after:bg-transparent",
-  "hover:after:w-[2px] hover:after:bg-wgo-accent",
-  "focus-visible:after:w-[2px] focus-visible:after:bg-wgo-accent focus-visible:outline-0",
+  "hover:after:w-[2px] hover:after:bg-rieul-accent",
+  "focus-visible:after:w-[2px] focus-visible:after:bg-rieul-accent focus-visible:outline-0",
   "max-[680px]:hidden",
 ].join(" ");
 
@@ -195,12 +195,12 @@ function MachineConnectionLine(
     ? "Connecting"
     : "Offline";
   const tone = !machine
-    ? "bg-wgo-muted"
+    ? "bg-rieul-muted"
     : connection.phase === "reachable"
-    ? "bg-wgo-success"
+    ? "bg-rieul-success"
     : connection.phase === "idle"
-    ? "bg-wgo-warning"
-    : "bg-wgo-danger";
+    ? "bg-rieul-warning"
+    : "bg-rieul-danger";
   return (
     <div className={machineConnectionLineClassName}>
       <span className={`${machineConnectionDotClassName} ${tone}`} />
@@ -219,7 +219,7 @@ function MachineTitleStatus({ connection }: MachineTitleStatusProps) {
       return (
         <Wifi
           size={14}
-          className={`${machineTitleStatusIconClassName} text-wgo-success`}
+          className={`${machineTitleStatusIconClassName} text-rieul-success`}
           aria-label="Connected"
         />
       );
@@ -227,7 +227,7 @@ function MachineTitleStatus({ connection }: MachineTitleStatusProps) {
       return (
         <Loader2
           size={14}
-          className={`${machineTitleStatusIconClassName} animate-spin text-wgo-warning`}
+          className={`${machineTitleStatusIconClassName} animate-spin text-rieul-warning`}
           aria-label="Connecting"
         />
       );
@@ -235,7 +235,7 @@ function MachineTitleStatus({ connection }: MachineTitleStatusProps) {
       return (
         <WifiOff
           size={14}
-          className={`${machineTitleStatusIconClassName} text-wgo-danger`}
+          className={`${machineTitleStatusIconClassName} text-rieul-danger`}
           aria-label="Unconnected"
         />
       );

@@ -134,7 +134,7 @@ function New-DaemonMsiSource {
 <Wix
   xmlns="http://wixtoolset.org/schemas/v4/wxs">
   <Package
-    Name="Whats Going On Daemon"
+    Name="Rieul Daemon"
     Manufacturer="$manufacturerText"
     Version="$versionText"
     UpgradeCode="{B7314DA6-AE47-45BB-BC82-C35F06A44FD8}"
@@ -142,14 +142,14 @@ function New-DaemonMsiSource {
     <MajorUpgrade DowngradeErrorMessage="A newer version of [ProductName] is already installed." />
     <MediaTemplate EmbedCab="yes" />
 
-    <Icon Id="WgoTrayIcon.ico" SourceFile="$iconPath" />
-    <Property Id="ARPPRODUCTICON" Value="WgoTrayIcon.ico" />
+    <Icon Id="RieulTrayIcon.ico" SourceFile="$iconPath" />
+    <Property Id="ARPPRODUCTICON" Value="RieulTrayIcon.ico" />
 
     <Launch Condition="Privileged" Message="[ProductName] installs a LocalSystem service and must be installed with administrator privileges." />
-    <Property Id="WIXUI_EXITDIALOGOPTIONALTEXT" Value="Whats Going On Daemon was installed successfully." />
+    <Property Id="WIXUI_EXITDIALOGOPTIONALTEXT" Value="Rieul Daemon was installed successfully." />
     <Property Id="ARPNOMODIFY" Value="1" />
 
-    <UI Id="WgoInstallUI">
+    <UI Id="RieulInstallUI">
       <TextStyle Id="WixUI_Font_Normal" FaceName="Tahoma" Size="8" />
       <TextStyle Id="WixUI_Font_Bigger" FaceName="Tahoma" Size="12" />
       <TextStyle Id="WixUI_Font_Title" FaceName="Tahoma" Size="9" Bold="yes" />
@@ -175,36 +175,36 @@ function New-DaemonMsiSource {
     <SetProperty
       Id="WixUnelevatedShellExecTarget"
       Value="[#GuiExe]"
-      Before="LaunchWgoTrayApp"
+      Before="LaunchRieulTrayApp"
       Sequence="execute"
       Condition="NOT Installed" />
     <CustomAction
-      Id="LaunchWgoTrayApp"
+      Id="LaunchRieulTrayApp"
       BinaryRef="Wix4UtilCA_`$(sys.BUILDARCHSHORT)"
       DllEntry="WixUnelevatedShellExec"
       Execute="immediate"
       Return="ignore" />
     <InstallExecuteSequence>
-      <Custom Action="LaunchWgoTrayApp" After="InstallFinalize" Condition="NOT Installed" />
+      <Custom Action="LaunchRieulTrayApp" After="InstallFinalize" Condition="NOT Installed" />
     </InstallExecuteSequence>
 
     <StandardDirectory Id="ProgramFiles64Folder">
-      <Directory Id="INSTALLFOLDER" Name="WhatsGoingOn">
+      <Directory Id="INSTALLFOLDER" Name="Rieul">
         <Component Id="SystemDaemonComponent" Guid="{2BCB9D17-4623-4E75-962C-EAC4C82C9D8E}" Bitness="always64">
           <File Id="SystemDaemonExe" Source="$systemExePath" KeyPath="yes" />
           <ServiceInstall
-            Id="WgoSystemService"
-            Name="wgo-windows-system"
-            DisplayName="Whats Going On System Daemon"
-            Description="Runs the Whats Going On Windows system daemon."
+            Id="RieulSystemService"
+            Name="rieul-windows-system"
+            DisplayName="Rieul System Daemon"
+            Description="Runs the Rieul Windows system daemon."
             Type="ownProcess"
             Start="auto"
             ErrorControl="normal"
             Vital="yes"
-            Arguments="service run --config &quot;[CommonAppDataFolder]WhatsGoingOn\wgo.yaml&quot;" />
+            Arguments="service run --config &quot;[CommonAppDataFolder]Rieul\rieul.yaml&quot;" />
           <ServiceControl
-            Id="WgoSystemServiceControl"
-            Name="wgo-windows-system"
+            Id="RieulSystemServiceControl"
+            Name="rieul-windows-system"
             Start="install"
             Stop="both"
             Remove="uninstall"
@@ -216,9 +216,9 @@ function New-DaemonMsiSource {
           <RegistryValue
             Root="HKLM"
             Key="Software\Microsoft\Windows\CurrentVersion\Run"
-            Name="Whats Going On User"
+            Name="Rieul User"
             Type="string"
-            Value="&quot;[INSTALLFOLDER]wgo-windows-user.exe&quot;" />
+            Value="&quot;[INSTALLFOLDER]rieul-windows-user.exe&quot;" />
         </Component>
 
         <Component Id="GuiComponent" Guid="{D9899A91-9F60-4A7F-BDC9-42B9EF3826E2}" Bitness="always64">
@@ -226,26 +226,26 @@ function New-DaemonMsiSource {
           <RegistryValue
             Root="HKLM"
             Key="Software\Microsoft\Windows\CurrentVersion\Run"
-            Name="Whats Going On GUI"
+            Name="Rieul GUI"
             Type="string"
-            Value="&quot;[INSTALLFOLDER]wgo-windows-gui.exe&quot;" />
+            Value="&quot;[INSTALLFOLDER]rieul-windows-gui.exe&quot;" />
         </Component>
       </Directory>
     </StandardDirectory>
 
     <StandardDirectory Id="ProgramMenuFolder">
-      <Directory Id="ProgramMenuAppFolder" Name="Whats Going On">
+      <Directory Id="ProgramMenuAppFolder" Name="Rieul">
         <Component Id="StartMenuShortcutComponent" Guid="{60994307-B63F-4488-BD16-20196C11EED1}" Bitness="always64">
           <Shortcut
             Id="StartMenuShortcut"
-            Name="Whats Going On"
-            Target="[INSTALLFOLDER]wgo-windows-gui.exe"
+            Name="Rieul"
+            Target="[INSTALLFOLDER]rieul-windows-gui.exe"
             WorkingDirectory="INSTALLFOLDER"
-            Icon="WgoTrayIcon.ico" />
+            Icon="RieulTrayIcon.ico" />
           <RemoveFolder Id="RemoveProgramMenuAppFolder" On="uninstall" />
           <RegistryValue
             Root="HKLM"
-            Key="Software\WhatsGoingOn\Daemon"
+            Key="Software\Rieul\Daemon"
             Name="StartMenuShortcut"
             Type="integer"
             Value="1"
@@ -254,7 +254,7 @@ function New-DaemonMsiSource {
       </Directory>
     </StandardDirectory>
 
-    <Feature Id="MainFeature" Title="Whats Going On Daemon" Level="1">
+    <Feature Id="MainFeature" Title="Rieul Daemon" Level="1">
       <ComponentRef Id="SystemDaemonComponent" />
       <ComponentRef Id="UserAgentComponent" />
       <ComponentRef Id="GuiComponent" />
@@ -277,20 +277,20 @@ if (-not $OutDir) {
   $OutDir = Join-Path $RepoRoot "dist\windows"
 }
 
-$PackageBaseName = "wgo-windows-daemon-$PackageVersion"
+$PackageBaseName = "rieul-windows-daemon-$PackageVersion"
 $StagingDir = Join-Path $OutDir "$PackageBaseName-msi"
 $MsiSourcePath = Join-Path $StagingDir "Package.wxs"
 $MsiPath = Join-Path $OutDir "$PackageBaseName.msi"
 $ReleaseDir = Join-Path $RepoRoot "target\release"
-$SystemExe = Join-Path $ReleaseDir "wgo-windows-system.exe"
-$UserExe = Join-Path $ReleaseDir "wgo-windows-user.exe"
-$GuiExe = Join-Path $ReleaseDir "wgo-windows-gui.exe"
+$SystemExe = Join-Path $ReleaseDir "rieul-windows-system.exe"
+$UserExe = Join-Path $ReleaseDir "rieul-windows-user.exe"
+$GuiExe = Join-Path $ReleaseDir "rieul-windows-gui.exe"
 $Icon = Join-Path $RepoRoot "daemon\windows\assets\tray.ico"
 
 if (-not $SkipBuild) {
   Push-Location $RepoRoot
   try {
-    cargo build -p wgo-windows-daemon --release --bins
+    cargo build -p rieul-windows-daemon --release --bins
   } finally {
     Pop-Location
   }

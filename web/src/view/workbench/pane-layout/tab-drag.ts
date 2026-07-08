@@ -1,6 +1,6 @@
 import type { DragEvent } from "react";
 
-export const workbenchTabDragType = "application/x-wgo-workbench-tab";
+export const workbenchTabDragType = "application/x-rieul-workbench-tab";
 
 export type TabSplitDropSide = "left" | "right" | "top" | "bottom";
 

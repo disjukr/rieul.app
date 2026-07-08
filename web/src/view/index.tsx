@@ -10,8 +10,8 @@ import { WorkbenchRegion } from "./workbench/index.tsx";
 import { className } from "./class-name.ts";
 
 const appShellClassName = [
-  "app-shell relative isolate grid h-full min-h-0 overflow-hidden bg-wgo-canvas",
-  "[background:var(--wgo-canvas-background)]",
+  "app-shell relative isolate grid h-full min-h-0 overflow-hidden bg-rieul-canvas",
+  "[background:var(--rieul-canvas-background)]",
   "[&>*]:relative [&>*]:z-[1]",
   "[grid-template-columns:var(--rail-width,204px)_minmax(0,1fr)]",
   "[grid-template-rows:minmax(0,1fr)]",
@@ -22,7 +22,7 @@ const appShellClassName = [
   "[&.machine-panel-collapsed_.app-rail-label]:hidden",
   "[&.machine-panel-collapsed_.app-rail-expanded]:hidden",
   "[&.machine-panel-collapsed_.app-rail]:items-center",
-  "[&.machine-panel-collapsed_.workbench]:rounded-tl-wgo-2xl",
+  "[&.machine-panel-collapsed_.workbench]:rounded-tl-rieul-2xl",
   "max-[680px]:[&_.workbench]:![grid-column:1]",
 ].join(" ");
 

@@ -3,11 +3,11 @@ use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, UNIX_EPOCH};
 
-use wgo_daemon_core::rpc::{
+use rieul_daemon_core::rpc::{
     CreateNodeOp, CreateNodeSpec, DeleteMode, FsEntry, FsEntryKind, ReadFileReq, TrashItem,
     WriteFileChunk, WriteFileMode, WriteFileResult, WriteFileStart, MAX_U53,
 };
-use wgo_daemon_core::traits::{BoxFutureResult, FileService, ServiceError, WriteFileChunkSource};
+use rieul_daemon_core::traits::{BoxFutureResult, FileService, ServiceError, WriteFileChunkSource};
 
 #[derive(Debug, Default, Clone)]
 pub struct MacFileService;
@@ -346,7 +346,15 @@ fn delete_permanently(path: &Path) -> Result<(), ServiceError> {
 }
 
 fn create_symlink_node(target: &str, path: &Path) -> Result<(), ServiceError> {
-    std::os::unix::fs::symlink(target, path).map_err(map_io_error)
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(target, path).map_err(map_io_error)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (target, path);
+        Err(ServiceError::Unsupported)
+    }
 }
 
 fn map_io_error(err: std::io::Error) -> ServiceError {

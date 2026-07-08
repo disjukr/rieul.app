@@ -3,12 +3,12 @@ use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, UNIX_EPOCH};
 
-use wgo_daemon_core::rpc::{
+use rieul_daemon_core::rpc::{
     CreateNodeOp, CreateNodeSpec, DeleteMode, FsEntry, FsEntryKind, ReadFileReq,
     TrashItem as RpcTrashItem, TrashItemSize as RpcTrashItemSize, WriteFileChunk, WriteFileMode,
     WriteFileResult, WriteFileStart, MAX_U53,
 };
-use wgo_daemon_core::traits::{BoxFutureResult, FileService, ServiceError, WriteFileChunkSource};
+use rieul_daemon_core::traits::{BoxFutureResult, FileService, ServiceError, WriteFileChunkSource};
 
 #[derive(Debug, Default, Clone)]
 pub struct WindowsFileService;

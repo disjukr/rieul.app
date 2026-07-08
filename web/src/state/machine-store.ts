@@ -5,7 +5,7 @@ import { loadMachines, Machine, saveMachines } from "./machines.ts";
 import { MachineIdScope } from "./machine.tsx";
 
 const initialMachines = loadMachines();
-const SELECTED_MACHINE_STORAGE_KEY = "wgo.selected-machine-id.v1";
+const SELECTED_MACHINE_STORAGE_KEY = "rieul.selected-machine-id.v1";
 const initialSelectedId = loadSelectedMachineId(initialMachines);
 
 export const machineStoreBunja = bunja(() => {

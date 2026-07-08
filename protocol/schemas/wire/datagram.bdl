@@ -1,6 +1,6 @@
-# standard - wgo-wire
+# standard - rieul-wire
 # description
-| wgo-wire datagram defines the message-oriented envelope carried by
+| rieul-wire datagram defines the message-oriented envelope carried by
 | WebTransport datagrams. Datagram messages do not use CBOR sequence framing,
 | request/response stream cardinality, or half-close semantics.
 |

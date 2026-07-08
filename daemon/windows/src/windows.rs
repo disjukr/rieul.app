@@ -3,8 +3,8 @@ mod platform {
     use std::ffi::c_void;
     use std::mem::size_of;
 
-    use wgo_daemon_core::rpc::{WindowBounds, WindowDetail, WindowInfo, WindowState};
-    use wgo_daemon_core::traits::ServiceError;
+    use rieul_daemon_core::rpc::{WindowBounds, WindowDetail, WindowInfo, WindowState};
+    use rieul_daemon_core::traits::ServiceError;
     use windows::core::BOOL;
     use windows::Win32::Foundation::{HWND, LPARAM, RECT};
     use windows::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_CLOAKED};
@@ -139,6 +139,6 @@ pub use platform::snapshot;
 
 #[cfg(not(windows))]
 pub fn snapshot(
-) -> Result<Vec<wgo_daemon_core::rpc::WindowDetail>, wgo_daemon_core::traits::ServiceError> {
-    Err(wgo_daemon_core::traits::ServiceError::Unsupported)
+) -> Result<Vec<rieul_daemon_core::rpc::WindowDetail>, rieul_daemon_core::traits::ServiceError> {
+    Err(rieul_daemon_core::traits::ServiceError::Unsupported)
 }

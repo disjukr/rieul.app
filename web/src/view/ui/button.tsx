@@ -8,7 +8,7 @@ const buttonVariants = cva(
     "inline-flex appearance-none items-center justify-center gap-[7px]",
     "border [font:inherit] cursor-pointer",
     "focus-visible:outline focus-visible:outline-2",
-    "focus-visible:outline-[var(--wgo-focus)] focus-visible:outline-offset-1",
+    "focus-visible:outline-[var(--rieul-focus)] focus-visible:outline-offset-1",
     "disabled:cursor-not-allowed disabled:opacity-48",
     "data-[disabled]:cursor-not-allowed data-[disabled]:opacity-48",
   ],
@@ -20,14 +20,14 @@ const buttonVariants = cva(
       },
       variant: {
         ghost: "border-transparent bg-transparent",
-        outline: "bg-[var(--wgo-bg-primary)]",
+        outline: "bg-[var(--rieul-bg-primary)]",
         soft: "",
         solid: "",
       },
       size: {
         icon: "h-[34px] min-h-[34px] w-[34px] min-w-[34px] p-0",
-        md: "min-h-[34px] rounded-[var(--wgo-radius-md)] px-[10px]",
-        sm: "min-h-[28px] rounded-[var(--wgo-radius-sm)] px-[8px]",
+        md: "min-h-[34px] rounded-[var(--rieul-radius-md)] px-[10px]",
+        sm: "min-h-[28px] rounded-[var(--rieul-radius-sm)] px-[8px]",
       },
     },
     compoundVariants: [
@@ -35,49 +35,49 @@ const buttonVariants = cva(
         tone: "neutral",
         variant: "solid",
         className:
-          "border-[var(--wgo-border-medium)] bg-[var(--wgo-bg-primary)] text-[var(--wgo-text-primary)] hover:border-[var(--wgo-border-action-hover)] hover:bg-[var(--wgo-bg-hover-weak)]",
+          "border-[var(--rieul-border-medium)] bg-[var(--rieul-bg-primary)] text-[var(--rieul-text-primary)] hover:border-[var(--rieul-border-action-hover)] hover:bg-[var(--rieul-bg-hover-weak)]",
       },
       {
         tone: "neutral",
         variant: "outline",
         className:
-          "border-[var(--wgo-border-medium)] text-[var(--wgo-text-primary)] hover:border-[var(--wgo-border-action-hover)] hover:bg-[var(--wgo-bg-hover-weak)]",
+          "border-[var(--rieul-border-medium)] text-[var(--rieul-text-primary)] hover:border-[var(--rieul-border-action-hover)] hover:bg-[var(--rieul-bg-hover-weak)]",
       },
       {
         tone: "neutral",
         variant: "soft",
         className:
-          "border-[var(--wgo-border-light)] bg-[var(--wgo-bg-secondary)] text-[var(--wgo-text-primary)] hover:bg-[var(--wgo-bg-hover)]",
+          "border-[var(--rieul-border-light)] bg-[var(--rieul-bg-secondary)] text-[var(--rieul-text-primary)] hover:bg-[var(--rieul-bg-hover)]",
       },
       {
         tone: "neutral",
         variant: "ghost",
         className:
-          "text-[var(--wgo-text-primary)] hover:border-[var(--wgo-border-light)] hover:bg-[var(--wgo-bg-secondary)]",
+          "text-[var(--rieul-text-primary)] hover:border-[var(--rieul-border-light)] hover:bg-[var(--rieul-bg-secondary)]",
       },
       {
         tone: "danger",
         variant: "solid",
         className:
-          "border-[var(--wgo-danger)] bg-[var(--wgo-danger)] text-[var(--wgo-text-inverse)] hover:border-[var(--wgo-danger-hover)] hover:bg-[var(--wgo-danger-hover)]",
+          "border-[var(--rieul-danger)] bg-[var(--rieul-danger)] text-[var(--rieul-text-inverse)] hover:border-[var(--rieul-danger-hover)] hover:bg-[var(--rieul-danger-hover)]",
       },
       {
         tone: "danger",
         variant: "outline",
         className:
-          "border-[var(--wgo-danger-border)] text-[var(--wgo-danger)] hover:border-[var(--wgo-danger-border-hover)] hover:bg-[var(--wgo-danger-soft-hover)] hover:text-[var(--wgo-danger-hover)]",
+          "border-[var(--rieul-danger-border)] text-[var(--rieul-danger)] hover:border-[var(--rieul-danger-border-hover)] hover:bg-[var(--rieul-danger-soft-hover)] hover:text-[var(--rieul-danger-hover)]",
       },
       {
         tone: "danger",
         variant: "soft",
         className:
-          "border-[var(--wgo-danger-border)] bg-[var(--wgo-danger-soft)] text-[var(--wgo-danger)] hover:border-[var(--wgo-danger-border-hover)] hover:bg-[var(--wgo-danger-soft-hover)] hover:text-[var(--wgo-danger-hover)]",
+          "border-[var(--rieul-danger-border)] bg-[var(--rieul-danger-soft)] text-[var(--rieul-danger)] hover:border-[var(--rieul-danger-border-hover)] hover:bg-[var(--rieul-danger-soft-hover)] hover:text-[var(--rieul-danger-hover)]",
       },
       {
         tone: "danger",
         variant: "ghost",
         className:
-          "text-[var(--wgo-danger)] hover:border-[var(--wgo-danger-border)] hover:bg-[var(--wgo-danger-soft-hover)] hover:text-[var(--wgo-danger-hover)]",
+          "text-[var(--rieul-danger)] hover:border-[var(--rieul-danger-border)] hover:bg-[var(--rieul-danger-soft-hover)] hover:text-[var(--rieul-danger-hover)]",
       },
     ],
     defaultVariants: {

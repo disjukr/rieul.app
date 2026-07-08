@@ -2,7 +2,7 @@ use std::net::SocketAddr;
 use std::path::Path;
 
 use anyhow::Result;
-use wgo_daemon_core::config::{load_or_default, SystemConfig};
+use rieul_daemon_core::config::{load_or_default, SystemConfig};
 
 #[derive(Debug, Clone)]
 pub struct PairingWindowModel {
@@ -19,7 +19,7 @@ pub struct PairingConfirmationModel {
 
 pub fn show_pairing_window(model: &PairingWindowModel) -> Result<()> {
     show_info_window(
-        "wgo pairing code",
+        "rieul pairing code",
         &format!(
             "URL: {}\n\nPairing code: {}\nExpires in: {} seconds",
             model.daemon_url, model.pairing_code, model.expires_in_seconds
@@ -31,7 +31,7 @@ pub fn confirm_pairing_request(model: &PairingConfirmationModel) -> Result<bool>
     #[cfg(target_os = "macos")]
     {
         return Ok(macos_alert::show_confirm(
-            "wgo pairing request",
+            "rieul pairing request",
             &format!(
                 "Client: {}\nConfirmation code: {}\n\nAllow this client to pair with this machine?",
                 model.client_label, model.confirmation_code
@@ -42,7 +42,7 @@ pub fn confirm_pairing_request(model: &PairingConfirmationModel) -> Result<bool>
     #[cfg(not(target_os = "macos"))]
     {
         println!(
-            "wgo pairing request\nClient: {}\nConfirmation code: {}",
+            "rieul pairing request\nClient: {}\nConfirmation code: {}",
             model.client_label, model.confirmation_code
         );
         Ok(false)
@@ -69,7 +69,7 @@ pub fn show_message_window(title: &str, message: &str) -> Result<()> {
 pub fn show_machine_info_window(config_path: &Path) -> Result<()> {
     let config = load_or_default(config_path)?;
     show_info_window(
-        "wgo machine info",
+        "rieul machine info",
         &machine_info_message(&config, config_path),
     )
 }
@@ -77,13 +77,13 @@ pub fn show_machine_info_window(config_path: &Path) -> Result<()> {
 pub fn show_error_window(message: &str) -> Result<()> {
     #[cfg(target_os = "macos")]
     {
-        macos_alert::show_message("wgo", message, macos_alert::AlertKind::Error);
+        macos_alert::show_message("rieul", message, macos_alert::AlertKind::Error);
         return Ok(());
     }
 
     #[cfg(not(target_os = "macos"))]
     {
-        eprintln!("wgo\n{message}");
+        eprintln!("rieul\n{message}");
         Ok(())
     }
 }

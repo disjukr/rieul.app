@@ -6,11 +6,11 @@ use std::process::Command;
 use std::sync::Arc;
 
 use anyhow::{bail, Context, Result};
+use rieul_daemon_core::config::{SystemConfig, TlsConfig};
 use rustls::crypto::CryptoProvider;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use rustls::sign::CertifiedKey;
 use tracing::info;
-use wgo_daemon_core::config::{SystemConfig, TlsConfig};
 
 const TAILSCALE_CERT_MIN_VALIDITY: &str = "168h";
 
@@ -254,14 +254,14 @@ fn tailscale_exe_candidates() -> Vec<PathBuf> {
 mod tests {
     use super::*;
     use rcgen::{CertificateParams, KeyPair};
-    use wgo_daemon_core::config::{SystemConfig, TlsConfig};
+    use rieul_daemon_core::config::{SystemConfig, TlsConfig};
 
     #[test]
     fn loads_configured_pem_certificate() {
         let dir = tempfile::tempdir().unwrap();
         let cert_path = dir.path().join("cert.pem");
         let key_path = dir.path().join("key.pem");
-        let config_path = dir.path().join("wgo.yaml");
+        let config_path = dir.path().join("rieul.yaml");
 
         let key = KeyPair::generate().unwrap();
         let cert = CertificateParams::new(vec!["pc.example.com".to_string()])

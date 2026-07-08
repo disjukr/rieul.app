@@ -23,8 +23,8 @@ const paneRootClassName = [
 ].join(" ");
 const emptyWorkspaceClassName = [
   "grid content-center justify-items-center w-full h-full gap-[10px]",
-  "min-h-0 text-wgo-text-3",
-  "[&_h2]:m-0 [&_h2]:text-wgo-text [&_h2]:text-[18px] [&_h2]:tracking-[0]",
+  "min-h-0 text-rieul-text-3",
+  "[&_h2]:m-0 [&_h2]:text-rieul-text [&_h2]:text-[18px] [&_h2]:tracking-[0]",
 ].join(" ");
 
 export function WorkbenchPaneLayout() {

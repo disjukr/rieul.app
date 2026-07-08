@@ -1,6 +1,6 @@
 paths:
-  wgo: ./protocol/schemas
+  rieul: ./protocol/schemas
 
 standards:
-  wgo-rpc: ./protocol/standards/wgo-rpc.yaml
-  wgo-wire: ./protocol/standards/wgo-wire.yaml
+  rieul-rpc: ./protocol/standards/rieul-rpc.yaml
+  rieul-wire: ./protocol/standards/rieul-wire.yaml

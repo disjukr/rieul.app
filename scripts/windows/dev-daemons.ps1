@@ -8,7 +8,7 @@ $ErrorActionPreference = "Stop"
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 $TmpDir = Join-Path $RepoRoot "tmp\dev"
 $LogDir = Join-Path $RepoRoot "tmp\log"
-$ConfigPath = Join-Path $TmpDir "system-wgo.yaml"
+$ConfigPath = Join-Path $TmpDir "rieul.yaml"
 $SystemPidFile = Join-Path $TmpDir "system.pid"
 $UserPidFile = Join-Path $TmpDir "user.pid"
 $GuiPidFile = Join-Path $TmpDir "gui.pid"
@@ -18,9 +18,9 @@ $UserOutLog = Join-Path $LogDir "user.out.log"
 $UserErrLog = Join-Path $LogDir "user.err.log"
 $GuiOutLog = Join-Path $LogDir "gui.out.log"
 $GuiErrLog = Join-Path $LogDir "gui.err.log"
-$SystemExe = Join-Path $RepoRoot "target\debug\wgo-windows-system.exe"
-$UserExe = Join-Path $RepoRoot "target\debug\wgo-windows-user.exe"
-$GuiExe = Join-Path $RepoRoot "target\debug\wgo-windows-gui.exe"
+$SystemExe = Join-Path $RepoRoot "target\debug\rieul-windows-system.exe"
+$UserExe = Join-Path $RepoRoot "target\debug\rieul-windows-user.exe"
+$GuiExe = Join-Path $RepoRoot "target\debug\rieul-windows-gui.exe"
 
 New-Item -ItemType Directory -Force -Path $TmpDir | Out-Null
 New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
@@ -127,7 +127,7 @@ Stop-PreviousDaemon `
 if (-not $SkipBuild) {
   Push-Location $RepoRoot
   try {
-    cargo build -p wgo-windows-daemon --bins
+    cargo build -p rieul-windows-daemon --bins
   } finally {
     Pop-Location
   }
@@ -212,7 +212,7 @@ $exitSubscription = Register-EngineEvent PowerShell.Exiting -Action {
 }
 
 try {
-  Write-Host "Starting wgo Windows system daemon on $Listen"
+  Write-Host "Starting rieul Windows system daemon on $Listen"
   $system = Start-Process `
     -FilePath $SystemExe `
     -ArgumentList @("run", "--listen", $Listen, "--config", $ConfigPath) `
@@ -230,7 +230,7 @@ try {
     Stderr = $SystemErrLog
   }
 
-  Write-Host "Starting wgo Windows user daemon"
+  Write-Host "Starting rieul Windows user daemon"
   $user = Start-Process `
     -FilePath $UserExe `
     -ArgumentList @("run") `
@@ -248,7 +248,7 @@ try {
     Stderr = $UserErrLog
   }
 
-  Write-Host "Starting wgo Windows GUI daemon"
+  Write-Host "Starting rieul Windows GUI daemon"
   $gui = Start-Process `
     -FilePath $GuiExe `
     -ArgumentList @("run", "--config", $ConfigPath) `
@@ -272,7 +272,7 @@ try {
   Write-Host "GUI daemon pid=$($gui.Id)"
   Write-Host "Dev config: $ConfigPath"
   Write-Host "Logs: $LogDir"
-  Write-Host "WebTransport endpoints: https://$Listen/rpc and https://$Listen/moqt"
+  Write-Host "WebTransport endpoint: https://$Listen/rieul/rpc"
   Write-Host "Press Ctrl+C or close this script to stop dev daemons."
 
   while ($true) {

@@ -17,15 +17,15 @@ const inlineMachineSetupClassName = [
   "grid content-center justify-items-center min-h-0 overflow-auto p-[24px]",
 ].join(" ");
 const inlineMachineCardClassName = [
-  "w-[min(460px,100%)] overflow-hidden border border-[var(--wgo-border-light)]",
-  "rounded-[8px] bg-[var(--wgo-bg-primary)]",
+  "w-[min(460px,100%)] overflow-hidden border border-[var(--rieul-border-light)]",
+  "rounded-[8px] bg-[var(--rieul-bg-primary)]",
 ].join(" ");
 const modalHeadClassName = [
-  "flex items-center justify-between gap-[12px] border-b border-b-[var(--wgo-border-muted)]",
+  "flex items-center justify-between gap-[12px] border-b border-b-[var(--rieul-border-muted)]",
   "px-[16px] py-[14px]",
   "[&_div]:grid [&_div]:gap-[2px] [&_div]:min-w-0",
-  "[&_span]:text-[var(--wgo-text-tertiary)] [&_span]:text-[12px] [&_span]:font-700",
-  "[&_h2]:m-0 [&_h2]:text-[var(--wgo-text-primary)] [&_h2]:text-[18px] [&_h2]:tracking-[0]",
+  "[&_span]:text-[var(--rieul-text-tertiary)] [&_span]:text-[12px] [&_span]:font-700",
+  "[&_h2]:m-0 [&_h2]:text-[var(--rieul-text-primary)] [&_h2]:text-[18px] [&_h2]:tracking-[0]",
 ].join(" ");
 
 const workbenchRegionBunja = bunja(() => {

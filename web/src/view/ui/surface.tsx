@@ -6,19 +6,19 @@ const surfaceVariants = cva("min-w-0", {
   variants: {
     border: {
       none: "",
-      subtle: "border border-[var(--wgo-border-light)]",
+      subtle: "border border-[var(--rieul-border-light)]",
     },
     radius: {
       none: "rounded-0",
-      md: "rounded-[var(--wgo-radius-md)]",
-      lg: "rounded-[var(--wgo-radius-lg)]",
+      md: "rounded-[var(--rieul-radius-md)]",
+      lg: "rounded-[var(--rieul-radius-lg)]",
     },
     variant: {
-      canvas: "bg-[var(--wgo-bg-canvas)]",
-      header: "bg-[var(--wgo-bg-header)]",
-      primary: "bg-[var(--wgo-bg-primary)]",
-      secondary: "bg-[var(--wgo-bg-secondary)]",
-      subtle: "bg-[var(--wgo-bg-subtle)]",
+      canvas: "bg-[var(--rieul-bg-canvas)]",
+      header: "bg-[var(--rieul-bg-header)]",
+      primary: "bg-[var(--rieul-bg-primary)]",
+      secondary: "bg-[var(--rieul-bg-secondary)]",
+      subtle: "bg-[var(--rieul-bg-subtle)]",
     },
   },
   defaultVariants: {
@@ -29,7 +29,7 @@ const surfaceVariants = cva("min-w-0", {
 });
 
 const surfaceHeaderVariants = cva(
-  "flex min-w-0 items-center border-b border-b-[var(--wgo-border-light)] bg-[var(--wgo-bg-header)]",
+  "flex min-w-0 items-center border-b border-b-[var(--rieul-border-light)] bg-[var(--rieul-bg-header)]",
   {
     variants: {
       density: {

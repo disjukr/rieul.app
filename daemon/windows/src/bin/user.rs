@@ -2,11 +2,11 @@
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use wgo_windows_daemon::window_agent::run_window_agent;
+use rieul_windows_daemon::window_agent::run_window_agent;
 
 #[derive(Debug, Parser)]
-#[command(name = "wgo-windows-user")]
-#[command(about = "Windows user-session data agent for whats-going-on")]
+#[command(name = "rieul-windows-user")]
+#[command(about = "Windows user-session data agent for rieul")]
 struct Args {
     #[command(subcommand)]
     command: Option<Command>,

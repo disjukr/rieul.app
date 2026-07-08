@@ -11,15 +11,15 @@ use anyhow::Result;
 use portable_pty::{
     native_pty_system, Child, ChildKiller, CommandBuilder, ExitStatus, MasterPty, PtySize,
 };
-use tokio::sync::broadcast;
-use tracing::warn;
-use wgo_daemon_core::rpc::{
+use rieul_daemon_core::rpc::{
     AttachTerminalSessionReq, AvailableShellInfo, CreateTerminalSessionReq, TakeTerminalControlReq,
     TakeTerminalControlRes, TerminalEvent, TerminalExit, TerminalLaunchSpec,
     TerminalSessionCloseReason, TerminalSessionInfo, TerminalSessionKey,
     TerminalSessionsTableEvent, MAX_U53,
 };
-use wgo_daemon_core::traits::ServiceError;
+use rieul_daemon_core::traits::ServiceError;
+use tokio::sync::broadcast;
+use tracing::warn;
 
 const TERMINAL_OUTPUT_RETENTION_BYTES: usize = 1024 * 1024;
 const TERMINAL_EVENT_CHANNEL_CAPACITY: usize = 4096;
@@ -1343,11 +1343,8 @@ mod tests {
     #[test]
     fn parses_macos_console_user_from_dscl_output() {
         assert_eq!(
-            parse_dscl_console_user(
-                "me",
-                "NFSHomeDirectory: /Users/me\nUserShell: /bin/zsh\n"
-            )
-            .map(|user| (user.name, user.home, user.shell)),
+            parse_dscl_console_user("me", "NFSHomeDirectory: /Users/me\nUserShell: /bin/zsh\n")
+                .map(|user| (user.name, user.home, user.shell)),
             Some((
                 "me".to_string(),
                 "/Users/me".to_string(),

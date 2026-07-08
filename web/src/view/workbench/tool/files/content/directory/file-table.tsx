@@ -52,7 +52,7 @@ const hideInNarrowContainerClassName =
 const fileHeadClassName = [
   "file-head sticky top-0 z-[2] flex items-center h-[21px] box-border",
   "border-b border-b-[#e7e9ee] bg-[#fdfdfd] px-[8px]",
-  "text-[10px] font-620 text-wgo-text-3",
+  "text-[10px] font-620 text-rieul-text-3",
 ].join(" ");
 const fileRowClassName = [
   "file-row relative z-[1] grid [grid-column:1/-1] [grid-template-columns:subgrid]",
@@ -61,40 +61,40 @@ const fileRowClassName = [
   "hover:bg-[rgba(48,64,86,0.026)]",
   "[&.selected]:bg-[rgba(62,84,116,0.15)]",
   "[&.selected]:before:content-[''] [&.selected]:before:absolute [&.selected]:before:left-[3px] [&.selected]:before:top-[5px] [&.selected]:before:bottom-[5px]",
-  "[&.selected]:before:w-[2px] [&.selected]:before:rounded-full [&.selected]:before:bg-wgo-accent",
-  "[&.selected_.file-cell]:text-wgo-text [&.selected_.file-cell.name]:font-670",
+  "[&.selected]:before:w-[2px] [&.selected]:before:rounded-full [&.selected]:before:bg-rieul-accent",
+  "[&.selected_.file-cell]:text-rieul-text [&.selected_.file-cell.name]:font-670",
   "[&.selected_.file-cell_svg]:text-[rgba(35,84,168,0.82)]",
   "[&.selected]:[box-shadow:inset_0_1px_0_rgba(255,255,255,0.78),inset_0_-1px_0_rgba(18,25,38,0.04),0_2px_6px_rgba(25,38,56,0.045)]",
 ].join(" ");
 const fileCellBaseClassName = [
-  "file-cell flex items-center min-w-0 overflow-hidden text-wgo-text",
+  "file-cell flex items-center min-w-0 overflow-hidden text-rieul-text",
   "px-[8px] text-[12.5px] text-ellipsis whitespace-nowrap",
 ].join(" ");
 const fileFirstColumnClassName = "pl-[10px]";
 const fileNameCellClassName =
   `${fileCellBaseClassName} ${fileFirstColumnClassName} name gap-[7px]`;
 const fileMetaCellClassName =
-  `${fileCellBaseClassName} font-500 text-wgo-text-3`;
+  `${fileCellBaseClassName} font-500 text-rieul-text-3`;
 const fileNameClassName =
   "min-w-0 overflow-hidden text-ellipsis whitespace-nowrap leading-[1.38]";
 const fileNameInputClassName = [
   "block min-w-0 min-h-0 w-full h-[1.8rem] box-border appearance-none rounded-[3px]",
-  "border border-transparent bg-wgo-surface px-[3px] py-0",
-  "text-wgo-text [font:inherit] leading-[1.6rem]",
+  "border border-transparent bg-rieul-surface px-[3px] py-0",
+  "text-rieul-text [font:inherit] leading-[1.6rem]",
   "outline-none [outline-offset:0] focus:outline-none focus:[outline:none] focus:[outline-offset:0]",
-  "focus:border-wgo-accent",
+  "focus:border-rieul-accent",
   "disabled:opacity-64",
 ].join(" ");
 const fileRenameErrorClassName = [
   "min-w-0 overflow-hidden text-ellipsis whitespace-nowrap",
-  "text-wgo-danger",
+  "text-rieul-danger",
 ].join(" ");
 const readonlyClassName = [
-  "flex-[0_0_auto] border border-wgo-warning rounded-full bg-wgo-warning-soft",
-  "text-wgo-warning px-[4px] py-0 leading-[1]",
+  "flex-[0_0_auto] border border-rieul-warning rounded-full bg-rieul-warning-soft",
+  "text-rieul-warning px-[4px] py-0 leading-[1]",
 ].join(" ");
 const tableEmptyClassName =
-  "[grid-column:1/-1] flex items-center text-wgo-text-3 px-[12px]";
+  "[grid-column:1/-1] flex items-center text-rieul-text-3 px-[12px]";
 const tableBottomPaddingClassName = [
   "relative z-[1] [grid-column:1/-1] mx-[8px] mt-[8px] h-[78px] rounded-[10px]",
   "bg-[rgba(246,246,247,0.18)]",

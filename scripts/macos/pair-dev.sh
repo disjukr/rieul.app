@@ -7,11 +7,11 @@ BUILD="${BUILD:-0}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-CONFIG_PATH="$REPO_ROOT/tmp/dev/system-wgo.yaml"
-SYSTEM_EXE="$REPO_ROOT/target/debug/wgo-macos-system"
+CONFIG_PATH="$REPO_ROOT/tmp/dev/rieul.yaml"
+SYSTEM_EXE="$REPO_ROOT/target/debug/rieul-macos-system"
 
 if [[ "$BUILD" == "1" || ! -x "$SYSTEM_EXE" ]]; then
-  cargo build -p wgo-macos-daemon --bin wgo-macos-system
+  cargo build -p rieul-macos-daemon --bin rieul-macos-system
 fi
 
 ARGS=(pair --listen "$LISTEN" --config "$CONFIG_PATH")

@@ -1,7 +1,7 @@
 # standard - conventional
 # description
 | System daemon configuration persisted at the OS-specific machine config path.
-| On Windows dev runs this maps to the generated wgo.yaml under tmp/dev.
+| On Windows dev runs this maps to the generated rieul.yaml under tmp/dev.
 
 @ description - Complete system daemon configuration document.
 struct SystemConfig {

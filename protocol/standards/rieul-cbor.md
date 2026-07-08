@@ -1,22 +1,22 @@
-# wgo CBOR Profile
+# rieul CBOR Profile
 
-This profile defines the CBOR encoding used by wgo wire envelope messages, wgo
+This profile defines the CBOR encoding used by rieul wire envelope messages, rieul
 RPC payloads, and method-level error payloads. It is intentionally narrower than
 general CBOR so independent implementations can use existing CBOR libraries
-while still agreeing on the wgo schema mapping and integer ranges.
+while still agreeing on the rieul schema mapping and integer ranges.
 
 Normative terms such as MUST, MUST NOT, SHOULD, and MAY are used as defined in
 RFC 2119.
 
 ## Scope
 
-- A wgo reqres stream is the byte-level envelope carried inside one WebTransport
+- A rieul reqres stream is the byte-level envelope carried inside one WebTransport
   bidirectional stream.
 - The body of that reqres stream is an RFC 8742 CBOR sequence of flattened
   `ReqResMessage` pairs: `kind` unsigned integer, then `fields` map, repeated
   until stream end.
 - Each item in that sequence MUST be one complete CBOR value.
-- A wgo datagram carries exactly one `DatagramMessage` encoded as a normal
+- A rieul datagram carries exactly one `DatagramMessage` encoded as a normal
   two-element union tuple: `[variant_id, fields_map]`.
 - RPC payload and error fields are CBOR byte strings whose contents are decoded
   using the schema selected by proc id and response variant.
@@ -25,7 +25,7 @@ RFC 2119.
 
 ## Supported CBOR Data Model
 
-wgo supports only these CBOR major types:
+rieul supports only these CBOR major types:
 
 - Major type 0: unsigned integer.
 - Major type 1: negative integer.
@@ -105,9 +105,9 @@ variant when one exists; otherwise the decoder may reject the missing field.
 - `bytes` maps to a CBOR byte string.
 - `void` maps to no CBOR value.
 
-wgo wire and RPC schemas SHOULD use `i53` and `u53` for integer fields unless a
+rieul wire and RPC schemas SHOULD use `i53` and `u53` for integer fields unless a
 future method explicitly requires exact integer values outside the safe-integer
-range. JavaScript implementations MAY represent all wgo wire/RPC schema integers
+range. JavaScript implementations MAY represent all rieul wire/RPC schema integers
 as `number`.
 
 ## Size Limits

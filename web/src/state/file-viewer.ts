@@ -3,7 +3,7 @@ export function fileViewerSelectedImplStorageKey(
   tabId: string,
   path: string,
 ): string {
-  return `wgo.file-viewer.impl.${machineId ?? "none"}.${tabId}.${path}`;
+  return `rieul.file-viewer.impl.${machineId ?? "none"}.${tabId}.${path}`;
 }
 
 export function copyFileViewerState(
@@ -37,5 +37,5 @@ function fileViewerSelectedImplStorageKeyPrefix(
   machineId: string | undefined,
   tabId: string,
 ): string {
-  return `wgo.file-viewer.impl.${machineId ?? "none"}.${tabId}.`;
+  return `rieul.file-viewer.impl.${machineId ?? "none"}.${tabId}.`;
 }

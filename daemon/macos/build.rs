@@ -7,8 +7,8 @@ const TRAY_ICON_DRAW_SIZE: f32 = 58.0;
 
 fn main() -> Result<(), Box<dyn Error>> {
     let manifest_dir = PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").unwrap());
-    let svg_path = manifest_dir.join("../../wgo.svg");
-    let out_path = PathBuf::from(std::env::var_os("OUT_DIR").unwrap()).join("wgo-tray.rgba");
+    let svg_path = manifest_dir.join("../../rieul.svg");
+    let out_path = PathBuf::from(std::env::var_os("OUT_DIR").unwrap()).join("rieul-tray.rgba");
 
     println!("cargo:rerun-if-changed={}", svg_path.display());
 

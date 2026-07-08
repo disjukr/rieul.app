@@ -955,7 +955,7 @@ export const workbenchTabBunja = bunja(() => {
 });
 
 function workbenchStorageKey(machineId: string | undefined): string {
-  return `wgo.workbench.${machineId ?? "none"}.v1`;
+  return `rieul.workbench.${machineId ?? "none"}.v1`;
 }
 
 function requireScopeValue(

@@ -34,7 +34,7 @@ export function isInvalidCredentialsError(err: unknown): boolean {
 
 export async function openWebTransport(
   machine: Machine,
-  path = "/rpc",
+  path = "/rieul/rpc",
 ): Promise<WebTransport> {
   const transport = new WebTransport(
     `${normalizeMachineUrl(machine.baseUrl)}${path}`,

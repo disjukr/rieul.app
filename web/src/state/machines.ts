@@ -21,7 +21,7 @@ export const machineIconNames = [
 
 export type MachineIconName = typeof machineIconNames[number];
 
-const STORAGE_KEY = "wgo.machines.v1";
+const STORAGE_KEY = "rieul.machines.v1";
 const DEFAULT_MACHINE_PORT = "9012";
 
 export function loadMachines(): Machine[] {

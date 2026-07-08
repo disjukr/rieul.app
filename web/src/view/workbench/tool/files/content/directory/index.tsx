@@ -29,10 +29,10 @@ const browserLayoutClassName = [
 ].join(" ");
 const explorerFooterClassName = [
   "flex items-center justify-between h-[22px] min-h-[22px] box-border",
-  "px-[7px] pt-[5px] text-[12px] font-560 leading-none text-wgo-text-3",
+  "px-[7px] pt-[5px] text-[12px] font-560 leading-none text-rieul-text-3",
   "[&_span]:min-w-0 [&_span]:overflow-hidden [&_span]:text-ellipsis [&_span]:whitespace-nowrap",
 ].join(" ");
-const footerSelectionClassName = "text-wgo-text-3";
+const footerSelectionClassName = "text-rieul-text-3";
 
 export function DirectoryContent() {
   const actions = requireFilesActions(useContext(FilesActionsContext));

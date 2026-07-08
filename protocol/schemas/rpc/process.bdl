@@ -1,4 +1,4 @@
-# standard - wgo-rpc
+# standard - rieul-rpc
 # description
 | Process RPC methods expose lightweight host process list metadata. The
 | process list is modeled as a reactive table. Detailed process information,

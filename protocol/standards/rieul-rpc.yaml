@@ -1,12 +1,12 @@
-name: wgo RPC Standard
+name: rieul RPC Standard
 description: |-
-  BDL standard used by wgo-rpc. It defines proc ids, stream shape,
+  BDL standard used by rieul-rpc. It defines proc ids, stream shape,
   deterministic field-id CBOR payload encoding, payload schema selection, and
   method-level error unions. It does not define the WebTransport stream
-  envelope; that is wgo-wire.
+  envelope; that is rieul-wire.
 
-  RPC payloads and method-level error payloads use the deterministic wgo CBOR
-  profile defined in ./wgo-cbor.md.
+  RPC payloads and method-level error payloads use the deterministic rieul CBOR
+  profile defined in ./rieul-cbor.md.
 
   A proc's stream shape defines request and response direction cardinality:
   unary means unary request and unary response, client means streaming request
@@ -39,7 +39,7 @@ primitives:
 attributes:
   bdl.proc:
     - key: id
-      description: Stable wgo-rpc method id. Required for every proc.
+      description: Stable rieul-rpc method id. Required for every proc.
     - key: stream
       description: Stream shape. Supported values are unary, client, server, and bidi.
   bdl.struct.field:

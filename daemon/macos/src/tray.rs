@@ -2,12 +2,12 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::Sender;
 
 use anyhow::{anyhow, Context, Result};
+use rieul_daemon_core::config::{generated_default_system_config, load_or_default, save};
 use tao::event::{Event, StartCause};
 use tao::event_loop::{ControlFlow, EventLoopBuilder, EventLoopProxy};
 use tao::platform::macos::{ActivationPolicy, EventLoopExtMacOS};
 use tray_icon::menu::{Menu, MenuEvent, MenuId, MenuItem, PredefinedMenuItem};
 use tray_icon::{Icon, TrayIconBuilder};
-use wgo_daemon_core::config::{generated_default_system_config, load_or_default, save};
 
 use crate::installer::uninstall_or_prompt;
 use crate::ipc::{
@@ -51,7 +51,7 @@ pub fn run_pairing_tray(config_path: PathBuf) -> Result<()> {
     let menu = create_menu()?;
     let _tray_icon = TrayIconBuilder::new()
         .with_menu(Box::new(menu))
-        .with_tooltip("Whats Going On")
+        .with_tooltip("Rieul")
         .with_icon(create_template_icon()?)
         .with_icon_as_template(true)
         .build()
@@ -61,7 +61,7 @@ pub fn run_pairing_tray(config_path: PathBuf) -> Result<()> {
         *control_flow = ControlFlow::Wait;
         match event {
             Event::NewEvents(StartCause::Init) => {
-                tracing::info!("wgo macOS user tray daemon started");
+                tracing::info!("rieul macOS user tray daemon started");
             }
             Event::UserEvent(UserEvent::Menu(event)) => {
                 handle_menu_event(&config_path, event.id(), control_flow);
@@ -193,9 +193,9 @@ fn ensure_config_file_exists(config_path: &Path) -> Result<()> {
 
 fn create_template_icon() -> Result<Icon> {
     const SIZE: u32 = 64;
-    const WGO_TRAY_RGBA: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/wgo-tray.rgba"));
+    const RIEUL_TRAY_RGBA: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/rieul-tray.rgba"));
 
-    let rgba = WGO_TRAY_RGBA.to_vec();
+    let rgba = RIEUL_TRAY_RGBA.to_vec();
     if rgba.len() != (SIZE * SIZE * 4) as usize {
         return Err(anyhow!("generated macOS tray icon has an invalid size"));
     }

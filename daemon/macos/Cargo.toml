@@ -1,5 +1,5 @@
 [package]
-name = "wgo-macos-daemon"
+name = "rieul-macos-daemon"
 version = "0.1.0"
 edition.workspace = true
 license.workspace = true
@@ -7,15 +7,15 @@ rust-version.workspace = true
 build = "build.rs"
 
 [lib]
-name = "wgo_macos_daemon"
+name = "rieul_macos_daemon"
 path = "src/lib.rs"
 
 [[bin]]
-name = "wgo-macos-system"
+name = "rieul-macos-system"
 path = "src/bin/system.rs"
 
 [[bin]]
-name = "wgo-macos-user"
+name = "rieul-macos-user"
 path = "src/bin/user.rs"
 
 [dependencies]
@@ -25,8 +25,8 @@ time = "0.3"
 tokio = { version = "1", features = ["full"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-wgo-daemon-core = { path = "../core" }
-wgo-daemon-host = { path = "../host" }
+rieul-daemon-core = { path = "../core" }
+rieul-daemon-host = { path = "../host" }
 trash = "5"
 
 [target.'cfg(target_os = "macos")'.dependencies]

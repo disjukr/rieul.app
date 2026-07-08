@@ -4,13 +4,13 @@ $ErrorActionPreference = "Stop"
 
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 $TmpDir = Join-Path $RepoRoot "tmp\dev"
-$ConfigPath = Join-Path $TmpDir "system-wgo.yaml"
+$ConfigPath = Join-Path $TmpDir "rieul.yaml"
 $SystemPidFile = Join-Path $TmpDir "system.pid"
 $UserPidFile = Join-Path $TmpDir "user.pid"
 $GuiPidFile = Join-Path $TmpDir "gui.pid"
-$SystemExe = Join-Path $RepoRoot "target\debug\wgo-windows-system.exe"
-$UserExe = Join-Path $RepoRoot "target\debug\wgo-windows-user.exe"
-$GuiExe = Join-Path $RepoRoot "target\debug\wgo-windows-gui.exe"
+$SystemExe = Join-Path $RepoRoot "target\debug\rieul-windows-system.exe"
+$UserExe = Join-Path $RepoRoot "target\debug\rieul-windows-user.exe"
+$GuiExe = Join-Path $RepoRoot "target\debug\rieul-windows-gui.exe"
 
 function Stop-ProcessTree {
   param(

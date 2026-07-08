@@ -1,15 +1,15 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand};
+use rieul_daemon_core::config::{load_or_default, macos_system_config_path, SystemConfig};
+use rieul_macos_daemon::installer::{ensure_installed_or_prompt, StartupAction};
+use rieul_macos_daemon::pairing_ui::{show_pairing_window, PairingWindowModel};
+use rieul_macos_daemon::tray::run_pairing_tray;
 use std::net::SocketAddr;
 use std::path::PathBuf;
-use wgo_daemon_core::config::{load_or_default, macos_system_config_path, SystemConfig};
-use wgo_macos_daemon::installer::{ensure_installed_or_prompt, StartupAction};
-use wgo_macos_daemon::pairing_ui::{show_pairing_window, PairingWindowModel};
-use wgo_macos_daemon::tray::run_pairing_tray;
 
 #[derive(Debug, Parser)]
-#[command(name = "wgo-macos-user")]
-#[command(about = "macOS user daemon for whats-going-on")]
+#[command(name = "rieul-macos-user")]
+#[command(about = "macOS user daemon for rieul")]
 struct Args {
     #[command(subcommand)]
     command: Command,

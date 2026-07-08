@@ -4,20 +4,20 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use wgo_daemon_core::config::{
+use rieul_daemon_core::config::{
     client_credentials_path, load_or_generated_default, save, windows_program_data_config_path,
     SystemConfig,
 };
-use wgo_daemon_host::server::run_system_server;
-use wgo_windows_daemon::fs::WindowsFileService;
-use wgo_windows_daemon::ipc::{UserSessionWindowService, UserTrayPairingNotifier};
-use wgo_windows_daemon::process_modules::WindowsProcessModulesService;
-use wgo_windows_daemon::process_resources::WindowsProcessResourcesInUseService;
-use wgo_windows_daemon::process_sockets::WindowsProcessSocketsInUseService;
+use rieul_daemon_host::server::run_system_server;
+use rieul_windows_daemon::fs::WindowsFileService;
+use rieul_windows_daemon::ipc::{UserSessionWindowService, UserTrayPairingNotifier};
+use rieul_windows_daemon::process_modules::WindowsProcessModulesService;
+use rieul_windows_daemon::process_resources::WindowsProcessResourcesInUseService;
+use rieul_windows_daemon::process_sockets::WindowsProcessSocketsInUseService;
 
 #[derive(Debug, Parser)]
-#[command(name = "wgo-windows-system")]
-#[command(about = "Windows system daemon for whats-going-on")]
+#[command(name = "rieul-windows-system")]
+#[command(about = "Windows system daemon for rieul")]
 struct Args {
     #[command(subcommand)]
     command: Command,
@@ -130,7 +130,7 @@ fn run_system_server_blocking(listen: Option<SocketAddr>, config_path: PathBuf) 
 
 #[cfg(windows)]
 fn handle_service_command(command: ServiceCommand) -> Result<()> {
-    use wgo_windows_daemon::service::{
+    use rieul_windows_daemon::service::{
         install_service, run_dispatcher, start_service, stop_service, uninstall_service,
         ServiceRunOptions,
     };

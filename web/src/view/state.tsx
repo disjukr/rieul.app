@@ -12,8 +12,8 @@ const machinePanelMaxWidth = 420;
 const machinePanelTransitionMs = 180;
 const minimumWorkbenchWidth = 360;
 const machineRailWidth = 48;
-const machinePanelCollapsedStorageKey = "wgo.machine-panel-collapsed.v1";
-const machinePanelWidthStorageKey = "wgo.machine-panel-width.v1";
+const machinePanelCollapsedStorageKey = "rieul.machine-panel-collapsed.v1";
+const machinePanelWidthStorageKey = "rieul.machine-panel-width.v1";
 
 type MachinePanelWidthUpdate = number | ((width: number) => number);
 

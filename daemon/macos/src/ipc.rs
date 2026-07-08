@@ -4,10 +4,10 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use anyhow::{bail, Context, Result};
+pub use rieul_daemon_host::server::PairingConfirmationRequest;
+use rieul_daemon_host::server::{PairingCodeNotification, PairingNotifier};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{UnixListener, UnixStream};
-pub use wgo_daemon_host::server::PairingConfirmationRequest;
-use wgo_daemon_host::server::{PairingCodeNotification, PairingNotifier};
 
 const PAIRING_IPC_VERSION: &str = "pairing.v2";
 const PAIRING_IPC_MAX_BYTES: usize = 4096;
@@ -257,5 +257,5 @@ fn current_user_socket_path() -> PathBuf {
 }
 
 fn socket_path_for_uid(uid: impl AsRef<str>) -> PathBuf {
-    PathBuf::from("/tmp").join(format!("wgo-user-active-{}.sock", uid.as_ref()))
+    PathBuf::from("/tmp").join(format!("rieul-user-active-{}.sock", uid.as_ref()))
 }

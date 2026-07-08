@@ -50,13 +50,13 @@ import {
   useFloatingMenuDismiss,
 } from "../ui/floating-menu.tsx";
 
-const projectLogoUrl = new URL("../../assets/wgo.svg", import.meta.url).href;
+const projectLogoUrl = new URL("../../assets/rieul.svg", import.meta.url).href;
 
 const globalTopbarClassName = [
   "app-rail [grid-column:1] [grid-row:1] flex flex-col",
   "h-full min-h-0 min-w-0 overflow-visible",
   "box-border bg-transparent",
-  "gap-[12px] py-[14px] pl-[12px] pr-0 leading-[1.45] text-wgo-text-2",
+  "gap-[12px] py-[14px] pl-[12px] pr-0 leading-[1.45] text-rieul-text-2",
   "max-[680px]:[grid-row:2] max-[680px]:m-[8px]",
   "max-[680px]:h-[60px] max-[680px]:min-h-0 max-[680px]:flex-row",
   "max-[680px]:items-center max-[680px]:justify-between max-[680px]:gap-[8px]",
@@ -74,7 +74,7 @@ const globalTopbarRightClassName =
   "grid min-w-0 content-start gap-[12px] max-[680px]:flex-1";
 const topbarBrandClassName = [
   "inline-flex h-[34px] min-w-0 items-center gap-[8px] rounded-[11px] px-[2px]",
-  "text-[13px] font-780 text-wgo-text",
+  "text-[13px] font-780 text-rieul-text",
   "[&_img]:h-[23px] [&_img]:w-[23px] [&_img]:rounded-[7px]",
   "[&_img]:shadow-[0_1px_2px_rgba(18,25,38,0.1)]",
   "max-[680px]:hidden",
@@ -82,10 +82,10 @@ const topbarBrandClassName = [
 const topbarLeftDividerClassName = "hidden";
 const globalIconButtonClassName = [
   "inline-flex appearance-none items-center justify-center w-[28px] min-w-[28px] h-[28px] min-h-[28px]",
-  "box-border cursor-pointer border border-transparent rounded-wgo-md bg-transparent text-wgo-text-3 p-0 leading-none",
+  "box-border cursor-pointer border border-transparent rounded-rieul-md bg-transparent text-rieul-text-3 p-0 leading-none",
   "[font-family:inherit]",
-  "opacity-72 hover:opacity-100 hover:border-white/44 hover:bg-white/36 hover:text-wgo-text-2",
-  "active:bg-wgo-active",
+  "opacity-72 hover:opacity-100 hover:border-white/44 hover:bg-white/36 hover:text-rieul-text-2",
+  "active:bg-rieul-active",
   "max-[680px]:hidden",
 ].join(" ");
 const toolSwitcherClassName = [
@@ -98,10 +98,10 @@ const toolSwitcherClassName = [
 ].join(" ");
 const toolSplitClassName = [
   "inline-flex h-[31px] w-full min-w-0 items-center gap-0 rounded-[10px] px-[2px]",
-  "border border-transparent text-[12px] font-650 text-wgo-text-3/68",
-  "wgo-transition",
-  "hover:bg-white/20 hover:text-wgo-text-2",
-  "[&.active]:border-white/74 [&.active]:bg-[rgba(255,255,255,0.72)] [&.active]:text-wgo-text",
+  "border border-transparent text-[12px] font-650 text-rieul-text-3/68",
+  "rieul-transition",
+  "hover:bg-white/20 hover:text-rieul-text-2",
+  "[&.active]:border-white/74 [&.active]:bg-[rgba(255,255,255,0.72)] [&.active]:text-rieul-text",
   "[&.active]:shadow-[0_6px_14px_rgba(20,30,46,0.095),inset_0_1px_0_rgba(255,255,255,0.86),inset_0_-1px_0_rgba(32,48,70,0.035)]",
   "max-[680px]:h-[44px] max-[680px]:flex-[1_1_0] max-[680px]:justify-center",
   "max-[680px]:rounded-[14px] max-[680px]:px-0",
@@ -109,8 +109,8 @@ const toolSplitClassName = [
 const toolNameButtonClassName = [
   "inline-flex h-[27px] min-w-0 flex-1 appearance-none items-center justify-start gap-[7px]",
   "rounded-[8px] border-0 bg-transparent px-[7px] py-0 text-inherit [font-family:inherit]",
-  "cursor-pointer wgo-transition",
-  "hover:bg-white/18 hover:text-wgo-text",
+  "cursor-pointer rieul-transition",
+  "hover:bg-white/18 hover:text-rieul-text",
   "[&_svg]:flex-[0_0_auto] [&_svg]:opacity-86 [&_span]:min-w-0 [&_span]:overflow-hidden [&_span]:text-ellipsis [&_span]:whitespace-nowrap",
   "max-[680px]:h-full max-[680px]:justify-center max-[680px]:gap-0 max-[680px]:px-0",
 ].join(" ");
@@ -121,47 +121,47 @@ const toolPlusButtonClassName = [
   "before:content-[''] before:pointer-events-none before:absolute before:left-[-1px]",
   "before:top-[7px] before:bottom-[7px] before:w-px before:rounded-full",
   "before:bg-[rgba(18,25,38,0.16)]",
-  "cursor-pointer opacity-52 wgo-transition hover:bg-white/30 hover:text-wgo-text hover:opacity-100",
+  "cursor-pointer opacity-52 rieul-transition hover:bg-white/30 hover:text-rieul-text hover:opacity-100",
   "[.active_&]:opacity-62",
   "max-[680px]:hidden",
 ].join(" ");
 const topbarMenuClassName = [
-  "z-[60] w-[244px] gap-[2px] rounded-wgo-lg p-[4px]",
-  "wgo-material-floating text-wgo-text",
+  "z-[60] w-[244px] gap-[2px] rounded-rieul-lg p-[4px]",
+  "rieul-material-floating text-rieul-text",
 ].join(" ");
 const topbarMenuHeaderClassName = [
-  "px-[8px] py-[6px] text-[11px] font-740 text-wgo-text-3",
+  "px-[8px] py-[6px] text-[11px] font-740 text-rieul-text-3",
 ].join(" ");
 const topbarMenuMetaClassName =
-  "ml-auto min-w-0 max-w-[92px] overflow-hidden text-ellipsis whitespace-nowrap text-[12px] text-wgo-text-3";
+  "ml-auto min-w-0 max-w-[92px] overflow-hidden text-ellipsis whitespace-nowrap text-[12px] text-rieul-text-3";
 const machineMenuClassName = [
-  "z-[60] w-[216px] gap-[3px] rounded-wgo-lg p-[5px]",
-  "wgo-material-floating text-wgo-text",
+  "z-[60] w-[216px] gap-[3px] rounded-rieul-lg p-[5px]",
+  "rieul-material-floating text-rieul-text",
 ].join(" ");
 const mobileMachineMenuClassName = [
   machineMenuClassName,
   "max-[680px]:w-[252px]",
 ].join(" ");
 const machineMenuHeaderClassName =
-  "px-[8px] pb-[5px] pt-[6px] text-[11px] font-760 tracking-[0] text-wgo-text-3";
+  "px-[8px] pb-[5px] pt-[6px] text-[11px] font-760 tracking-[0] text-rieul-text-3";
 const machineMenuDividerClassName =
   "mx-[5px] my-[5px] h-px bg-[rgba(18,25,38,0.12)] shadow-[0_1px_0_rgba(255,255,255,0.64)]";
 const machineMenuDangerItemClassName = [
-  "text-wgo-danger hover:bg-wgo-danger-soft hover:text-wgo-danger",
-  "[&_svg]:text-wgo-danger",
+  "text-rieul-danger hover:bg-rieul-danger-soft hover:text-rieul-danger",
+  "[&_svg]:text-rieul-danger",
 ].join(" ");
 const statusDotClassName = "h-[6px] w-[6px] rounded-full";
 const railBrandActionsClassName = "inline-flex items-center gap-[4px]";
 const railStatusButtonClassName = [
   "inline-flex h-[28px] min-w-[22px] appearance-none items-center justify-center",
-  "rounded-wgo-md border border-transparent bg-transparent p-0 [font-family:inherit]",
-  "cursor-pointer opacity-82 wgo-transition",
+  "rounded-rieul-md border border-transparent bg-transparent p-0 [font-family:inherit]",
+  "cursor-pointer opacity-82 rieul-transition",
   "hover:border-white/44 hover:bg-white/36 hover:opacity-100",
   "disabled:cursor-default disabled:opacity-45",
 ].join(" ");
 const connectionPopoverClassName = [
-  "z-[60] w-[320px] gap-0 rounded-wgo-xl p-0",
-  "wgo-material-floating text-wgo-text",
+  "z-[60] w-[320px] gap-0 rounded-rieul-xl p-0",
+  "rieul-material-floating text-rieul-text",
 ].join(" ");
 const popoverHeaderClassName = [
   "grid gap-[8px] border-b border-b-black/6 px-[12px] py-[11px]",
@@ -169,14 +169,14 @@ const popoverHeaderClassName = [
 const popoverTitleClassName =
   "flex min-w-0 items-center gap-[8px] text-[13px] font-760";
 const popoverMetaClassName =
-  "min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-[12px] font-650 text-wgo-text-3";
+  "min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-[12px] font-650 text-rieul-text-3";
 const popoverRowClassName = [
   "grid min-h-[32px] grid-cols-[92px_minmax(0,1fr)] items-center gap-[10px]",
   "border-b border-b-black/5 px-[12px] text-[12px] last:border-b-0",
 ].join(" ");
-const popoverLabelClassName = "font-650 text-wgo-text-3";
+const popoverLabelClassName = "font-650 text-rieul-text-3";
 const popoverValueClassName =
-  "min-w-0 overflow-hidden text-right text-ellipsis whitespace-nowrap font-720 text-wgo-text-2";
+  "min-w-0 overflow-hidden text-right text-ellipsis whitespace-nowrap font-720 text-rieul-text-2";
 const railBrandRowClassName =
   "flex min-w-0 items-center justify-between gap-[6px] max-[680px]:hidden";
 const railMachineListClassName = [
@@ -187,37 +187,37 @@ const railMachineListClassName = [
 const railMachineButtonClassName = [
   "group relative inline-flex aspect-square min-w-0 appearance-none items-center justify-center",
   "rounded-[12px] border border-transparent bg-white/18 px-0",
-  "text-[12px] font-650 text-wgo-text-3 [font-family:inherit]",
-  "cursor-pointer wgo-transition hover:border-white/48 hover:bg-white/34 hover:text-wgo-text-2",
-  "[&.active]:border-white/74 [&.active]:bg-white/70 [&.active]:text-wgo-text",
+  "text-[12px] font-650 text-rieul-text-3 [font-family:inherit]",
+  "cursor-pointer rieul-transition hover:border-white/48 hover:bg-white/34 hover:text-rieul-text-2",
+  "[&.active]:border-white/74 [&.active]:bg-white/70 [&.active]:text-rieul-text",
   "[&.active]:shadow-[inset_0_1px_0_rgba(255,255,255,0.86),0_6px_16px_rgba(18,25,38,0.08)]",
   "[&_svg]:[stroke-width:2]",
 ].join(" ");
 const railAddMachineButtonClassName = [
   "inline-flex aspect-square min-w-0 appearance-none items-center justify-center",
   "rounded-[12px] border border-dashed border-white/34 bg-white/10 px-0",
-  "text-wgo-text-3 [font-family:inherit]",
-  "cursor-pointer wgo-transition hover:border-white/48 hover:bg-white/34 hover:text-wgo-text",
+  "text-rieul-text-3 [font-family:inherit]",
+  "cursor-pointer rieul-transition hover:border-white/48 hover:bg-white/34 hover:text-rieul-text",
   "max-[680px]:mt-0 max-[680px]:h-[44px] max-[680px]:w-[44px] max-[680px]:min-w-[44px]",
-  "max-[680px]:rounded-[14px] max-[680px]:px-0 max-[680px]:text-wgo-text-2",
+  "max-[680px]:rounded-[14px] max-[680px]:px-0 max-[680px]:text-rieul-text-2",
   "max-[680px]:[&_span]:hidden",
 ].join(" ");
 const mobileMachineButtonClassName = [
   "hidden h-[44px] w-[44px] min-w-[44px] appearance-none items-center justify-center",
-  "relative rounded-[14px] border border-transparent bg-white/18 p-0 text-wgo-text-2",
-  "[font-family:inherit] cursor-pointer wgo-transition",
-  "hover:border-white/48 hover:bg-white/34 hover:text-wgo-text",
+  "relative rounded-[14px] border border-transparent bg-white/18 p-0 text-rieul-text-2",
+  "[font-family:inherit] cursor-pointer rieul-transition",
+  "hover:border-white/48 hover:bg-white/34 hover:text-rieul-text",
   "max-[680px]:inline-flex",
 ].join(" ");
 const railMachineIconDotClassName = [
   "absolute bottom-[5px] right-[5px] h-[5px] w-[5px] rounded-full",
-  "bg-wgo-text-3/42 group-[.active]:bg-wgo-accent",
+  "bg-rieul-text-3/42 group-[.active]:bg-rieul-accent",
 ].join(" ");
 const iconPickerMenuClassName = [
   "grid grid-cols-[repeat(4,minmax(0,1fr))] gap-[5px] px-[5px] pb-[2px]",
 ].join(" ");
 const iconPickerItemClassName = [
-  "!h-[38px] !min-h-[38px] !justify-center !rounded-wgo-md !px-0",
+  "!h-[38px] !min-h-[38px] !justify-center !rounded-rieul-md !px-0",
 ].join(" ");
 
 const topbarTools: {
@@ -555,10 +555,10 @@ export function AppTopbar(
         className={className(
           statusDotClassName,
           connection?.phase === "reachable"
-            ? "bg-wgo-success"
+            ? "bg-rieul-success"
             : connection?.phase === "idle"
-            ? "bg-wgo-warning"
-            : "bg-wgo-danger",
+            ? "bg-rieul-warning"
+            : "bg-rieul-danger",
         )}
       />
     );
@@ -988,7 +988,7 @@ export function AppTopbar(
           <div className={railBrandRowClassName}>
             <div
               className={className(topbarBrandClassName, "app-rail-expanded")}
-              aria-label="Whats Going On"
+              aria-label="Rieul"
             >
               <img src={projectLogoUrl} alt="" aria-hidden="true" />
             </div>
@@ -1053,8 +1053,8 @@ function ConnectionPopover(
       <div className={popoverHeaderClassName}>
         <div className={popoverTitleClassName}>
           {connection?.phase === "reachable"
-            ? <CheckCircle2 size={14} className="text-wgo-success" />
-            : <Radio size={14} className="text-wgo-text-3" />}
+            ? <CheckCircle2 size={14} className="text-rieul-success" />
+            : <Radio size={14} className="text-rieul-text-3" />}
           <span>{machine?.name ?? "No machine"}</span>
         </div>
         <div className={popoverMetaClassName}>

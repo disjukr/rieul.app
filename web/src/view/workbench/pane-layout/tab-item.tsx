@@ -59,30 +59,30 @@ const workbenchTabClassName = [
   "after:content-[''] after:absolute after:top-[4px] after:bottom-[4px]",
   "after:z-[2] after:w-[2px] after:rounded-full after:bg-transparent",
   "after:pointer-events-none after:right-0",
-  "[&.drop-before::before]:bg-wgo-accent",
-  "[&.drop-after::after]:bg-wgo-accent",
+  "[&.drop-before::before]:bg-rieul-accent",
+  "[&.drop-after::after]:bg-rieul-accent",
   "[&.dragging]:opacity-48",
-  "[&:not(.active)]:text-wgo-text-3/76",
+  "[&:not(.active)]:text-rieul-text-3/76",
   "[&:not(.active):hover]:border-white/42 [&:not(.active):hover]:bg-white/24",
   "[&.active]:border-white/74 [&.active]:bg-[rgba(255,255,255,0.78)] [&.active]:backdrop-blur-2xl",
   "[&.active]:[box-shadow:0_7px_16px_rgba(18,25,38,0.082),inset_0_1px_0_rgba(255,255,255,0.86),inset_0_-1px_0_rgba(18,25,38,0.028)]",
-  "[&.active>button]:text-wgo-text [&.active>button_svg]:text-wgo-accent",
+  "[&.active>button]:text-rieul-text [&.active>button_svg]:text-rieul-accent",
 ].join(" ");
 const workbenchTabButtonClassName = [
   "inline-flex h-full min-h-0 min-w-0 flex-[1_1_auto] appearance-none",
   "items-center justify-start gap-[8px] overflow-hidden rounded-none border-0",
   "bg-transparent pl-[11px] pr-[8px] [font-family:inherit]",
-  "text-ellipsis whitespace-nowrap text-wgo-text-2 font-640 leading-none",
+  "text-ellipsis whitespace-nowrap text-rieul-text-2 font-640 leading-none",
   "cursor-grab hover:bg-transparent active:cursor-grabbing",
 ].join(" ");
 const workbenchTabCloseClassName = [
   "tab-close ml-auto mr-[6px] inline-flex h-[18px] min-h-[18px]",
   "w-[18px] min-w-[18px] flex-[0_0_auto] appearance-none items-center",
-  "justify-center rounded-full border-0 bg-transparent p-0 text-wgo-text-2",
-  "opacity-48 hover:bg-[rgba(58,74,96,0.12)] hover:text-wgo-text",
+  "justify-center rounded-full border-0 bg-transparent p-0 text-rieul-text-2",
+  "opacity-48 hover:bg-[rgba(58,74,96,0.12)] hover:text-rieul-text",
   "group-[.active]:opacity-78 group-hover:opacity-100",
 ].join(" ");
-const workbenchTabIconClassName = "flex-[0_0_auto] text-wgo-text-3";
+const workbenchTabIconClassName = "flex-[0_0_auto] text-rieul-text-3";
 const workbenchTabTitleClassName =
   "min-w-0 overflow-hidden text-ellipsis whitespace-nowrap";
 const activePaneTabClassName = "z-[8]";
@@ -200,7 +200,7 @@ export function WorkbenchTabItem(
             {dirty
               ? (
                 <span
-                  className="block size-[6px] rounded-full bg-wgo-text-3"
+                  className="block size-[6px] rounded-full bg-rieul-text-3"
                   aria-hidden="true"
                 />
               )

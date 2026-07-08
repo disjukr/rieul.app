@@ -71,7 +71,7 @@ if (-not $OutDir) {
   $OutDir = Join-Path $RepoRoot "dist\windows"
 }
 if (-not $CertificatePath) {
-  $CertificatePath = Join-Path $OutDir "wgo-windows-daemon-$Version.cer"
+  $CertificatePath = Join-Path $OutDir "rieul-windows-daemon-$Version.cer"
 }
 
 if (-not (Test-Path -LiteralPath $CertificatePath)) {

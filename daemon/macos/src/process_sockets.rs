@@ -1,5 +1,5 @@
-use wgo_daemon_core::rpc::{ProcessSocketInUseInfo, ProcessSocketInUseKind, SocketEndpoint};
-use wgo_daemon_core::traits::{BoxFutureResult, ProcessSocketsInUseService, ServiceError};
+use rieul_daemon_core::rpc::{ProcessSocketInUseInfo, ProcessSocketInUseKind, SocketEndpoint};
+use rieul_daemon_core::traits::{BoxFutureResult, ProcessSocketsInUseService, ServiceError};
 
 use crate::process_lsof::{ensure_process_exists, run_lsof, LsofEntry};
 

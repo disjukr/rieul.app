@@ -185,14 +185,14 @@ pub fn windows_program_data_config_path() -> PathBuf {
     let root = std::env::var_os("ProgramData")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from(r"C:\ProgramData"));
-    root.join("WhatsGoingOn").join("wgo.yaml")
+    root.join("Rieul").join("rieul.yaml")
 }
 
 pub fn macos_system_config_path() -> PathBuf {
     PathBuf::from("/Library")
         .join("Application Support")
-        .join("wgo")
-        .join("wgo.yaml")
+        .join("rieul")
+        .join("rieul.yaml")
 }
 
 pub fn macos_user_config_path() -> PathBuf {
@@ -201,8 +201,8 @@ pub fn macos_user_config_path() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("."));
     root.join("Library")
         .join("Application Support")
-        .join("wgo")
-        .join("wgo-user.yaml")
+        .join("rieul")
+        .join("rieul-user.yaml")
 }
 
 #[cfg(not(test))]
@@ -275,13 +275,13 @@ mod tests {
     #[test]
     fn config_roundtrip_yaml() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("wgo.yaml");
+        let path = dir.path().join("rieul.yaml");
         let config = SystemConfig {
             listen_addr: "0.0.0.0:9012".to_string(),
             domain: Some("pc.example.com".to_string()),
             tls: Some(TlsConfig {
-                cert_file: r"C:\wgo\cert.pem".to_string(),
-                key_file: r"C:\wgo\key.pem".to_string(),
+                cert_file: r"C:\rieul\cert.pem".to_string(),
+                key_file: r"C:\rieul\key.pem".to_string(),
             }),
         };
         save(&path, &config).unwrap();
@@ -302,7 +302,7 @@ mod tests {
     #[test]
     fn save_writes_domain_example_comment_when_domain_is_absent() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("wgo.yaml");
+        let path = dir.path().join("rieul.yaml");
 
         save(&path, &SystemConfig::default()).unwrap();
 
@@ -323,7 +323,7 @@ mod tests {
     #[test]
     fn client_credentials_roundtrip_yaml() {
         let dir = tempfile::tempdir().unwrap();
-        let config_path = dir.path().join("wgo.yaml");
+        let config_path = dir.path().join("rieul.yaml");
         let path = client_credentials_path(&config_path);
         let credentials = ClientCredentials {
             clients: vec![ClientCredentialRecord {
@@ -346,13 +346,13 @@ mod tests {
     #[test]
     fn state_database_path_lives_next_to_config() {
         let config_path = PathBuf::from("config-root")
-            .join("WhatsGoingOn")
-            .join("wgo.yaml");
+            .join("Rieul")
+            .join("rieul.yaml");
 
         assert_eq!(
             daemon_state_database_path(&config_path),
             PathBuf::from("config-root")
-                .join("WhatsGoingOn")
+                .join("Rieul")
                 .join("daemon-state.sqlite3")
         );
     }

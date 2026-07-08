@@ -4,19 +4,19 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{anyhow, bail, Context, Result};
+use rieul_daemon_core::rpc::WindowDetail;
+use rieul_daemon_core::traits::{BoxFutureResult, ServiceError, WindowService};
+pub use rieul_daemon_host::server::PairingConfirmationRequest;
+use rieul_daemon_host::server::{PairingCodeNotification, PairingNotifier};
 #[cfg(windows)]
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 #[cfg(windows)]
 use tokio::net::windows::named_pipe::{
     ClientOptions, NamedPipeClient, NamedPipeServer, ServerOptions,
 };
-use wgo_daemon_core::rpc::WindowDetail;
-use wgo_daemon_core::traits::{BoxFutureResult, ServiceError, WindowService};
-pub use wgo_daemon_host::server::PairingConfirmationRequest;
-use wgo_daemon_host::server::{PairingCodeNotification, PairingNotifier};
 
-pub const GUI_PIPE_NAME: &str = r"\\.\pipe\wgo-gui-active";
-pub const USER_PIPE_NAME: &str = r"\\.\pipe\wgo-user-active";
+pub const GUI_PIPE_NAME: &str = r"\\.\pipe\rieul-gui-active";
+pub const USER_PIPE_NAME: &str = r"\\.\pipe\rieul-user-active";
 const PAIRING_IPC_VERSION: &str = "pairing.v2";
 const WINDOW_IPC_VERSION: &str = "windows.v1";
 #[cfg(windows)]

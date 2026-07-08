@@ -22,7 +22,7 @@ import {
 export { RpcErrorKind, SessionAuthErrorCode };
 export type { PairedSecretCredential };
 
-export const PAIRED_SECRET_AUTH_MECHANISM = "wgo.paired-secret.v1";
+export const PAIRED_SECRET_AUTH_MECHANISM = "rieul.paired-secret.v1";
 
 export enum ReqResMessageKind {
   RequestUnary = 0,

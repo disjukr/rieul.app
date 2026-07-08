@@ -6,7 +6,7 @@ pub use crate::generated::wire::{
 };
 
 pub const MAX_MESSAGE_SEQUENCE_SIZE: usize = 64 * 1024 * 1024;
-pub const PAIRED_SECRET_AUTH_MECHANISM: &str = "wgo.paired-secret.v1";
+pub const PAIRED_SECRET_AUTH_MECHANISM: &str = "rieul.paired-secret.v1";
 
 #[derive(Debug, thiserror::Error)]
 pub enum WireError {

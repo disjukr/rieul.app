@@ -12,9 +12,9 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { className as joinClassName } from "../class-name.ts";
 
 const menuVariants = cva([
-  "grid gap-[2px] border border-[var(--wgo-border-light)]",
-  "bg-[var(--wgo-bg-primary)] rounded-[var(--wgo-radius-sm)] p-0",
-  "shadow-wgo-menu outline-none",
+  "grid gap-[2px] border border-[var(--rieul-border-light)]",
+  "bg-[var(--rieul-bg-primary)] rounded-[var(--rieul-radius-sm)] p-0",
+  "shadow-rieul-menu outline-none",
 ]);
 const menuPositionerVariants = cva("z-[30]", {
   variants: {
@@ -33,18 +33,18 @@ const menuItemVariants = cva(
     "items-center justify-start gap-[7px] rounded-0 border-0 bg-transparent",
     "px-[8px] text-left [font:inherit]",
     "cursor-pointer outline-none",
-    "data-[highlighted]:bg-[var(--wgo-bg-menu-hover)]",
+    "data-[highlighted]:bg-[var(--rieul-bg-menu-hover)]",
     "data-[disabled]:cursor-not-allowed data-[disabled]:opacity-48",
   ],
   {
     variants: {
       tone: {
         danger: [
-          "text-[var(--wgo-danger)]",
-          "data-[highlighted]:bg-[var(--wgo-danger-soft-hover)]",
-          "data-[highlighted]:text-[var(--wgo-danger-hover)]",
+          "text-[var(--rieul-danger)]",
+          "data-[highlighted]:bg-[var(--rieul-danger-soft-hover)]",
+          "data-[highlighted]:text-[var(--rieul-danger-hover)]",
         ],
-        neutral: "text-[var(--wgo-text-primary)]",
+        neutral: "text-[var(--rieul-text-primary)]",
       },
     },
     defaultVariants: {

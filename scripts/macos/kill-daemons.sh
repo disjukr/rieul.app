@@ -6,9 +6,9 @@ LISTEN="${LISTEN:-0.0.0.0:9012}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 TMP_DIR="$REPO_ROOT/tmp/dev"
-CONFIG_PATH="$TMP_DIR/system-wgo.yaml"
-SYSTEM_EXE="$REPO_ROOT/target/debug/wgo-macos-system"
-USER_EXE="$REPO_ROOT/target/debug/wgo-macos-user"
+CONFIG_PATH="$TMP_DIR/rieul.yaml"
+SYSTEM_EXE="$REPO_ROOT/target/debug/rieul-macos-system"
+USER_EXE="$REPO_ROOT/target/debug/rieul-macos-user"
 PORT="${LISTEN##*:}"
 
 kill_pid() {
@@ -77,7 +77,7 @@ stop_system_port_matches() {
     kill_pid "system daemon" "$pid" 1
   done < <(
     sudo lsof -nP -iUDP:"$PORT" 2>/dev/null |
-      awk 'NR > 1 && $1 ~ /^wgo-macos/ { print $2 }' |
+      awk 'NR > 1 && $1 ~ /^rieul-macos/ { print $2 }' |
       sort -u
   )
 }

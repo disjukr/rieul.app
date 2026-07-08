@@ -21,7 +21,7 @@ mod windows_tray {
     use std::sync::{Mutex, OnceLock};
 
     use anyhow::{anyhow, Result};
-    use wgo_daemon_core::config::{generated_default_system_config, save};
+    use rieul_daemon_core::config::{generated_default_system_config, save};
     use windows::core::{w, PCWSTR};
     use windows::Win32::Foundation::{
         CloseHandle, GetLastError, ERROR_ALREADY_EXISTS, HANDLE, HINSTANCE, HWND, LPARAM, LRESULT,
@@ -53,9 +53,9 @@ mod windows_tray {
         show_pairing_window, PairingConfirmationModel, PairingWindowModel,
     };
 
-    const CLASS_NAME: PCWSTR = w!("WgoWindowsUserTrayWindow");
-    const INSTANCE_MUTEX_NAME: PCWSTR = w!("Local\\WgoWindowsUserTray");
-    const WINDOW_TITLE: PCWSTR = w!("Whats Going On");
+    const CLASS_NAME: PCWSTR = w!("RieulWindowsUserTrayWindow");
+    const INSTANCE_MUTEX_NAME: PCWSTR = w!("Local\\RieulWindowsUserTray");
+    const WINDOW_TITLE: PCWSTR = w!("Rieul");
     const TRAY_MESSAGE: u32 = WM_APP + 1;
     const PAIRING_NOTIFICATION_MESSAGE: u32 = WM_APP + 2;
     const PAIRING_CONFIRMATION_MESSAGE: u32 = WM_APP + 3;
@@ -190,7 +190,7 @@ mod windows_tray {
         data.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
         data.uCallbackMessage = TRAY_MESSAGE;
         data.hIcon = icon;
-        write_wide(&mut data.szTip, "Whats Going On");
+        write_wide(&mut data.szTip, "Rieul");
 
         if !unsafe { Shell_NotifyIconW(NIM_ADD, &data) }.as_bool() {
             return Err(windows::core::Error::from_thread().into());
