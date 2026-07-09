@@ -1,11 +1,11 @@
 name: rieul Wire Standard
 description: |-
-  BDL standard used for rieul wire/envelope messages. In rieul, "wire" means the
-  byte-level envelope family carried over WebTransport reqres streams and
-  datagrams. It does not mean the whole WebTransport/QUIC stack and it does not
-  define domain RPC payload contracts.
+  BDL standard used for rieul wire/envelope messages. In rieul, "wire" means
+  byte-level envelope families such as WebTransport reqres/datagrams and
+  socket-wire reqres messages. It does not mean a whole transport stack and it
+  does not define domain RPC payload contracts.
 
-  The reqres envelope defines flattened CBOR sequence messages for reliable
+  The WebTransport reqres envelope defines flattened CBOR sequence messages for reliable
   request/response-direction exchanges: RPC invocations and session-control
   commands. The datagram envelope defines one-message WebTransport datagrams,
   starting with Ping and Pong probes.

@@ -1,5 +1,11 @@
 import { buildBdlIr } from "@disjukr/bdl/ir/builder";
 import type * as bdl from "@disjukr/bdl/ir";
+import {
+  getResolveModuleFileFn,
+  loadBdlConfig,
+  type Paths,
+} from "@disjukr/bdl/io/config";
+import { relative, resolve, SEPARATOR } from "jsr:@std/path@1";
 
 interface Schema {
   declarations: Declaration[];
@@ -167,32 +173,64 @@ Options:
 }
 
 async function loadSchema(schemaRoots: string[]): Promise<Schema> {
+  const { configDirectory, bdlConfig } = await loadBdlConfig();
   const files: string[] = [];
-  for (const root of schemaRoots) files.push(...await collectBdlFiles(root));
+  for (const root of schemaRoots) {
+    files.push(...await collectBdlFiles(root, configDirectory, bdlConfig.paths));
+  }
   files.sort((a, b) => a.localeCompare(b));
 
   const { ir } = await buildBdlIr({
     entryModulePaths: files,
-    resolveModuleFile: async (modulePath) => ({
-      fileUrl: toFileUrl(modulePath),
-      text: await Deno.readTextFile(modulePath),
-    }),
+    resolveModuleFile: getResolveModuleFileFn(bdlConfig, configDirectory),
   });
   return schemaFromIr(ir);
 }
 
-async function collectBdlFiles(path: string): Promise<string[]> {
-  const stat = await Deno.stat(path);
-  if (stat.isFile) return path.endsWith(".bdl") ? [normalizePath(path)] : [];
+async function collectBdlFiles(
+  path: string,
+  configDirectory: string,
+  paths: Paths,
+): Promise<string[]> {
+  const resolvedPath = resolve(path);
+  const stat = await Deno.stat(resolvedPath);
+  if (stat.isFile) {
+    return resolvedPath.endsWith(".bdl")
+      ? [modulePathFromFile(resolvedPath, configDirectory, paths)]
+      : [];
+  }
   if (!stat.isDirectory) return [];
 
   const files: string[] = [];
-  for await (const entry of Deno.readDir(path)) {
-    const child = `${normalizePath(path)}/${entry.name}`;
-    if (entry.isDirectory) files.push(...await collectBdlFiles(child));
-    else if (entry.isFile && child.endsWith(".bdl")) files.push(child);
+  for await (const entry of Deno.readDir(resolvedPath)) {
+    const child = resolve(resolvedPath, entry.name);
+    if (entry.isDirectory) {
+      files.push(...await collectBdlFiles(child, configDirectory, paths));
+    } else if (entry.isFile && child.endsWith(".bdl")) {
+      files.push(modulePathFromFile(child, configDirectory, paths));
+    }
   }
   return files;
+}
+
+function modulePathFromFile(
+  filePath: string,
+  configDirectory: string,
+  paths: Paths,
+): string {
+  const resolvedFilePath = resolve(filePath);
+  for (const [packageName, directoryPath] of Object.entries(paths)) {
+    const resolvedDirectoryPath = resolve(configDirectory, directoryPath);
+    const relativePath = relative(resolvedDirectoryPath, resolvedFilePath);
+    if (
+      relativePath === "" ||
+      relativePath.startsWith("..") ||
+      relativePath.includes(":")
+    ) continue;
+    const fragments = relativePath.replace(/\.bdl$/, "").split(SEPARATOR);
+    return [packageName, ...fragments].join(".");
+  }
+  throw new Error(`BDL file is outside configured paths: ${filePath}`);
 }
 
 function schemaFromIr(ir: bdl.BdlIr): Schema {
