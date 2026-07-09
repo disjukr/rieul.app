@@ -7,11 +7,21 @@ client. The protocol is split into narrow layers so each document has one job.
 
 - `rieul-cbor` defines the deterministic CBOR profile and schema-to-CBOR mapping.
 - `rieul-wire` defines byte-level envelopes carried over WebTransport reqres
-  streams and datagrams.
+  streams and datagrams. It also provides the shared wire-schema encoding rules
+  used by `rieul-socket-wire`.
+- `rieul-socket-wire` defines socket-oriented reqres messages for local IPC and
+  WebSocket fallback transports that need multiplexed logical RPC streams over
+  one bidirectional channel.
 - `rieul-rpc` defines RPC proc ids, stream shapes, payload schema selection, and
   method-level error unions.
+- `rieul-ipc` defines local IPC process roles, profile-scoped endpoints, IPC
+  proc direction attributes, and how IPC uses `rieul-socket-wire`.
 - `schemas/rpc` defines domain RPC contracts such as pairing, filesystem, and
   terminal methods.
+- `schemas/socket-wire` defines local IPC/WebSocket fallback socket reqres
+  schemas.
+- `schemas/ipc` defines IPC proc contracts carried on IPC endpoints. Proc files
+  are grouped by provider role, such as `gui.bdl` and `agent.bdl`.
 - `schemas/config` defines local daemon configuration files. These schemas do
   not use RPC-only primitives such as `i53` or `u53`.
 
@@ -43,6 +53,20 @@ kind, fields, kind, fields, ...
 `kind` is the `ReqResMessage` union variant id encoded as a CBOR unsigned
 integer. `fields` is that variant's CBOR map. The normal two-element union array
 wrapper is intentionally omitted only at this top-level stream grammar.
+
+## Socket Wire
+
+Socket wire uses the same flattened top-level reqres message encoding:
+
+```text
+kind, fields
+```
+
+Byte-stream transports carry one continuous CBOR sequence of flattened pairs.
+Message transports such as WebSocket carry one flattened pair per binary
+message. Socket wire adds `streamId` fields and socket-only direction-end
+variants so multiple logical reqres exchanges can share one bidirectional
+channel.
 
 ## Datagram
 

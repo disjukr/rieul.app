@@ -4,7 +4,9 @@ use std::process::Command;
 
 fn main() {
     println!("cargo:rerun-if-changed=../../protocol/schemas/wire");
+    println!("cargo:rerun-if-changed=../../protocol/schemas/socket-wire");
     println!("cargo:rerun-if-changed=../../protocol/schemas/rpc");
+    println!("cargo:rerun-if-changed=../../protocol/schemas/ipc");
     println!("cargo:rerun-if-changed=../../scripts/codegen/rust");
     println!("cargo:rerun-if-changed=../../deno.json");
     println!("cargo:rerun-if-changed=../../deno.lock");
@@ -15,7 +17,13 @@ fn main() {
         &out_dir.join("wire.rs"),
         &["--no-byte-codec"],
     );
+    run_codegen(
+        "../../protocol/schemas/socket-wire",
+        &out_dir.join("socket_wire.rs"),
+        &["--no-byte-codec"],
+    );
     run_codegen("../../protocol/schemas/rpc", &out_dir.join("rpc.rs"), &[]);
+    run_codegen("../../protocol/schemas/ipc", &out_dir.join("ipc.rs"), &[]);
 }
 
 fn run_codegen(schema: &str, out: &Path, extra_args: &[&str]) {

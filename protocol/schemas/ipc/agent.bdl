@@ -1,0 +1,23 @@
+# standard - rieul-ipc
+# description
+| IPC procs provided by the user-session agent process. These procs are carried
+| over rieul-socket-wire IPC endpoints and are not public client RPC methods.
+
+import rieul.ipc.common {
+  IpcProcError,
+}
+
+import rieul.rpc.window {
+  WindowDetail,
+}
+
+@ id - 5
+@ stream - unary
+@ server - agent
+@ client - system
+proc SnapshotWindows = void -> SnapshotWindowsRes throws IpcProcError
+
+struct SnapshotWindowsRes {
+  @ id - 1
+  windows: WindowDetail[],
+}

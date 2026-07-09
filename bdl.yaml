@@ -2,5 +2,6 @@ paths:
   rieul: ./protocol/schemas
 
 standards:
+  rieul-ipc: ./protocol/standards/rieul-ipc.yaml
   rieul-rpc: ./protocol/standards/rieul-rpc.yaml
   rieul-wire: ./protocol/standards/rieul-wire.yaml

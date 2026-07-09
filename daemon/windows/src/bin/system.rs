@@ -115,15 +115,17 @@ fn run_system_server_blocking(listen: Option<SocketAddr>, config_path: PathBuf) 
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?;
+    let window_service = UserSessionWindowService::from_config_path(&config_path);
+    let pairing_notifier = UserTrayPairingNotifier::from_config_path(&config_path);
     runtime.block_on(run_system_server(
         listen,
         config_path,
         Arc::new(WindowsFileService),
-        Some(Arc::new(UserSessionWindowService)),
+        Some(Arc::new(window_service)),
         Some(Arc::new(WindowsProcessResourcesInUseService)),
         Some(Arc::new(WindowsProcessSocketsInUseService)),
         Some(Arc::new(WindowsProcessModulesService)),
-        Some(Arc::new(UserTrayPairingNotifier)),
+        Some(Arc::new(pairing_notifier)),
         "Windows system daemon",
     ))
 }

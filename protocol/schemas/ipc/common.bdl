@@ -1,0 +1,30 @@
+# standard - rieul-ipc
+# description
+| Shared IPC payload and error types imported by provider-specific IPC proc
+| files.
+
+union IpcProcError {
+  @ id - 0
+  Failed(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 1
+  Unsupported(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 2
+  PermissionDenied(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 3
+  Rejected(
+    @ id - 1
+    message: string,
+  ),
+}

@@ -1,7 +1,8 @@
 {
   "imports": {
     "@disjukr/bdl/ir": "jsr:@disjukr/bdl@0.8.3/ir",
-    "@disjukr/bdl/ir/builder": "jsr:@disjukr/bdl@0.8.3/ir/builder"
+    "@disjukr/bdl/ir/builder": "jsr:@disjukr/bdl@0.8.3/ir/builder",
+    "@disjukr/bdl/io/config": "jsr:@disjukr/bdl@0.8.3/io/config"
   },
   "tasks": {
     "codegen:typescript": "deno run -A ./scripts/codegen/typescript/main.ts --standard wire --schema ./protocol/schemas/wire --out ./web/src/protocol/generated/wire.ts --cbor-import ../cbor.ts && deno run -A ./scripts/codegen/typescript/main.ts --standard rpc --schema ./protocol/schemas/rpc --out ./web/src/protocol/generated/rpc.ts --rpc-client-out ./web/src/protocol/generated/client.ts --cbor-import ../cbor.ts --generated-import ./rpc.ts --rpc-runtime-import ../client.ts",

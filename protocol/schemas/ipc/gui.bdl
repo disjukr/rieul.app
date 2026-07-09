@@ -1,0 +1,72 @@
+# standard - rieul-ipc
+# description
+| IPC procs provided by the GUI process. These procs are carried over
+| rieul-socket-wire IPC endpoints and are not public client RPC methods.
+
+import rieul.ipc.common {
+  IpcProcError,
+}
+
+@ id - 1
+@ stream - unary
+@ server - gui
+@ client - system
+proc ShowPairingCode = ShowPairingCodeReq -> void throws IpcProcError
+
+@ id - 2
+@ stream - unary
+@ server - gui
+@ client - system
+proc ConfirmPairing = ConfirmPairingReq -> ConfirmPairingRes throws IpcProcError
+
+@ id - 3
+@ stream - unary
+@ server - gui
+@ client - system
+proc ShowDaemonInfo = ShowDaemonInfoReq -> void throws IpcProcError
+
+@ id - 4
+@ stream - unary
+@ server - gui
+@ client - launcher,system
+proc ActivateGui = ActivateGuiReq -> void throws IpcProcError
+
+struct ShowPairingCodeReq {
+  @ id - 1
+  daemonUrl: string,
+
+  @ id - 2
+  pairingCode: string,
+
+  @ id - 3
+  expiresInSeconds: u53,
+}
+
+struct ConfirmPairingReq {
+  @ id - 1
+  daemonUrl: string,
+
+  @ id - 2
+  confirmationCode: string,
+
+  @ id - 3
+  clientLabel: string,
+}
+
+struct ConfirmPairingRes {
+  @ id - 1
+  accepted: bool,
+}
+
+struct ShowDaemonInfoReq {
+  @ id - 1
+  configPath: string,
+
+  @ id - 2
+  daemonUrl: string,
+}
+
+struct ActivateGuiReq {
+  @ id - 1
+  reason: string,
+}

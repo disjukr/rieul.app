@@ -1,0 +1,278 @@
+# standard - rieul-wire
+# description
+| Socket-oriented reqres envelope for transports without WebTransport-style
+| independent bidirectional streams. This mirrors wire/reqres ReqResMessage and
+| adds streamId so many logical reqres exchanges can be multiplexed over one
+| ordered bidirectional socket or WebSocket channel.
+|
+| Each top-level SocketReqResMessage is encoded like wire/reqres: as a
+| flattened CBOR sequence pair of variant_id followed by fields_map. Byte-stream
+| transports concatenate these pairs into one continuous CBOR sequence. Message
+| transports such as WebSocket carry one encoded pair per binary message.
+|
+| Existing wire/reqres field ids are preserved where possible. streamId is
+| always field id 100 so it does not collide with the corresponding
+| ReqResMessage fields.
+|
+| Variants 0 through 10 correspond one-to-one with wire/reqres ReqResMessage.
+| Unlike WebTransport reqres, logical direction completion cannot be represented
+| by transport half-close/EOF. Socket reqres therefore adds only
+| RequestStreamEnd and ResponseStreamEnd as multiplexing control messages in
+| the socket-wire extension variant id range starting at 100.
+
+@ description
+| Logical reqres message carried by socket wire. Variants mirror wire/reqres
+| ReqResMessage where possible. streamId identifies the logical reqres exchange
+| within the socket connection.
+union SocketReqResMessage {
+  @ id - 0
+  @ description
+  | Complete request for a unary RPC invocation.
+  RequestUnary(
+    @ id - 1
+    procId: u53,
+
+    @ id - 2
+    payload?: bytes,
+
+    @ id - 100
+    streamId: u53,
+  ),
+
+  @ id - 1
+  @ description
+  | First request-direction message for a streaming RPC invocation.
+  RequestStreamStart(
+    @ id - 1
+    procId: u53,
+
+    @ id - 2
+    payload?: bytes,
+
+    @ id - 100
+    streamId: u53,
+  ),
+
+  @ id - 2
+  @ description
+  | Middle request-direction payload chunk for a streaming RPC invocation.
+  RequestStreamChunk(
+    @ id - 2
+    payload: bytes,
+
+    @ id - 100
+    streamId: u53,
+  ),
+
+  @ id - 3
+  @ description
+  | Successful response for a unary RPC invocation.
+  ResponseUnaryOk(
+    @ id - 2
+    payload?: bytes,
+
+    @ id - 100
+    streamId: u53,
+  ),
+
+  @ id - 4
+  @ description
+  | Failed response for a unary RPC invocation. The error field contains either
+  | a method throws union or RpcErrorPayload for generic protocol failures.
+  ResponseUnaryError(
+    @ id - 3
+    error: bytes,
+
+    @ id - 4
+    errorKind: SocketRpcErrorKind,
+
+    @ id - 100
+    streamId: u53,
+  ),
+
+  @ id - 5
+  @ description
+  | First successful response-direction message for a streaming RPC invocation.
+  ResponseStreamStart(
+    @ id - 2
+    payload?: bytes,
+
+    @ id - 100
+    streamId: u53,
+  ),
+
+  @ id - 6
+  @ description
+  | Middle response-direction payload chunk for a streaming RPC invocation.
+  ResponseStreamChunk(
+    @ id - 2
+    payload: bytes,
+
+    @ id - 100
+    streamId: u53,
+  ),
+
+  @ id - 7
+  @ description
+  | Terminal failed response for a streaming RPC invocation.
+  ResponseStreamErrorEnd(
+    @ id - 3
+    error: bytes,
+
+    @ id - 4
+    errorKind: SocketRpcErrorKind,
+
+    @ id - 100
+    streamId: u53,
+  ),
+
+  @ id - 8
+  @ description
+  | Request to authenticate the current socket session. The mechanism field
+  | identifies the authentication profile. The payload field is
+  | mechanism-specific deterministic CBOR bytes.
+  SessionAuthenticate(
+    @ id - 1
+    mechanism: string,
+
+    @ id - 2
+    payload: bytes,
+
+    @ id - 100
+    streamId: u53,
+  ),
+
+  @ id - 9
+  @ description - Successful session authentication response.
+  SessionAuthenticated(
+    @ id - 100
+    streamId: u53,
+  ),
+
+  @ id - 10
+  @ description - Failed session authentication response.
+  SessionAuthError(
+    @ id - 1
+    code: SocketSessionAuthErrorCode,
+
+    @ id - 2
+    message: string,
+
+    @ id - 100
+    streamId: u53,
+  ),
+
+  @ id - 100
+  @ description
+  | Normal request-direction end for a streaming RPC invocation or
+  | session-control command. This replaces WebTransport request half-close for
+  | the addressed logical stream.
+  RequestStreamEnd(
+    @ id - 100
+    streamId: u53,
+  ),
+
+  @ id - 101
+  @ description
+  | Normal response-direction end for a streaming RPC invocation or
+  | session-control command. This replaces WebTransport response EOF for the
+  | addressed logical stream.
+  ResponseStreamEnd(
+    @ id - 100
+    streamId: u53,
+  ),
+}
+
+@ description
+| Session authentication failure codes. These mirror wire/reqres
+| SessionAuthErrorCode.
+enum SocketSessionAuthErrorCode {
+  @ id - 1
+  @ description - The requested authentication mechanism is not supported.
+  UnsupportedMechanism,
+
+  @ id - 2
+  @ description - The mechanism payload was well-formed but credentials failed verification.
+  InvalidCredentials,
+
+  @ id - 3
+  @ description - The mechanism payload or control stream cardinality is invalid.
+  MalformedPayload,
+
+  @ id - 4
+  @ description - The socket session is already authenticated.
+  AlreadyAuthenticated,
+}
+
+@ description
+| Mechanism-specific payload for mechanism "rieul.paired-secret.v1". This
+| mirrors wire/reqres PairedSecretCredential.
+struct SocketPairedSecretCredential {
+  @ id - 1
+  credentialId: string,
+
+  @ id - 2
+  credentialSecret: string,
+}
+
+@ description - Discriminator for the schema used by an error response payload.
+enum SocketRpcErrorKind {
+  @ id - 1
+  @ description - The error field contains SocketRpcErrorPayload.
+  System,
+
+  @ id - 2
+  @ description - The error field contains the proc's declared throws union.
+  Method,
+}
+
+@ description
+| Generic socket-wire error codes. These mirror wire/reqres RpcErrorCode and add
+| no socket-specific method error codes. Invalid socket-wire messages are
+| transport/session failures.
+enum SocketRpcErrorCode {
+  @ id - 1
+  @ description - Received message is not valid for the current RPC endpoint.
+  BadMessage,
+
+  @ id - 2
+  @ description - Credentials are missing or invalid.
+  Unauthorized,
+
+  @ id - 3
+  @ description - A payload is required for this request but was absent.
+  MissingPayload,
+
+  @ id - 4
+  @ description - The proc id is reserved or not implemented by this endpoint.
+  NotImplemented,
+
+  @ id - 6
+  @ description - The lower-level service rejected the operation for permissions.
+  PermissionDenied,
+
+  @ id - 7
+  @ description - The lower-level service could not find the requested resource.
+  NotFound,
+
+  @ id - 8
+  @ description - The lower-level service failed without a more specific protocol code.
+  OperationFailed,
+
+  @ id - 9
+  @ description - The payload exists but cannot be decoded for the proc.
+  MalformedPayload,
+}
+
+@ description
+| Generic socket-wire error payload carried in the error field when failure
+| happens outside a method contract.
+struct SocketRpcErrorPayload {
+  @ id - 1
+  @ description - Stable generic socket-wire error code.
+  code: SocketRpcErrorCode,
+
+  @ id - 2
+  @ description - Human-readable diagnostic message, not a stable discriminator.
+  message: string,
+}

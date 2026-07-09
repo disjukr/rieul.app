@@ -1,0 +1,60 @@
+name: rieul IPC Standard
+description: |-
+  BDL standard used by rieul IPC proc registries. It reuses the rieul-rpc proc
+  contract model for ids, stream shapes, payload schema selection, and
+  method-level errors, and adds local process role direction attributes.
+
+  IPC payloads and method-level error payloads use the deterministic rieul CBOR
+  profile defined in ./rieul-cbor.md.
+
+  A proc's server role is the local process role that provides the method on an
+  IPC endpoint. A proc's client role list is the set of local process roles that
+  may call it. Role names are lower-case rieul IPC process roles such as
+  system, gui, agent, and launcher. Multiple client roles are encoded as a
+  comma-separated role list.
+
+stitches:
+  - rieul-rpc
+
+primitives:
+  bool:
+    name: Boolean
+    description: Encoded as CBOR simple true/false.
+  i53:
+    name: Signed safe integer
+    description: Encoded as a CBOR integer and range-checked to JavaScript's safe integer range.
+  u53:
+    name: Unsigned safe integer
+    description: Encoded as a CBOR unsigned integer and range-checked to 0 through 2^53 - 1.
+  f64:
+    name: 64-bit floating point
+    description: Encoded as CBOR float64.
+  string:
+    name: UTF-8 string
+    description: Encoded as CBOR text string.
+  bytes:
+    name: Bytes
+    description: Encoded as CBOR byte string.
+  void:
+    name: Void
+    description: No payload.
+
+attributes:
+  bdl.proc:
+    - key: id
+      description: Stable rieul-ipc method id. Required for every proc.
+    - key: stream
+      description: Stream shape. Supported values are unary, client, server, and bidi.
+    - key: server
+      description: IPC process role that provides this proc.
+    - key: client
+      description: IPC process role, or comma-separated role list, allowed to call this proc.
+  bdl.struct.field:
+    - key: id
+      description: Stable field id used as the CBOR map key. Required for wire payload fields.
+  bdl.enum.item:
+    - key: id
+      description: Stable enum item id encoded as a CBOR unsigned integer.
+  bdl.union.item:
+    - key: id
+      description: Stable union variant id encoded as the first element of a CBOR tuple.

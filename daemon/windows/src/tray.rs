@@ -21,7 +21,9 @@ mod windows_tray {
     use std::sync::{Mutex, OnceLock};
 
     use anyhow::{anyhow, Result};
-    use rieul_daemon_core::config::{generated_default_system_config, save};
+    use rieul_daemon_core::config::{
+        generated_default_system_config, profile_id_for_config_path, save,
+    };
     use windows::core::{w, PCWSTR};
     use windows::Win32::Foundation::{
         CloseHandle, GetLastError, ERROR_ALREADY_EXISTS, HANDLE, HINSTANCE, HWND, LPARAM, LRESULT,
@@ -54,7 +56,6 @@ mod windows_tray {
     };
 
     const CLASS_NAME: PCWSTR = w!("RieulWindowsUserTrayWindow");
-    const INSTANCE_MUTEX_NAME: PCWSTR = w!("Local\\RieulWindowsUserTray");
     const WINDOW_TITLE: PCWSTR = w!("Rieul");
     const TRAY_MESSAGE: u32 = WM_APP + 1;
     const PAIRING_NOTIFICATION_MESSAGE: u32 = WM_APP + 2;
@@ -104,7 +105,8 @@ mod windows_tray {
         OnceLock::new();
 
     pub fn run(config_path: PathBuf) -> Result<()> {
-        let Some(_single_instance_guard) = acquire_single_instance()? else {
+        let profile_id = profile_id_for_config_path(&config_path);
+        let Some(_single_instance_guard) = acquire_single_instance(&profile_id)? else {
             return Ok(());
         };
 
@@ -119,7 +121,7 @@ mod windows_tray {
             let icon = load_tray_icon()?;
             add_tray_icon(hwnd, icon)?;
             let hwnd_value = hwnd.0 as usize;
-            spawn_pairing_notification_server(move |request| match request {
+            spawn_pairing_notification_server(profile_id, move |request| match request {
                 PairingIpcRequest::Confirm(request) => {
                     confirm_pairing_request_via_tray(hwnd_value, request)
                 }
@@ -136,8 +138,9 @@ mod windows_tray {
         }
     }
 
-    fn acquire_single_instance() -> Result<Option<SingleInstanceGuard>> {
-        let handle = unsafe { CreateMutexW(None, true, INSTANCE_MUTEX_NAME)? };
+    fn acquire_single_instance(profile_id: &str) -> Result<Option<SingleInstanceGuard>> {
+        let mutex_name = wide_string(&format!("Local\\RieulWindowsUserTray-{profile_id}"));
+        let handle = unsafe { CreateMutexW(None, true, PCWSTR(mutex_name.as_ptr()))? };
         if unsafe { GetLastError() } == ERROR_ALREADY_EXISTS {
             unsafe {
                 let _ = CloseHandle(handle);
@@ -665,6 +668,13 @@ mod windows_tray {
 
     fn wide_path(path: &Path) -> Vec<u16> {
         path.as_os_str()
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect()
+    }
+
+    fn wide_string(value: &str) -> Vec<u16> {
+        std::ffi::OsStr::new(value)
             .encode_wide()
             .chain(std::iter::once(0))
             .collect()
