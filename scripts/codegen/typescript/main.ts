@@ -167,7 +167,9 @@ async function loadSchema(schemaRoots: string[]): Promise<Schema> {
   const { configDirectory, bdlConfig } = await loadBdlConfig();
   const files: string[] = [];
   for (const root of schemaRoots) {
-    files.push(...await collectBdlFiles(root, configDirectory, bdlConfig.paths));
+    files.push(
+      ...await collectBdlFiles(root, configDirectory, bdlConfig.paths),
+    );
   }
   files.sort((a, b) => a.localeCompare(b));
 
@@ -1185,10 +1187,11 @@ function requiredAttribute(
   label: string,
 ): string {
   const value = item.attributes[name];
-  if (value === undefined || value === "") {
+  const normalized = value?.trim();
+  if (normalized === undefined || normalized === "") {
     throw new Error(`${label} requires @ ${name}`);
   }
-  return value;
+  return normalized;
 }
 
 function normalizePath(path: string): string {
