@@ -67,7 +67,6 @@ const workbenchTabButtonClassName = [
   "text-ellipsis whitespace-nowrap text-rieul-text-2 font-640 leading-none",
   "cursor-grab select-none [touch-action:manipulation]",
   "[-webkit-touch-callout:none] [-webkit-user-select:none]",
-  "max-[680px]:[touch-action:none]",
   "hover:bg-transparent active:cursor-grabbing",
 ].join(" ");
 const workbenchTabCloseClassName = [
