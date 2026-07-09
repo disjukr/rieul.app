@@ -1,3 +1,4 @@
+import type React from "react";
 import type { DividerRenderProps } from "panecake";
 import { className } from "../../class-name.ts";
 
@@ -12,11 +13,49 @@ const paneDividerClassName = [
 export function PaneDivider(
   { direction, onMouseDown, onKeyDown, ref }: DividerRenderProps,
 ) {
+  function handleTouchStart(event: React.TouchEvent<HTMLDivElement>) {
+    const touch = event.touches[0];
+    if (!touch) return;
+    event.preventDefault();
+    onMouseDown({
+      clientX: touch.clientX,
+      clientY: touch.clientY,
+      preventDefault: () => event.preventDefault(),
+    } as React.MouseEvent);
+
+    function handleTouchMove(moveEvent: TouchEvent) {
+      const nextTouch = moveEvent.touches[0];
+      if (!nextTouch) return;
+      moveEvent.preventDefault();
+      document.dispatchEvent(
+        new MouseEvent("mousemove", {
+          bubbles: true,
+          clientX: nextTouch.clientX,
+          clientY: nextTouch.clientY,
+        }),
+      );
+    }
+
+    function handleTouchEnd() {
+      document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+      document.removeEventListener("touchmove", handleTouchMove);
+      document.removeEventListener("touchend", handleTouchEnd);
+      document.removeEventListener("touchcancel", handleTouchEnd);
+    }
+
+    document.addEventListener("touchmove", handleTouchMove, {
+      passive: false,
+    });
+    document.addEventListener("touchend", handleTouchEnd);
+    document.addEventListener("touchcancel", handleTouchEnd);
+  }
+
   return (
     <div
       ref={ref}
       className={className(
         paneDividerClassName,
+        "touch-none",
         direction === "horizontal"
           ? "w-[8px] cursor-col-resize before:top-[18px] before:bottom-[18px] before:left-[3px] before:w-[2px] after:top-[42%] after:left-[2px] after:h-[16%] after:w-[4px]"
           : "h-[8px] cursor-row-resize before:left-[18px] before:right-[18px] before:top-[3px] before:h-[2px] after:left-[42%] after:top-[2px] after:h-[4px] after:w-[16%]",
@@ -24,6 +63,7 @@ export function PaneDivider(
       role="separator"
       tabIndex={0}
       onMouseDown={onMouseDown}
+      onTouchStart={handleTouchStart}
       onKeyDown={onKeyDown}
     />
   );

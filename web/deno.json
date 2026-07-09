@@ -11,6 +11,7 @@
   "imports": {
     "@base-ui/react": "npm:@base-ui/react@^1.6.0",
     "@base-ui/react/": "npm:@base-ui/react@^1.6.0/",
+    "@dnd-kit/core": "npm:@dnd-kit/core@^6.3.1",
     "@types/react": "npm:@types/react@^19.2.0",
     "@types/react-dom": "npm:@types/react-dom@^19.2.0",
     "@vitejs/plugin-react": "npm:@vitejs/plugin-react@^4.3.4",

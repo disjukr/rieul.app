@@ -2,6 +2,8 @@
   "version": "5",
   "specifiers": {
     "npm:@base-ui/react@^1.6.0": "1.6.0_@types+react@19.2.14_react@19.2.6_react-dom@19.2.6__react@19.2.6",
+    "npm:@dnd-kit/core@^6.3.1": "6.3.1_react@19.2.6_react-dom@19.2.6__react@19.2.6",
+    "npm:@dnd-kit/core@latest": "6.3.1_react@19.2.6_react-dom@19.2.6__react@19.2.6",
     "npm:@types/react-dom@^19.2.0": "19.2.3_@types+react@19.2.14",
     "npm:@types/react@^19.2.0": "19.2.14",
     "npm:@unocss/reset@66.7.0": "66.7.0",
@@ -206,6 +208,30 @@
       ],
       "optionalPeers": [
         "@types/react"
+      ]
+    },
+    "@dnd-kit/accessibility@3.1.1_react@19.2.6": {
+      "integrity": "sha512-2P+YgaXF+gRsIihwwY1gCsQSYnu9Zyj2py8kY5fFvUM1qm2WA2u639R6YNVfU4GWr+ZM5mqEsfHZZLoRONbemw==",
+      "dependencies": [
+        "react",
+        "tslib"
+      ]
+    },
+    "@dnd-kit/core@6.3.1_react@19.2.6_react-dom@19.2.6__react@19.2.6": {
+      "integrity": "sha512-xkGBRQQab4RLwgXxoqETICr6S5JlogafbhNsidmrkVv2YRs5MLwpjoF2qpiGjQt8S9AoxtIV603s0GIUpY5eYQ==",
+      "dependencies": [
+        "@dnd-kit/accessibility",
+        "@dnd-kit/utilities",
+        "react",
+        "react-dom",
+        "tslib"
+      ]
+    },
+    "@dnd-kit/utilities@3.2.2_react@19.2.6": {
+      "integrity": "sha512-+MKAJEOfaBe5SmV6t34p80MMKhjvUz0vRrvVJbPT0WElzaOJ/1xs+D+KDv+tD/NE5ujfrChEcshd4fLn0wpiqg==",
+      "dependencies": [
+        "react",
+        "tslib"
       ]
     },
     "@emnapi/core@1.10.0": {
@@ -1673,6 +1699,7 @@
   "workspace": {
     "dependencies": [
       "npm:@base-ui/react@^1.6.0",
+      "npm:@dnd-kit/core@^6.3.1",
       "npm:@types/react-dom@^19.2.0",
       "npm:@types/react@^19.2.0",
       "npm:@unocss/reset@66.7.0",

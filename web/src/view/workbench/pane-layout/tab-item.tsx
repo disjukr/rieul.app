@@ -1,4 +1,5 @@
 import React from "react";
+import { useDraggable, useDroppable } from "@dnd-kit/core";
 import { useAtomValue } from "jotai";
 import { useBunja } from "bunja/react";
 import {
@@ -21,10 +22,10 @@ import {
   workbenchTabBunja,
 } from "../../../state/workbench.ts";
 import {
-  hasWorkbenchTabDragData,
-  readWorkbenchTabDragData,
+  type WorkbenchTabDndData,
   type WorkbenchTabDragData,
-  workbenchTabDragType,
+  workbenchTabDragId,
+  workbenchTabDropId,
 } from "./tab-drag.ts";
 import { className } from "../../class-name.ts";
 
@@ -37,14 +38,6 @@ interface WorkbenchTabItemProps {
   onContextMenu: (
     tab: WorkbenchTab,
     event: React.MouseEvent<HTMLDivElement>,
-  ) => void;
-  onDragStart: () => void;
-  onDragEnd: () => void;
-  onDragOverTab: (tabId: string, position: TabDropPosition) => void;
-  onDropTab: (
-    dragData: WorkbenchTabDragData,
-    targetTabId: string,
-    position: TabDropPosition,
   ) => void;
 }
 
@@ -72,7 +65,10 @@ const workbenchTabButtonClassName = [
   "items-center justify-start gap-[8px] overflow-hidden rounded-none border-0",
   "bg-transparent pl-[11px] pr-[8px] [font-family:inherit]",
   "text-ellipsis whitespace-nowrap text-rieul-text-2 font-640 leading-none",
-  "cursor-grab hover:bg-transparent active:cursor-grabbing",
+  "cursor-grab select-none [touch-action:manipulation]",
+  "[-webkit-touch-callout:none] [-webkit-user-select:none]",
+  "max-[680px]:[touch-action:none]",
+  "hover:bg-transparent active:cursor-grabbing",
 ].join(" ");
 const workbenchTabCloseClassName = [
   "tab-close ml-auto mr-[6px] inline-flex h-[18px] min-h-[18px]",
@@ -94,10 +90,6 @@ export function WorkbenchTabItem(
     paneActive,
     onClose,
     onContextMenu,
-    onDragStart,
-    onDragEnd,
-    onDragOverTab,
-    onDropTab,
   }: WorkbenchTabItemProps,
 ) {
   const tabState = useBunja(workbenchTabBunja);
@@ -117,60 +109,66 @@ export function WorkbenchTabItem(
     dropPosition === "after" && "drop-after",
   );
 
+  const currentTabId = tabState.tabId;
+  const dragData: WorkbenchTabDragData = {
+    nodeId,
+    paneId: tabState.paneId,
+    tabId: currentTabId,
+  };
+  const {
+    attributes,
+    listeners,
+    setNodeRef: setDragNodeRef,
+  } = useDraggable({
+    attributes: {
+      role: "tab",
+      roleDescription: "draggable workbench tab",
+    },
+    id: workbenchTabDragId(currentTabId),
+    data: {
+      dragData,
+      label,
+      type: "workbench-tab",
+    } satisfies WorkbenchTabDndData,
+  });
+  const { setNodeRef: setDropNodeRef } = useDroppable({
+    id: workbenchTabDropId(tabState.paneId, currentTabId),
+    data: {
+      kind: "tab",
+      paneId: tabState.paneId,
+      tabId: currentTabId,
+      type: "workbench-tab-drop",
+    },
+  });
+
   if (!tab) return null;
-  const currentTabId = tab.id;
 
-  function handleDragOver(event: React.DragEvent<HTMLDivElement>) {
-    if (!hasWorkbenchTabDragData(event)) return;
-    event.preventDefault();
-    event.stopPropagation();
-    event.dataTransfer.dropEffect = "move";
-    const rect = event.currentTarget.getBoundingClientRect();
-    const position = event.clientX < rect.left + rect.width / 2
-      ? "before"
-      : "after";
-    onDragOverTab(currentTabId, position);
-  }
-
-  function handleDrop(event: React.DragEvent<HTMLDivElement>) {
-    const dragData = readWorkbenchTabDragData(event);
-    if (!dragData) return;
-    event.preventDefault();
-    event.stopPropagation();
-    const rect = event.currentTarget.getBoundingClientRect();
-    const position = event.clientX < rect.left + rect.width / 2
-      ? "before"
-      : "after";
-    onDropTab(dragData, currentTabId, position);
+  function handleContextMenu(event: React.MouseEvent<HTMLDivElement>) {
+    if (!tab) return;
+    if (isCoarsePointer()) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+    onContextMenu(tab, event);
   }
 
   return (
     <div
+      ref={setDropNodeRef}
       className={tabClassName}
-      onContextMenu={(event) => onContextMenu(tab, event)}
-      onDragOver={handleDragOver}
-      onDrop={handleDrop}
+      data-pane-id={tabState.paneId}
+      data-tab-id={currentTabId}
+      onContextMenu={handleContextMenu}
     >
       <button
+        ref={setDragNodeRef}
+        {...attributes}
+        {...listeners}
         type="button"
         role="tab"
         className={workbenchTabButtonClassName}
         aria-selected={active}
-        draggable
-        onDragStart={(event) => {
-          event.stopPropagation();
-          event.dataTransfer.effectAllowed = "move";
-          event.dataTransfer.setData(
-            workbenchTabDragType,
-            JSON.stringify({
-              nodeId,
-              paneId: tabState.paneId,
-              tabId: currentTabId,
-            }),
-          );
-          onDragStart();
-        }}
-        onDragEnd={onDragEnd}
         onClick={tabState.selectTab}
         title={label}
       >
@@ -263,4 +261,9 @@ function useWorkbenchTabLabel(
 function folderNameFromPath(path?: string): string {
   const crumbs = pathCrumbs(path);
   return crumbs[crumbs.length - 1]?.label ?? "Files";
+}
+
+function isCoarsePointer(): boolean {
+  return typeof globalThis.matchMedia === "function" &&
+    globalThis.matchMedia("(pointer: coarse)").matches;
 }
