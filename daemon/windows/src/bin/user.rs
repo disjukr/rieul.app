@@ -2,7 +2,9 @@
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
+use rieul_daemon_core::config::windows_program_data_config_path;
 use rieul_windows_daemon::window_agent::run_window_agent;
+use std::path::PathBuf;
 
 #[derive(Debug, Parser)]
 #[command(name = "rieul-windows-user")]
@@ -14,7 +16,10 @@ struct Args {
 
 #[derive(Debug, Subcommand)]
 enum Command {
-    Run,
+    Run {
+        #[arg(long)]
+        config: Option<PathBuf>,
+    },
 }
 
 fn main() -> Result<()> {
@@ -22,7 +27,12 @@ fn main() -> Result<()> {
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .init();
 
-    match Args::parse().command.unwrap_or(Command::Run) {
-        Command::Run => run_window_agent(),
+    match Args::parse()
+        .command
+        .unwrap_or(Command::Run { config: None })
+    {
+        Command::Run { config } => {
+            run_window_agent(config.unwrap_or_else(windows_program_data_config_path))
+        }
     }
 }

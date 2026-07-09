@@ -4,15 +4,27 @@ pub mod wire {
     include!(concat!(env!("OUT_DIR"), "/wire.rs"));
 }
 
+pub mod socket_wire {
+    #![allow(dead_code, unused_mut, unused_variables)]
+
+    include!(concat!(env!("OUT_DIR"), "/socket_wire.rs"));
+}
+
 pub mod rpc {
     #![allow(dead_code, unused_mut, unused_variables)]
 
     include!(concat!(env!("OUT_DIR"), "/rpc.rs"));
 }
 
+pub mod ipc {
+    #![allow(dead_code, unused_mut, unused_variables)]
+
+    include!(concat!(env!("OUT_DIR"), "/ipc.rs"));
+}
+
 #[cfg(test)]
 mod tests {
-    use super::rpc;
+    use super::{ipc, rpc, socket_wire};
 
     #[test]
     fn generated_rpc_model_roundtrips() {
@@ -70,5 +82,38 @@ mod tests {
                 proc: rpc::ProcId::StartPairing
             })
         ));
+    }
+
+    #[test]
+    fn generated_socket_wire_message_roundtrips() {
+        let message = socket_wire::SocketReqResMessage::RequestUnary {
+            proc_id: ipc::ProcId::ShowPairingCode.as_u64(),
+            payload: Some(b"payload".to_vec()),
+            stream_id: 1,
+        };
+
+        let encoded = message.encode_value().unwrap().encode();
+        assert_eq!(
+            socket_wire::SocketReqResMessage::decode_value(
+                &crate::cbor::Value::decode(&encoded).unwrap()
+            )
+            .unwrap(),
+            message
+        );
+    }
+
+    #[test]
+    fn generated_ipc_proc_metadata_decodes_request_payload() {
+        let payload = ipc::ShowPairingCodeReq {
+            daemon_url: "https://localhost:9012".to_string(),
+            pairing_code: "123456".to_string(),
+            expires_in_seconds: 60,
+        };
+
+        assert_eq!(ipc::ProcId::from_u64(1), Some(ipc::ProcId::ShowPairingCode));
+        assert_eq!(
+            ipc::RpcRequest::decode(1, Some(&payload.encode())).unwrap(),
+            ipc::RpcRequest::ShowPairingCode(payload)
+        );
     }
 }

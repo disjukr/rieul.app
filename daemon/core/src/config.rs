@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use thiserror::Error;
 
 use crate::DEFAULT_LISTEN_ADDR;
@@ -155,6 +156,29 @@ pub fn daemon_status_path(config_path: impl AsRef<Path>) -> PathBuf {
 
 pub fn daemon_state_database_path(config_path: impl AsRef<Path>) -> PathBuf {
     config_path.as_ref().with_file_name("daemon-state.sqlite3")
+}
+
+pub fn profile_id_for_config_path(config_path: impl AsRef<Path>) -> String {
+    let path = stable_config_path(config_path.as_ref());
+    let mut hasher = Sha256::new();
+    hasher.update(path.to_string_lossy().as_bytes());
+    let digest = hasher.finalize();
+    let mut id = String::with_capacity(24);
+    for byte in &digest[..12] {
+        id.push_str(&format!("{byte:02x}"));
+    }
+    id
+}
+
+fn stable_config_path(path: &Path) -> PathBuf {
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .map(|cwd| cwd.join(path))
+            .unwrap_or_else(|_| path.to_path_buf())
+    };
+    absolute.canonicalize().unwrap_or(absolute)
 }
 
 pub fn load_client_credentials_or_default(
@@ -355,6 +379,16 @@ mod tests {
                 .join("Rieul")
                 .join("daemon-state.sqlite3")
         );
+    }
+
+    #[test]
+    fn profile_id_for_config_path_is_stable_and_endpoint_safe() {
+        let first = profile_id_for_config_path(PathBuf::from("config-root").join("rieul.yaml"));
+        let second = profile_id_for_config_path(PathBuf::from("config-root").join("rieul.yaml"));
+
+        assert_eq!(first, second);
+        assert_eq!(first.len(), 24);
+        assert!(first.chars().all(|ch| ch.is_ascii_hexdigit()));
     }
 
     #[test]

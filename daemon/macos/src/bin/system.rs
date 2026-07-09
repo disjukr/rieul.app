@@ -75,15 +75,17 @@ async fn main() -> Result<()> {
 
     match Args::parse().command {
         Command::Run { listen, config } => {
+            let config_path = config.unwrap_or_else(macos_system_config_path);
+            let pairing_notifier = MacUserPairingNotifier::from_config_path(&config_path);
             run_system_server(
                 listen,
-                config.unwrap_or_else(macos_system_config_path),
+                config_path,
                 Arc::new(MacFileService::default()),
                 None,
                 Some(Arc::new(MacProcessResourcesInUseService)),
                 Some(Arc::new(MacProcessSocketsInUseService)),
                 Some(Arc::new(MacProcessModulesService)),
-                Some(Arc::new(MacUserPairingNotifier)),
+                Some(Arc::new(pairing_notifier)),
                 "macOS system daemon",
             )
             .await

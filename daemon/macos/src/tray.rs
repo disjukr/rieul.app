@@ -2,7 +2,9 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::Sender;
 
 use anyhow::{anyhow, Context, Result};
-use rieul_daemon_core::config::{generated_default_system_config, load_or_default, save};
+use rieul_daemon_core::config::{
+    generated_default_system_config, load_or_default, profile_id_for_config_path, save,
+};
 use tao::event::{Event, StartCause};
 use tao::event_loop::{ControlFlow, EventLoopBuilder, EventLoopProxy};
 use tao::platform::macos::{ActivationPolicy, EventLoopExtMacOS};
@@ -46,7 +48,7 @@ pub fn run_pairing_tray(config_path: PathBuf) -> Result<()> {
             let _ = proxy.send_event(UserEvent::Menu(event));
         }
     }));
-    spawn_pairing_server(proxy);
+    spawn_pairing_server(profile_id_for_config_path(&config_path), proxy);
 
     let menu = create_menu()?;
     let _tray_icon = TrayIconBuilder::new()
@@ -95,8 +97,8 @@ pub fn run_pairing_tray(config_path: PathBuf) -> Result<()> {
     });
 }
 
-fn spawn_pairing_server(proxy: EventLoopProxy<UserEvent>) {
-    spawn_pairing_notification_server(move |request| match request {
+fn spawn_pairing_server(profile_id: String, proxy: EventLoopProxy<UserEvent>) {
+    spawn_pairing_notification_server(profile_id, move |request| match request {
         PairingIpcRequest::ShowCode(notification) => proxy
             .send_event(UserEvent::ShowCode(notification))
             .map_err(|_| anyhow!("macOS tray event loop is closed")),

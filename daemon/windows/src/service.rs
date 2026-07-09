@@ -249,16 +249,18 @@ fn run_server_until_shutdown(
         .build()?;
     runtime.block_on(async move {
         let shutdown = tokio::task::spawn_blocking(move || shutdown_rx.recv());
+        let window_service = UserSessionWindowService::from_config_path(&options.config_path);
+        let pairing_notifier = UserTrayPairingNotifier::from_config_path(&options.config_path);
         tokio::select! {
             result = run_system_server(
                 options.listen,
                 options.config_path,
                 Arc::new(WindowsFileService),
-                Some(Arc::new(UserSessionWindowService)),
+                Some(Arc::new(window_service)),
                 Some(Arc::new(WindowsProcessResourcesInUseService)),
                 Some(Arc::new(WindowsProcessSocketsInUseService)),
                 Some(Arc::new(WindowsProcessModulesService)),
-                Some(Arc::new(UserTrayPairingNotifier)),
+                Some(Arc::new(pairing_notifier)),
                 "Windows system service",
             ) => result,
             _ = shutdown => Ok(()),

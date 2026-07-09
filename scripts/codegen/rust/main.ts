@@ -1093,6 +1093,7 @@ function emitRpcHandlerHelpers(out: Writer, procs: ProcDeclaration[]) {
     for (const proc of procs) {
       out.line(`${fieldName(proc.name)}: Option<${rpcHandlerFnType(proc)}>,`);
     }
+    out.line("_marker: std::marker::PhantomData<(H, UO, SO, CO)>,");
   });
   out.line("}");
 
@@ -1114,6 +1115,7 @@ function emitRpcHandlerHelpers(out: Writer, procs: ProcDeclaration[]) {
       out.indent(() => {
         out.line("supported_procs: Vec::new(),");
         for (const proc of procs) out.line(`${fieldName(proc.name)}: None,`);
+        out.line("_marker: std::marker::PhantomData,");
       });
       out.line("}");
     });

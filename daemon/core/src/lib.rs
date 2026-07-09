@@ -1,8 +1,10 @@
 pub mod cbor;
 pub mod config;
 pub mod generated;
+pub mod ipc;
 pub mod pairing;
 pub mod rpc;
+pub mod socket_wire;
 pub mod traits;
 pub mod wire;
 
