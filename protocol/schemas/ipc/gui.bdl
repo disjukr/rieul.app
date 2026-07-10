@@ -31,6 +31,12 @@ proc ShowDaemonInfo = ShowDaemonInfoReq -> void throws IpcProcError
 @ client - launcher,system
 proc ActivateGui = ActivateGuiReq -> void throws IpcProcError
 
+@ id - 6
+@ stream - unary
+@ server - gui
+@ client - system
+proc PairingCompleted = void -> void throws IpcProcError
+
 struct ShowPairingCodeReq {
   @ id - 1
   daemonUrl: string,

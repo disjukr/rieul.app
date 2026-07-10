@@ -3,6 +3,7 @@ import { useAtomValue, useSetAtom } from "jotai";
 import { useBunja } from "bunja/react";
 import { machineModalBunja } from "../../state/machine-modal.ts";
 import { machineStoreBunja } from "../../state/machine-store.ts";
+import { normalizeMachineUrl } from "../../state/machines.ts";
 import { AddMachineForm } from "./add-machine-form.tsx";
 import { MachineModal } from "./machine-modal.tsx";
 import { MachinePanel } from "./machine-panel.tsx";
@@ -79,6 +80,9 @@ export function MachineModalHost() {
   const machineStore = useBunja(machineStoreBunja);
   const machineModal = useBunja(machineModalBunja);
   const machines = useAtomValue(machineStore.machinesAtom);
+  const pendingPairMachineId = useAtomValue(
+    machineStore.pendingPairMachineIdAtom,
+  );
   const selected = useAtomValue(machineStore.selectedAtom);
   const machineName = useAtomValue(machineModal.machineNameAtom);
   const baseUrl = useAtomValue(machineModal.baseUrlAtom);
@@ -104,7 +108,47 @@ export function MachineModalHost() {
   const machineNameInputRef = useRef<HTMLInputElement>(null);
   const configNameInputRef = useRef<HTMLInputElement>(null);
   const pairingCodeInputRef = useRef<HTMLInputElement>(null);
+  const daemonUrlQueryHandledRef = useRef(false);
   const [nowMs, setNowMs] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (daemonUrlQueryHandledRef.current) return;
+    daemonUrlQueryHandledRef.current = true;
+
+    const currentUrl = new URL(globalThis.location.href);
+    const daemonUrl = currentUrl.searchParams.get("daemonUrl")?.trim();
+    if (!daemonUrl) return;
+
+    currentUrl.searchParams.delete("daemonUrl");
+    globalThis.history.replaceState(
+      globalThis.history.state,
+      "",
+      currentUrl,
+    );
+
+    let normalizedDaemonUrl: string;
+    try {
+      normalizedDaemonUrl = normalizeMachineUrl(daemonUrl);
+    } catch {
+      machineModal.openAddMachineModalFromUrl(daemonUrl);
+      return;
+    }
+
+    const existingMachine = machines.find((machine) =>
+      machine.baseUrl === normalizedDaemonUrl
+    );
+    if (existingMachine) {
+      machineStore.selectMachine(existingMachine.id);
+      return;
+    }
+    machineModal.openAddMachineModalFromUrl(normalizedDaemonUrl);
+  }, [machineModal, machineStore, machines]);
+
+  useEffect(() => {
+    if (!pendingPairMachineId) return;
+    machineStore.clearPendingPairMachine(pendingPairMachineId);
+    machineModal.openPairMachineModal(pendingPairMachineId);
+  }, [machineModal, machineStore, pendingPairMachineId]);
 
   useEffect(() => {
     if (machineModalMode === "add") {

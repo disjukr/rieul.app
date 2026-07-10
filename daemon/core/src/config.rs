@@ -161,13 +161,28 @@ pub fn daemon_state_database_path(config_path: impl AsRef<Path>) -> PathBuf {
 pub fn profile_id_for_config_path(config_path: impl AsRef<Path>) -> String {
     let path = stable_config_path(config_path.as_ref());
     let mut hasher = Sha256::new();
-    hasher.update(path.to_string_lossy().as_bytes());
+    let path = profile_path_text(&path);
+    hasher.update(path.as_bytes());
     let digest = hasher.finalize();
     let mut id = String::with_capacity(24);
     for byte in &digest[..12] {
         id.push_str(&format!("{byte:02x}"));
     }
     id
+}
+
+fn profile_path_text(path: &Path) -> std::borrow::Cow<'_, str> {
+    let path = path.to_string_lossy();
+    #[cfg(windows)]
+    {
+        if let Some(path) = path.strip_prefix(r"\\?\UNC\") {
+            return format!(r"\\{path}").into();
+        }
+        if let Some(path) = path.strip_prefix(r"\\?\") {
+            return path.to_owned().into();
+        }
+    }
+    path
 }
 
 fn stable_config_path(path: &Path) -> PathBuf {
@@ -389,6 +404,19 @@ mod tests {
         assert_eq!(first, second);
         assert_eq!(first.len(), 24);
         assert!(first.chars().all(|ch| ch.is_ascii_hexdigit()));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn profile_id_ignores_windows_verbatim_path_prefix() {
+        assert_eq!(
+            profile_path_text(Path::new(r"\\?\C:\Rieul\rieul.yaml")),
+            r"C:\Rieul\rieul.yaml"
+        );
+        assert_eq!(
+            profile_path_text(Path::new(r"\\?\UNC\server\Rieul\rieul.yaml")),
+            r"\\server\Rieul\rieul.yaml"
+        );
     }
 
     #[test]

@@ -160,7 +160,7 @@ export function MachineModal(
   return (
     <ModalDialog
       eyebrow="Machine"
-      showClose={machineCount > 0}
+      showClose={machineCount > 0 || mode === "add"}
       title={modalTitle}
       titleId="machine-modal-title"
       onClose={onClose}

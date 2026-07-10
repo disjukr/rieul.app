@@ -163,6 +163,10 @@ pub trait PairingNotifier: Send + Sync {
         &self,
         notification: PairingCodeNotification,
     ) -> Pin<Box<dyn Future<Output = Result<()>> + Send + '_>>;
+
+    fn notify_pairing_completed(&self) -> Pin<Box<dyn Future<Output = Result<()>> + Send + '_>> {
+        Box::pin(async { Ok(()) })
+    }
 }
 
 #[derive(Default)]
@@ -3876,6 +3880,15 @@ impl HostRpcHandler {
         )
         .await?;
 
+        if let Some(notifier) = self.pairing_notifier.as_ref() {
+            if let Err(err) = notifier.notify_pairing_completed().await {
+                warn!(
+                    ?err,
+                    "failed to notify local pairing UI that pairing completed"
+                );
+            }
+        }
+
         Ok(RpcResponse::CompletePairing(CompletePairingResponse {
             client_id,
             client_secret: issued.client_secret,
@@ -4900,6 +4913,7 @@ mod tests {
         let client_credentials = Arc::new(Mutex::new(ClientCredentials::default()));
         let pairing_challenge =
             test_pairing_challenge_with_label(pairing.record.clone(), "test-browser", None);
+        let notifier = RecordingPairingNotifier::default();
         let request = request_message(
             ProcId::CompletePairing,
             Some(CompletePairingRequest { code: pairing.code }.encode()),
@@ -4915,7 +4929,7 @@ mod tests {
             session_state.clone(),
             test_files(),
             test_terminals(),
-            None,
+            Some(Arc::new(notifier.clone())),
         )
         .await
         .unwrap();
@@ -4937,6 +4951,7 @@ mod tests {
         ));
         assert_eq!(client_credentials.lock().await.clients.len(), 1);
         assert_eq!(session_state.lock().await.authenticated_client_id, None);
+        assert_eq!(*notifier.completed.lock().unwrap(), 1);
     }
 
     #[tokio::test]
@@ -5161,7 +5176,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn start_pairing_notifies_local_pairing_ui() {
+    async fn start_pairing_notifies_local_gui() {
         let dir = tempfile::tempdir().unwrap();
         let config_path = dir.path().join("rieul.yaml");
         let credentials_path = client_credentials_path(&config_path);
@@ -5696,6 +5711,7 @@ mod tests {
     struct RecordingPairingNotifier {
         confirmations: Arc<std::sync::Mutex<Vec<PairingConfirmationRequest>>>,
         notifications: Arc<std::sync::Mutex<Vec<PairingCodeNotification>>>,
+        completed: Arc<std::sync::Mutex<usize>>,
     }
 
     impl PairingNotifier for RecordingPairingNotifier {
@@ -5717,6 +5733,16 @@ mod tests {
             let notifications = self.notifications.clone();
             Box::pin(async move {
                 notifications.lock().unwrap().push(notification);
+                Ok(())
+            })
+        }
+
+        fn notify_pairing_completed(
+            &self,
+        ) -> Pin<Box<dyn Future<Output = Result<()>> + Send + '_>> {
+            let completed = self.completed.clone();
+            Box::pin(async move {
+                *completed.lock().unwrap() += 1;
                 Ok(())
             })
         }

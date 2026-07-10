@@ -50,14 +50,13 @@ Preferred Windows names:
 ```text
 \\.\pipe\rieul-gui-profile-<profileId>
 \\.\pipe\rieul-agent-profile-<profileId>
-Local\RieulTrayProfile-<profileId>
 ```
 
 Preferred macOS names:
 
 ```text
-/tmp/rieul-gui-<uid>-profile-<profileId>.sock
-/tmp/rieul-agent-<uid>-profile-<profileId>.sock
+/tmp/rieul-gui-profile-<profileId>-<uid>.sock
+/tmp/rieul-agent-profile-<profileId>-<uid>.sock
 ```
 
 ## Socket Wire Binding
@@ -99,6 +98,7 @@ Example IPC procs:
 - `ConfirmPairing`
 - `ShowDaemonInfo`
 - `ActivateGui`
+- `PairingCompleted`
 - `SnapshotWindows`
 
 These procs are implementation plumbing. They are not public client RPC methods

@@ -51,12 +51,17 @@ export const machineModalBunja = bunja(() => {
     store.set(machineNameEditedAtom, false);
     store.set(baseUrlAtom, "");
     resetPairingCode();
-    store.set(machineModalModeAtom, "pair");
-    requestPairingCode(machine);
+    machines.requestPairingForMachine(machine.id);
   }
 
   function closeMachineModal() {
-    if (store.get(machines.machinesAtom).length === 0) return;
+    if (
+      store.get(machines.machinesAtom).length === 0 &&
+      store.get(machineModalModeAtom) !== "add"
+    ) return;
+    store.set(machineNameAtom, "");
+    store.set(machineNameEditedAtom, false);
+    store.set(baseUrlAtom, "");
     store.set(machineModalModeAtom, undefined);
     store.set(machineFormErrorAtom, "");
     cancelPairingRequest();
@@ -75,6 +80,17 @@ export const machineModalBunja = bunja(() => {
       store.set(machineModalModeAtom, undefined);
       return;
     }
+    store.set(machineModalModeAtom, "add");
+  }
+
+  function openAddMachineModalFromUrl(daemonUrl: string) {
+    menu.closeMachineMenu();
+    store.set(machineNameAtom, inferMachineNameFromUrl(daemonUrl));
+    store.set(machineNameEditedAtom, false);
+    store.set(baseUrlAtom, daemonUrl);
+    store.set(machineFormErrorAtom, "");
+    cancelPairingRequest();
+    resetPairingCode();
     store.set(machineModalModeAtom, "add");
   }
 
@@ -246,6 +262,7 @@ export const machineModalBunja = bunja(() => {
     addMachine,
     closeMachineModal,
     openAddMachineModal,
+    openAddMachineModalFromUrl,
     openConfigMachineModal,
     openPairMachineModal,
     openDeleteMachineModal,

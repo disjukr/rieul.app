@@ -13,6 +13,7 @@ export const machineStoreBunja = bunja(() => {
 
   const machinesAtom = atom<Machine[]>(initialMachines);
   const selectedIdAtom = atom<string | undefined>(initialSelectedId);
+  const pendingPairMachineIdAtom = atom<string | undefined>(undefined);
   const selectedAtom = atom((get) =>
     getMachine(get(machinesAtom), get(selectedIdAtom))
   );
@@ -72,6 +73,16 @@ export const machineStoreBunja = bunja(() => {
     }));
   }
 
+  function requestPairingForMachine(machineId: string) {
+    store.set(pendingPairMachineIdAtom, machineId);
+  }
+
+  function clearPendingPairMachine(machineId: string) {
+    if (store.get(pendingPairMachineIdAtom) === machineId) {
+      store.set(pendingPairMachineIdAtom, undefined);
+    }
+  }
+
   function deleteSelectedMachine(): Machine | undefined {
     const selected = store.get(selectedAtom);
     if (!selected) return undefined;
@@ -102,6 +113,7 @@ export const machineStoreBunja = bunja(() => {
     selectedIdAtom,
     selectedAtom,
     selectedIsPairedAtom,
+    pendingPairMachineIdAtom,
     selectMachine,
     findMachine,
     addMachine,
@@ -109,6 +121,8 @@ export const machineStoreBunja = bunja(() => {
     setMachineCredentials,
     clearMachineCredentials,
     setMachineCredentialExpiry,
+    requestPairingForMachine,
+    clearPendingPairMachine,
     deleteSelectedMachine,
   };
 });

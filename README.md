@@ -5,8 +5,8 @@ An AI-era remote shell/explorer prototype.
 The project repository and public web domain are both `rieul.app`.
 
 The product-level model is one daemon per machine. Internally each OS backend
-can choose the process topology that fits that OS. The first backend is Windows
-and uses a system service plus a per-user tray daemon.
+can choose the process topology that fits that OS. Windows and macOS use a
+system daemon plus a per-user Deno Desktop GUI process.
 
 ## Layout
 
@@ -14,7 +14,7 @@ and uses a system service plus a per-user tray daemon.
 - `daemon/host`: shared daemon runtime for WebTransport, RPC, auth, filesystem
   subscriptions, and TLS.
 - `daemon/windows`: Windows-specific system/user daemon binaries.
-- `daemon/macos`: macOS-specific system/user daemon binaries.
+- `daemon/macos`: macOS-specific system daemon and app installer bootstrap.
 - `protocol`: BDL schemas, RPC/wire standards, and protocol docs.
 - `web`: Vite + React + TypeScript browser client, managed with Deno.
 
@@ -41,8 +41,8 @@ and set `domain` to the Windows machine's Tailscale hostname, or add explicit
 `tls` certificate paths. The daemon keeps running and enables transport once the
 config is valid.
 
-Run the macOS daemon pair in dev mode. The system daemon is launched with
-`sudo`; the user daemon runs as the current user.
+Run the macOS daemon and GUI in dev mode. The system daemon is launched with
+`sudo`; the Deno Desktop GUI runs as the current user.
 
 ```sh
 deno task macos:dev:daemons
@@ -147,11 +147,12 @@ prompt:
 msiexec /i .\dist\windows\rieul-windows-daemon-0.1.0.msi
 ```
 
-The MSI installs `rieul-windows-system.exe` and `rieul-windows-user.exe` under
-`%ProgramFiles%\Rieul`, registers `rieul-windows-system` as an automatic
-LocalSystem service, starts the service during install, launches the tray app
-once when install finishes, creates a Start Menu shortcut for the tray app, and
-adds an HKLM Run entry so the tray app starts on user logon. The installer uses
+The MSI installs `rieul-windows-system.exe`, `rieul-windows-user.exe`, and
+`rieul-windows-gui.exe` under `%ProgramFiles%\Rieul`, registers
+`rieul-windows-system` as an automatic
+LocalSystem service, starts the service during install, launches the GUI app
+once when install finishes, creates a Start Menu shortcut for the GUI, and
+adds an HKLM Run entry so the GUI starts on user logon. The installer uses
 the standard WiX wizard UI, including a completion dialog. Daemon data under
 `%ProgramData%\Rieul` is intentionally outside the install directory and is not
 removed by uninstall.
@@ -170,7 +171,7 @@ deno task windows:package:daemon:msix
 ```
 
 The MSIX script stages `rieul-windows-system.exe`, `rieul-windows-user.exe`,
-generated app icons, and an `AppxManifest.xml`, then invokes the Windows SDK
+`rieul-windows-gui.exe`, generated app icons, and an `AppxManifest.xml`, then invokes the Windows SDK
 `MakeAppx.exe` tool. By default it also creates a development code-signing
 certificate and signs the package. The generated `.cer` must be trusted on the
 test machine before the MSIX can be installed. The trust task requests elevation
@@ -184,16 +185,17 @@ deno task windows:trust:daemon:dev-cert
 Add-AppxPackage .\dist\windows\rieul-windows-daemon-0.1.0.msix
 ```
 
-After installing, launch Rieul from the Start menu once if you want the tray
-icon immediately.
+After installing, launch Rieul from the Start menu once if you want the GUI
+immediately.
 
 Passing `-SkipSign` writes `rieul-windows-daemon-0.1.0.unsigned.msix` so it
 cannot accidentally replace the signed installable package.
 
 The MSIX manifest declares `rieul-windows-system.exe` as a delayed-start
-LocalSystem packaged service and `rieul-windows-user.exe` as the interactive
-tray app. Uninstalling the package removes the packaged service and app
-binaries. Daemon data under `%ProgramData%\Rieul` is intentionally outside the
+LocalSystem packaged service, `rieul-windows-user.exe` as the user-session data
+agent, and `rieul-windows-gui.exe` as the interactive GUI. Uninstalling the
+package removes the packaged service and app binaries.
+Daemon data under `%ProgramData%\Rieul` is intentionally outside the
 package and is not removed by MSIX uninstall.
 
 For production signing, pass `-CertificatePath` and `-CertificatePassword` to
@@ -208,14 +210,15 @@ deno task macos:package:daemon
 ```
 
 The DMG contains `Rieul.app` and an `/Applications` shortcut, laid out for the
-usual drag-to-install flow. The app bundle is the per-user tray app and
-installer controller.
+usual drag-to-install flow. The app bundle contains the per-user Deno Desktop
+GUI and installer controller.
 
 On first launch from the DMG, the app prompts to install itself. Accepting the
 prompt copies the app to `/Applications`, installs the privileged system daemon
 under `/Library/Application Support/rieul/bin`, installs the LaunchDaemon and
-LaunchAgent plists, and starts the daemon pair. macOS asks for an administrator
-password because the system daemon runs through `/Library/LaunchDaemons`.
+LaunchAgent plists, and starts both jobs. macOS asks for an administrator
+password because the system daemon runs through `/Library/LaunchDaemons`. The
+GUI runs through a per-user LaunchAgent.
 
 The app bundle also exposes Docker Desktop-style CLI entry points:
 
