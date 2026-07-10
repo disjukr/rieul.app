@@ -2,6 +2,7 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { visualizer } from "rollup-plugin-visualizer";
 import UnoCSS from "unocss/vite";
+import { resolve } from "node:path";
 
 const devAllowedHosts = readDevAllowedHosts();
 
@@ -19,6 +20,14 @@ export default defineConfig({
   server: {
     allowedHosts: devAllowedHosts,
     port: 5173,
+  },
+  build: {
+    rollupOptions: {
+      input: {
+        app: resolve(import.meta.dirname, "index.html"),
+        "daemon-main": resolve(import.meta.dirname, "daemon-main.html"),
+      },
+    },
   },
 });
 

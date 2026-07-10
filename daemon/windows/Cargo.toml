@@ -18,10 +18,6 @@ path = "src/bin/system.rs"
 name = "rieul-windows-user"
 path = "src/bin/user.rs"
 
-[[bin]]
-name = "rieul-windows-gui"
-path = "src/bin/gui.rs"
-
 [dependencies]
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }

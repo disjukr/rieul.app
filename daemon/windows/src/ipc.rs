@@ -1,7 +1,6 @@
 use std::future::Future;
 use std::path::Path;
 use std::pin::Pin;
-use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{anyhow, bail, Context, Result};
@@ -67,20 +66,21 @@ pub type PairingNotification = PairingCodeNotification;
 pub enum PairingIpcRequest {
     Confirm(PairingConfirmationRequest),
     ShowCode(PairingNotification),
+    Completed,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct UserTrayPairingNotifier {
+pub struct UserGuiPairingNotifier {
     profile_id: String,
 }
 
-impl Default for UserTrayPairingNotifier {
+impl Default for UserGuiPairingNotifier {
     fn default() -> Self {
         Self::from_config_path(windows_program_data_config_path())
     }
 }
 
-impl UserTrayPairingNotifier {
+impl UserGuiPairingNotifier {
     pub fn from_config_path(config_path: impl AsRef<Path>) -> Self {
         Self {
             profile_id: profile_id_for_config_path(config_path),
@@ -88,7 +88,7 @@ impl UserTrayPairingNotifier {
     }
 }
 
-impl PairingNotifier for UserTrayPairingNotifier {
+impl PairingNotifier for UserGuiPairingNotifier {
     fn confirm_pairing_request(
         &self,
         request: PairingConfirmationRequest,
@@ -108,15 +108,19 @@ impl PairingNotifier for UserTrayPairingNotifier {
             send_pairing_ipc_request(&profile_id, PairingIpcRequest::ShowCode(notification)).await
         })
     }
+
+    fn notify_pairing_completed(&self) -> Pin<Box<dyn Future<Output = Result<()>> + Send + '_>> {
+        let profile_id = self.profile_id.clone();
+        Box::pin(async move {
+            send_pairing_ipc_request(&profile_id, PairingIpcRequest::Completed).await
+        })
+    }
 }
 
 #[cfg(windows)]
 async fn send_pairing_ipc_request(profile_id: &str, request: PairingIpcRequest) -> Result<()> {
-    let pipe_name = gui_pipe_name(profile_id);
     let (proc_id, payload) = encode_pairing_ipc_request(&request);
-    let mut client = ClientOptions::new()
-        .open(&pipe_name)
-        .with_context(|| format!("open gui daemon pipe {pipe_name}"))?;
+    let mut client = open_gui_pipe(profile_id).await?;
     let response = call_ipc_unary(&mut client, proc_id.as_u64(), payload).await?;
 
     match request {
@@ -131,7 +135,7 @@ async fn send_pairing_ipc_request(profile_id: &str, request: PairingIpcRequest) 
                 Err(anyhow!("pairing confirmation was rejected"))
             }
         }
-        PairingIpcRequest::ShowCode(_) => Ok(()),
+        PairingIpcRequest::ShowCode(_) | PairingIpcRequest::Completed => Ok(()),
     }
 }
 
@@ -141,80 +145,31 @@ async fn send_pairing_ipc_request(_profile_id: &str, _request: PairingIpcRequest
 }
 
 #[cfg(windows)]
-pub fn spawn_pairing_notification_server(
-    profile_id: impl Into<String>,
-    handler: impl Fn(PairingIpcRequest) -> Result<()> + Send + Sync + 'static,
-) {
-    let profile_id = profile_id.into();
-    let handler = Arc::new(handler);
-    std::thread::spawn(move || {
-        let runtime = match tokio::runtime::Builder::new_current_thread()
-            .enable_io()
-            .build()
-        {
-            Ok(runtime) => runtime,
-            Err(err) => {
-                tracing::warn!(?err, "failed to create pairing notification runtime");
-                return;
-            }
-        };
-        if let Err(err) = runtime.block_on(run_pairing_notification_server(profile_id, handler)) {
-            tracing::warn!(?err, "pairing notification pipe server stopped");
-        }
-    });
-}
-
-#[cfg(not(windows))]
-pub fn spawn_pairing_notification_server(
-    _profile_id: impl Into<String>,
-    _handler: impl Fn(PairingIpcRequest) -> Result<()> + Send + Sync + 'static,
-) {
-}
-
-#[cfg(windows)]
-async fn run_pairing_notification_server(
-    profile_id: String,
-    handler: Arc<dyn Fn(PairingIpcRequest) -> Result<()> + Send + Sync>,
-) -> std::io::Result<()> {
-    let pipe_name = gui_pipe_name(&profile_id);
-    let mut server = ServerOptions::new()
-        .first_pipe_instance(true)
-        .create(&pipe_name)?;
-    loop {
-        server.connect().await?;
-        let connected = server;
-        server = ServerOptions::new().create(&pipe_name)?;
-        let handler = handler.clone();
-        tokio::spawn(async move {
-            let mut pipe = connected;
-            let (stream_id, request) = match read_pairing_ipc_request(&mut pipe).await {
-                Ok(request) => request,
-                Err(err) => {
-                    tracing::warn!(?err, "failed to read pairing notification pipe request");
-                    return;
+fn encode_pairing_ipc_request(request: &PairingIpcRequest) -> (ProcId, Option<Vec<u8>>) {
+    match request {
+        PairingIpcRequest::Confirm(request) => (
+            ProcId::ConfirmPairing,
+            Some(
+                ConfirmPairingReq {
+                    daemon_url: request.daemon_url.clone(),
+                    confirmation_code: request.confirmation_code.clone(),
+                    client_label: request.client_label.clone(),
                 }
-            };
-            let has_response_payload = matches!(request, PairingIpcRequest::Confirm(_));
-            let response = match tokio::task::spawn_blocking(move || handler(request)).await {
-                Ok(Ok(())) if has_response_payload => {
-                    Ok(Some(ConfirmPairingRes { accepted: true }.encode()))
+                .encode(),
+            ),
+        ),
+        PairingIpcRequest::ShowCode(notification) => (
+            ProcId::ShowPairingCode,
+            Some(
+                ShowPairingCodeReq {
+                    daemon_url: notification.daemon_url.clone(),
+                    pairing_code: notification.pairing_code.clone(),
+                    expires_in_seconds: u64::try_from(notification.expires_in_seconds).unwrap_or(0),
                 }
-                Ok(Ok(())) => Ok(None),
-                Ok(Err(err)) => Err(IpcProcError::Failed {
-                    message: err.to_string(),
-                }),
-                Err(err) => Err(IpcProcError::Failed {
-                    message: err.to_string(),
-                }),
-            };
-            if let Err(err) = write_ipc_unary_response(&mut pipe, stream_id, response).await {
-                tracing::warn!(?err, "failed to write pairing notification pipe response");
-                return;
-            }
-            if let Err(err) = pipe.shutdown().await {
-                tracing::warn!(?err, "failed to finish pairing notification pipe response");
-            }
-        });
+                .encode(),
+            ),
+        ),
+        PairingIpcRequest::Completed => (ProcId::PairingCompleted, None),
     }
 }
 
@@ -361,63 +316,26 @@ pub fn agent_pipe_name(profile_id: &str) -> String {
     format!(r"\\.\pipe\rieul-agent-profile-{profile_id}")
 }
 
-fn encode_pairing_ipc_request(request: &PairingIpcRequest) -> (ProcId, Option<Vec<u8>>) {
-    match request {
-        PairingIpcRequest::Confirm(request) => (
-            ProcId::ConfirmPairing,
-            Some(
-                ConfirmPairingReq {
-                    daemon_url: request.daemon_url.clone(),
-                    confirmation_code: request.confirmation_code.clone(),
-                    client_label: request.client_label.clone(),
-                }
-                .encode(),
-            ),
-        ),
-        PairingIpcRequest::ShowCode(notification) => (
-            ProcId::ShowPairingCode,
-            Some(
-                ShowPairingCodeReq {
-                    daemon_url: notification.daemon_url.clone(),
-                    pairing_code: notification.pairing_code.clone(),
-                    expires_in_seconds: u64::try_from(notification.expires_in_seconds).unwrap_or(0),
-                }
-                .encode(),
-            ),
-        ),
-    }
-}
-
 #[cfg(windows)]
-async fn read_pairing_ipc_request(pipe: &mut NamedPipeServer) -> Result<(u64, PairingIpcRequest)> {
-    let request = read_ipc_unary_request(pipe).await?;
-    let payload = request
-        .payload
-        .as_deref()
-        .ok_or_else(|| anyhow!("pairing IPC request is missing payload"))?;
-    let stream_id = request.stream_id;
-    let request = match ProcId::from_u64(request.proc_id) {
-        Some(ProcId::ConfirmPairing) => {
-            let payload = ConfirmPairingReq::decode(payload)
-                .map_err(|err| anyhow!("ConfirmPairing request is malformed: {err}"))?;
-            PairingIpcRequest::Confirm(PairingConfirmationRequest {
-                daemon_url: payload.daemon_url,
-                confirmation_code: payload.confirmation_code,
-                client_label: payload.client_label,
-            })
+async fn open_gui_pipe(profile_id: &str) -> Result<NamedPipeClient> {
+    let pipe_name = gui_pipe_name(profile_id);
+    for attempt in 0..=WINDOW_IPC_BUSY_RETRY_COUNT {
+        match ClientOptions::new().open(&pipe_name) {
+            Ok(client) => return Ok(client),
+            Err(err)
+                if err.raw_os_error() == Some(ERROR_PIPE_BUSY)
+                    && attempt < WINDOW_IPC_BUSY_RETRY_COUNT =>
+            {
+                tokio::time::sleep(WINDOW_IPC_BUSY_RETRY_DELAY).await;
+            }
+            Err(err) => {
+                return Err(err).with_context(|| {
+                    format!("connect GUI daemon pipe {pipe_name}; start the GUI process first")
+                });
+            }
         }
-        Some(ProcId::ShowPairingCode) => {
-            let payload = ShowPairingCodeReq::decode(payload)
-                .map_err(|err| anyhow!("ShowPairingCode request is malformed: {err}"))?;
-            PairingIpcRequest::ShowCode(PairingNotification {
-                daemon_url: payload.daemon_url,
-                pairing_code: payload.pairing_code,
-                expires_in_seconds: i64::try_from(payload.expires_in_seconds).unwrap_or(i64::MAX),
-            })
-        }
-        _ => bail!("unsupported pairing IPC proc id {}", request.proc_id),
-    };
-    Ok((stream_id, request))
+    }
+    bail!("GUI daemon pipe stayed busy: {pipe_name}")
 }
 
 #[cfg(windows)]
@@ -635,5 +553,13 @@ mod tests {
         assert_eq!(proc_id, ProcId::ShowPairingCode);
         let payload = ShowPairingCodeReq::decode(&payload.unwrap()).unwrap();
         assert_eq!(payload.pairing_code, "123456");
+    }
+
+    #[test]
+    fn pairing_completed_request_has_no_payload() {
+        let (proc_id, payload) = encode_pairing_ipc_request(&PairingIpcRequest::Completed);
+
+        assert_eq!(proc_id, ProcId::PairingCompleted);
+        assert_eq!(payload, None);
     }
 }

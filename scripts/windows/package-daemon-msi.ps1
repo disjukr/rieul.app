@@ -285,12 +285,18 @@ $ReleaseDir = Join-Path $RepoRoot "target\release"
 $SystemExe = Join-Path $ReleaseDir "rieul-windows-system.exe"
 $UserExe = Join-Path $ReleaseDir "rieul-windows-user.exe"
 $GuiExe = Join-Path $ReleaseDir "rieul-windows-gui.exe"
-$Icon = Join-Path $RepoRoot "daemon\windows\assets\tray.ico"
+$Icon = Join-Path $RepoRoot "web\desktop\icon.ico"
 
 if (-not $SkipBuild) {
   Push-Location $RepoRoot
   try {
-    cargo build -p rieul-windows-daemon --release --bins
+    cargo build -p rieul-windows-daemon --release --bin rieul-windows-system --bin rieul-windows-user
+    Push-Location (Join-Path $RepoRoot "web")
+    try {
+      deno task desktop:build:windows
+    } finally {
+      Pop-Location
+    }
   } finally {
     Pop-Location
   }
@@ -306,7 +312,7 @@ if (-not (Test-Path -LiteralPath $GuiExe)) {
   throw "Missing release binary: $GuiExe"
 }
 if (-not (Test-Path -LiteralPath $Icon)) {
-  throw "Missing tray icon: $Icon"
+  throw "Missing app icon: $Icon"
 }
 
 if (Test-Path -LiteralPath $StagingDir) {

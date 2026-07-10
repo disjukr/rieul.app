@@ -99,6 +99,7 @@ Example IPC procs:
 - `ConfirmPairing`
 - `ShowDaemonInfo`
 - `ActivateGui`
+- `PairingCompleted`
 - `SnapshotWindows`
 
 These procs are implementation plumbing. They are not public client RPC methods

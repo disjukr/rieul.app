@@ -18,7 +18,7 @@ use windows_service::service_dispatcher;
 use windows_service::service_manager::{ServiceManager, ServiceManagerAccess};
 
 use crate::fs::WindowsFileService;
-use crate::ipc::{UserSessionWindowService, UserTrayPairingNotifier};
+use crate::ipc::{UserGuiPairingNotifier, UserSessionWindowService};
 use crate::process_modules::WindowsProcessModulesService;
 use crate::process_resources::WindowsProcessResourcesInUseService;
 use crate::process_sockets::WindowsProcessSocketsInUseService;
@@ -250,7 +250,7 @@ fn run_server_until_shutdown(
     runtime.block_on(async move {
         let shutdown = tokio::task::spawn_blocking(move || shutdown_rx.recv());
         let window_service = UserSessionWindowService::from_config_path(&options.config_path);
-        let pairing_notifier = UserTrayPairingNotifier::from_config_path(&options.config_path);
+        let pairing_notifier = UserGuiPairingNotifier::from_config_path(&options.config_path);
         tokio::select! {
             result = run_system_server(
                 options.listen,

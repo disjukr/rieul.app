@@ -10,7 +10,7 @@ use rieul_daemon_core::config::{
 };
 use rieul_daemon_host::server::run_system_server;
 use rieul_windows_daemon::fs::WindowsFileService;
-use rieul_windows_daemon::ipc::{UserSessionWindowService, UserTrayPairingNotifier};
+use rieul_windows_daemon::ipc::{UserGuiPairingNotifier, UserSessionWindowService};
 use rieul_windows_daemon::process_modules::WindowsProcessModulesService;
 use rieul_windows_daemon::process_resources::WindowsProcessResourcesInUseService;
 use rieul_windows_daemon::process_sockets::WindowsProcessSocketsInUseService;
@@ -116,7 +116,7 @@ fn run_system_server_blocking(listen: Option<SocketAddr>, config_path: PathBuf) 
         .enable_all()
         .build()?;
     let window_service = UserSessionWindowService::from_config_path(&config_path);
-    let pairing_notifier = UserTrayPairingNotifier::from_config_path(&config_path);
+    let pairing_notifier = UserGuiPairingNotifier::from_config_path(&config_path);
     runtime.block_on(run_system_server(
         listen,
         config_path,

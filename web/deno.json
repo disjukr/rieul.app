@@ -1,11 +1,28 @@
 {
   "nodeModulesDir": "auto",
+  "desktop": {
+    "app": {
+      "name": "Rieul",
+      "identifier": "app.rieul",
+      "icons": {
+        "windows": "./desktop/icon.ico"
+      }
+    },
+    "backend": "cef",
+    "output": {
+      "windows": "../target/release/rieul-windows-gui.exe"
+    }
+  },
   "tasks": {
     "dev": "deno run -A npm:vite@^6.0.0 --host 0.0.0.0",
+    "dev:daemon-main": "deno run -A npm:vite@^6.0.0 --host 127.0.0.1 --port 5179 --strictPort",
+    "desktop:icons": "deno run -A ./desktop/generate-tray-icon.ts",
     "build": "deno run -A npm:vite@^6.0.0 build",
     "check": "deno task check:tools && deno run -A npm:typescript@^5.9.0/tsc -b",
     "check:daemon": "deno run --unstable-net --allow-net --allow-read=.. src/tools/check-daemon.ts",
     "check:tools": "deno check --unstable-net src/tools/check-daemon.ts",
+    "desktop:build:windows": "deno task desktop:icons && deno task build && deno desktop -A --include ./dist --include ./desktop/icon.ico ./desktop/main.ts",
+    "desktop:dev:windows": "deno task desktop:icons && deno desktop --hmr -A --include ./desktop/icon.ico ./desktop/main.ts -- --config ../tmp/dev/rieul.yaml --dev-url http://127.0.0.1:5179/daemon-main.html",
     "preview": "deno run -A npm:vite@^6.0.0 preview --host 0.0.0.0"
   },
   "imports": {
@@ -40,6 +57,7 @@
     "react/jsx-runtime": "npm:react@^19.0.0/jsx-runtime",
     "react-dom": "npm:react-dom@^19.0.0",
     "react-dom/client": "npm:react-dom@^19.0.0/client",
+    "qrcode.react": "npm:qrcode.react@^4.2.0",
     "rollup-plugin-visualizer": "npm:rollup-plugin-visualizer@^6.0.5",
     "unsaturated/now": "npm:unsaturated@^0.0.0/now",
     "unsaturated/store": "npm:unsaturated@^0.0.0/store",

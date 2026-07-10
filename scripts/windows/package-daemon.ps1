@@ -289,7 +289,13 @@ $GuiExe = Join-Path $ReleaseDir "rieul-windows-gui.exe"
 if (-not $SkipBuild) {
   Push-Location $RepoRoot
   try {
-    cargo build -p rieul-windows-daemon --release --bins
+    cargo build -p rieul-windows-daemon --release --bin rieul-windows-system --bin rieul-windows-user
+    Push-Location (Join-Path $RepoRoot "web")
+    try {
+      deno task desktop:build:windows
+    } finally {
+      Pop-Location
+    }
   } finally {
     Pop-Location
   }
@@ -316,7 +322,7 @@ Copy-Item -LiteralPath $SystemExe -Destination (Join-Path $StagingDir "rieul-win
 Copy-Item -LiteralPath $UserExe -Destination (Join-Path $StagingDir "rieul-windows-user.exe")
 Copy-Item -LiteralPath $GuiExe -Destination (Join-Path $StagingDir "rieul-windows-gui.exe")
 
-$LogoSvgPath = Join-Path $RepoRoot "rieul.svg"
+$LogoSvgPath = Join-Path $RepoRoot "web\public\favicon.svg"
 if (-not (Test-Path -LiteralPath $LogoSvgPath)) {
   throw "Missing project logo: $LogoSvgPath"
 }
