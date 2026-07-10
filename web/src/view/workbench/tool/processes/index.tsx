@@ -4,6 +4,7 @@ import { useBunja } from "bunja/react";
 import { nowBunja } from "unsaturated/now";
 import {
   Activity,
+  CircleStop,
   ExternalLink,
   HardDrive,
   KeyRound,
@@ -11,6 +12,7 @@ import {
   X,
 } from "lucide-react";
 import {
+  killProcess,
   subscribeProcessDetail,
   subscribeProcesses,
   subscribeProcessModules,
@@ -176,7 +178,15 @@ const processDetailFooterClassName = [
   "bg-[#fbfcfe] px-[8px] leading-[1.6] text-[#667085]",
 ].join(" ");
 const processDetailActionsClassName =
-  "flex min-w-0 items-center justify-start gap-[0.5rem]";
+  "flex min-w-0 flex-wrap items-center justify-start gap-[0.5rem]";
+const processKillConfirmClassName = [
+  "flex min-w-0 flex-wrap items-center gap-[0.5rem] rounded-[6px]",
+  "border border-[var(--rieul-danger-border)] bg-[var(--rieul-danger-soft)]",
+  "px-[0.75rem] py-[0.5rem]",
+].join(" ");
+const processKillMessageClassName =
+  "mr-auto text-[1rem] text-[var(--rieul-danger)]";
+const processKillErrorClassName = "text-[1rem] text-[var(--rieul-danger)]";
 const processResourceDetailPanelClassName = [
   "relative max-h-[40%] min-h-[9rem] overflow-auto border-t border-t-[#d8dde7]",
   "bg-[#fbfcfe] px-[18px] py-[16px] pr-[3rem]",
@@ -210,6 +220,8 @@ export function ProcessesTool() {
     daemonInfo.daemonInfo.supportedProcIds.includes(
       ProcId.SubscribeProcessDetail,
     );
+  const killProcessSupported = daemonInfo.phase === "ready" &&
+    daemonInfo.daemonInfo.supportedProcIds.includes(ProcId.KillProcess);
   const processResourcesInUseSupported = daemonInfo.phase === "ready" &&
     daemonInfo.daemonInfo.supportedProcIds.includes(
       ProcId.SubscribeProcessResourcesInUse,
@@ -359,6 +371,7 @@ export function ProcessesTool() {
             pid={selectedPid}
             rpcSession={rpcSession}
             modulesSupported={processModulesSupported}
+            killSupported={killProcessSupported}
             resourcesSupported={processResourcesInUseSupported}
             socketsSupported={processSocketsInUseSupported}
             supported={processDetailSupported}
@@ -757,6 +770,7 @@ function ProcessChildrenView(
 
 interface ProcessDetailViewProps {
   daemonInfoPhase: string;
+  killSupported: boolean;
   machineId: string;
   onShowChildren: () => void;
   onShowModules: () => void;
@@ -773,6 +787,7 @@ interface ProcessDetailViewProps {
 function ProcessDetailView(
   {
     daemonInfoPhase,
+    killSupported,
     machineId,
     onShowChildren,
     onShowModules,
@@ -789,6 +804,21 @@ function ProcessDetailView(
   const [state, setState] = useState<ProcessDetailState>({
     phase: "idle",
   });
+  const [killPhase, setKillPhase] = useState<
+    "idle" | "confirming" | "killing" | "error"
+  >("idle");
+  const [killError, setKillError] = useState<string>();
+
+  async function killSelectedProcess() {
+    setKillPhase("killing");
+    setKillError(undefined);
+    try {
+      await killProcess(await rpcSession.webTransport(), { pid });
+    } catch (err) {
+      setKillError(err instanceof Error ? err.message : String(err));
+      setKillPhase("error");
+    }
+  }
 
   useEffect(() => {
     if (daemonInfoPhase === "error") {
@@ -823,6 +853,7 @@ function ProcessDetailView(
           if (cancelled) return;
           if (event.type === "exited") {
             setState((current) => ({ ...current, phase: "exited" }));
+            setKillPhase("idle");
             return;
           }
           setState((current) => applyProcessDetailEvent(current, event));
@@ -841,6 +872,11 @@ function ProcessDetailView(
       void iterator?.return(undefined);
     };
   }, [daemonInfoPhase, machineId, pid, rpcSession, supported]);
+
+  useEffect(() => {
+    setKillPhase("idle");
+    setKillError(undefined);
+  }, [machineId, pid]);
 
   if (state.phase === "loading" || daemonInfoPhase !== "ready") {
     return (
@@ -878,6 +914,13 @@ function ProcessDetailView(
     <div className={processesContentClassName}>
       <ProcessDetailSummary
         detail={state.detail}
+        exited={state.phase === "exited"}
+        killError={killError}
+        killPhase={killPhase}
+        killSupported={killSupported}
+        onCancelKill={() => setKillPhase("idle")}
+        onConfirmKill={killSelectedProcess}
+        onRequestKill={() => setKillPhase("confirming")}
         onShowChildren={onShowChildren}
         onShowModules={onShowModules}
         onShowResourcesInUse={onShowResourcesInUse}
@@ -897,6 +940,13 @@ function ProcessDetailView(
 
 interface ProcessDetailSummaryProps {
   detail: ProcessDetail;
+  exited: boolean;
+  killError?: string;
+  killPhase: "idle" | "confirming" | "killing" | "error";
+  killSupported: boolean;
+  onCancelKill: () => void;
+  onConfirmKill: () => void;
+  onRequestKill: () => void;
   onShowChildren: () => void;
   onShowModules: () => void;
   onShowResourcesInUse: () => void;
@@ -909,6 +959,13 @@ interface ProcessDetailSummaryProps {
 function ProcessDetailSummary(
   {
     detail,
+    exited,
+    killError,
+    killPhase,
+    killSupported,
+    onCancelKill,
+    onConfirmKill,
+    onRequestKill,
     onShowChildren,
     onShowModules,
     onShowResourcesInUse,
@@ -992,7 +1049,48 @@ function ProcessDetailSummary(
             <ExternalLink size={14} />
             Modules
           </Button>
+          <Button
+            disabled={!killSupported || exited || killPhase === "killing"}
+            onClick={onRequestKill}
+            title={killSupported
+              ? "Forcefully terminate this process"
+              : "This daemon does not support process termination"}
+            tone="danger"
+            variant="outline"
+          >
+            <CircleStop size={14} />
+            Kill process
+          </Button>
         </div>
+        {killPhase === "confirming" || killPhase === "killing"
+          ? (
+            <div className={processKillConfirmClassName}>
+              <span className={processKillMessageClassName}>
+                Forcefully terminate PID {info.pid}?
+              </span>
+              <Button
+                disabled={killPhase === "killing"}
+                onClick={onCancelKill}
+                size="sm"
+                variant="ghost"
+              >
+                Cancel
+              </Button>
+              <Button
+                disabled={killPhase === "killing"}
+                onClick={onConfirmKill}
+                size="sm"
+                tone="danger"
+                variant="solid"
+              >
+                <CircleStop size={14} />
+                {killPhase === "killing" ? "Killing" : "Kill process"}
+              </Button>
+            </div>
+          )
+          : killPhase === "error"
+          ? <span className={processKillErrorClassName}>{killError}</span>
+          : null}
         <ProcessResourceUsageTable usage={usage} />
       </div>
     </div>

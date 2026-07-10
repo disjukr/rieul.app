@@ -49,6 +49,8 @@ import {
   subscribeSchedulesProc,
   deleteSchedulesProc,
   getScheduleNextRunsProc,
+  removeClientProc,
+  killProcessProc,
 } from "./rpc.ts";
 import type {
   AttachTerminalSessionReq,
@@ -77,6 +79,7 @@ import type {
   JobOutputEvent,
   JobsTableEvent,
   KillJobReq,
+  KillProcessReq,
   ProcessDetailEvent,
   ProcessesTableEvent,
   ProcessModulesTableEvent,
@@ -85,6 +88,7 @@ import type {
   PurgeTrashItemsReq,
   ReadFileChunk,
   ReadFileReq,
+  RemoveClientReq,
   RenamePathsReq,
   RenewClientCredentialRes,
   RestoreTrashItemsReq,
@@ -284,4 +288,12 @@ export function deleteSchedules(transport: WebTransport, request: DeleteSchedule
 
 export function getScheduleNextRuns(transport: WebTransport, request: GetScheduleNextRunsReq): Promise<GetScheduleNextRunsRes> {
   return callUnary(transport, getScheduleNextRunsProc, request);
+}
+
+export function removeClient(transport: WebTransport, request: RemoveClientReq): Promise<undefined> {
+  return callUnary(transport, removeClientProc, request);
+}
+
+export function killProcess(transport: WebTransport, request: KillProcessReq): Promise<undefined> {
+  return callUnary(transport, killProcessProc, request);
 }
