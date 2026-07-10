@@ -1,11 +1,11 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use rieul_daemon_core::config::{load_or_default, macos_system_config_path, SystemConfig};
+use rieul_daemon_core::config::macos_system_config_path;
 use rieul_macos_daemon::installer::{ensure_installed_or_prompt, StartupAction};
-use rieul_macos_daemon::pairing_ui::{show_pairing_window, PairingWindowModel};
-use rieul_macos_daemon::tray::run_pairing_tray;
-use std::net::SocketAddr;
+#[cfg(unix)]
+use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
+use std::process::Command as ProcessCommand;
 
 #[derive(Debug, Parser)]
 #[command(name = "rieul-macos-user")]
@@ -21,13 +21,6 @@ enum Command {
         #[arg(long)]
         config: Option<PathBuf>,
     },
-    PairingWindow {
-        #[arg(long)]
-        daemon_url: Option<String>,
-
-        #[arg(long)]
-        config: Option<PathBuf>,
-    },
 }
 
 fn main() -> Result<()> {
@@ -40,36 +33,25 @@ fn main() -> Result<()> {
             if ensure_installed_or_prompt()? == StartupAction::Exit {
                 return Ok(());
             }
-            run_pairing_tray(config.unwrap_or_else(macos_system_config_path))
-        }
-        Command::PairingWindow { daemon_url, config } => {
             let config_path = config.unwrap_or_else(macos_system_config_path);
-            let config = load_or_default(&config_path)?;
-            show_pairing_window(&PairingWindowModel {
-                daemon_url: daemon_url.unwrap_or_else(|| default_daemon_url(&config)),
-                pairing_code: "Start pairing from a client".to_string(),
-                expires_in_seconds: 0,
-            })
+            let gui_executable = std::env::var_os("RIEUL_GUI_EXECUTABLE")
+                .map(PathBuf::from)
+                .ok_or_else(|| anyhow::anyhow!("RIEUL_GUI_EXECUTABLE is not set"))?;
+            exec_gui(gui_executable, config_path)
         }
     }
 }
 
-fn default_daemon_url(config: &SystemConfig) -> String {
-    let port = config
-        .listen_addr
-        .parse::<SocketAddr>()
-        .map(|addr| addr.port())
-        .unwrap_or(9012);
-    if let Some(domain) = config
-        .domain
-        .as_deref()
-        .map(str::trim)
-        .filter(|domain| !domain.is_empty())
-    {
-        if port == 443 {
-            return format!("https://{domain}");
-        }
-        return format!("https://{domain}:{port}");
-    }
-    format!("https://localhost:{port}")
+#[cfg(unix)]
+fn exec_gui(gui_executable: PathBuf, config_path: PathBuf) -> Result<()> {
+    let error = ProcessCommand::new(&gui_executable)
+        .arg("--config")
+        .arg(config_path)
+        .exec();
+    Err(error.into())
+}
+
+#[cfg(not(unix))]
+fn exec_gui(_gui_executable: PathBuf, _config_path: PathBuf) -> Result<()> {
+    anyhow::bail!("the macOS GUI bootstrap is only available on Unix")
 }

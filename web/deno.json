@@ -21,8 +21,10 @@
     "check": "deno task check:tools && deno run -A npm:typescript@^5.9.0/tsc -b",
     "check:daemon": "deno run --unstable-net --allow-net --allow-read=.. src/tools/check-daemon.ts",
     "check:tools": "deno check --unstable-net src/tools/check-daemon.ts",
-    "desktop:build:windows": "deno task desktop:icons && deno task build && deno desktop -A --include ./dist --include ./desktop/icon.ico ./desktop/main.ts",
-    "desktop:dev:windows": "deno task desktop:icons && deno desktop --hmr -A --include ./desktop/icon.ico ./desktop/main.ts -- --config ../tmp/dev/rieul.yaml --dev-url http://127.0.0.1:5179/daemon-main.html",
+    "desktop:build:windows": "deno task desktop:icons && deno task build && deno desktop --backend cef -A --include ./dist --include ./desktop/icon.ico ./desktop/main.ts",
+    "desktop:dev:windows": "deno task desktop:icons && deno desktop --backend cef --hmr -A --include ./desktop/icon.ico ./desktop/main.ts -- --config ../tmp/dev/rieul.yaml --dev-url http://127.0.0.1:5179/daemon-main.html",
+    "desktop:build:macos": "deno task desktop:icons && deno task build && deno desktop --backend cef -A --include ./dist --include ./desktop/tray.png --output ../target/release/Rieul-desktop.app ./desktop/main.ts",
+    "desktop:dev:macos": "deno task desktop:icons && deno desktop --backend cef --hmr -A --include ./desktop/tray.png ./desktop/main.ts -- --config ../tmp/dev/rieul.yaml --dev-url http://127.0.0.1:5179/daemon-main.html",
     "preview": "deno run -A npm:vite@^6.0.0 preview --host 0.0.0.0"
   },
   "imports": {

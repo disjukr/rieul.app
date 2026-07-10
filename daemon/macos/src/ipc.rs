@@ -24,6 +24,7 @@ pub type PairingNotification = PairingCodeNotification;
 pub enum PairingIpcRequest {
     Confirm(PairingConfirmationRequest),
     ShowCode(PairingNotification),
+    Completed,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -63,6 +64,13 @@ impl PairingNotifier for MacUserPairingNotifier {
         let profile_id = self.profile_id.clone();
         Box::pin(async move {
             send_pairing_ipc_request(&profile_id, PairingIpcRequest::ShowCode(notification)).await
+        })
+    }
+
+    fn notify_pairing_completed(&self) -> Pin<Box<dyn Future<Output = Result<()>> + Send + '_>> {
+        let profile_id = self.profile_id.clone();
+        Box::pin(async move {
+            send_pairing_ipc_request(&profile_id, PairingIpcRequest::Completed).await
         })
     }
 }
@@ -110,7 +118,7 @@ async fn send_pairing_ipc_request(profile_id: &str, request: PairingIpcRequest) 
                 Err(anyhow!("pairing confirmation was rejected"))
             }
         }
-        PairingIpcRequest::ShowCode(_) => Ok(()),
+        PairingIpcRequest::ShowCode(_) | PairingIpcRequest::Completed => Ok(()),
     }
 }
 
@@ -180,6 +188,7 @@ fn encode_pairing_ipc_request(request: &PairingIpcRequest) -> (ProcId, Option<Ve
                 .encode(),
             ),
         ),
+        PairingIpcRequest::Completed => (ProcId::PairingCompleted, None),
     }
 }
 
@@ -451,5 +460,13 @@ mod tests {
         assert_eq!(proc_id, ProcId::ShowPairingCode);
         let payload = ShowPairingCodeReq::decode(&payload.unwrap()).unwrap();
         assert_eq!(payload.pairing_code, "123456");
+    }
+
+    #[test]
+    fn pairing_completed_uses_shared_gui_proc() {
+        let (proc_id, payload) = encode_pairing_ipc_request(&PairingIpcRequest::Completed);
+
+        assert_eq!(proc_id, ProcId::PairingCompleted);
+        assert!(payload.is_none());
     }
 }

@@ -5,8 +5,8 @@ An AI-era remote shell/explorer prototype.
 The project repository and public web domain are both `rieul.app`.
 
 The product-level model is one daemon per machine. Internally each OS backend
-can choose the process topology that fits that OS. The first backend is Windows
-and uses a system service plus a per-user tray daemon.
+can choose the process topology that fits that OS. Windows and macOS use a
+system daemon plus a per-user Deno Desktop GUI process.
 
 ## Layout
 
@@ -14,7 +14,7 @@ and uses a system service plus a per-user tray daemon.
 - `daemon/host`: shared daemon runtime for WebTransport, RPC, auth, filesystem
   subscriptions, and TLS.
 - `daemon/windows`: Windows-specific system/user daemon binaries.
-- `daemon/macos`: macOS-specific system/user daemon binaries.
+- `daemon/macos`: macOS-specific system daemon and app installer bootstrap.
 - `protocol`: BDL schemas, RPC/wire standards, and protocol docs.
 - `web`: Vite + React + TypeScript browser client, managed with Deno.
 
@@ -41,8 +41,8 @@ and set `domain` to the Windows machine's Tailscale hostname, or add explicit
 `tls` certificate paths. The daemon keeps running and enables transport once the
 config is valid.
 
-Run the macOS daemon pair in dev mode. The system daemon is launched with
-`sudo`; the user daemon runs as the current user.
+Run the macOS daemon and GUI in dev mode. The system daemon is launched with
+`sudo`; the Deno Desktop GUI runs as the current user.
 
 ```sh
 deno task macos:dev:daemons

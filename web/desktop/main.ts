@@ -88,13 +88,20 @@ const backgroundWin = new Deno.BrowserWindow({
   frameless: true,
   height: 1,
   noActivate: true,
-  opacity: 0,
   width: 1,
 });
 backgroundWin.hide();
 setTimeout(() => backgroundWin.hide(), 0);
 const ipcServer = await startGuiIpcServer(profileId);
 const tray = await createTray();
+if (Deno.build.os === "darwin") {
+  for (const signal of ["SIGINT", "SIGTERM"] as const) {
+    Deno.addSignalListener(signal, () => {
+      removeGuiSocket();
+      Deno.exit(0);
+    });
+  }
+}
 const visibilityGuard = setInterval(() => {
   if (!uiShouldBeVisible && !uiWin.isClosed() && uiWin.isVisible()) {
     uiWin.hide();
@@ -104,8 +111,18 @@ const visibilityGuard = setInterval(() => {
 globalThis.addEventListener("unload", () => {
   clearInterval(visibilityGuard);
   ipcServer?.close();
+  removeGuiSocket();
   tray?.destroy();
 });
+
+function removeGuiSocket() {
+  if (Deno.build.os !== "darwin") return;
+  try {
+    Deno.removeSync(guiEndpoint(profileId));
+  } catch {
+    // The socket may already have been removed during shutdown.
+  }
+}
 
 async function createTray(): Promise<TrayController | undefined> {
   try {
@@ -150,12 +167,11 @@ async function createTray(): Promise<TrayController | undefined> {
 function createUiWindow(): Deno.BrowserWindow {
   const window = new Deno.BrowserWindow({
     height: 360,
-    opacity: 0,
     resizable: false,
     title: routeTitle(route),
     width: 640,
   });
-  window.hide();
+  if (!uiShouldBeVisible) window.hide();
   bindWindow(window);
   window.navigate(appUrl);
   setTimeout(() => {
@@ -266,32 +282,48 @@ async function handleRequest(request: Request): Promise<Response> {
 async function startGuiIpcServer(
   profileId: string,
 ): Promise<net.Server | undefined> {
-  if (Deno.build.os !== "windows") return undefined;
-  const pipeName = guiPipeName(profileId);
-  await desktopLog(`starting GUI IPC server: ${pipeName}`);
+  if (Deno.build.os !== "windows" && Deno.build.os !== "darwin") {
+    return undefined;
+  }
+  const endpoint = guiEndpoint(profileId);
+  await desktopLog(`starting GUI IPC server: ${endpoint}`);
   const server = net.createServer((socket) => handleIpcSocket(socket));
   try {
-    await new Promise<void>((resolve, reject) => {
-      server.once("error", reject);
-      server.listen(pipeName, () => {
-        server.off("error", reject);
-        resolve();
-      });
-    });
+    await listenGuiIpc(server, endpoint);
   } catch (error) {
     if (nodeErrorCode(error) === "EADDRINUSE") {
-      await desktopLog(`GUI IPC already listening; activating: ${pipeName}`);
-      await activateExistingGui(pipeName);
-      Deno.exit(0);
+      try {
+        await desktopLog(`GUI IPC already listening; activating: ${endpoint}`);
+        await activateExistingGui(endpoint);
+        Deno.exit(0);
+      } catch (activateError) {
+        if (Deno.build.os !== "darwin") throw activateError;
+        await desktopLog(`removing stale GUI IPC socket: ${endpoint}`);
+        await Deno.remove(endpoint).catch((removeError) => {
+          if (!(removeError instanceof Deno.errors.NotFound)) throw removeError;
+        });
+        await listenGuiIpc(server, endpoint);
+      }
+    } else {
+      await desktopLog(`failed to start GUI IPC server: ${errorMessage(error)}`);
+      throw error;
     }
-    await desktopLog(`failed to start GUI IPC server: ${errorMessage(error)}`);
-    throw error;
   }
-  await desktopLog(`GUI IPC server listening: ${pipeName}`);
+  await desktopLog(`GUI IPC server listening: ${endpoint}`);
   return server;
 }
 
-async function activateExistingGui(pipeName: string) {
+async function listenGuiIpc(server: net.Server, endpoint: string) {
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(endpoint, () => {
+      server.off("error", reject);
+      resolve();
+    });
+  });
+}
+
+async function activateExistingGui(endpoint: string) {
   const payload = encodeActivateGuiReq("already-running");
   const request = encodeSocketUnaryRequest(
     1,
@@ -299,7 +331,7 @@ async function activateExistingGui(pipeName: string) {
     payload,
   );
   await new Promise<void>((resolve, reject) => {
-    const socket = net.createConnection(pipeName);
+    const socket = net.createConnection(endpoint);
     socket.once("error", reject);
     socket.once("connect", () => {
       socket.end(request);
@@ -524,7 +556,6 @@ function showWindow() {
     uiWin = createUiWindow();
   }
   void desktopLog(`showing UI BrowserWindow: windowId=${uiWin.windowId}`);
-  uiWin.setOpacity(1);
   uiWin.show();
   uiWin.focus();
   publishSnapshot();
@@ -762,8 +793,14 @@ function desktopLogPath(configPath: string): string {
   return path.join(path.dirname(configPath), "gui-desktop.log");
 }
 
-function guiPipeName(profileId: string): string {
-  return `\\\\.\\pipe\\rieul-gui-profile-${profileId}`;
+function guiEndpoint(profileId: string): string {
+  if (Deno.build.os === "windows") {
+    return `\\\\.\\pipe\\rieul-gui-profile-${profileId}`;
+  }
+  if (Deno.build.os === "darwin") {
+    return `/tmp/rieul-gui-profile-${profileId}-${Deno.uid()}.sock`;
+  }
+  throw new Error(`GUI IPC is unsupported on ${Deno.build.os}`);
 }
 
 function assetPath(relativePath: string): string {

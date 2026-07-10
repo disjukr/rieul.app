@@ -17,7 +17,7 @@ Options:
   --out-dir DIR         Output directory. Defaults to dist/macos.
   --app-name NAME       App bundle display name. Defaults to "Rieul".
   --sign IDENTITY       Code signing identity for codesign.
-  --skip-build          Reuse target/release daemon binaries.
+  --skip-build          Reuse target/release daemon binaries and Deno Desktop app.
   --skip-dmg            Build only the .app bundle.
   -h, --help            Show this help.
 EOF
@@ -178,18 +178,24 @@ if [[ -z "$OUT_DIR" ]]; then
 fi
 
 if [[ "$SKIP_BUILD" != "1" ]]; then
-  (cd "$REPO_ROOT" && cargo build -p rieul-macos-daemon --release --bins)
+  (cd "$REPO_ROOT" && cargo build -p rieul-macos-daemon --release --bin rieul-macos-system --bin rieul-macos-user)
+  (cd "$REPO_ROOT/web" && deno task desktop:build:macos)
 fi
 
 RELEASE_DIR="$REPO_ROOT/target/release"
 SYSTEM_EXE="$RELEASE_DIR/rieul-macos-system"
 USER_EXE="$RELEASE_DIR/rieul-macos-user"
+GUI_APP="$RELEASE_DIR/Rieul-desktop.app"
 if [[ ! -x "$SYSTEM_EXE" ]]; then
   echo "Missing release binary: $SYSTEM_EXE" >&2
   exit 1
 fi
 if [[ ! -x "$USER_EXE" ]]; then
   echo "Missing release binary: $USER_EXE" >&2
+  exit 1
+fi
+if [[ ! -d "$GUI_APP" ]]; then
+  echo "Missing Deno Desktop app: $GUI_APP" >&2
   exit 1
 fi
 
@@ -215,10 +221,14 @@ MOUNT_DIR="$STAGING_DIR/mount"
 VOLUME_NAME="$APP_NAME $VERSION"
 
 rm -rf "$STAGING_DIR"
-mkdir -p \
-  "$APP_PATH/Contents/MacOS" \
-  "$APP_PATH/Contents/Resources" \
-  "$DMG_ROOT"
+mkdir -p "$STAGING_DIR" "$DMG_ROOT"
+/usr/bin/ditto "$GUI_APP" "$APP_PATH"
+
+GUI_EXECUTABLE_NAME="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP_PATH/Contents/Info.plist")"
+if [[ -z "$GUI_EXECUTABLE_NAME" || ! -x "$APP_PATH/Contents/MacOS/$GUI_EXECUTABLE_NAME" ]]; then
+  echo "Deno Desktop app has no executable CFBundleExecutable." >&2
+  exit 1
+fi
 
 install -m 0755 "$USER_EXE" "$APP_PATH/Contents/Resources/rieul-macos-user"
 install -m 0755 "$SYSTEM_EXE" "$APP_PATH/Contents/Resources/rieul-macos-system"
@@ -241,6 +251,7 @@ export RIEUL_APP_BUNDLE_PATH="\$CONTENTS_DIR/.."
 export RIEUL_APP_INSTALL_PATH="$APP_DEST"
 export RIEUL_SYSTEM_LABEL="$SYSTEM_LABEL"
 export RIEUL_USER_LABEL="$USER_LABEL"
+export RIEUL_GUI_EXECUTABLE="\$CONTENTS_DIR/MacOS/$GUI_EXECUTABLE_NAME"
 exec "\$CONTENTS_DIR/Resources/rieul-macos-user" run
 EOF
 chmod 0755 "$APP_PATH/Contents/MacOS/rieul-macos-app"
@@ -355,39 +366,32 @@ chmod 0755 \
   "$APP_PATH/Contents/MacOS/install" \
   "$APP_PATH/Contents/MacOS/uninstall"
 
-cat >"$APP_PATH/Contents/Info.plist" <<EOF
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>CFBundleDevelopmentRegion</key>
-  <string>en</string>
-  <key>CFBundleDisplayName</key>
-  <string>$APP_NAME</string>
-  <key>CFBundleExecutable</key>
-  <string>rieul-macos-app</string>
-  <key>CFBundleIdentifier</key>
-  <string>app.rieul</string>
-$APP_ICON_PLIST
-  <key>CFBundleInfoDictionaryVersion</key>
-  <string>6.0</string>
-  <key>CFBundleName</key>
-  <string>$APP_NAME</string>
-  <key>CFBundlePackageType</key>
-  <string>APPL</string>
-  <key>CFBundleShortVersionString</key>
-  <string>$VERSION</string>
-  <key>CFBundleVersion</key>
-  <string>$VERSION</string>
-  <key>LSMinimumSystemVersion</key>
-  <string>13.0</string>
-  <key>LSUIElement</key>
-  <true/>
-  <key>NSHighResolutionCapable</key>
-  <true/>
-</dict>
-</plist>
-EOF
+set_plist_string() {
+  local key="$1"
+  local value="$2"
+  /usr/libexec/PlistBuddy -c "Set :$key $value" "$APP_PATH/Contents/Info.plist" 2>/dev/null || \
+    /usr/libexec/PlistBuddy -c "Add :$key string $value" "$APP_PATH/Contents/Info.plist"
+}
+
+set_plist_bool() {
+  local key="$1"
+  local value="$2"
+  /usr/libexec/PlistBuddy -c "Set :$key $value" "$APP_PATH/Contents/Info.plist" 2>/dev/null || \
+    /usr/libexec/PlistBuddy -c "Add :$key bool $value" "$APP_PATH/Contents/Info.plist"
+}
+
+set_plist_string CFBundleDisplayName "$APP_NAME"
+set_plist_string CFBundleExecutable rieul-macos-app
+set_plist_string CFBundleIdentifier app.rieul
+set_plist_string CFBundleName "$APP_NAME"
+set_plist_string CFBundleShortVersionString "$VERSION"
+set_plist_string CFBundleVersion "$VERSION"
+set_plist_string LSMinimumSystemVersion 13.0
+set_plist_bool LSUIElement true
+set_plist_bool NSHighResolutionCapable true
+if [[ -n "$APP_ICON_PLIST" ]]; then
+  set_plist_string CFBundleIconFile rieul
+fi
 plutil -lint "$APP_PATH/Contents/Info.plist" >/dev/null
 
 cat >"$APP_PATH/Contents/Resources/$SYSTEM_LABEL.plist" <<EOF
@@ -457,8 +461,10 @@ if [[ -n "$SIGN_IDENTITY" ]]; then
     "$APP_PATH/Contents/Resources/rieul-macos-system"
   codesign --force --options runtime --timestamp --sign "$SIGN_IDENTITY" \
     "$APP_PATH/Contents/Resources/rieul-macos-user"
-  codesign --force --options runtime --timestamp --sign "$SIGN_IDENTITY" \
+  codesign --force --deep --options runtime --timestamp --sign "$SIGN_IDENTITY" \
     "$APP_PATH"
+else
+  codesign --force --deep --sign - "$APP_PATH"
 fi
 
 if [[ "$SKIP_DMG" == "1" ]]; then

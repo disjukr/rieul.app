@@ -8,7 +8,6 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 TMP_DIR="$REPO_ROOT/tmp/dev"
 CONFIG_PATH="$TMP_DIR/rieul.yaml"
 SYSTEM_EXE="$REPO_ROOT/target/debug/rieul-macos-system"
-USER_EXE="$REPO_ROOT/target/debug/rieul-macos-user"
 PORT="${LISTEN##*:}"
 
 kill_pid() {
@@ -83,8 +82,10 @@ stop_system_port_matches() {
 }
 
 stop_pid_file "system daemon" "$TMP_DIR/macos-system.pid" 1
-stop_pid_file "user daemon" "$TMP_DIR/macos-user.pid" 0
+stop_pid_file "GUI daemon" "$TMP_DIR/macos-gui.pid" 0
+stop_pid_file "web dev server" "$TMP_DIR/macos-web.pid" 0
 
 stop_pgrep_matches "system daemon" "$SYSTEM_EXE.*run.*--config $CONFIG_PATH" 1
-stop_pgrep_matches "user daemon" "$USER_EXE.*run" 0
+stop_pgrep_matches "GUI daemon" "deno desktop.*desktop/main.ts.*--config $CONFIG_PATH" 0
+stop_pgrep_matches "web dev server" "deno run.*npm:vite.*--port 5179" 0
 stop_system_port_matches
