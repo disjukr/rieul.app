@@ -5176,7 +5176,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn start_pairing_notifies_local_pairing_ui() {
+    async fn start_pairing_notifies_local_gui() {
         let dir = tempfile::tempdir().unwrap();
         let config_path = dir.path().join("rieul.yaml");
         let credentials_path = client_credentials_path(&config_path);

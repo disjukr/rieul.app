@@ -15,7 +15,7 @@ use rieul_daemon_host::server::run_system_server;
 #[cfg(target_os = "macos")]
 use rieul_macos_daemon::fs::MacFileService;
 #[cfg(target_os = "macos")]
-use rieul_macos_daemon::ipc::MacUserPairingNotifier;
+use rieul_macos_daemon::ipc::MacGuiPairingNotifier;
 #[cfg(target_os = "macos")]
 use rieul_macos_daemon::process_modules::MacProcessModulesService;
 #[cfg(target_os = "macos")]
@@ -76,7 +76,7 @@ async fn main() -> Result<()> {
     match Args::parse().command {
         Command::Run { listen, config } => {
             let config_path = config.unwrap_or_else(macos_system_config_path);
-            let pairing_notifier = MacUserPairingNotifier::from_config_path(&config_path);
+            let pairing_notifier = MacGuiPairingNotifier::from_config_path(&config_path);
             run_system_server(
                 listen,
                 config_path,

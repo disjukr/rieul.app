@@ -1,6 +1,7 @@
 pub mod fs;
 #[cfg(target_os = "macos")]
 pub mod installer;
+mod installer_ui;
 #[cfg(not(target_os = "macos"))]
 pub mod installer {
     use anyhow::Result;
@@ -17,7 +18,6 @@ pub mod installer {
 }
 #[cfg(unix)]
 pub mod ipc;
-pub mod pairing_ui;
 #[cfg(target_os = "macos")]
 mod process_lsof;
 #[cfg(target_os = "macos")]

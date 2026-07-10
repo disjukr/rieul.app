@@ -1,44 +1,39 @@
 use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
-use std::sync::Arc;
 
 use anyhow::{anyhow, bail, Context, Result};
 use rieul_daemon_core::config::{macos_system_config_path, profile_id_for_config_path};
 use rieul_daemon_core::ipc::{
     ConfirmPairingReq, ConfirmPairingRes, IpcProcError, ProcId, ShowPairingCodeReq,
 };
-use rieul_daemon_core::socket_wire::{
-    SocketReqResMessage, SocketRpcErrorKind, MAX_SOCKET_WIRE_SEQUENCE_SIZE,
-};
+use rieul_daemon_core::socket_wire::{SocketReqResMessage, MAX_SOCKET_WIRE_SEQUENCE_SIZE};
 pub use rieul_daemon_host::server::PairingConfirmationRequest;
 use rieul_daemon_host::server::{PairingCodeNotification, PairingNotifier};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
-use tokio::net::{UnixListener, UnixStream};
+use tokio::net::UnixStream;
 
 const DEFAULT_STREAM_ID: u64 = 1;
 
-pub type PairingNotification = PairingCodeNotification;
-
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum PairingIpcRequest {
+enum GuiIpcRequest {
     Confirm(PairingConfirmationRequest),
-    ShowCode(PairingNotification),
+    ShowCode(PairingCodeNotification),
     Completed,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MacUserPairingNotifier {
+pub struct MacGuiPairingNotifier {
     profile_id: String,
 }
 
-impl Default for MacUserPairingNotifier {
+impl Default for MacGuiPairingNotifier {
     fn default() -> Self {
         Self::from_config_path(macos_system_config_path())
     }
 }
 
-impl MacUserPairingNotifier {
+impl MacGuiPairingNotifier {
     pub fn from_config_path(config_path: impl AsRef<Path>) -> Self {
         Self {
             profile_id: profile_id_for_config_path(config_path),
@@ -46,15 +41,15 @@ impl MacUserPairingNotifier {
     }
 }
 
-impl PairingNotifier for MacUserPairingNotifier {
+impl PairingNotifier for MacGuiPairingNotifier {
     fn confirm_pairing_request(
         &self,
         request: PairingConfirmationRequest,
     ) -> Pin<Box<dyn Future<Output = Result<()>> + Send + '_>> {
         let profile_id = self.profile_id.clone();
-        Box::pin(async move {
-            send_pairing_ipc_request(&profile_id, PairingIpcRequest::Confirm(request)).await
-        })
+        Box::pin(
+            async move { send_gui_ipc_request(&profile_id, GuiIpcRequest::Confirm(request)).await },
+        )
     }
 
     fn notify_pairing_code(
@@ -63,51 +58,26 @@ impl PairingNotifier for MacUserPairingNotifier {
     ) -> Pin<Box<dyn Future<Output = Result<()>> + Send + '_>> {
         let profile_id = self.profile_id.clone();
         Box::pin(async move {
-            send_pairing_ipc_request(&profile_id, PairingIpcRequest::ShowCode(notification)).await
+            send_gui_ipc_request(&profile_id, GuiIpcRequest::ShowCode(notification)).await
         })
     }
 
     fn notify_pairing_completed(&self) -> Pin<Box<dyn Future<Output = Result<()>> + Send + '_>> {
         let profile_id = self.profile_id.clone();
-        Box::pin(async move {
-            send_pairing_ipc_request(&profile_id, PairingIpcRequest::Completed).await
-        })
+        Box::pin(async move { send_gui_ipc_request(&profile_id, GuiIpcRequest::Completed).await })
     }
 }
 
-pub fn spawn_pairing_notification_server(
-    profile_id: impl Into<String>,
-    handler: impl Fn(PairingIpcRequest) -> Result<()> + Send + Sync + 'static,
-) {
-    let profile_id = profile_id.into();
-    let handler = Arc::new(handler);
-    std::thread::spawn(move || {
-        let runtime = match tokio::runtime::Builder::new_current_thread()
-            .enable_io()
-            .build()
-        {
-            Ok(runtime) => runtime,
-            Err(err) => {
-                tracing::warn!(?err, "failed to create pairing notification runtime");
-                return;
-            }
-        };
-        if let Err(err) = runtime.block_on(run_pairing_notification_server(profile_id, handler)) {
-            tracing::warn!(?err, "pairing notification socket server stopped");
-        }
-    });
-}
-
-async fn send_pairing_ipc_request(profile_id: &str, request: PairingIpcRequest) -> Result<()> {
-    let socket_path = active_user_socket_path(profile_id);
-    let (proc_id, payload) = encode_pairing_ipc_request(&request);
+async fn send_gui_ipc_request(profile_id: &str, request: GuiIpcRequest) -> Result<()> {
+    let socket_path = active_gui_socket_path(profile_id);
+    let (proc_id, payload) = encode_gui_ipc_request(&request);
     let mut stream = UnixStream::connect(&socket_path)
         .await
-        .with_context(|| format!("connect user daemon socket {}", socket_path.display()))?;
+        .with_context(|| format!("connect GUI socket {}", socket_path.display()))?;
     let response = call_ipc_unary(&mut stream, proc_id.as_u64(), payload).await?;
 
     match request {
-        PairingIpcRequest::Confirm(_) => {
+        GuiIpcRequest::Confirm(_) => {
             let payload =
                 response.ok_or_else(|| anyhow!("ConfirmPairing response is missing payload"))?;
             let response = ConfirmPairingRes::decode(&payload)
@@ -118,55 +88,13 @@ async fn send_pairing_ipc_request(profile_id: &str, request: PairingIpcRequest) 
                 Err(anyhow!("pairing confirmation was rejected"))
             }
         }
-        PairingIpcRequest::ShowCode(_) | PairingIpcRequest::Completed => Ok(()),
+        GuiIpcRequest::ShowCode(_) | GuiIpcRequest::Completed => Ok(()),
     }
 }
 
-async fn run_pairing_notification_server(
-    profile_id: String,
-    handler: Arc<dyn Fn(PairingIpcRequest) -> Result<()> + Send + Sync>,
-) -> Result<()> {
-    let socket_path = current_user_socket_path(&profile_id);
-    if socket_path.exists() {
-        let _ = std::fs::remove_file(&socket_path);
-    }
-    let listener = UnixListener::bind(&socket_path)
-        .with_context(|| format!("bind user daemon socket {}", socket_path.display()))?;
-
-    loop {
-        let (mut stream, _) = listener.accept().await?;
-        let handler = handler.clone();
-        tokio::spawn(async move {
-            let (stream_id, request) = match read_pairing_ipc_request(&mut stream).await {
-                Ok(request) => request,
-                Err(err) => {
-                    tracing::warn!(?err, "failed to read pairing notification socket request");
-                    return;
-                }
-            };
-            let has_response_payload = matches!(request, PairingIpcRequest::Confirm(_));
-            let response = match tokio::task::spawn_blocking(move || handler(request)).await {
-                Ok(Ok(())) if has_response_payload => {
-                    Ok(Some(ConfirmPairingRes { accepted: true }.encode()))
-                }
-                Ok(Ok(())) => Ok(None),
-                Ok(Err(err)) => Err(IpcProcError::Failed {
-                    message: err.to_string(),
-                }),
-                Err(err) => Err(IpcProcError::Failed {
-                    message: err.to_string(),
-                }),
-            };
-            if let Err(err) = write_ipc_unary_response(&mut stream, stream_id, response).await {
-                tracing::warn!(?err, "failed to write pairing notification socket response");
-            }
-        });
-    }
-}
-
-fn encode_pairing_ipc_request(request: &PairingIpcRequest) -> (ProcId, Option<Vec<u8>>) {
+fn encode_gui_ipc_request(request: &GuiIpcRequest) -> (ProcId, Option<Vec<u8>>) {
     match request {
-        PairingIpcRequest::Confirm(request) => (
+        GuiIpcRequest::Confirm(request) => (
             ProcId::ConfirmPairing,
             Some(
                 ConfirmPairingReq {
@@ -177,7 +105,7 @@ fn encode_pairing_ipc_request(request: &PairingIpcRequest) -> (ProcId, Option<Ve
                 .encode(),
             ),
         ),
-        PairingIpcRequest::ShowCode(notification) => (
+        GuiIpcRequest::ShowCode(notification) => (
             ProcId::ShowPairingCode,
             Some(
                 ShowPairingCodeReq {
@@ -188,46 +116,8 @@ fn encode_pairing_ipc_request(request: &PairingIpcRequest) -> (ProcId, Option<Ve
                 .encode(),
             ),
         ),
-        PairingIpcRequest::Completed => (ProcId::PairingCompleted, None),
+        GuiIpcRequest::Completed => (ProcId::PairingCompleted, None),
     }
-}
-
-async fn read_pairing_ipc_request(stream: &mut UnixStream) -> Result<(u64, PairingIpcRequest)> {
-    let request = read_ipc_unary_request(stream).await?;
-    let payload = request
-        .payload
-        .as_deref()
-        .ok_or_else(|| anyhow!("pairing IPC request is missing payload"))?;
-    let stream_id = request.stream_id;
-    let request = match ProcId::from_u64(request.proc_id) {
-        Some(ProcId::ConfirmPairing) => {
-            let payload = ConfirmPairingReq::decode(payload)
-                .map_err(|err| anyhow!("ConfirmPairing request is malformed: {err}"))?;
-            PairingIpcRequest::Confirm(PairingConfirmationRequest {
-                daemon_url: payload.daemon_url,
-                confirmation_code: payload.confirmation_code,
-                client_label: payload.client_label,
-            })
-        }
-        Some(ProcId::ShowPairingCode) => {
-            let payload = ShowPairingCodeReq::decode(payload)
-                .map_err(|err| anyhow!("ShowPairingCode request is malformed: {err}"))?;
-            PairingIpcRequest::ShowCode(PairingNotification {
-                daemon_url: payload.daemon_url,
-                pairing_code: payload.pairing_code,
-                expires_in_seconds: i64::try_from(payload.expires_in_seconds).unwrap_or(i64::MAX),
-            })
-        }
-        _ => bail!("unsupported pairing IPC proc id {}", request.proc_id),
-    };
-    Ok((stream_id, request))
-}
-
-#[derive(Debug)]
-struct IpcUnaryRequest {
-    stream_id: u64,
-    proc_id: u64,
-    payload: Option<Vec<u8>>,
 }
 
 async fn call_ipc_unary<T>(
@@ -254,42 +144,6 @@ where
     stream.flush().await.context("flush IPC request")?;
 
     read_ipc_unary_response(stream, stream_id).await
-}
-
-async fn read_ipc_unary_request<R>(reader: &mut R) -> Result<IpcUnaryRequest>
-where
-    R: AsyncRead + Unpin,
-{
-    let mut messages = SocketWireMessageReader::new(MAX_SOCKET_WIRE_SEQUENCE_SIZE);
-    let mut request: Option<IpcUnaryRequest> = None;
-    loop {
-        let message = messages.read_next(reader).await?;
-        match message {
-            SocketReqResMessage::RequestUnary {
-                stream_id,
-                proc_id,
-                payload,
-            } => {
-                if request.is_some() {
-                    bail!("IPC stream sent more than one unary request");
-                }
-                request = Some(IpcUnaryRequest {
-                    stream_id,
-                    proc_id,
-                    payload,
-                });
-            }
-            SocketReqResMessage::RequestStreamEnd { stream_id } => {
-                let request =
-                    request.ok_or_else(|| anyhow!("IPC stream ended before unary request"))?;
-                if request.stream_id != stream_id {
-                    bail!("IPC request stream id mismatch");
-                }
-                return Ok(request);
-            }
-            other => bail!("unexpected IPC request message {other:?}"),
-        }
-    }
 }
 
 async fn read_ipc_unary_response<R>(
@@ -324,33 +178,6 @@ where
             other => bail!("unexpected IPC response message {other:?}"),
         }
     }
-}
-
-async fn write_ipc_unary_response<W>(
-    writer: &mut W,
-    stream_id: u64,
-    response: Result<Option<Vec<u8>>, IpcProcError>,
-) -> Result<()>
-where
-    W: AsyncWrite + Unpin,
-{
-    let response = match response {
-        Ok(payload) => SocketReqResMessage::ResponseUnaryOk { payload, stream_id },
-        Err(error) => SocketReqResMessage::ResponseUnaryError {
-            error: error.encode(),
-            error_kind: SocketRpcErrorKind::Method,
-            stream_id,
-        },
-    };
-    let bytes = SocketReqResMessage::encode_sequence(&[
-        response,
-        SocketReqResMessage::ResponseStreamEnd { stream_id },
-    ]);
-    writer
-        .write_all(&bytes)
-        .await
-        .context("write IPC response")?;
-    writer.flush().await.context("flush IPC response")
 }
 
 struct SocketWireMessageReader {
@@ -391,7 +218,7 @@ impl SocketWireMessageReader {
     }
 }
 
-fn active_user_socket_path(profile_id: &str) -> PathBuf {
+fn active_gui_socket_path(profile_id: &str) -> PathBuf {
     if let Some(uid) = std::env::var_os("SUDO_UID").filter(|uid| !uid.is_empty()) {
         return socket_path_for_uid(profile_id, uid.to_string_lossy());
     }
@@ -399,7 +226,7 @@ fn active_user_socket_path(profile_id: &str) -> PathBuf {
     if let Some(uid) = console_user_uid() {
         return socket_path_for_uid(profile_id, uid);
     }
-    current_user_socket_path(profile_id)
+    current_gui_socket_path(profile_id)
 }
 
 #[cfg(target_os = "macos")]
@@ -417,7 +244,7 @@ fn console_user_uid() -> Option<String> {
         .filter(|uid| !uid.is_empty() && uid != "0")
 }
 
-fn current_user_socket_path(profile_id: &str) -> PathBuf {
+fn current_gui_socket_path(profile_id: &str) -> PathBuf {
     let uid = std::process::Command::new("id")
         .arg("-u")
         .output()
@@ -451,7 +278,7 @@ mod tests {
     #[test]
     fn pairing_request_payload_uses_ipc_schema() {
         let (proc_id, payload) =
-            encode_pairing_ipc_request(&PairingIpcRequest::ShowCode(PairingNotification {
+            encode_gui_ipc_request(&GuiIpcRequest::ShowCode(PairingCodeNotification {
                 daemon_url: "https://localhost:9012".to_string(),
                 pairing_code: "123456".to_string(),
                 expires_in_seconds: 30,
@@ -464,7 +291,7 @@ mod tests {
 
     #[test]
     fn pairing_completed_uses_shared_gui_proc() {
-        let (proc_id, payload) = encode_pairing_ipc_request(&PairingIpcRequest::Completed);
+        let (proc_id, payload) = encode_gui_ipc_request(&GuiIpcRequest::Completed);
 
         assert_eq!(proc_id, ProcId::PairingCompleted);
         assert!(payload.is_none());

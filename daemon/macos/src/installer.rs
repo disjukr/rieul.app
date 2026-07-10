@@ -5,11 +5,11 @@ use std::process::Command;
 
 use anyhow::{anyhow, Context, Result};
 
-use crate::pairing_ui::{show_confirmation_window, show_error_window, show_message_window};
+use crate::installer_ui::{show_confirmation_window, show_error_window, show_message_window};
 
 const DEFAULT_APP_INSTALL_PATH: &str = "/Applications/Rieul.app";
 const DEFAULT_SYSTEM_LABEL: &str = "app.rieul.system";
-const DEFAULT_USER_LABEL: &str = "app.rieul.user";
+const DEFAULT_GUI_LABEL: &str = "app.rieul.gui";
 const SYSTEM_DAEMON_PATH: &str = "/Library/Application Support/rieul/bin/rieul-macos-system";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -23,7 +23,7 @@ struct InstallSettings {
     source_app: PathBuf,
     install_path: PathBuf,
     system_label: String,
-    user_label: String,
+    gui_label: String,
 }
 
 impl InstallSettings {
@@ -39,8 +39,8 @@ impl InstallSettings {
             install_path,
             system_label: env::var("RIEUL_SYSTEM_LABEL")
                 .unwrap_or_else(|_| DEFAULT_SYSTEM_LABEL.to_string()),
-            user_label: env::var("RIEUL_USER_LABEL")
-                .unwrap_or_else(|_| DEFAULT_USER_LABEL.to_string()),
+            gui_label: env::var("RIEUL_GUI_LABEL")
+                .unwrap_or_else(|_| DEFAULT_GUI_LABEL.to_string()),
         }))
     }
 
@@ -48,8 +48,8 @@ impl InstallSettings {
         PathBuf::from("/Library/LaunchDaemons").join(format!("{}.plist", self.system_label))
     }
 
-    fn user_plist_path(&self) -> PathBuf {
-        PathBuf::from("/Library/LaunchAgents").join(format!("{}.plist", self.user_label))
+    fn gui_plist_path(&self) -> PathBuf {
+        PathBuf::from("/Library/LaunchAgents").join(format!("{}.plist", self.gui_label))
     }
 
     fn installed_system_plist_source(&self) -> PathBuf {
@@ -59,11 +59,11 @@ impl InstallSettings {
             .join(format!("{}.plist", self.system_label))
     }
 
-    fn installed_user_plist_source(&self) -> PathBuf {
+    fn installed_gui_plist_source(&self) -> PathBuf {
         self.install_path
             .join("Contents")
             .join("Resources")
-            .join(format!("{}.plist", self.user_label))
+            .join(format!("{}.plist", self.gui_label))
     }
 
     fn source_install_command(&self) -> PathBuf {
@@ -71,20 +71,6 @@ impl InstallSettings {
             .join("Contents")
             .join("MacOS")
             .join("install")
-    }
-
-    fn source_uninstall_command(&self) -> PathBuf {
-        self.source_app
-            .join("Contents")
-            .join("MacOS")
-            .join("uninstall")
-    }
-
-    fn installed_uninstall_command(&self) -> PathBuf {
-        self.install_path
-            .join("Contents")
-            .join("MacOS")
-            .join("uninstall")
     }
 }
 
@@ -123,7 +109,7 @@ macOS will ask for an administrator password.",
                 "Rieul Installed",
                 "The daemon has been installed and registered with launchd.",
             )?;
-            if !current_user_agent_is_loaded(&settings) {
+            if !current_gui_agent_is_loaded(&settings) {
                 open_installed_app(&settings.install_path)?;
             }
             Ok(StartupAction::Exit)
@@ -131,34 +117,6 @@ macOS will ask for an administrator password.",
         Err(err) => {
             show_error_window(&format!("Failed to install Rieul:\n\n{err}"))?;
             Ok(StartupAction::Exit)
-        }
-    }
-}
-
-pub fn uninstall_or_prompt() -> Result<bool> {
-    let Some(settings) = InstallSettings::from_environment()? else {
-        show_error_window("Rieul is not running from an app bundle.")?;
-        return Ok(false);
-    };
-
-    let message = "\
-This will stop Rieul, unregister its launchd jobs, and remove the installed system daemon.\n\n\
-The app bundle and configuration files will be left in place.";
-    if !show_confirmation_window("Uninstall Rieul?", message)? {
-        return Ok(false);
-    }
-
-    match uninstall_with_administrator_privileges(&settings) {
-        Ok(()) => {
-            show_message_window(
-                "Rieul Uninstalled",
-                "The launchd jobs and system daemon have been removed. You can move the app to the Trash.",
-            )?;
-            Ok(true)
-        }
-        Err(err) => {
-            show_error_window(&format!("Failed to uninstall Rieul:\n\n{err}"))?;
-            Ok(false)
         }
     }
 }
@@ -186,15 +144,15 @@ fn launchd_install_is_ready(settings: &InstallSettings) -> bool {
     settings.install_path.is_dir()
         && Path::new(SYSTEM_DAEMON_PATH).is_file()
         && settings.installed_system_plist_source().is_file()
-        && settings.installed_user_plist_source().is_file()
+        && settings.installed_gui_plist_source().is_file()
         && settings.system_plist_path().is_file()
-        && settings.user_plist_path().is_file()
+        && settings.gui_plist_path().is_file()
         && launchctl_print(&format!("system/{}", settings.system_label))
 }
 
-fn current_user_agent_is_loaded(settings: &InstallSettings) -> bool {
+fn current_gui_agent_is_loaded(settings: &InstallSettings) -> bool {
     current_gui_domain()
-        .map(|domain| launchctl_print(&format!("{domain}/{}", settings.user_label)))
+        .map(|domain| launchctl_print(&format!("{domain}/{}", settings.gui_label)))
         .unwrap_or(false)
 }
 
@@ -241,21 +199,6 @@ fn install_with_administrator_privileges(settings: &InstallSettings) -> Result<(
         ));
     }
     run_script_with_administrator_privileges(&install_command, "installation")
-}
-
-fn uninstall_with_administrator_privileges(settings: &InstallSettings) -> Result<()> {
-    let uninstall_command = if settings.source_uninstall_command().is_file() {
-        settings.source_uninstall_command()
-    } else {
-        settings.installed_uninstall_command()
-    };
-    if !uninstall_command.is_file() {
-        return Err(anyhow!(
-            "missing bundled uninstaller: {}",
-            uninstall_command.display()
-        ));
-    }
-    run_script_with_administrator_privileges(&uninstall_command, "uninstallation")
 }
 
 fn run_script_with_administrator_privileges(path: &Path, action: &str) -> Result<()> {

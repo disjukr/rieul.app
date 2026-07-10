@@ -178,20 +178,20 @@ if [[ -z "$OUT_DIR" ]]; then
 fi
 
 if [[ "$SKIP_BUILD" != "1" ]]; then
-  (cd "$REPO_ROOT" && cargo build -p rieul-macos-daemon --release --bin rieul-macos-system --bin rieul-macos-user)
+  (cd "$REPO_ROOT" && cargo build -p rieul-macos-daemon --release --bin rieul-macos-system --bin rieul-macos-launcher)
   (cd "$REPO_ROOT/web" && deno task desktop:build:macos)
 fi
 
 RELEASE_DIR="$REPO_ROOT/target/release"
 SYSTEM_EXE="$RELEASE_DIR/rieul-macos-system"
-USER_EXE="$RELEASE_DIR/rieul-macos-user"
+LAUNCHER_EXE="$RELEASE_DIR/rieul-macos-launcher"
 GUI_APP="$RELEASE_DIR/Rieul-desktop.app"
 if [[ ! -x "$SYSTEM_EXE" ]]; then
   echo "Missing release binary: $SYSTEM_EXE" >&2
   exit 1
 fi
-if [[ ! -x "$USER_EXE" ]]; then
-  echo "Missing release binary: $USER_EXE" >&2
+if [[ ! -x "$LAUNCHER_EXE" ]]; then
+  echo "Missing release binary: $LAUNCHER_EXE" >&2
   exit 1
 fi
 if [[ ! -d "$GUI_APP" ]]; then
@@ -200,15 +200,18 @@ if [[ ! -d "$GUI_APP" ]]; then
 fi
 
 SYSTEM_LABEL="app.rieul.system"
-USER_LABEL="app.rieul.user"
+GUI_LABEL="app.rieul.gui"
+# Remove the pre-Deno GUI LaunchAgent when upgrading an existing installation.
+LEGACY_LAUNCH_AGENT_LABEL="app.rieul.user"
 APP_SUPPORT_DIR="/Library/Application Support/rieul"
 BIN_DIR="$APP_SUPPORT_DIR/bin"
 LOG_DIR="/Library/Logs/rieul"
 SYSTEM_PLIST="/Library/LaunchDaemons/$SYSTEM_LABEL.plist"
-USER_PLIST="/Library/LaunchAgents/$USER_LABEL.plist"
+GUI_PLIST="/Library/LaunchAgents/$GUI_LABEL.plist"
+LEGACY_LAUNCH_AGENT_PLIST="/Library/LaunchAgents/$LEGACY_LAUNCH_AGENT_LABEL.plist"
 APP_DEST="/Applications/$APP_NAME.app"
 SYSTEM_DAEMON_EXE="$BIN_DIR/rieul-macos-system"
-APP_USER_LAUNCHER="$APP_DEST/Contents/MacOS/rieul-macos-app"
+APP_GUI_LAUNCHER="$APP_DEST/Contents/MacOS/rieul-macos-app"
 
 PACKAGE_BASE_NAME="rieul-macos-daemon-$VERSION"
 STAGING_DIR="$OUT_DIR/$PACKAGE_BASE_NAME-app"
@@ -230,7 +233,7 @@ if [[ -z "$GUI_EXECUTABLE_NAME" || ! -x "$APP_PATH/Contents/MacOS/$GUI_EXECUTABL
   exit 1
 fi
 
-install -m 0755 "$USER_EXE" "$APP_PATH/Contents/Resources/rieul-macos-user"
+install -m 0755 "$LAUNCHER_EXE" "$APP_PATH/Contents/Resources/rieul-macos-launcher"
 install -m 0755 "$SYSTEM_EXE" "$APP_PATH/Contents/Resources/rieul-macos-system"
 install -m 0644 "$REPO_ROOT/rieul.svg" "$APP_PATH/Contents/Resources/rieul.svg"
 APP_ICON_PLIST=""
@@ -250,9 +253,9 @@ CONTENTS_DIR="\$(cd "\$(dirname "\$0")/.." && pwd)"
 export RIEUL_APP_BUNDLE_PATH="\$CONTENTS_DIR/.."
 export RIEUL_APP_INSTALL_PATH="$APP_DEST"
 export RIEUL_SYSTEM_LABEL="$SYSTEM_LABEL"
-export RIEUL_USER_LABEL="$USER_LABEL"
+export RIEUL_GUI_LABEL="$GUI_LABEL"
 export RIEUL_GUI_EXECUTABLE="\$CONTENTS_DIR/MacOS/$GUI_EXECUTABLE_NAME"
-exec "\$CONTENTS_DIR/Resources/rieul-macos-user" run
+exec "\$CONTENTS_DIR/Resources/rieul-macos-launcher" run
 EOF
 chmod 0755 "$APP_PATH/Contents/MacOS/rieul-macos-app"
 
@@ -267,12 +270,13 @@ fi
 SOURCE_APP="\$(cd "\$(dirname "\$0")/../.." && pwd)"
 DEST_APP="$APP_DEST"
 SYSTEM_LABEL="$SYSTEM_LABEL"
-USER_LABEL="$USER_LABEL"
+GUI_LABEL="$GUI_LABEL"
 APP_SUPPORT_DIR="$APP_SUPPORT_DIR"
 BIN_DIR="$BIN_DIR"
 LOG_DIR="$LOG_DIR"
 SYSTEM_PLIST="$SYSTEM_PLIST"
-USER_PLIST="$USER_PLIST"
+GUI_PLIST="$GUI_PLIST"
+LEGACY_LAUNCH_AGENT_PLIST="$LEGACY_LAUNCH_AGENT_PLIST"
 SYSTEM_DAEMON_EXE="$SYSTEM_DAEMON_EXE"
 
 if [[ ! -d "\$SOURCE_APP" ]]; then
@@ -294,7 +298,8 @@ console_uid=""
 if [[ -n "\$console_user" && "\$console_user" != "root" ]]; then
   console_uid="\$(/usr/bin/id -u "\$console_user" 2>/dev/null || true)"
   if [[ -n "\$console_uid" ]]; then
-    /bin/launchctl asuser "\$console_uid" /bin/launchctl bootout "gui/\$console_uid" "\$USER_PLIST" >/dev/null 2>&1 || true
+    /bin/launchctl asuser "\$console_uid" /bin/launchctl bootout "gui/\$console_uid" "\$GUI_PLIST" >/dev/null 2>&1 || true
+    /bin/launchctl asuser "\$console_uid" /bin/launchctl bootout "gui/\$console_uid" "\$LEGACY_LAUNCH_AGENT_PLIST" >/dev/null 2>&1 || true
   fi
 fi
 
@@ -313,14 +318,15 @@ fi
 /bin/launchctl enable "system/\$SYSTEM_LABEL" >/dev/null 2>&1 || true
 /bin/launchctl kickstart -k "system/\$SYSTEM_LABEL" >/dev/null 2>&1 || true
 
-/bin/cp "\$DEST_APP/Contents/Resources/\$USER_LABEL.plist" "\$USER_PLIST"
-/usr/sbin/chown root:wheel "\$USER_PLIST"
-/bin/chmod 0644 "\$USER_PLIST"
+/bin/rm -f "\$LEGACY_LAUNCH_AGENT_PLIST"
+/bin/cp "\$DEST_APP/Contents/Resources/\$GUI_LABEL.plist" "\$GUI_PLIST"
+/usr/sbin/chown root:wheel "\$GUI_PLIST"
+/bin/chmod 0644 "\$GUI_PLIST"
 
 if [[ -n "\$console_uid" ]]; then
-  /bin/launchctl asuser "\$console_uid" /bin/launchctl bootstrap "gui/\$console_uid" "\$USER_PLIST" >/dev/null 2>&1 || true
-  /bin/launchctl asuser "\$console_uid" /bin/launchctl enable "gui/\$console_uid/\$USER_LABEL" >/dev/null 2>&1 || true
-  /bin/launchctl asuser "\$console_uid" /bin/launchctl kickstart -k "gui/\$console_uid/\$USER_LABEL" >/dev/null 2>&1 || true
+  /bin/launchctl asuser "\$console_uid" /bin/launchctl bootstrap "gui/\$console_uid" "\$GUI_PLIST" >/dev/null 2>&1 || true
+  /bin/launchctl asuser "\$console_uid" /bin/launchctl enable "gui/\$console_uid/\$GUI_LABEL" >/dev/null 2>&1 || true
+  /bin/launchctl asuser "\$console_uid" /bin/launchctl kickstart -k "gui/\$console_uid/\$GUI_LABEL" >/dev/null 2>&1 || true
 fi
 
 echo "Installed Rieul."
@@ -338,9 +344,9 @@ if [[ "\${EUID:-\$(/usr/bin/id -u)}" -ne 0 ]]; then
 fi
 
 SYSTEM_LABEL="$SYSTEM_LABEL"
-USER_LABEL="$USER_LABEL"
 SYSTEM_PLIST="$SYSTEM_PLIST"
-USER_PLIST="$USER_PLIST"
+GUI_PLIST="$GUI_PLIST"
+LEGACY_LAUNCH_AGENT_PLIST="$LEGACY_LAUNCH_AGENT_PLIST"
 SYSTEM_DAEMON_EXE="$SYSTEM_DAEMON_EXE"
 
 echo "Uninstalling Rieul daemons"
@@ -350,11 +356,12 @@ console_user="\$(/usr/bin/stat -f %Su /dev/console 2>/dev/null || true)"
 if [[ -n "\$console_user" && "\$console_user" != "root" ]]; then
   console_uid="\$(/usr/bin/id -u "\$console_user" 2>/dev/null || true)"
   if [[ -n "\$console_uid" ]]; then
-    /bin/launchctl asuser "\$console_uid" /bin/launchctl bootout "gui/\$console_uid" "\$USER_PLIST" >/dev/null 2>&1 || true
+    /bin/launchctl asuser "\$console_uid" /bin/launchctl bootout "gui/\$console_uid" "\$GUI_PLIST" >/dev/null 2>&1 || true
+    /bin/launchctl asuser "\$console_uid" /bin/launchctl bootout "gui/\$console_uid" "\$LEGACY_LAUNCH_AGENT_PLIST" >/dev/null 2>&1 || true
   fi
 fi
 
-/bin/rm -f "\$SYSTEM_PLIST" "\$USER_PLIST" "\$SYSTEM_DAEMON_EXE"
+/bin/rm -f "\$SYSTEM_PLIST" "\$GUI_PLIST" "\$LEGACY_LAUNCH_AGENT_PLIST" "\$SYSTEM_DAEMON_EXE"
 /bin/rmdir "$BIN_DIR" >/dev/null 2>&1 || true
 
 echo "Removed launchd jobs and system daemon."
@@ -423,16 +430,16 @@ cat >"$APP_PATH/Contents/Resources/$SYSTEM_LABEL.plist" <<EOF
 </plist>
 EOF
 
-cat >"$APP_PATH/Contents/Resources/$USER_LABEL.plist" <<EOF
+cat >"$APP_PATH/Contents/Resources/$GUI_LABEL.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>$USER_LABEL</string>
+  <string>$GUI_LABEL</string>
   <key>ProgramArguments</key>
   <array>
-    <string>$APP_USER_LAUNCHER</string>
+    <string>$APP_GUI_LAUNCHER</string>
   </array>
   <key>RunAtLoad</key>
   <true/>
@@ -441,9 +448,9 @@ cat >"$APP_PATH/Contents/Resources/$USER_LABEL.plist" <<EOF
   <key>LimitLoadToSessionType</key>
   <string>Aqua</string>
   <key>StandardOutPath</key>
-  <string>$LOG_DIR/user.out.log</string>
+  <string>$LOG_DIR/gui.out.log</string>
   <key>StandardErrorPath</key>
-  <string>$LOG_DIR/user.err.log</string>
+  <string>$LOG_DIR/gui.err.log</string>
   <key>EnvironmentVariables</key>
   <dict>
     <key>RUST_LOG</key>
@@ -454,13 +461,13 @@ cat >"$APP_PATH/Contents/Resources/$USER_LABEL.plist" <<EOF
 EOF
 plutil -lint \
   "$APP_PATH/Contents/Resources/$SYSTEM_LABEL.plist" \
-  "$APP_PATH/Contents/Resources/$USER_LABEL.plist" >/dev/null
+  "$APP_PATH/Contents/Resources/$GUI_LABEL.plist" >/dev/null
 
 if [[ -n "$SIGN_IDENTITY" ]]; then
   codesign --force --options runtime --timestamp --sign "$SIGN_IDENTITY" \
     "$APP_PATH/Contents/Resources/rieul-macos-system"
   codesign --force --options runtime --timestamp --sign "$SIGN_IDENTITY" \
-    "$APP_PATH/Contents/Resources/rieul-macos-user"
+    "$APP_PATH/Contents/Resources/rieul-macos-launcher"
   codesign --force --deep --options runtime --timestamp --sign "$SIGN_IDENTITY" \
     "$APP_PATH"
 else

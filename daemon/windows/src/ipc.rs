@@ -141,7 +141,7 @@ async fn send_pairing_ipc_request(profile_id: &str, request: PairingIpcRequest) 
 
 #[cfg(not(windows))]
 async fn send_pairing_ipc_request(_profile_id: &str, _request: PairingIpcRequest) -> Result<()> {
-    anyhow::bail!("Windows user tray pairing notification is only available on Windows");
+    anyhow::bail!("Windows GUI pairing notification is only available on Windows");
 }
 
 #[cfg(windows)]

@@ -142,8 +142,8 @@ function New-DaemonMsiSource {
     <MajorUpgrade DowngradeErrorMessage="A newer version of [ProductName] is already installed." />
     <MediaTemplate EmbedCab="yes" />
 
-    <Icon Id="RieulTrayIcon.ico" SourceFile="$iconPath" />
-    <Property Id="ARPPRODUCTICON" Value="RieulTrayIcon.ico" />
+    <Icon Id="RieulGuiIcon.ico" SourceFile="$iconPath" />
+    <Property Id="ARPPRODUCTICON" Value="RieulGuiIcon.ico" />
 
     <Launch Condition="Privileged" Message="[ProductName] installs a LocalSystem service and must be installed with administrator privileges." />
     <Property Id="WIXUI_EXITDIALOGOPTIONALTEXT" Value="Rieul Daemon was installed successfully." />
@@ -175,17 +175,17 @@ function New-DaemonMsiSource {
     <SetProperty
       Id="WixUnelevatedShellExecTarget"
       Value="[#GuiExe]"
-      Before="LaunchRieulTrayApp"
+      Before="LaunchRieulGuiApp"
       Sequence="execute"
       Condition="NOT Installed" />
     <CustomAction
-      Id="LaunchRieulTrayApp"
+      Id="LaunchRieulGuiApp"
       BinaryRef="Wix4UtilCA_`$(sys.BUILDARCHSHORT)"
       DllEntry="WixUnelevatedShellExec"
       Execute="immediate"
       Return="ignore" />
     <InstallExecuteSequence>
-      <Custom Action="LaunchRieulTrayApp" After="InstallFinalize" Condition="NOT Installed" />
+      <Custom Action="LaunchRieulGuiApp" After="InstallFinalize" Condition="NOT Installed" />
     </InstallExecuteSequence>
 
     <StandardDirectory Id="ProgramFiles64Folder">
@@ -241,7 +241,7 @@ function New-DaemonMsiSource {
             Name="Rieul"
             Target="[INSTALLFOLDER]rieul-windows-gui.exe"
             WorkingDirectory="INSTALLFOLDER"
-            Icon="RieulTrayIcon.ico" />
+            Icon="RieulGuiIcon.ico" />
           <RemoveFolder Id="RemoveProgramMenuAppFolder" On="uninstall" />
           <RegistryValue
             Root="HKLM"

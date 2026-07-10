@@ -14,8 +14,8 @@ name = "rieul-macos-system"
 path = "src/bin/system.rs"
 
 [[bin]]
-name = "rieul-macos-user"
-path = "src/bin/user.rs"
+name = "rieul-macos-launcher"
+path = "src/bin/launcher.rs"
 
 [dependencies]
 anyhow = "1"

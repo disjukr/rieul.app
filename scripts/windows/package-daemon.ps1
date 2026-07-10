@@ -174,7 +174,7 @@ function New-AppxManifest {
       EntryPoint="Windows.FullTrustApplication">
       <uap:VisualElements
         DisplayName="Rieul"
-        Description="Remote machine explorer and daemon tray"
+        Description="Remote machine explorer and daemon GUI"
         BackgroundColor="transparent"
         Square44x44Logo="Assets\Square44x44Logo.png"
         Square150x150Logo="Assets\Square150x150Logo.png" />

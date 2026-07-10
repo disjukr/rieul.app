@@ -8,8 +8,8 @@ use std::path::PathBuf;
 use std::process::Command as ProcessCommand;
 
 #[derive(Debug, Parser)]
-#[command(name = "rieul-macos-user")]
-#[command(about = "macOS user daemon for rieul")]
+#[command(name = "rieul-macos-launcher")]
+#[command(about = "macOS installer and GUI launcher for rieul")]
 struct Args {
     #[command(subcommand)]
     command: Command,
