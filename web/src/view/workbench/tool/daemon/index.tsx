@@ -9,10 +9,12 @@ import {
   Info,
   Loader2,
   SquareTerminal,
+  Trash2,
   WifiOff,
 } from "lucide-react";
 import {
   closeTerminalSession,
+  removeClient,
   renewClientCredential,
   subscribeClients,
   subscribeTerminalSessions,
@@ -97,8 +99,12 @@ const clientListClassName = [
   "grid content-start gap-[0.5rem] min-w-0 rounded-[8px]",
   "border border-[#d8dde7] bg-[#fbfcfe] p-[0.5rem]",
 ].join(" ");
+const clientListItemClassName = [
+  "grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center rounded-[0.5rem]",
+  "border border-transparent bg-white",
+].join(" ");
 const clientButtonClassName = [
-  "grid min-w-0 appearance-none gap-[3px] rounded-[0.5rem] px-[1rem] py-[8px] text-left",
+  "grid min-w-0 appearance-none gap-[3px] rounded-l-[0.5rem] px-[1rem] py-[8px] text-left",
   "cursor-pointer text-[#344054] hover:bg-[#eef3fb]",
   "[font-family:inherit]",
   "[&.selected]:bg-[#e8eef7] [&.selected]:text-[#20242d]",
@@ -107,6 +113,14 @@ const clientButtonClassName = [
   "[&_span]:min-w-0 [&_span]:overflow-hidden [&_span]:text-ellipsis",
   "[&_span]:whitespace-nowrap [&_span]:text-[12px] [&_span]:text-[#667085]",
 ].join(" ");
+const clientListRemoveButtonClassName = "mr-[0.5rem]";
+const clientListConfirmationClassName = [
+  "col-span-2 flex min-w-0 flex-wrap items-center gap-[0.5rem]",
+  "border-t border-t-[#edf0f5] px-[1rem] py-[0.5rem]",
+].join(" ");
+const clientListConfirmationMessageClassName =
+  "mr-auto text-[1rem] text-[#667085]";
+const clientListErrorClassName = "mr-auto text-[1rem] text-[#b42318]";
 const clientNameRowClassName = "flex min-w-0 items-center gap-[0.5rem]";
 const currentClientBadgeClassName = [
   "flex-[0_0_auto] rounded-[999px] bg-[#dff6e7] px-[0.5rem] py-[1px]",
@@ -136,6 +150,12 @@ const credentialCreatedAgeClassName = credentialExpiryRemainingClassName;
 const renewCredentialButtonClassName = "!min-h-[28px] !px-[9px] !text-[1rem]";
 const renewCredentialMessageClassName = "text-[1rem] text-[#667085]";
 const renewCredentialErrorClassName = "text-[1rem] text-[#b42318]";
+const clientDangerZoneClassName = [
+  "flex min-w-0 flex-wrap items-center gap-[0.5rem] border-t border-t-[#edf0f5]",
+  "px-[1rem] py-[0.75rem]",
+].join(" ");
+const clientDangerMessageClassName = "mr-auto text-[1rem] text-[#667085]";
+const clientDangerErrorClassName = "mr-auto text-[1rem] text-[#b42318]";
 const terminalSessionListClassName = [
   "grid min-w-0",
   "[&_article]:grid [&_article]:min-w-0",
@@ -387,6 +407,14 @@ export function DaemonTool() {
     });
   }
 
+  async function removeSelectedClient(clientId: string) {
+    if (!machine) return;
+    await removeClient(await rpcSession.webTransport(), { clientId });
+    if (machine.clientId === clientId) {
+      machines.clearMachineCredentials(machine.id);
+    }
+  }
+
   function openTerminalSession(session: TerminalSessionInfo) {
     workbench.openTerminalTab({
       cwd: session.lastKnownCwd,
@@ -440,6 +468,7 @@ export function DaemonTool() {
               onOpenClients={openClientsPage}
               onCloseTerminalSession={closeSelectedTerminalSession}
               onOpenTerminalSession={openTerminalSession}
+              onRemoveClient={removeSelectedClient}
               onRenewCurrentClientCredential={renewSelectedClientCredential}
             />
           )
@@ -554,6 +583,7 @@ interface DaemonInfoViewProps {
   onCloseTerminalSession: (terminalSessionId: string) => Promise<void>;
   onOpenClient: (clientId: string) => void;
   onOpenTerminalSession: (session: TerminalSessionInfo) => void;
+  onRemoveClient: (clientId: string) => Promise<void>;
   os: string;
   onRenewCurrentClientCredential: () => Promise<void>;
   serverTimeMs?: number;
@@ -576,6 +606,7 @@ function DaemonInfoView(
     onCloseTerminalSession,
     onOpenClient,
     onOpenTerminalSession,
+    onRemoveClient,
     onRenewCurrentClientCredential,
     os,
     serverTimeMs,
@@ -598,6 +629,7 @@ function DaemonInfoView(
         onRenewCurrentClientCredential={onRenewCurrentClientCredential}
         onCloseTerminalSession={onCloseTerminalSession}
         onOpenTerminalSession={onOpenTerminalSession}
+        onRemoveClient={onRemoveClient}
         sessions={terminalSessionsState.sessions.filter((session) =>
           session.creatorClientId === clientDetail.clientId
         )}
@@ -618,6 +650,7 @@ function DaemonInfoView(
         clientsState={clientsState}
         currentClientId={currentClientId}
         onOpenClient={onOpenClient}
+        onRemoveClient={onRemoveClient}
       />
     );
   }
@@ -770,10 +803,12 @@ interface ClientsPageProps {
   clientsState: ClientsState;
   currentClientId?: string;
   onOpenClient: (clientId: string) => void;
+  onRemoveClient: (clientId: string) => Promise<void>;
 }
 
 function ClientsPage(
-  { clientsState, currentClientId, onOpenClient }: ClientsPageProps,
+  { clientsState, currentClientId, onOpenClient, onRemoveClient }:
+    ClientsPageProps,
 ) {
   return (
     <section className={clientDetailPageClassName}>
@@ -781,6 +816,7 @@ function ClientsPage(
         clientsState={clientsState}
         currentClientId={currentClientId}
         onOpenClient={onOpenClient}
+        onRemoveClient={onRemoveClient}
       />
     </section>
   );
@@ -804,6 +840,7 @@ interface ClientsSectionProps {
   clientsState: ClientsState;
   currentClientId?: string;
   onOpenClient: (clientId: string) => void;
+  onRemoveClient: (clientId: string) => Promise<void>;
 }
 
 function ClientsSection(
@@ -811,6 +848,7 @@ function ClientsSection(
     clientsState,
     currentClientId,
     onOpenClient,
+    onRemoveClient,
   }: ClientsSectionProps,
 ) {
   return (
@@ -825,11 +863,12 @@ function ClientsSection(
         : (
           <div className={clientListClassName}>
             {clientsState.clients.map((client) => (
-              <ClientButton
+              <ClientListItem
                 key={client.clientId}
                 client={client}
                 currentClientId={currentClientId}
                 onOpenClient={onOpenClient}
+                onRemoveClient={onRemoveClient}
               />
             ))}
           </div>
@@ -838,30 +877,104 @@ function ClientsSection(
   );
 }
 
-interface ClientButtonProps {
+interface ClientListItemProps {
   client: ClientInfo;
   currentClientId?: string;
   onOpenClient: (clientId: string) => void;
+  onRemoveClient: (clientId: string) => Promise<void>;
 }
 
-function ClientButton(
-  { client, currentClientId, onOpenClient }: ClientButtonProps,
+function ClientListItem(
+  { client, currentClientId, onOpenClient, onRemoveClient }:
+    ClientListItemProps,
 ) {
   const isCurrent = client.clientId === currentClientId;
+  const [removePhase, setRemovePhase] = useState<
+    "idle" | "confirming" | "removing" | "error"
+  >("idle");
+  const [removeError, setRemoveError] = useState<string>();
+
+  async function removeNow() {
+    setRemovePhase("removing");
+    setRemoveError(undefined);
+    try {
+      await onRemoveClient(client.clientId);
+    } catch (err) {
+      setRemoveError(errorMessage(err));
+      setRemovePhase("error");
+    }
+  }
+
   return (
-    <button
-      type="button"
-      className={clientButtonClassName}
-      onClick={() => onOpenClient(client.clientId)}
-    >
-      <div className={clientNameRowClassName}>
-        <strong>{client.label || "Unnamed client"}</strong>
-        {isCurrent
-          ? <em className={currentClientBadgeClassName}>This client</em>
-          : null}
-      </div>
-      <span>{client.clientId}</span>
-    </button>
+    <article className={clientListItemClassName}>
+      <button
+        type="button"
+        className={clientButtonClassName}
+        onClick={() => onOpenClient(client.clientId)}
+      >
+        <div className={clientNameRowClassName}>
+          <strong>{client.label || "Unnamed client"}</strong>
+          {isCurrent
+            ? <em className={currentClientBadgeClassName}>This client</em>
+            : null}
+        </div>
+        <span>{client.clientId}</span>
+      </button>
+      <Button
+        aria-label={`Remove ${client.label || client.clientId}`}
+        className={clientListRemoveButtonClassName}
+        disabled={removePhase === "removing"}
+        onClick={() => setRemovePhase("confirming")}
+        size="icon"
+        title="Remove client"
+        tone="danger"
+        variant="ghost"
+      >
+        <Trash2 size={15} />
+      </Button>
+      {removePhase === "confirming" || removePhase === "removing"
+        ? (
+          <div className={clientListConfirmationClassName}>
+            <span className={clientListConfirmationMessageClassName}>
+              This client will need to pair again.
+            </span>
+            <Button
+              disabled={removePhase === "removing"}
+              onClick={() => setRemovePhase("idle")}
+              size="sm"
+              variant="ghost"
+            >
+              Cancel
+            </Button>
+            <Button
+              disabled={removePhase === "removing"}
+              onClick={removeNow}
+              size="sm"
+              tone="danger"
+              variant="solid"
+            >
+              {removePhase === "removing" ? "Removing" : "Remove"}
+            </Button>
+          </div>
+        )
+        : removePhase === "error"
+        ? (
+          <div className={clientListConfirmationClassName}>
+            <span className={clientListErrorClassName}>
+              {removeError ?? "Client removal failed"}
+            </span>
+            <Button
+              onClick={() => setRemovePhase("confirming")}
+              size="sm"
+              tone="danger"
+              variant="outline"
+            >
+              Retry
+            </Button>
+          </div>
+        )
+        : null}
+    </article>
   );
 }
 
@@ -870,6 +983,7 @@ interface ClientDetailPageProps {
   currentClientId?: string;
   onCloseTerminalSession: (terminalSessionId: string) => Promise<void>;
   onOpenTerminalSession: (session: TerminalSessionInfo) => void;
+  onRemoveClient: (clientId: string) => Promise<void>;
   onRenewCurrentClientCredential: () => Promise<void>;
   sessions: TerminalSessionInfo[];
   state: TerminalSessionsState;
@@ -881,6 +995,7 @@ function ClientDetailPage(
     currentClientId,
     onCloseTerminalSession,
     onOpenTerminalSession,
+    onRemoveClient,
     onRenewCurrentClientCredential,
     sessions,
     state,
@@ -891,6 +1006,7 @@ function ClientDetailPage(
       <ClientInformationSection
         client={client}
         currentClientId={currentClientId}
+        onRemoveClient={onRemoveClient}
         onRenewCurrentClientCredential={onRenewCurrentClientCredential}
       />
       <ClientTerminalSessions
@@ -906,6 +1022,7 @@ function ClientDetailPage(
 interface ClientInformationSectionProps {
   client: ClientInfo;
   currentClientId?: string;
+  onRemoveClient: (clientId: string) => Promise<void>;
   onRenewCurrentClientCredential: () => Promise<void>;
 }
 
@@ -913,6 +1030,7 @@ function ClientInformationSection(
   {
     client,
     currentClientId,
+    onRemoveClient,
     onRenewCurrentClientCredential,
   }: ClientInformationSectionProps,
 ) {
@@ -923,6 +1041,10 @@ function ClientInformationSection(
     "idle" | "renewing" | "renewed" | "error"
   >("idle");
   const [renewError, setRenewError] = useState<string>();
+  const [removePhase, setRemovePhase] = useState<
+    "idle" | "confirming" | "removing" | "error"
+  >("idle");
+  const [removeError, setRemoveError] = useState<string>();
 
   async function renewNow() {
     setRenewPhase("renewing");
@@ -933,6 +1055,17 @@ function ClientInformationSection(
     } catch (err) {
       setRenewError(errorMessage(err));
       setRenewPhase("error");
+    }
+  }
+
+  async function removeNow() {
+    setRemovePhase("removing");
+    setRemoveError(undefined);
+    try {
+      await onRemoveClient(client.clientId);
+    } catch (err) {
+      setRemoveError(errorMessage(err));
+      setRemovePhase("error");
     }
   }
 
@@ -1001,6 +1134,54 @@ function ClientInformationSection(
             : null}
         </PropertyListItem>
       </PropertyList>
+      <div className={clientDangerZoneClassName}>
+        {removePhase === "confirming" || removePhase === "removing"
+          ? (
+            <>
+              <span className={clientDangerMessageClassName}>
+                This client will need to pair again.
+              </span>
+              <Button
+                disabled={removePhase === "removing"}
+                onClick={() => setRemovePhase("idle")}
+                size="sm"
+                variant="ghost"
+              >
+                Cancel
+              </Button>
+              <Button
+                disabled={removePhase === "removing"}
+                onClick={removeNow}
+                size="sm"
+                tone="danger"
+                variant="solid"
+              >
+                <Trash2 size={14} />
+                {removePhase === "removing" ? "Removing" : "Remove client"}
+              </Button>
+            </>
+          )
+          : (
+            <>
+              {removePhase === "error"
+                ? (
+                  <span className={clientDangerErrorClassName}>
+                    {removeError ?? "Client removal failed"}
+                  </span>
+                )
+                : <span className={clientDangerMessageClassName} />}
+              <Button
+                onClick={() => setRemovePhase("confirming")}
+                size="sm"
+                tone="danger"
+                variant="outline"
+              >
+                <Trash2 size={14} />
+                Remove client
+              </Button>
+            </>
+          )}
+      </div>
     </section>
   );
 }

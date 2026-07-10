@@ -45,6 +45,8 @@ export enum ProcId {
   SubscribeSchedules = 40,
   DeleteSchedules = 41,
   GetScheduleNextRuns = 42,
+  RemoveClient = 43,
+  KillProcess = 44,
 }
 
 export interface SubscribeWindowDetailReq {
@@ -262,6 +264,10 @@ export interface SubscribeProcessDetailReq {
   pid: number;
 }
 
+export interface KillProcessReq {
+  pid: number;
+}
+
 export interface SubscribeProcessResourcesInUseReq {
   pid: number;
 }
@@ -419,6 +425,12 @@ export type ProcessModulesTableEvent =
 
 export type SubscribeProcessesError =
   | { type: "failed"; message: string }
+  | { type: "permissionDenied"; message: string }
+;
+
+export type KillProcessError =
+  | { type: "failed"; message: string }
+  | { type: "notFound"; message: string }
   | { type: "permissionDenied"; message: string }
 ;
 
@@ -726,6 +738,10 @@ export interface ClientKey {
   clientId: string;
 }
 
+export interface RemoveClientReq {
+  clientId: string;
+}
+
 export type GetDaemonInfoError =
   | { type: "failed"; message: string }
 ;
@@ -736,6 +752,12 @@ export type GetDaemonEnvironmentError =
 
 export type SubscribeClientsError =
   | { type: "failed"; message: string }
+  | { type: "permissionDenied"; message: string }
+;
+
+export type RemoveClientError =
+  | { type: "failed"; message: string }
+  | { type: "notFound"; message: string }
   | { type: "permissionDenied"; message: string }
 ;
 
@@ -1582,6 +1604,30 @@ export const getScheduleNextRunsProc: ProcCodec<GetScheduleNextRunsReq, GetSched
   decodeError: decodeGetScheduleNextRunsErrorValue,
 };
 
+export const removeClientProc: ProcCodec<RemoveClientReq, undefined, RemoveClientError> = {
+  id: ProcId.RemoveClient,
+  name: "RemoveClient",
+  stream: "unary",
+  requestType: "RemoveClientReq",
+  responseType: "void",
+  errorType: "RemoveClientError",
+  encodeRequest: encodeRemoveClientReqValue,
+  decodeResponse: decodeVoidValue,
+  decodeError: decodeRemoveClientErrorValue,
+};
+
+export const killProcessProc: ProcCodec<KillProcessReq, undefined, KillProcessError> = {
+  id: ProcId.KillProcess,
+  name: "KillProcess",
+  stream: "unary",
+  requestType: "KillProcessReq",
+  responseType: "void",
+  errorType: "KillProcessError",
+  encodeRequest: encodeKillProcessReqValue,
+  decodeResponse: decodeVoidValue,
+  decodeError: decodeKillProcessErrorValue,
+};
+
 export const procs = {
   [ProcId.GetDaemonInfo]: getDaemonInfoProc,
   [ProcId.StartPairing]: startPairingProc,
@@ -1625,6 +1671,8 @@ export const procs = {
   [ProcId.SubscribeSchedules]: subscribeSchedulesProc,
   [ProcId.DeleteSchedules]: deleteSchedulesProc,
   [ProcId.GetScheduleNextRuns]: getScheduleNextRunsProc,
+  [ProcId.RemoveClient]: removeClientProc,
+  [ProcId.KillProcess]: killProcessProc,
 } as const;
 
 export function encodeSubscribeWindowDetailReqValue(value: SubscribeWindowDetailReq): CborValue {
@@ -2718,6 +2766,19 @@ export function decodeSubscribeProcessDetailReqValue(value: CborValue): Subscrib
   };
 }
 
+export function encodeKillProcessReqValue(value: KillProcessReq): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, u53(required(value.pid, "KillProcessReq.pid")));
+  return fields;
+}
+
+export function decodeKillProcessReqValue(value: CborValue): KillProcessReq {
+  const fields = expectMap(value);
+  return {
+    pid: fieldOrDefault(fields.get(1), (value) => integer(value), () => 0),
+  };
+}
+
 export function encodeSubscribeProcessResourcesInUseReqValue(value: SubscribeProcessResourcesInUseReq): CborValue {
   const fields = new Map<number, CborValue>();
   fields.set(1, u53(required(value.pid, "SubscribeProcessResourcesInUseReq.pid")));
@@ -3420,6 +3481,48 @@ export function decodeSubscribeProcessesErrorValue(value: CborValue): SubscribeP
       };
   }
   throw new Error(`unknown SubscribeProcessesError variant ${variantId}`);
+}
+
+export function encodeKillProcessErrorValue(value: KillProcessError): CborValue {
+  switch (value.type) {
+    case "failed": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.message, "KillProcessError.Failed.message")));
+      return [0, fields];
+    }
+    case "notFound": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.message, "KillProcessError.NotFound.message")));
+      return [1, fields];
+    }
+    case "permissionDenied": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.message, "KillProcessError.PermissionDenied.message")));
+      return [2, fields];
+    }
+  }
+}
+
+export function decodeKillProcessErrorValue(value: CborValue): KillProcessError {
+  const [variantId, fields] = expectUnion(value);
+  switch (variantId) {
+    case 0:
+      return {
+        type: "failed",
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+    case 1:
+      return {
+        type: "notFound",
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+    case 2:
+      return {
+        type: "permissionDenied",
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+  }
+  throw new Error(`unknown KillProcessError variant ${variantId}`);
 }
 
 export function encodeSubscribeProcessDetailErrorValue(value: SubscribeProcessDetailError): CborValue {
@@ -4937,6 +5040,19 @@ export function decodeClientKeyValue(value: CborValue): ClientKey {
   };
 }
 
+export function encodeRemoveClientReqValue(value: RemoveClientReq): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, text(required(value.clientId, "RemoveClientReq.clientId")));
+  return fields;
+}
+
+export function decodeRemoveClientReqValue(value: CborValue): RemoveClientReq {
+  const fields = expectMap(value);
+  return {
+    clientId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+  };
+}
+
 export function encodeGetDaemonInfoErrorValue(value: GetDaemonInfoError): CborValue {
   switch (value.type) {
     case "failed": {
@@ -5011,6 +5127,48 @@ export function decodeSubscribeClientsErrorValue(value: CborValue): SubscribeCli
       };
   }
   throw new Error(`unknown SubscribeClientsError variant ${variantId}`);
+}
+
+export function encodeRemoveClientErrorValue(value: RemoveClientError): CborValue {
+  switch (value.type) {
+    case "failed": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.message, "RemoveClientError.Failed.message")));
+      return [0, fields];
+    }
+    case "notFound": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.message, "RemoveClientError.NotFound.message")));
+      return [1, fields];
+    }
+    case "permissionDenied": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.message, "RemoveClientError.PermissionDenied.message")));
+      return [2, fields];
+    }
+  }
+}
+
+export function decodeRemoveClientErrorValue(value: CborValue): RemoveClientError {
+  const [variantId, fields] = expectUnion(value);
+  switch (variantId) {
+    case 0:
+      return {
+        type: "failed",
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+    case 1:
+      return {
+        type: "notFound",
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+    case 2:
+      return {
+        type: "permissionDenied",
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+  }
+  throw new Error(`unknown RemoveClientError variant ${variantId}`);
 }
 
 export function encodeCommandLaunchSpecValue(value: CommandLaunchSpec): CborValue {
@@ -6639,6 +6797,12 @@ function defaultSubscribeProcessDetailReq(): SubscribeProcessDetailReq {
   };
 }
 
+function defaultKillProcessReq(): KillProcessReq {
+  return {
+    pid: 0,
+  };
+}
+
 function defaultSubscribeProcessResourcesInUseReq(): SubscribeProcessResourcesInUseReq {
   return {
     pid: 0,
@@ -6781,6 +6945,13 @@ function defaultProcessModulesTableEvent(): ProcessModulesTableEvent {
 }
 
 function defaultSubscribeProcessesError(): SubscribeProcessesError {
+  return {
+    type: "failed",
+    message: "",
+  };
+}
+
+function defaultKillProcessError(): KillProcessError {
   return {
     type: "failed",
     message: "",
@@ -7131,6 +7302,12 @@ function defaultClientKey(): ClientKey {
   };
 }
 
+function defaultRemoveClientReq(): RemoveClientReq {
+  return {
+    clientId: "",
+  };
+}
+
 function defaultGetDaemonInfoError(): GetDaemonInfoError {
   return {
     type: "failed",
@@ -7146,6 +7323,13 @@ function defaultGetDaemonEnvironmentError(): GetDaemonEnvironmentError {
 }
 
 function defaultSubscribeClientsError(): SubscribeClientsError {
+  return {
+    type: "failed",
+    message: "",
+  };
+}
+
+function defaultRemoveClientError(): RemoveClientError {
   return {
     type: "failed",
     message: "",

@@ -29,14 +29,14 @@ use rieul_daemon_core::rpc::{
     CreateScheduleReq, CreateTerminalSessionReq, DaemonEnvironment, DaemonInfo, DeleteJobsReq,
     DeleteMode, DeletePathsReq, DeleteSchedulesReq, DirectoryEntryKey,
     DirectorySubscriptionCloseReason, DirectoryTableEvent, FsEntry, GetScheduleNextRunsReq,
-    JobOutputEvent, JobsTableEvent, KillJobReq, ProcId, ProcStream, ProcessDetail,
+    JobOutputEvent, JobsTableEvent, KillJobReq, KillProcessReq, ProcId, ProcStream, ProcessDetail,
     ProcessDetailEvent, ProcessInfo, ProcessIoUsage, ProcessMetadata, ProcessModuleInfo,
     ProcessModulesTableEvent, ProcessResourceInUseInfo, ProcessResourceUsage,
     ProcessResourcesInUseTableEvent, ProcessSocketInUseInfo, ProcessSocketsInUseTableEvent,
     ProcessStatus, ProcessesTableEvent, PurgeTrashItemsReq, ReadFileChunk, ReadFileReq,
-    RenamePathsReq, RenewClientCredentialResponse, RestoreTrashItemsReq, RootEntryKey,
-    RootsSubscriptionCloseReason, RootsTableEvent, RpcErrorCode, RpcErrorPayload, RpcHandlerFuture,
-    RpcHandlers, RpcRequest, RpcRequestDecodeError, RpcResponse, RunCommandReq,
+    RemoveClientReq, RenamePathsReq, RenewClientCredentialResponse, RestoreTrashItemsReq,
+    RootEntryKey, RootsSubscriptionCloseReason, RootsTableEvent, RpcErrorCode, RpcErrorPayload,
+    RpcHandlerFuture, RpcHandlers, RpcRequest, RpcRequestDecodeError, RpcResponse, RunCommandReq,
     SchedulesTableEvent, StartPairingRequest, StartPairingResponse, SubscribeDirectoryReq,
     SubscribeJobOutputReq, SubscribeJobsReq, SubscribeProcessDetailReq, SubscribeProcessModulesReq,
     SubscribeProcessResourcesInUseReq, SubscribeProcessSocketsInUseReq, SubscribeSchedulesReq,
@@ -985,6 +985,7 @@ fn build_rpc_handlers(
         .start_pairing(HostRpcHandler::start_pairing_rpc)
         .complete_pairing(HostRpcHandler::complete_pairing_rpc)
         .renew_client_credential(HostRpcHandler::renew_client_credential_rpc)
+        .remove_client(HostRpcHandler::remove_client_rpc)
         .subscribe_roots(HostRpcHandler::subscribe_roots_rpc)
         .subscribe_directory(HostRpcHandler::subscribe_directory_rpc)
         .read_file(HostRpcHandler::read_file_rpc)
@@ -1004,6 +1005,7 @@ fn build_rpc_handlers(
         .restore_trash_items(HostRpcHandler::restore_trash_items_rpc)
         .purge_trash_items(HostRpcHandler::purge_trash_items_rpc)
         .subscribe_processes(HostRpcHandler::subscribe_processes_rpc)
+        .kill_process(HostRpcHandler::kill_process_rpc)
         .subscribe_process_detail(HostRpcHandler::subscribe_process_detail_rpc)
         .run_command(HostRpcHandler::run_command_rpc)
         .create_job(HostRpcHandler::create_job_rpc)
@@ -3068,6 +3070,31 @@ fn process_detail_snapshot(system: &mut SysinfoSystem, pid: u64) -> Option<Proce
     system.process(pid).map(process_detail_from_sysinfo)
 }
 
+#[derive(Debug, PartialEq, Eq)]
+enum KillHostProcessError {
+    NotFound,
+    PermissionDenied,
+}
+
+fn kill_host_process(pid: u64) -> Result<(), KillHostProcessError> {
+    let pid = u32::try_from(pid)
+        .ok()
+        .map(SysPid::from_u32)
+        .ok_or(KillHostProcessError::NotFound)?;
+    if pid.as_u32() == std::process::id() {
+        return Err(KillHostProcessError::PermissionDenied);
+    }
+
+    let mut system = SysinfoSystem::new();
+    system.refresh_processes(ProcessesToUpdate::Some(&[pid]), true);
+    let process = system.process(pid).ok_or(KillHostProcessError::NotFound)?;
+    if process.kill() {
+        Ok(())
+    } else {
+        Err(KillHostProcessError::PermissionDenied)
+    }
+}
+
 fn process_detail_refresh_kind() -> ProcessRefreshKind {
     ProcessRefreshKind::nothing()
         .with_cpu()
@@ -3930,6 +3957,51 @@ impl HostRpcHandler {
         )
     }
 
+    async fn remove_client(&mut self, request: RemoveClientReq) -> Result<UnaryRpcOutcome> {
+        let proc_id = ProcId::RemoveClient.as_u64();
+        let mut state =
+            load_runtime_client_credentials(&self.credentials_path, &self.client_credentials)
+                .await?;
+        let previous_len = state.clients.len();
+        state
+            .clients
+            .retain(|record| record.client_id != request.client_id);
+        if state.clients.len() == previous_len {
+            return Ok(UnaryRpcOutcome::Message(error_message(
+                proc_id,
+                "not_found",
+                "paired client not found",
+            )));
+        }
+        store_runtime_client_credentials(
+            &self.credentials_path,
+            &self.client_credentials,
+            &self.client_credentials_events,
+            state,
+        )
+        .await?;
+        Ok(RpcResponse::RemoveClient.into())
+    }
+
+    async fn kill_process(&mut self, request: KillProcessReq) -> Result<UnaryRpcOutcome> {
+        let proc_id = ProcId::KillProcess.as_u64();
+        match kill_host_process(request.pid) {
+            Ok(()) => Ok(RpcResponse::KillProcess.into()),
+            Err(KillHostProcessError::NotFound) => Ok(UnaryRpcOutcome::Message(error_message(
+                proc_id,
+                "not_found",
+                "process not found",
+            ))),
+            Err(KillHostProcessError::PermissionDenied) => {
+                Ok(UnaryRpcOutcome::Message(error_message(
+                    proc_id,
+                    "permission_denied",
+                    "process could not be terminated",
+                )))
+            }
+        }
+    }
+
     async fn create_nodes(&mut self, request: CreateNodesReq) -> Result<UnaryRpcOutcome> {
         Ok(RpcResponse::CreateNodes(create_nodes(self.files.as_ref(), request).await).into())
     }
@@ -4130,6 +4202,13 @@ impl HostRpcHandler {
         Box::pin(self.renew_client_credential(request))
     }
 
+    fn remove_client_rpc<'a>(
+        &'a mut self,
+        request: RemoveClientReq,
+    ) -> RpcHandlerFuture<'a, Result<UnaryRpcOutcome>> {
+        Box::pin(self.remove_client(request))
+    }
+
     fn create_nodes_rpc<'a>(
         &'a mut self,
         request: CreateNodesReq,
@@ -4170,6 +4249,13 @@ impl HostRpcHandler {
         request: CloseTerminalSessionReq,
     ) -> RpcHandlerFuture<'a, Result<UnaryRpcOutcome>> {
         Box::pin(self.close_terminal_session(request))
+    }
+
+    fn kill_process_rpc<'a>(
+        &'a mut self,
+        request: KillProcessReq,
+    ) -> RpcHandlerFuture<'a, Result<UnaryRpcOutcome>> {
+        Box::pin(self.kill_process(request))
     }
 
     fn restore_trash_items_rpc<'a>(
@@ -5630,6 +5716,104 @@ mod tests {
             renewal.client_credential_expires_at_unix
                 >= now_unix() + CLIENT_CREDENTIAL_TTL_SECONDS - 1
         );
+    }
+
+    #[tokio::test]
+    async fn remove_client_deletes_persisted_credential() {
+        let dir = tempfile::tempdir().unwrap();
+        let config_path = dir.path().join("rieul.yaml");
+        let credentials_path = client_credentials_path(&config_path);
+        let current = issue_client_secret("current", now_unix());
+        let removed = issue_client_secret("removed", now_unix());
+        let current_client_id = current.client_id.clone();
+        let removed_client_id = removed.client_id.clone();
+        save(&config_path, &SystemConfig::default()).unwrap();
+        save_client_credentials(
+            &credentials_path,
+            &ClientCredentials {
+                clients: vec![current.record, removed.record],
+                ..ClientCredentials::default()
+            },
+        )
+        .unwrap();
+
+        let responses = handle_rpc_messages(
+            vec![request_message(
+                ProcId::RemoveClient,
+                Some(
+                    RemoveClientReq {
+                        client_id: removed_client_id.clone(),
+                    }
+                    .encode(),
+                ),
+            )],
+            &config_path,
+            &credentials_path,
+            Arc::new(Mutex::new(SystemConfig::default())),
+            Arc::new(Mutex::new(ClientCredentials::default())),
+            test_pairing_challenge(),
+            Arc::new(Mutex::new(RpcSessionState {
+                session_id: 0,
+                authenticated_client_id: Some(current_client_id.clone()),
+            })),
+            test_files(),
+            test_terminals(),
+            None,
+        )
+        .await
+        .unwrap();
+
+        assert!(matches!(
+            responses.as_slice(),
+            [ReqResMessage::ResponseUnaryOk { .. }]
+        ));
+        let stored = load_client_credentials_or_default(&credentials_path).unwrap();
+        assert_eq!(stored.clients.len(), 1);
+        assert_eq!(stored.clients[0].client_id, current_client_id);
+        assert!(!stored
+            .clients
+            .iter()
+            .any(|record| record.client_id == removed_client_id));
+    }
+
+    #[test]
+    fn kill_host_process_rejects_the_daemon_process() {
+        assert_eq!(
+            kill_host_process(u64::from(std::process::id())),
+            Err(KillHostProcessError::PermissionDenied)
+        );
+    }
+
+    #[test]
+    fn kill_host_process_reports_an_invalid_pid_as_missing() {
+        assert_eq!(
+            kill_host_process(u64::MAX),
+            Err(KillHostProcessError::NotFound)
+        );
+    }
+
+    #[test]
+    fn kill_host_process_terminates_a_child_process() {
+        #[cfg(windows)]
+        let mut child = std::process::Command::new("cmd")
+            .args(["/C", "ping -n 30 127.0.0.1 >NUL"])
+            .spawn()
+            .unwrap();
+        #[cfg(unix)]
+        let mut child = std::process::Command::new("sleep")
+            .arg("30")
+            .spawn()
+            .unwrap();
+
+        assert_eq!(kill_host_process(u64::from(child.id())), Ok(()));
+        for _ in 0..40 {
+            if child.try_wait().unwrap().is_some() {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        let _ = child.kill();
+        panic!("child process did not exit after kill request");
     }
 
     fn request_message(proc_id: ProcId, payload: Option<Vec<u8>>) -> ReqResMessage {
