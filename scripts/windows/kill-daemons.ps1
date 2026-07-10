@@ -12,6 +12,7 @@ $WebPidFile = Join-Path $TmpDir "web.pid"
 $SystemExe = Join-Path $RepoRoot "target\debug\rieul-windows-system.exe"
 $UserExe = Join-Path $RepoRoot "target\debug\rieul-windows-user.exe"
 $GuiRuntimeName = "rieul-windows-gui.dll"
+$WebPort = 5179
 $DenoDesktopCacheRoot = [System.IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA "deno\desktop"))
 $DenoExe = (Get-Command deno -ErrorAction SilentlyContinue).Source
 if (-not $DenoExe) {
@@ -53,7 +54,8 @@ function Test-DevDaemonProcess {
   param(
     [Microsoft.Management.Infrastructure.CimInstance]$Process,
     [string]$ExecutablePath,
-    [string]$RequiredCommandLinePart
+    [string]$RequiredCommandLinePart,
+    [int]$RequiredListeningPort = 0
   )
 
   if (-not $Process.ExecutablePath -or -not $Process.CommandLine) {
@@ -77,6 +79,18 @@ function Test-DevDaemonProcess {
     return $false
   }
 
+  if ($RequiredListeningPort -gt 0) {
+    $listener = Get-NetTCPConnection `
+      -State Listen `
+      -LocalPort $RequiredListeningPort `
+      -ErrorAction SilentlyContinue |
+      Where-Object { $_.OwningProcess -eq $Process.ProcessId } |
+      Select-Object -First 1
+    if (-not $listener) {
+      return $false
+    }
+  }
+
   return $true
 }
 
@@ -85,7 +99,8 @@ function Stop-DevDaemon {
     [string]$Label,
     [string]$ExecutablePath,
     [string]$PidFile,
-    [string]$RequiredCommandLinePart
+    [string]$RequiredCommandLinePart,
+    [int]$RequiredListeningPort = 0
   )
 
   $stopped = @{}
@@ -96,7 +111,7 @@ function Stop-DevDaemon {
     $processId = 0
     if ($rawPid -and [int]::TryParse(($rawPid.ToString()).Trim(), [ref]$processId)) {
       $process = Get-CimInstance Win32_Process -Filter "ProcessId = $processId" -ErrorAction SilentlyContinue
-      if ($null -ne $process -and (Test-DevDaemonProcess $process $ExecutablePath $RequiredCommandLinePart)) {
+      if ($null -ne $process -and (Test-DevDaemonProcess $process $ExecutablePath $RequiredCommandLinePart $RequiredListeningPort)) {
         if (Stop-ProcessTree -ProcessId $processId -Label $Label) {
           $stopCount += 1
         }
@@ -109,7 +124,7 @@ function Stop-DevDaemon {
 
   $exeName = Split-Path -Path $ExecutablePath -Leaf
   Get-CimInstance Win32_Process -Filter "Name = '$exeName'" -ErrorAction SilentlyContinue |
-    Where-Object { Test-DevDaemonProcess $_ $ExecutablePath $RequiredCommandLinePart } |
+    Where-Object { Test-DevDaemonProcess $_ $ExecutablePath $RequiredCommandLinePart $RequiredListeningPort } |
     ForEach-Object {
       $processId = [int]$_.ProcessId
       if (-not $stopped.ContainsKey($processId)) {
@@ -163,7 +178,8 @@ Stop-DevDaemon `
   -Label "web dev server" `
   -ExecutablePath $DenoExe `
   -PidFile $WebPidFile `
-  -RequiredCommandLinePart "npm:vite"
+  -RequiredCommandLinePart "npm:vite" `
+  -RequiredListeningPort $WebPort
 
 if ($StoppedProcessCount -eq 0) {
   Write-Host "No matching dev daemons found."

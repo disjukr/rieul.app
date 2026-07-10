@@ -69,7 +69,8 @@ function Test-DevDaemonProcess {
   param(
     [Microsoft.Management.Infrastructure.CimInstance]$Process,
     [string]$ExecutablePath,
-    [string]$RequiredCommandLinePart
+    [string]$RequiredCommandLinePart,
+    [int]$RequiredListeningPort = 0
   )
 
   if (-not $Process.ExecutablePath -or -not $Process.CommandLine) {
@@ -93,6 +94,18 @@ function Test-DevDaemonProcess {
     return $false
   }
 
+  if ($RequiredListeningPort -gt 0) {
+    $listener = Get-NetTCPConnection `
+      -State Listen `
+      -LocalPort $RequiredListeningPort `
+      -ErrorAction SilentlyContinue |
+      Where-Object { $_.OwningProcess -eq $Process.ProcessId } |
+      Select-Object -First 1
+    if (-not $listener) {
+      return $false
+    }
+  }
+
   return $true
 }
 
@@ -101,7 +114,8 @@ function Stop-PreviousDaemon {
     [string]$Label,
     [string]$ExecutablePath,
     [string]$PidFile,
-    [string]$RequiredCommandLinePart
+    [string]$RequiredCommandLinePart,
+    [int]$RequiredListeningPort = 0
   )
 
   $stopped = @{}
@@ -111,7 +125,7 @@ function Stop-PreviousDaemon {
     $processId = 0
     if ($rawPid -and [int]::TryParse(($rawPid.ToString()).Trim(), [ref]$processId)) {
       $process = Get-CimInstance Win32_Process -Filter "ProcessId = $processId" -ErrorAction SilentlyContinue
-      if ($null -ne $process -and (Test-DevDaemonProcess $process $ExecutablePath $RequiredCommandLinePart)) {
+      if ($null -ne $process -and (Test-DevDaemonProcess $process $ExecutablePath $RequiredCommandLinePart $RequiredListeningPort)) {
         Stop-ProcessTree -ProcessId $processId -Label "previous $Label"
         $stopped[$processId] = $true
       }
@@ -122,7 +136,7 @@ function Stop-PreviousDaemon {
 
   $exeName = Split-Path -Path $ExecutablePath -Leaf
   Get-CimInstance Win32_Process -Filter "Name = '$exeName'" -ErrorAction SilentlyContinue |
-    Where-Object { Test-DevDaemonProcess $_ $ExecutablePath $RequiredCommandLinePart } |
+    Where-Object { Test-DevDaemonProcess $_ $ExecutablePath $RequiredCommandLinePart $RequiredListeningPort } |
     ForEach-Object {
       $processId = [int]$_.ProcessId
       if (-not $stopped.ContainsKey($processId)) {
@@ -197,7 +211,8 @@ Stop-PreviousDaemon `
   -Label "web dev server" `
   -ExecutablePath $DenoExe `
   -PidFile $WebPidFile `
-  -RequiredCommandLinePart "npm:vite"
+  -RequiredCommandLinePart "npm:vite" `
+  -RequiredListeningPort $WebPort
 
 if (-not $SkipBuild) {
   Push-Location $RepoRoot
