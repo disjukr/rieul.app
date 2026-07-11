@@ -459,6 +459,8 @@ cat >"$APP_PATH/Contents/Resources/$SYSTEM_LABEL.plist" <<EOF
 <dict>
   <key>Label</key>
   <string>$SYSTEM_LABEL</string>
+  <key>AssociatedBundleIdentifiers</key>
+  <string>app.rieul</string>
   <key>ProgramArguments</key>
   <array>
     <string>$SYSTEM_DAEMON_EXE</string>
@@ -488,6 +490,8 @@ cat >"$APP_PATH/Contents/Resources/$GUI_LABEL.plist" <<EOF
 <dict>
   <key>Label</key>
   <string>$GUI_LABEL</string>
+  <key>AssociatedBundleIdentifiers</key>
+  <string>app.rieul</string>
   <key>ProgramArguments</key>
   <array>
     <string>$APP_GUI_LAUNCHER</string>
@@ -514,12 +518,29 @@ plutil -lint \
   "$APP_PATH/Contents/Resources/$SYSTEM_LABEL.plist" \
   "$APP_PATH/Contents/Resources/$GUI_LABEL.plist" >/dev/null
 
+DENO_ENTITLEMENTS="$STAGING_DIR/deno-runtime.entitlements"
+cat >"$DENO_ENTITLEMENTS" <<'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>com.apple.security.cs.allow-jit</key>
+  <true/>
+</dict>
+</plist>
+EOF
+plutil -lint "$DENO_ENTITLEMENTS" >/dev/null
+
 if [[ -n "$SIGN_IDENTITY" && "$SIGN_IDENTITY" != "-" ]]; then
   codesign_args=(--force --options runtime --timestamp --sign "$SIGN_IDENTITY")
 elif [[ -n "$SIGN_IDENTITY" ]]; then
   codesign_args=(--force --options runtime --sign -)
 else
   codesign_args=(--force --sign -)
+fi
+deno_codesign_args=("${codesign_args[@]}")
+if [[ -n "$SIGN_IDENTITY" ]]; then
+  deno_codesign_args+=(--entitlements "$DENO_ENTITLEMENTS")
 fi
 
 # Deno signs the CEF framework itself, but its nested dylibs may retain ad-hoc
@@ -535,8 +556,16 @@ if [[ -d "$CEF_FRAMEWORK" ]]; then
     "$CEF_FRAMEWORK"
 fi
 
-codesign "${codesign_args[@]}" \
-  --preserve-metadata=identifier,entitlements,requirements,flags,runtime \
+# Deno and CEF both embed V8. Hardened Runtime blocks V8's MAP_JIT regions
+# unless each executable process has the allow-jit entitlement.
+while IFS= read -r -d '' helper_app; do
+  codesign "${deno_codesign_args[@]}" \
+    --preserve-metadata=identifier \
+    "$helper_app"
+done < <(find "$APP_PATH/Contents/Frameworks" -maxdepth 1 -type d -name '*.app' -print0)
+
+codesign "${deno_codesign_args[@]}" \
+  --preserve-metadata=identifier \
   "$APP_PATH/Contents/MacOS/$GUI_EXECUTABLE_NAME"
 codesign "${codesign_args[@]}" \
   "$APP_PATH/Contents/Resources/rieul-macos-system"
