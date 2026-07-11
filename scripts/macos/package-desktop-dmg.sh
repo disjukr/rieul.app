@@ -10,7 +10,7 @@ SKIP_DMG=0
 
 usage() {
   cat <<'EOF'
-Usage: scripts/macos/package-daemon-dmg.sh [options]
+Usage: scripts/macos/package-desktop-dmg.sh [options]
 
 Options:
   --version VERSION      Package version. Defaults to daemon/macos/Cargo.toml.
@@ -213,7 +213,7 @@ APP_DEST="/Applications/$APP_NAME.app"
 SYSTEM_DAEMON_EXE="$BIN_DIR/rieul-macos-system"
 APP_GUI_LAUNCHER="$APP_DEST/Contents/MacOS/rieul-macos-app"
 
-PACKAGE_BASE_NAME="rieul-macos-daemon-$VERSION"
+PACKAGE_BASE_NAME="rieul-macos-desktop-$VERSION"
 STAGING_DIR="$OUT_DIR/$PACKAGE_BASE_NAME-app"
 APP_PATH="$STAGING_DIR/$APP_NAME.app"
 DMG_ROOT="$STAGING_DIR/dmg"
@@ -329,7 +329,7 @@ if [[ -n "\$console_uid" ]]; then
   /bin/launchctl asuser "\$console_uid" /bin/launchctl kickstart -k "gui/\$console_uid/\$GUI_LABEL" >/dev/null 2>&1 || true
 fi
 
-echo "Installed Rieul."
+echo "Installed Rieul Desktop."
 echo "Config: $APP_SUPPORT_DIR/rieul.yaml"
 echo "System daemon: $SYSTEM_DAEMON_EXE"
 echo "Logs: $LOG_DIR"
@@ -349,7 +349,7 @@ GUI_PLIST="$GUI_PLIST"
 LEGACY_LAUNCH_AGENT_PLIST="$LEGACY_LAUNCH_AGENT_PLIST"
 SYSTEM_DAEMON_EXE="$SYSTEM_DAEMON_EXE"
 
-echo "Uninstalling Rieul daemons"
+echo "Uninstalling Rieul Desktop"
 /bin/launchctl bootout system "\$SYSTEM_PLIST" >/dev/null 2>&1 || true
 
 console_user="\$(/usr/bin/stat -f %Su /dev/console 2>/dev/null || true)"
@@ -364,7 +364,7 @@ fi
 /bin/rm -f "\$SYSTEM_PLIST" "\$GUI_PLIST" "\$LEGACY_LAUNCH_AGENT_PLIST" "\$SYSTEM_DAEMON_EXE"
 /bin/rmdir "$BIN_DIR" >/dev/null 2>&1 || true
 
-echo "Removed launchd jobs and system daemon."
+echo "Removed Rieul Desktop launchd jobs and system daemon."
 echo "The app bundle and configuration files were left in place."
 EOF
 

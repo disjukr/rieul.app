@@ -4,9 +4,10 @@ An AI-era remote shell/explorer prototype.
 
 The project repository and public web domain are both `rieul.app`.
 
-The product-level model is one daemon per machine. Internally each OS backend
-can choose the process topology that fits that OS. Windows and macOS use a
-system daemon plus a per-user Deno Desktop GUI process.
+The product-level installable is Rieul Desktop. A desktop installation owns the
+machine daemon and, as the product grows, will also include the interactive
+desktop client. The current Windows and macOS packages install the system daemon
+plus a per-user Deno Desktop daemon GUI.
 
 ## Layout
 
@@ -14,7 +15,7 @@ system daemon plus a per-user Deno Desktop GUI process.
 - `daemon/host`: shared daemon runtime for WebTransport, RPC, auth, filesystem
   subscriptions, and TLS.
 - `daemon/windows`: Windows-specific system/user daemon binaries.
-- `daemon/macos`: macOS-specific system daemon and app installer bootstrap.
+- `daemon/macos`: macOS-specific system daemon and desktop installer bootstrap.
 - `protocol`: BDL schemas, RPC/wire standards, and protocol docs.
 - `web`: Vite + React + TypeScript browser client, managed with Deno.
 
@@ -25,14 +26,15 @@ method errors.
 
 ## Development
 
-Run the currently implemented daemon pair:
+Run the current Windows desktop development environment:
 
 ```sh
-deno task windows:dev:daemons
+deno task windows:dev:desktop
 ```
 
-Dev daemon scripts listen on `0.0.0.0:9019` by default so they can run next to a
-release daemon using the product default port `9012`.
+Desktop development scripts run the daemon on `0.0.0.0:9019` by default so they
+can run next to an installed desktop release using the product default port
+`9012`.
 
 If `tmp/dev/rieul.yaml` does not exist, the system daemon creates it. When
 Tailscale is installed, the generated config uses `tailscale status --json` to
@@ -41,23 +43,23 @@ and set `domain` to the Windows machine's Tailscale hostname, or add explicit
 `tls` certificate paths. The daemon keeps running and enables transport once the
 config is valid.
 
-Run the macOS daemon and GUI in dev mode. The system daemon is launched with
-`sudo`; the Deno Desktop GUI runs as the current user.
+Run the macOS desktop development environment. The system daemon is launched
+with `sudo`; the Deno Desktop daemon GUI runs as the current user.
 
 ```sh
-deno task macos:dev:daemons
+deno task macos:dev:desktop
 ```
 
 Use the same generated `tmp/dev/rieul.yaml` flow for macOS.
 
-Stop any detached dev daemons:
+Stop any detached desktop development processes:
 
 ```sh
-deno task windows:kill:daemons
+deno task windows:kill:desktop
 ```
 
 ```sh
-deno task macos:kill:daemons
+deno task macos:kill:desktop
 ```
 
 Check the daemon RPC endpoint:
@@ -112,50 +114,50 @@ deno task dev
 
 ## GitHub Releases
 
-Publishing a GitHub release runs the `Release installers` workflow. It builds
-the unsigned Windows MSI on a Windows runner and the unsigned macOS DMG on a
-macOS runner, then attaches both installers to the release. Installer versions
-come from release tags in the `daemon-x.y.z` or `daemon-x.y.z-rc.n` format; for
-example, `daemon-1.2.3` builds installers with package version `1.2.3`, and
-`daemon-1.2.3-rc.1` builds installer files containing `1.2.3-rc.1`. MSI
-`ProductVersion` still uses the numeric `x.y.z` part because Windows Installer
-does not accept prerelease suffixes there. The Windows release job accepts the
-WiX 7 EULA before building the MSI.
+Publishing a GitHub release runs the `Release desktop installers` workflow. It
+builds the unsigned Windows MSI on a Windows runner and the unsigned macOS DMG
+on a macOS runner, then attaches both installers to the release. Installer
+versions come from release tags in the `desktop-x.y.z` or `desktop-x.y.z-rc.n`
+format; for example, `desktop-1.2.3` builds installers with package version
+`1.2.3`, and `desktop-1.2.3-rc.1` builds installer files containing
+`1.2.3-rc.1`. MSI `ProductVersion` still uses the numeric `x.y.z` part because
+Windows Installer does not accept prerelease suffixes there. The Windows release
+job accepts the WiX 7 EULA before building the MSI.
 
-## Windows Packaging
+## Windows Desktop Packaging
 
-Build an unsigned Windows daemon MSI package:
+Build an unsigned Windows desktop MSI package:
 
 ```sh
-deno task windows:package:daemon
+deno task windows:package:desktop
 ```
 
 The default Windows packaging task uses WiX Toolset to write
-`dist/windows/rieul-windows-daemon-<version>.msi`. Install the .NET SDK first;
+`dist/windows/rieul-windows-desktop-<version>.msi`. Install the .NET SDK first;
 the script restores the repo-local WiX CLI tool and required WiX extensions
 automatically when `wix` is not already on `PATH`.
 
 ```sh
 dotnet tool restore
-deno task windows:package:daemon
+deno task windows:package:desktop
 ```
 
 Install the MSI from an elevated prompt, or double-click it and accept the UAC
 prompt:
 
 ```sh
-msiexec /i .\dist\windows\rieul-windows-daemon-0.1.0.msi
+msiexec /i .\dist\windows\rieul-windows-desktop-0.1.0.msi
 ```
 
-The MSI installs `rieul-windows-system.exe`, `rieul-windows-user.exe`, and
-`rieul-windows-gui.exe` under `%ProgramFiles%\Rieul`, registers
-`rieul-windows-system` as an automatic
-LocalSystem service, starts the service during install, launches the GUI app
-once when install finishes, creates a Start Menu shortcut for the GUI, and
-adds an HKLM Run entry so the GUI starts on user logon. The installer uses
-the standard WiX wizard UI, including a completion dialog. Daemon data under
-`%ProgramData%\Rieul` is intentionally outside the install directory and is not
-removed by uninstall.
+The MSI currently installs `rieul-windows-system.exe` and
+`rieul-windows-user.exe` under `%ProgramFiles%\Rieul`, and installs the Deno
+Desktop daemon GUI bundle under `%ProgramFiles%\Rieul\gui`. It registers
+`rieul-windows-system` as an automatic LocalSystem service, starts the service
+during install, launches the GUI app once when install finishes, creates a Start
+Menu shortcut for the GUI, and adds an HKLM Run entry so the GUI starts on user
+logon. The installer uses the standard WiX wizard UI, including a completion
+dialog. Daemon data under `%ProgramData%\Rieul` is intentionally outside the
+install directory and is not removed by uninstall.
 
 The MSI is intentionally unsigned for now. Windows may still show an unknown
 publisher or SmartScreen warning for downloaded installers, but MSI packaging
@@ -164,49 +166,49 @@ does not require trusting a development certificate before install.
 Uninstall any earlier MSIX package before installing the MSI because both
 packages own the same Windows service name.
 
-Build the older development MSIX package:
+Build the older development desktop MSIX package:
 
 ```sh
-deno task windows:package:daemon:msix
+deno task windows:package:desktop:msix
 ```
 
 The MSIX script stages `rieul-windows-system.exe`, `rieul-windows-user.exe`,
-`rieul-windows-gui.exe`, generated app icons, and an `AppxManifest.xml`, then invokes the Windows SDK
-`MakeAppx.exe` tool. By default it also creates a development code-signing
-certificate and signs the package. The generated `.cer` must be trusted on the
-test machine before the MSIX can be installed. The trust task requests elevation
-when needed:
+`rieul-windows-gui.exe`, generated app icons, and an `AppxManifest.xml`, then
+invokes the Windows SDK `MakeAppx.exe` tool. By default it also creates a
+development code-signing certificate and signs the package. The generated `.cer`
+must be trusted on the test machine before the MSIX can be installed. The trust
+task requests elevation when needed:
 
 ```sh
-deno task windows:trust:daemon:dev-cert
+deno task windows:trust:desktop:dev-cert
 ```
 
 ```sh
-Add-AppxPackage .\dist\windows\rieul-windows-daemon-0.1.0.msix
+Add-AppxPackage .\dist\windows\rieul-windows-desktop-0.1.0.msix
 ```
 
 After installing, launch Rieul from the Start menu once if you want the GUI
 immediately.
 
-Passing `-SkipSign` writes `rieul-windows-daemon-0.1.0.unsigned.msix` so it
+Passing `-SkipSign` writes `rieul-windows-desktop-0.1.0.unsigned.msix` so it
 cannot accidentally replace the signed installable package.
 
 The MSIX manifest declares `rieul-windows-system.exe` as a delayed-start
 LocalSystem packaged service, `rieul-windows-user.exe` as the user-session data
 agent, and `rieul-windows-gui.exe` as the interactive GUI. Uninstalling the
-package removes the packaged service and app binaries.
-Daemon data under `%ProgramData%\Rieul` is intentionally outside the
-package and is not removed by MSIX uninstall.
+package removes the packaged service and app binaries. Daemon data under
+`%ProgramData%\Rieul` is intentionally outside the package and is not removed by
+MSIX uninstall.
 
 For production signing, pass `-CertificatePath` and `-CertificatePassword` to
-`scripts/windows/package-daemon.ps1`.
+`scripts/windows/package-desktop-msix.ps1`.
 
-## macOS Packaging
+## macOS Desktop Packaging
 
 Build a macOS app bundle and DMG:
 
 ```sh
-deno task macos:package:daemon
+deno task macos:package:desktop
 ```
 
 The DMG contains `Rieul.app` and an `/Applications` shortcut, laid out for the
@@ -242,7 +244,7 @@ Logs are written under:
 For Developer ID signing, pass a signing identity to the script:
 
 ```sh
-scripts/macos/package-daemon-dmg.sh --sign "Developer ID Application: Example"
+scripts/macos/package-desktop-dmg.sh --sign "Developer ID Application: Example"
 ```
 
 ## License

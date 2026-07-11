@@ -93,21 +93,21 @@ pub fn ensure_installed_or_prompt() -> Result<StartupAction> {
     }
 
     let message = format!(
-        "Rieul needs to install a system daemon to stay available after reboot.\n\n\
+        "Rieul Desktop needs to install its system daemon to stay available after reboot.\n\n\
 This will copy the app to:\n{}\n\n\
 It will also add launchd jobs under /Library/LaunchDaemons and /Library/LaunchAgents. \
 macOS will ask for an administrator password.",
         settings.install_path.display()
     );
-    if !show_confirmation_window("Install Rieul?", &message)? {
+    if !show_confirmation_window("Install Rieul Desktop?", &message)? {
         return Ok(StartupAction::Exit);
     }
 
     match install_with_administrator_privileges(&settings) {
         Ok(()) => {
             show_message_window(
-                "Rieul Installed",
-                "The daemon has been installed and registered with launchd.",
+                "Rieul Desktop Installed",
+                "Rieul Desktop has been installed and registered with launchd.",
             )?;
             if !current_gui_agent_is_loaded(&settings) {
                 open_installed_app(&settings.install_path)?;
@@ -115,7 +115,7 @@ macOS will ask for an administrator password.",
             Ok(StartupAction::Exit)
         }
         Err(err) => {
-            show_error_window(&format!("Failed to install Rieul:\n\n{err}"))?;
+            show_error_window(&format!("Failed to install Rieul Desktop:\n\n{err}"))?;
             Ok(StartupAction::Exit)
         }
     }

@@ -434,7 +434,7 @@ try {
   Write-Host "Dev config: $ConfigPath"
   Write-Host "Logs: $LogDir"
   Write-Host "WebTransport endpoint: https://$Listen/rieul/rpc"
-  Write-Host "Press Ctrl+C or close this script to stop dev daemons."
+  Write-Host "Press Ctrl+C or close this script to stop the desktop dev environment."
 
   while ($true) {
     foreach ($child in $children) {

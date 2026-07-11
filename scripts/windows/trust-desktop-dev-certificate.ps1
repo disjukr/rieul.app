@@ -17,7 +17,7 @@ function Get-CargoPackageVersion {
     Where-Object { $_ -match '^version\s*=\s*"([^"]+)"' } |
     Select-Object -First 1
   if (-not $versionLine) {
-    throw "Could not infer daemon version from $CargoTomlPath"
+    throw "Could not infer desktop package version from $CargoTomlPath"
   }
   return [regex]::Match($versionLine, '^version\s*=\s*"([^"]+)"').Groups[1].Value
 }
@@ -71,11 +71,11 @@ if (-not $OutDir) {
   $OutDir = Join-Path $RepoRoot "dist\windows"
 }
 if (-not $CertificatePath) {
-  $CertificatePath = Join-Path $OutDir "rieul-windows-daemon-$Version.cer"
+  $CertificatePath = Join-Path $OutDir "rieul-windows-desktop-$Version.cer"
 }
 
 if (-not (Test-Path -LiteralPath $CertificatePath)) {
-  throw "Missing development certificate: $CertificatePath. Run 'deno task windows:package:daemon:msix' first."
+  throw "Missing development certificate: $CertificatePath. Run 'deno task windows:package:desktop:msix' first."
 }
 
 if (-not (Test-IsAdministrator)) {

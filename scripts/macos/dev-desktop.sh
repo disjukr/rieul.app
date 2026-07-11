@@ -71,7 +71,7 @@ cleanup() {
 
 trap cleanup EXIT INT TERM
 
-"$SCRIPT_DIR/kill-daemons.sh"
+"$SCRIPT_DIR/kill-desktop.sh"
 
 if [[ "$SKIP_BUILD" != "1" ]]; then
   cargo build -p rieul-macos-daemon --bin rieul-macos-system
@@ -135,7 +135,7 @@ echo "GUI daemon pid=$GUI_PID"
 echo "Dev config: $CONFIG_PATH"
 echo "Logs: $LOG_DIR"
 echo "WebTransport endpoint: https://$LISTEN/rieul/rpc"
-echo "Press Ctrl+C to stop all dev daemons."
+echo "Press Ctrl+C to stop the desktop dev environment."
 
 while true; do
   if ! kill -0 "$SYSTEM_PID" 2>/dev/null; then

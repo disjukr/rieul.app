@@ -6,15 +6,15 @@
   },
   "tasks": {
     "codegen:typescript": "deno run -A ./scripts/codegen/typescript/main.ts --standard wire --schema ./protocol/schemas/wire --out ./web/src/protocol/generated/wire.ts --cbor-import ../cbor.ts && deno run -A ./scripts/codegen/typescript/main.ts --standard rpc --schema ./protocol/schemas/rpc --out ./web/src/protocol/generated/rpc.ts --rpc-client-out ./web/src/protocol/generated/client.ts --cbor-import ../cbor.ts --generated-import ./rpc.ts --rpc-runtime-import ../client.ts",
-    "macos:dev:daemons": "./scripts/macos/dev-daemons.sh",
-    "macos:kill:daemons": "./scripts/macos/kill-daemons.sh",
-    "macos:package:daemon": "./scripts/macos/package-daemon-dmg.sh",
+    "macos:dev:desktop": "./scripts/macos/dev-desktop.sh",
+    "macos:kill:desktop": "./scripts/macos/kill-desktop.sh",
+    "macos:package:desktop": "./scripts/macos/package-desktop-dmg.sh",
     "macos:pair:dev": "./scripts/macos/pair-dev.sh",
-    "windows:dev:daemons": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/windows/dev-daemons.ps1",
-    "windows:kill:daemons": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/windows/kill-daemons.ps1",
-    "windows:package:daemon": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/windows/package-daemon-msi.ps1",
-    "windows:package:daemon:msix": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/windows/package-daemon.ps1",
+    "windows:dev:desktop": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/windows/dev-desktop.ps1",
+    "windows:kill:desktop": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/windows/kill-desktop.ps1",
+    "windows:package:desktop": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/windows/package-desktop-msi.ps1",
+    "windows:package:desktop:msix": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/windows/package-desktop-msix.ps1",
     "windows:pair:dev": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/windows/pair-dev.ps1",
-    "windows:trust:daemon:dev-cert": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/windows/trust-daemon-dev-certificate.ps1"
+    "windows:trust:desktop:dev-cert": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/windows/trust-desktop-dev-certificate.ps1"
   }
 }
