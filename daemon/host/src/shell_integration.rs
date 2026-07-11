@@ -175,6 +175,10 @@ fn ensure_script(root_dir: &Path, name: &str, content: &str) -> Option<PathBuf> 
 fn ensure_zsh_zdotdir(root_dir: &Path, script: &Path) -> Option<PathBuf> {
     let dir = root_dir.join("zsh-zdotdir");
     fs::create_dir_all(&dir).ok()?;
+    let zprofile = r#"if [ -n "${RIEUL_USER_ZDOTDIR:-}" ] && [ -r "${RIEUL_USER_ZDOTDIR}/.zprofile" ]; then
+  source "${RIEUL_USER_ZDOTDIR}/.zprofile"
+fi
+"#;
     let zshrc = format!(
         r#"if [ -n "${{RIEUL_USER_ZDOTDIR:-}}" ] && [ -r "${{RIEUL_USER_ZDOTDIR}}/.zshrc" ]; then
   source "${{RIEUL_USER_ZDOTDIR}}/.zshrc"
@@ -183,6 +187,7 @@ source {}
 "#,
         sh_single_quote(&script.to_string_lossy()),
     );
+    write_if_changed(&dir.join(".zprofile"), zprofile).ok()?;
     write_if_changed(&dir.join(".zshrc"), &zshrc).ok()?;
     Some(dir)
 }

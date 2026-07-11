@@ -235,19 +235,23 @@ if [[ "$SKIP_BUILD" == "1" && -n "$SIGN_IDENTITY" && "$SIGN_IDENTITY" != "-" ]];
   fi
 fi
 
-SYSTEM_LABEL="app.rieul.system"
+SYSTEM_LABEL="app.rieul.daemon"
 GUI_LABEL="app.rieul.gui"
+# Remove the external pre-embedded LaunchDaemon when upgrading.
+LEGACY_SYSTEM_LABEL="app.rieul.system"
 # Remove the pre-Deno GUI LaunchAgent when upgrading an existing installation.
 LEGACY_LAUNCH_AGENT_LABEL="app.rieul.user"
 APP_SUPPORT_DIR="/Library/Application Support/rieul"
 BIN_DIR="$APP_SUPPORT_DIR/bin"
 LOG_DIR="/Library/Logs/rieul"
 SYSTEM_PLIST="/Library/LaunchDaemons/$SYSTEM_LABEL.plist"
+LEGACY_SYSTEM_PLIST="/Library/LaunchDaemons/$LEGACY_SYSTEM_LABEL.plist"
 GUI_PLIST="/Library/LaunchAgents/$GUI_LABEL.plist"
 LEGACY_LAUNCH_AGENT_PLIST="/Library/LaunchAgents/$LEGACY_LAUNCH_AGENT_LABEL.plist"
 APP_DEST="/Applications/$APP_NAME.app"
-SYSTEM_DAEMON_EXE="$BIN_DIR/rieul-macos-system"
-APP_GUI_LAUNCHER="$APP_DEST/Contents/MacOS/rieul-macos-app"
+LEGACY_SYSTEM_DAEMON_EXE="$BIN_DIR/rieul-macos-system"
+SYSTEM_DAEMON_EXE="$APP_DEST/Contents/Library/LaunchServices/rieul-macos-system"
+APP_GUI_LAUNCHER="$APP_DEST/Contents/MacOS/rieul-macos-launcher"
 
 PACKAGE_BASE_NAME="rieul-macos-desktop-$VERSION"
 STAGING_DIR="$OUT_DIR/$PACKAGE_BASE_NAME-app"
@@ -262,6 +266,7 @@ VOLUME_NAME="$APP_NAME $VERSION"
 rm -rf "$STAGING_DIR"
 mkdir -p "$STAGING_DIR" "$DMG_ROOT"
 /usr/bin/ditto "$GUI_APP" "$APP_PATH"
+mkdir -p "$APP_PATH/Contents/Library/LaunchServices"
 
 GUI_EXECUTABLE_NAME="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP_PATH/Contents/Info.plist")"
 if [[ -z "$GUI_EXECUTABLE_NAME" || ! -x "$APP_PATH/Contents/MacOS/$GUI_EXECUTABLE_NAME" ]]; then
@@ -282,8 +287,8 @@ if [[ -f "$APP_PATH/Contents/MacOS/$GUI_UPDATE_MARKER_NAME" ]]; then
     "$APP_PATH/Contents/MacOS/$GUI_UPDATE_MARKER_NAME"
 fi
 
-install -m 0755 "$LAUNCHER_EXE" "$APP_PATH/Contents/Resources/rieul-macos-launcher"
-install -m 0755 "$SYSTEM_EXE" "$APP_PATH/Contents/Resources/rieul-macos-system"
+install -m 0755 "$LAUNCHER_EXE" "$APP_PATH/Contents/MacOS/rieul-macos-launcher"
+install -m 0755 "$SYSTEM_EXE" "$APP_PATH/Contents/Library/LaunchServices/rieul-macos-system"
 install -m 0644 "$REPO_ROOT/rieul.svg" "$APP_PATH/Contents/Resources/rieul.svg"
 APP_ICON_PLIST=""
 if new_icns_from_svg \
@@ -293,20 +298,6 @@ if new_icns_from_svg \
   APP_ICON_PLIST="  <key>CFBundleIconFile</key>
   <string>rieul</string>"
 fi
-
-cat >"$APP_PATH/Contents/MacOS/rieul-macos-app" <<EOF
-#!/usr/bin/env bash
-set -euo pipefail
-
-CONTENTS_DIR="\$(cd "\$(dirname "\$0")/.." && pwd)"
-export RIEUL_APP_BUNDLE_PATH="\$CONTENTS_DIR/.."
-export RIEUL_APP_INSTALL_PATH="$APP_DEST"
-export RIEUL_SYSTEM_LABEL="$SYSTEM_LABEL"
-export RIEUL_GUI_LABEL="$GUI_LABEL"
-export RIEUL_GUI_EXECUTABLE="\$CONTENTS_DIR/MacOS/$GUI_EXECUTABLE_NAME"
-exec "\$CONTENTS_DIR/Resources/rieul-macos-launcher" run
-EOF
-chmod 0755 "$APP_PATH/Contents/MacOS/rieul-macos-app"
 
 cat >"$APP_PATH/Contents/Resources/install" <<EOF
 #!/usr/bin/env bash
@@ -319,11 +310,14 @@ fi
 SOURCE_APP="\$(cd "\$(dirname "\$0")/../.." && pwd)"
 DEST_APP="$APP_DEST"
 SYSTEM_LABEL="$SYSTEM_LABEL"
+LEGACY_SYSTEM_LABEL="$LEGACY_SYSTEM_LABEL"
 GUI_LABEL="$GUI_LABEL"
 APP_SUPPORT_DIR="$APP_SUPPORT_DIR"
 BIN_DIR="$BIN_DIR"
+LEGACY_SYSTEM_DAEMON_EXE="$LEGACY_SYSTEM_DAEMON_EXE"
 LOG_DIR="$LOG_DIR"
 SYSTEM_PLIST="$SYSTEM_PLIST"
+LEGACY_SYSTEM_PLIST="$LEGACY_SYSTEM_PLIST"
 GUI_PLIST="$GUI_PLIST"
 LEGACY_LAUNCH_AGENT_PLIST="$LEGACY_LAUNCH_AGENT_PLIST"
 SYSTEM_DAEMON_EXE="$SYSTEM_DAEMON_EXE"
@@ -334,13 +328,15 @@ if [[ ! -d "\$SOURCE_APP" ]]; then
 fi
 
 echo "Installing \$DEST_APP"
-/bin/mkdir -p "\$BIN_DIR" "\$LOG_DIR"
+/bin/mkdir -p "\$APP_SUPPORT_DIR" "\$LOG_DIR"
 /usr/sbin/chown -R root:wheel "\$APP_SUPPORT_DIR"
-/bin/chmod 0755 "\$APP_SUPPORT_DIR" "\$BIN_DIR"
+/bin/chmod 0755 "\$APP_SUPPORT_DIR"
 /usr/sbin/chown root:wheel "\$LOG_DIR"
 /bin/chmod 1777 "\$LOG_DIR"
 
 /bin/launchctl bootout system "\$SYSTEM_PLIST" >/dev/null 2>&1 || true
+/bin/launchctl bootout system "\$LEGACY_SYSTEM_PLIST" >/dev/null 2>&1 || true
+/bin/rm -f "\$LEGACY_SYSTEM_PLIST"
 
 console_user="\$(/usr/bin/stat -f %Su /dev/console 2>/dev/null || true)"
 console_uid=""
@@ -358,7 +354,8 @@ if [[ "\$SOURCE_APP" != "\$DEST_APP" ]]; then
 fi
 /usr/sbin/chown -R root:wheel "\$DEST_APP"
 
-/usr/bin/install -m 0755 -o root -g wheel "\$DEST_APP/Contents/Resources/rieul-macos-system" "\$SYSTEM_DAEMON_EXE"
+/bin/rm -f "\$LEGACY_SYSTEM_DAEMON_EXE"
+/bin/rmdir "\$BIN_DIR" >/dev/null 2>&1 || true
 
 /bin/cp "\$DEST_APP/Contents/Resources/\$SYSTEM_LABEL.plist" "\$SYSTEM_PLIST"
 /usr/sbin/chown root:wheel "\$SYSTEM_PLIST"
@@ -394,12 +391,14 @@ fi
 
 SYSTEM_LABEL="$SYSTEM_LABEL"
 SYSTEM_PLIST="$SYSTEM_PLIST"
+LEGACY_SYSTEM_PLIST="$LEGACY_SYSTEM_PLIST"
 GUI_PLIST="$GUI_PLIST"
 LEGACY_LAUNCH_AGENT_PLIST="$LEGACY_LAUNCH_AGENT_PLIST"
-SYSTEM_DAEMON_EXE="$SYSTEM_DAEMON_EXE"
+LEGACY_SYSTEM_DAEMON_EXE="$LEGACY_SYSTEM_DAEMON_EXE"
 
 echo "Uninstalling Rieul Desktop"
 /bin/launchctl bootout system "\$SYSTEM_PLIST" >/dev/null 2>&1 || true
+/bin/launchctl bootout system "\$LEGACY_SYSTEM_PLIST" >/dev/null 2>&1 || true
 
 console_user="\$(/usr/bin/stat -f %Su /dev/console 2>/dev/null || true)"
 if [[ -n "\$console_user" && "\$console_user" != "root" ]]; then
@@ -410,7 +409,7 @@ if [[ -n "\$console_user" && "\$console_user" != "root" ]]; then
   fi
 fi
 
-/bin/rm -f "\$SYSTEM_PLIST" "\$GUI_PLIST" "\$LEGACY_LAUNCH_AGENT_PLIST" "\$SYSTEM_DAEMON_EXE"
+/bin/rm -f "\$SYSTEM_PLIST" "\$LEGACY_SYSTEM_PLIST" "\$GUI_PLIST" "\$LEGACY_LAUNCH_AGENT_PLIST" "\$LEGACY_SYSTEM_DAEMON_EXE"
 /bin/rmdir "$BIN_DIR" >/dev/null 2>&1 || true
 
 echo "Removed Rieul Desktop launchd jobs and system daemon."
@@ -418,7 +417,7 @@ echo "The app bundle and configuration files were left in place."
 EOF
 
 chmod 0755 \
-  "$APP_PATH/Contents/MacOS/rieul-macos-app" \
+  "$APP_PATH/Contents/MacOS/rieul-macos-launcher" \
   "$APP_PATH/Contents/Resources/install" \
   "$APP_PATH/Contents/Resources/uninstall"
 ln -s ../Resources/install "$APP_PATH/Contents/MacOS/install"
@@ -439,7 +438,7 @@ set_plist_bool() {
 }
 
 set_plist_string CFBundleDisplayName "$APP_NAME"
-set_plist_string CFBundleExecutable rieul-macos-app
+set_plist_string CFBundleExecutable rieul-macos-launcher
 set_plist_string CFBundleIdentifier app.rieul
 set_plist_string CFBundleName "$APP_NAME"
 set_plist_string CFBundleShortVersionString "$VERSION"
@@ -568,9 +567,9 @@ codesign "${deno_codesign_args[@]}" \
   --preserve-metadata=identifier \
   "$APP_PATH/Contents/MacOS/$GUI_EXECUTABLE_NAME"
 codesign "${codesign_args[@]}" \
-  "$APP_PATH/Contents/Resources/rieul-macos-system"
+  "$APP_PATH/Contents/Library/LaunchServices/rieul-macos-system"
 codesign "${codesign_args[@]}" \
-  "$APP_PATH/Contents/Resources/rieul-macos-launcher"
+  "$APP_PATH/Contents/MacOS/rieul-macos-launcher"
 codesign "${codesign_args[@]}" "$APP_PATH"
 
 if [[ "$SKIP_DMG" == "1" ]]; then

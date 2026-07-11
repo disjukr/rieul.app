@@ -77,6 +77,9 @@ const activeNotifications = new Set<Notification>();
 let notificationIconDataUrl: Promise<string> | undefined;
 
 await desktopLog(`starting desktop process: profileId=${profileId}`);
+if (Deno.build.os === "darwin") {
+  Deno.dock?.setVisible?.(false);
+}
 
 const assetServer = Deno.serve(handleRequest);
 const port = desktopServePort(assetServer);

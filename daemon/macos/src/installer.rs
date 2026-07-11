@@ -8,9 +8,8 @@ use anyhow::{anyhow, Context, Result};
 use crate::installer_ui::{show_confirmation_window, show_error_window, show_message_window};
 
 const DEFAULT_APP_INSTALL_PATH: &str = "/Applications/Rieul.app";
-const DEFAULT_SYSTEM_LABEL: &str = "app.rieul.system";
+const DEFAULT_SYSTEM_LABEL: &str = "app.rieul.daemon";
 const DEFAULT_GUI_LABEL: &str = "app.rieul.gui";
-const SYSTEM_DAEMON_PATH: &str = "/Library/Application Support/rieul/bin/rieul-macos-system";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StartupAction {
@@ -64,6 +63,14 @@ impl InstallSettings {
             .join("Contents")
             .join("Resources")
             .join(format!("{}.plist", self.gui_label))
+    }
+
+    fn installed_system_daemon(&self) -> PathBuf {
+        self.install_path
+            .join("Contents")
+            .join("Library")
+            .join("LaunchServices")
+            .join("rieul-macos-system")
     }
 
     fn source_install_command(&self) -> PathBuf {
@@ -142,7 +149,7 @@ fn default_install_path(source_app: &Path) -> PathBuf {
 
 fn launchd_install_is_ready(settings: &InstallSettings) -> bool {
     settings.install_path.is_dir()
-        && Path::new(SYSTEM_DAEMON_PATH).is_file()
+        && settings.installed_system_daemon().is_file()
         && settings.installed_system_plist_source().is_file()
         && settings.installed_gui_plist_source().is_file()
         && settings.system_plist_path().is_file()
