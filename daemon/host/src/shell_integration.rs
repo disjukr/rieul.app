@@ -321,9 +321,9 @@ __rieul_prompt_end() { printf '\e]633;B\a'; }
 __rieul_update_cwd() { printf '\e]633;P;Cwd=%s\a' "$(__rieul_escape_value "$PWD")"; }
 
 __rieul_precmd() {
-  local status="$?"
+  local exit_status="$?"
   if [ "${__rieul_seen_prompt:-0}" = "1" ]; then
-    printf '\e]633;D;%s\a' "$status"
+    printf '\e]633;D;%s\a' "$exit_status"
   fi
   __rieul_seen_prompt=1
   __rieul_update_cwd
@@ -339,3 +339,14 @@ add-zsh-hook preexec __rieul_preexec
 
 PS1="%{$(__rieul_prompt_start)%}${PS1:-%m%# }%{$(__rieul_prompt_end)%}"
 "#;
+
+#[cfg(test)]
+mod tests {
+    use super::ZSH_INTEGRATION_SCRIPT;
+
+    #[test]
+    fn zsh_precmd_does_not_assign_to_read_only_status_parameter() {
+        assert!(!ZSH_INTEGRATION_SCRIPT.contains("local status="));
+        assert!(ZSH_INTEGRATION_SCRIPT.contains("local exit_status=\"$?\""));
+    }
+}

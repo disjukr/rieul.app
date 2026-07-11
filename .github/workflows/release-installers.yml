@@ -161,7 +161,7 @@ jobs:
           echo "APP_SIGN_IDENTITY=$app_sign_identity" >>"$GITHUB_ENV"
           echo "INSTALLER_SIGN_IDENTITY=$installer_sign_identity" >>"$GITHUB_ENV"
 
-      - name: Build and sign macOS installers
+      - name: Build and sign macOS installer
         shell: bash
         env:
           RELEASE_TAG: ${{ github.event.release.tag_name }}
@@ -173,12 +173,8 @@ jobs:
           fi
           version="${BASH_REMATCH[1]}"
           echo "MACOS_RELEASE_VERSION=$version" >>"$GITHUB_ENV"
-          ./scripts/macos/package-desktop-dmg.sh \
-            --version "$version" \
-            --sign "$APP_SIGN_IDENTITY"
           ./scripts/macos/package-desktop-pkg.sh \
             --version "$version" \
-            --skip-build \
             --app-sign "$APP_SIGN_IDENTITY" \
             --installer-sign "$INSTALLER_SIGN_IDENTITY"
 
@@ -188,14 +184,12 @@ jobs:
           set -euo pipefail
           package_base_name="rieul-macos-desktop-$MACOS_RELEASE_VERSION"
           app_path="dist/macos/$package_base_name-app/Rieul.app"
-          dmg_path="dist/macos/$package_base_name.dmg"
           pkg_path="dist/macos/$package_base_name.pkg"
 
           codesign --verify --deep --strict --verbose=2 "$app_path"
-          codesign --verify --strict --verbose=2 "$dmg_path"
           pkgutil --check-signature "$pkg_path"
 
-      - name: Notarize macOS installers
+      - name: Notarize macOS installer
         shell: bash
         env:
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
@@ -206,15 +200,7 @@ jobs:
           : "${APPLE_API_ISSUER_ID:?Missing APPLE_API_ISSUER_ID secret}"
 
           package_base_name="rieul-macos-desktop-$MACOS_RELEASE_VERSION"
-          dmg_path="dist/macos/$package_base_name.dmg"
           pkg_path="dist/macos/$package_base_name.pkg"
-
-          xcrun notarytool submit "$dmg_path" \
-            --key "$RUNNER_TEMP/notary-api-key.p8" \
-            --key-id "$APPLE_API_KEY_ID" \
-            --issuer "$APPLE_API_ISSUER_ID" \
-            --wait
-          xcrun stapler staple "$dmg_path"
 
           xcrun notarytool submit "$pkg_path" \
             --key "$RUNNER_TEMP/notary-api-key.p8" \
@@ -228,24 +214,17 @@ jobs:
         run: |
           set -euo pipefail
           package_base_name="rieul-macos-desktop-$MACOS_RELEASE_VERSION"
-          dmg_path="dist/macos/$package_base_name.dmg"
           pkg_path="dist/macos/$package_base_name.pkg"
 
-          xcrun stapler validate "$dmg_path"
           xcrun stapler validate "$pkg_path"
-          spctl --assess \
-            --type open \
-            --context context:primary-signature \
-            --verbose=2 \
-            "$dmg_path"
           spctl --assess --type install --verbose=2 "$pkg_path"
 
-      - name: Upload macOS installers to release
+      - name: Upload macOS installer to release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release upload "${{ github.event.release.tag_name }}" dist/macos/*.dmg dist/macos/*.pkg --clobber
+          gh release upload "${{ github.event.release.tag_name }}" dist/macos/*.pkg --clobber
 
       - name: Remove signing credentials
         if: always()
