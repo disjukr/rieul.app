@@ -78,6 +78,28 @@ function ConvertTo-XmlEscapedText {
   return [System.Security.SecurityElement]::Escape($Value)
 }
 
+function Assert-GuiBundle {
+  param([string]$Path)
+
+  if (-not (Test-Path -LiteralPath $Path -PathType Container)) {
+    throw "Missing GUI bundle: $Path"
+  }
+
+  $requiredPaths = @(
+    "rieul-windows-gui.exe",
+    "rieul-windows-gui.dll",
+    "libcef.dll",
+    "resources.pak",
+    "locales"
+  )
+  foreach ($relativePath in $requiredPaths) {
+    $requiredPath = Join-Path $Path $relativePath
+    if (-not (Test-Path -LiteralPath $requiredPath)) {
+      throw "GUI bundle is incomplete; missing: $requiredPath"
+    }
+  }
+}
+
 function New-PngAssetsFromSvg {
   param(
     [string]$SourceSvg,
@@ -170,7 +192,7 @@ function New-AppxManifest {
   <Applications>
     <Application
       Id="RieulGui"
-      Executable="rieul-windows-gui.exe"
+      Executable="gui\rieul-windows-gui.exe"
       EntryPoint="Windows.FullTrustApplication">
       <uap:VisualElements
         DisplayName="Rieul"
@@ -181,7 +203,7 @@ function New-AppxManifest {
       <Extensions>
         <desktop:Extension
           Category="windows.startupTask"
-          Executable="rieul-windows-gui.exe"
+          Executable="gui\rieul-windows-gui.exe"
           EntryPoint="Windows.FullTrustApplication">
           <desktop:StartupTask
             TaskId="RieulGui"
@@ -284,7 +306,7 @@ if ($SkipSign) {
 $ReleaseDir = Join-Path $RepoRoot "target\release"
 $SystemExe = Join-Path $ReleaseDir "rieul-windows-system.exe"
 $UserExe = Join-Path $ReleaseDir "rieul-windows-user.exe"
-$GuiExe = Join-Path $ReleaseDir "rieul-windows-gui.exe"
+$GuiBundle = Join-Path $ReleaseDir "rieul-windows-gui"
 
 if (-not $SkipBuild) {
   Push-Location $RepoRoot
@@ -307,9 +329,7 @@ if (-not (Test-Path -LiteralPath $SystemExe)) {
 if (-not (Test-Path -LiteralPath $UserExe)) {
   throw "Missing release binary: $UserExe"
 }
-if (-not (Test-Path -LiteralPath $GuiExe)) {
-  throw "Missing release binary: $GuiExe"
-}
+Assert-GuiBundle $GuiBundle
 
 if (Test-Path -LiteralPath $StagingDir) {
   Remove-Item -LiteralPath $StagingDir -Recurse -Force
@@ -320,7 +340,10 @@ New-Item -ItemType Directory -Force -Path $AssetsDir | Out-Null
 
 Copy-Item -LiteralPath $SystemExe -Destination (Join-Path $StagingDir "rieul-windows-system.exe")
 Copy-Item -LiteralPath $UserExe -Destination (Join-Path $StagingDir "rieul-windows-user.exe")
-Copy-Item -LiteralPath $GuiExe -Destination (Join-Path $StagingDir "rieul-windows-gui.exe")
+$GuiStagingDir = Join-Path $StagingDir "gui"
+New-Item -ItemType Directory -Force -Path $GuiStagingDir | Out-Null
+Get-ChildItem -LiteralPath $GuiBundle -Force |
+  Copy-Item -Destination $GuiStagingDir -Recurse -Force
 
 $LogoSvgPath = Join-Path $RepoRoot "web\public\favicon.svg"
 if (-not (Test-Path -LiteralPath $LogoSvgPath)) {

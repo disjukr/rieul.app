@@ -10,7 +10,7 @@
     },
     "backend": "cef",
     "output": {
-      "windows": "../target/release/rieul-windows-gui.exe"
+      "windows": "../target/release/rieul-windows-gui"
     }
   },
   "tasks": {
