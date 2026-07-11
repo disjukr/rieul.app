@@ -9,6 +9,7 @@
     "macos:dev:desktop": "./scripts/macos/dev-desktop.sh",
     "macos:kill:desktop": "./scripts/macos/kill-desktop.sh",
     "macos:package:desktop": "./scripts/macos/package-desktop-dmg.sh",
+    "macos:package:desktop:pkg": "./scripts/macos/package-desktop-pkg.sh",
     "macos:pair:dev": "./scripts/macos/pair-dev.sh",
     "windows:dev:desktop": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/windows/dev-desktop.ps1",
     "windows:kill:desktop": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/windows/kill-desktop.ps1",

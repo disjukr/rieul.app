@@ -205,7 +205,7 @@ For production signing, pass `-CertificatePath` and `-CertificatePassword` to
 
 ## macOS Desktop Packaging
 
-Build a macOS app bundle and DMG:
+Build a macOS app bundle and DMG for the drag-to-install flow:
 
 ```sh
 deno task macos:package:desktop
@@ -214,6 +214,27 @@ deno task macos:package:desktop
 The DMG contains `Rieul.app` and an `/Applications` shortcut, laid out for the
 usual drag-to-install flow. The app bundle contains the per-user Deno Desktop
 GUI and installer controller.
+
+Build a PKG for command-line installation, or for managed deployment after
+signing it:
+
+```sh
+deno task macos:package:desktop:pkg
+```
+
+This writes `dist/macos/rieul-macos-desktop-<version>.pkg`. The package installs
+the same `Rieul.app` under `/Applications` and then runs the app's bundled
+install command to replace and start the system daemon and per-user GUI agent.
+Install it without opening Installer.app:
+
+```sh
+sudo /usr/sbin/installer \
+  -pkg dist/macos/rieul-macos-desktop-0.1.0.pkg \
+  -target /
+```
+
+The PKG is unsigned by default. As with the unsigned DMG, macOS may require the
+user to approve a downloaded package before installation.
 
 On first launch from the DMG, the app prompts to install itself. Accepting the
 prompt copies the app to `/Applications`, installs the privileged system daemon
@@ -245,6 +266,15 @@ For Developer ID signing, pass a signing identity to the script:
 
 ```sh
 scripts/macos/package-desktop-dmg.sh --sign "Developer ID Application: Example"
+```
+
+PKG distribution uses separate identities for the app bundle and installer
+package:
+
+```sh
+scripts/macos/package-desktop-pkg.sh \
+  --app-sign "Developer ID Application: Example" \
+  --installer-sign "Developer ID Installer: Example"
 ```
 
 ## License

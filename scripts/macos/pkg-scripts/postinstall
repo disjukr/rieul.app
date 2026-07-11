@@ -1,0 +1,15 @@
+#!/bin/bash
+set -euo pipefail
+
+if [[ "${3:-/}" != "/" ]]; then
+  echo "Rieul Desktop can only be installed on the startup volume." >&2
+  exit 1
+fi
+
+INSTALL_COMMAND="/Applications/Rieul.app/Contents/MacOS/install"
+if [[ ! -x "$INSTALL_COMMAND" ]]; then
+  echo "Missing Rieul Desktop install command: $INSTALL_COMMAND" >&2
+  exit 1
+fi
+
+exec /bin/bash "$INSTALL_COMMAND"

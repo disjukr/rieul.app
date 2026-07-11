@@ -58,7 +58,7 @@ jobs:
           gh release upload "${{ github.event.release.tag_name }}" dist/windows/*.msi --clobber
 
   macos:
-    name: Build macOS DMG
+    name: Build macOS installers
     runs-on: macos-latest
 
     steps:
@@ -76,7 +76,7 @@ jobs:
         with:
           deno-version: v2.x
 
-      - name: Build DMG
+      - name: Build macOS installers
         shell: bash
         env:
           RELEASE_TAG: ${{ github.event.release.tag_name }}
@@ -87,10 +87,11 @@ jobs:
           fi
           version="${BASH_REMATCH[1]}"
           ./scripts/macos/package-desktop-dmg.sh --version "$version"
+          ./scripts/macos/package-desktop-pkg.sh --version "$version" --skip-build
 
-      - name: Upload DMG to release
+      - name: Upload macOS installers to release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release upload "${{ github.event.release.tag_name }}" dist/macos/*.dmg --clobber
+          gh release upload "${{ github.event.release.tag_name }}" dist/macos/*.dmg dist/macos/*.pkg --clobber
