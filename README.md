@@ -115,14 +115,33 @@ deno task dev
 ## GitHub Releases
 
 Publishing a GitHub release runs the `Release desktop installers` workflow. It
-builds the unsigned Windows MSI on a Windows runner and the unsigned macOS DMG
-on a macOS runner, then attaches both installers to the release. Installer
-versions come from release tags in the `desktop-x.y.z` or `desktop-x.y.z-rc.n`
-format; for example, `desktop-1.2.3` builds installers with package version
-`1.2.3`, and `desktop-1.2.3-rc.1` builds installer files containing
-`1.2.3-rc.1`. MSI `ProductVersion` still uses the numeric `x.y.z` part because
-Windows Installer does not accept prerelease suffixes there. The Windows release
-job accepts the WiX 7 EULA before building the MSI.
+builds the unsigned Windows MSI on a Windows runner and Developer ID-signed,
+notarized macOS DMG and PKG installers on a macOS runner, then attaches the
+installers to the release. Installer versions come from release tags in the
+`desktop-x.y.z` or `desktop-x.y.z-rc.n` format; for example, `desktop-1.2.3`
+builds installers with package version `1.2.3`, and `desktop-1.2.3-rc.1` builds
+installer files containing `1.2.3-rc.1`. MSI `ProductVersion` still uses the
+numeric `x.y.z` part because Windows Installer does not accept prerelease
+suffixes there. The Windows release job accepts the WiX 7 EULA before building
+the MSI.
+
+The macOS release job imports the Developer ID Application and Installer
+identities into an ephemeral keychain, signs the app and both distribution
+containers, submits the DMG and PKG to Apple's notary service, staples their
+tickets, and validates them before upload. It reads these repository Actions
+secrets:
+
+- `MACOS_APPLICATION_CERT_P12`
+- `MACOS_APPLICATION_CERT_PASSWORD`
+- `MACOS_INSTALLER_CERT_P12`
+- `MACOS_INSTALLER_CERT_PASSWORD`
+- `APPLE_API_KEY_ID`
+- `APPLE_API_ISSUER_ID`
+- `APPLE_API_PRIVATE_KEY`
+
+The PKCS #12 files and App Store Connect API private key are stored as base64
+strings. The signing keychain and decoded credentials are deleted at the end of
+the job.
 
 ## Windows Desktop Packaging
 
