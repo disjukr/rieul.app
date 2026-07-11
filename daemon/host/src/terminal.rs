@@ -1018,10 +1018,15 @@ fn discover_windows_shells(shells: &mut Vec<AvailableShellInfo>) {
         Vec::new(),
         shells.is_empty(),
     ));
-    if let Some(path) = find_on_path("bash.exe") {
+    let git_bash = find_git_bash_command();
+    if let Some(path) = find_on_path("bash.exe").filter(|path| {
+        git_bash
+            .as_deref()
+            .is_none_or(|git_bash| !same_windows_command(path, git_bash))
+    }) {
         shells.push(shell_info("bash", "Bash", path, Vec::new(), false));
     }
-    if let Some(command) = find_git_bash_command() {
+    if let Some(command) = git_bash {
         shells.push(shell_info(
             "git-bash",
             "Git Bash",
@@ -1137,7 +1142,6 @@ fn find_git_bash_command() -> Option<String> {
         .into_iter()
         .find(|path| path.is_file())
         .map(|path| path.to_string_lossy().into_owned())
-        .or_else(|| find_on_path("bash.exe"))
 }
 
 #[cfg(windows)]
@@ -1210,9 +1214,32 @@ fn windows_terminal_shell_id(command: &str) -> String {
         "pwsh.exe" => "pwsh".to_string(),
         "powershell.exe" => "windows-powershell".to_string(),
         "cmd.exe" => "cmd".to_string(),
+        "bash.exe" if is_git_bash_command(command) => "git-bash".to_string(),
         "bash.exe" => "bash".to_string(),
         _ => "windows-terminal-default".to_string(),
     }
+}
+
+#[cfg(windows)]
+fn is_git_bash_command(command: &str) -> bool {
+    git_bash_candidate_paths()
+        .iter()
+        .any(|candidate| same_windows_command(command, &candidate.to_string_lossy()))
+}
+
+#[cfg(windows)]
+fn same_windows_command(left: &str, right: &str) -> bool {
+    normalize_windows_command_path(left) == normalize_windows_command_path(right)
+}
+
+#[cfg(windows)]
+fn normalize_windows_command_path(command: &str) -> String {
+    command
+        .trim()
+        .trim_matches('"')
+        .trim_start_matches(r"\\?\")
+        .replace('/', r"\")
+        .to_ascii_lowercase()
 }
 
 #[cfg(windows)]
@@ -1462,8 +1489,8 @@ mod tests {
 
     #[cfg(windows)]
     use super::{
-        discover_available_shells, find_git_bash_command, HostedTerminalEvent,
-        LocalTerminalBackend, TerminalBackend,
+        discover_available_shells, find_git_bash_command, same_windows_command,
+        windows_terminal_shell_id, HostedTerminalEvent, LocalTerminalBackend, TerminalBackend,
     };
     #[cfg(windows)]
     use crate::terminal::{CreateTerminalSessionReq, TerminalLaunchSpec};
@@ -1539,6 +1566,20 @@ mod tests {
             .expect("Git Bash shell option");
         assert_eq!(git_bash.command, command);
         assert_eq!(git_bash.args, ["--login", "-i"]);
+        assert_eq!(windows_terminal_shell_id(&command), "git-bash");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_shell_paths_match_case_and_separator_insensitively() {
+        assert!(same_windows_command(
+            r"C:\Program Files\Git\bin\bash.exe",
+            r"c:/program files/git/bin/BASH.EXE"
+        ));
+        assert!(same_windows_command(
+            r"\\?\C:\Program Files\Git\bin\bash.exe",
+            r"C:\Program Files\Git\bin\bash.exe"
+        ));
     }
 
     #[cfg(target_os = "macos")]
