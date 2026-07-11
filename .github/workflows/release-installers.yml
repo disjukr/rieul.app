@@ -60,6 +60,12 @@ jobs:
   macos:
     name: Build macOS installers
     runs-on: macos-latest
+    env:
+      APPLICATION_CERT_PATH: ${{ runner.temp }}/developer-id-application.p12
+      INSTALLER_CERT_PATH: ${{ runner.temp }}/developer-id-installer.p12
+      NOTARY_KEY_PATH: ${{ runner.temp }}/notary-api-key.p8
+      G2_CERT_PATH: ${{ runner.temp }}/DeveloperIDG2CA.cer
+      KEYCHAIN_PATH: ${{ runner.temp }}/rieul-signing.keychain-db
 
     steps:
       - name: Check out repository
@@ -76,18 +82,163 @@ jobs:
         with:
           deno-version: v2.x
 
-      - name: Build macOS installers
+      - name: Install signing credentials
+        shell: bash
+        env:
+          APPLICATION_CERT_P12: ${{ secrets.MACOS_APPLICATION_CERT_P12 }}
+          APPLICATION_CERT_PASSWORD: ${{ secrets.MACOS_APPLICATION_CERT_PASSWORD }}
+          INSTALLER_CERT_P12: ${{ secrets.MACOS_INSTALLER_CERT_P12 }}
+          INSTALLER_CERT_PASSWORD: ${{ secrets.MACOS_INSTALLER_CERT_PASSWORD }}
+          APPLE_API_PRIVATE_KEY: ${{ secrets.APPLE_API_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          : "${APPLICATION_CERT_P12:?Missing MACOS_APPLICATION_CERT_P12 secret}"
+          : "${APPLICATION_CERT_PASSWORD:?Missing MACOS_APPLICATION_CERT_PASSWORD secret}"
+          : "${INSTALLER_CERT_P12:?Missing MACOS_INSTALLER_CERT_P12 secret}"
+          : "${INSTALLER_CERT_PASSWORD:?Missing MACOS_INSTALLER_CERT_PASSWORD secret}"
+          : "${APPLE_API_PRIVATE_KEY:?Missing APPLE_API_PRIVATE_KEY secret}"
+
+          printf '%s' "$APPLICATION_CERT_P12" | /usr/bin/base64 -D >"$APPLICATION_CERT_PATH"
+          printf '%s' "$INSTALLER_CERT_P12" | /usr/bin/base64 -D >"$INSTALLER_CERT_PATH"
+          printf '%s' "$APPLE_API_PRIVATE_KEY" | /usr/bin/base64 -D >"$NOTARY_KEY_PATH"
+          chmod 0600 "$APPLICATION_CERT_PATH" "$INSTALLER_CERT_PATH" "$NOTARY_KEY_PATH"
+
+          curl --fail --silent --show-error --location \
+            https://www.apple.com/certificateauthority/DeveloperIDG2CA.cer \
+            --output "$G2_CERT_PATH"
+          g2_fingerprint="$(
+            openssl x509 -inform DER -in "$G2_CERT_PATH" -noout -fingerprint -sha256 |
+              cut -d= -f2 |
+              tr -d ':'
+          )"
+          if [[ "$g2_fingerprint" != "F16CD3C54C7F83CEA4BF1A3E6A0819C8AAA8E4A1528FD144715F350643D2DF3A" ]]; then
+            echo "Unexpected Developer ID G2 certificate fingerprint: $g2_fingerprint" >&2
+            exit 1
+          fi
+
+          keychain_password="$(openssl rand -base64 32)"
+          security create-keychain -p "$keychain_password" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$keychain_password" "$KEYCHAIN_PATH"
+          security import "$APPLICATION_CERT_PATH" \
+            -k "$KEYCHAIN_PATH" \
+            -P "$APPLICATION_CERT_PASSWORD" \
+            -A \
+            -t cert \
+            -f pkcs12
+          security import "$INSTALLER_CERT_PATH" \
+            -k "$KEYCHAIN_PATH" \
+            -P "$INSTALLER_CERT_PASSWORD" \
+            -A \
+            -t cert \
+            -f pkcs12
+          if ! security find-certificate \
+            -c "Developer ID Certification Authority" \
+            "$KEYCHAIN_PATH" >/dev/null 2>&1; then
+            security import "$G2_CERT_PATH" -k "$KEYCHAIN_PATH"
+          fi
+          security set-key-partition-list \
+            -S apple-tool:,apple: \
+            -k "$keychain_password" \
+            "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH"
+          security default-keychain -d user -s "$KEYCHAIN_PATH"
+
+          app_sign_identity="$(
+            security find-identity -v -p codesigning "$KEYCHAIN_PATH" |
+              awk -F'"' '/Developer ID Application:/ { print $2; exit }'
+          )"
+          installer_sign_identity="$(
+            security find-identity -v "$KEYCHAIN_PATH" |
+              awk -F'"' '/Developer ID Installer:/ { print $2; exit }'
+          )"
+          if [[ -z "$app_sign_identity" || -z "$installer_sign_identity" ]]; then
+            echo "Could not find both Developer ID signing identities." >&2
+            security find-identity -v "$KEYCHAIN_PATH" >&2
+            exit 1
+          fi
+
+          echo "APP_SIGN_IDENTITY=$app_sign_identity" >>"$GITHUB_ENV"
+          echo "INSTALLER_SIGN_IDENTITY=$installer_sign_identity" >>"$GITHUB_ENV"
+
+      - name: Build and sign macOS installers
         shell: bash
         env:
           RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
+          set -euo pipefail
           if [[ ! "$RELEASE_TAG" =~ ^desktop-([0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?)$ ]]; then
             echo "Release tag must match desktop-x.y.z or desktop-x.y.z-rc.n. Got: $RELEASE_TAG" >&2
             exit 1
           fi
           version="${BASH_REMATCH[1]}"
-          ./scripts/macos/package-desktop-dmg.sh --version "$version"
-          ./scripts/macos/package-desktop-pkg.sh --version "$version" --skip-build
+          echo "MACOS_RELEASE_VERSION=$version" >>"$GITHUB_ENV"
+          ./scripts/macos/package-desktop-dmg.sh \
+            --version "$version" \
+            --sign "$APP_SIGN_IDENTITY"
+          ./scripts/macos/package-desktop-pkg.sh \
+            --version "$version" \
+            --skip-build \
+            --app-sign "$APP_SIGN_IDENTITY" \
+            --installer-sign "$INSTALLER_SIGN_IDENTITY"
+
+      - name: Verify macOS signatures
+        shell: bash
+        run: |
+          set -euo pipefail
+          package_base_name="rieul-macos-desktop-$MACOS_RELEASE_VERSION"
+          app_path="dist/macos/$package_base_name-app/Rieul.app"
+          dmg_path="dist/macos/$package_base_name.dmg"
+          pkg_path="dist/macos/$package_base_name.pkg"
+
+          codesign --verify --deep --strict --verbose=2 "$app_path"
+          codesign --verify --strict --verbose=2 "$dmg_path"
+          pkgutil --check-signature "$pkg_path"
+
+      - name: Notarize macOS installers
+        shell: bash
+        env:
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          : "${APPLE_API_KEY_ID:?Missing APPLE_API_KEY_ID secret}"
+          : "${APPLE_API_ISSUER_ID:?Missing APPLE_API_ISSUER_ID secret}"
+
+          package_base_name="rieul-macos-desktop-$MACOS_RELEASE_VERSION"
+          dmg_path="dist/macos/$package_base_name.dmg"
+          pkg_path="dist/macos/$package_base_name.pkg"
+
+          xcrun notarytool submit "$dmg_path" \
+            --key "$NOTARY_KEY_PATH" \
+            --key-id "$APPLE_API_KEY_ID" \
+            --issuer "$APPLE_API_ISSUER_ID" \
+            --wait
+          xcrun stapler staple "$dmg_path"
+
+          xcrun notarytool submit "$pkg_path" \
+            --key "$NOTARY_KEY_PATH" \
+            --key-id "$APPLE_API_KEY_ID" \
+            --issuer "$APPLE_API_ISSUER_ID" \
+            --wait
+          xcrun stapler staple "$pkg_path"
+
+      - name: Validate notarized macOS installers
+        shell: bash
+        run: |
+          set -euo pipefail
+          package_base_name="rieul-macos-desktop-$MACOS_RELEASE_VERSION"
+          dmg_path="dist/macos/$package_base_name.dmg"
+          pkg_path="dist/macos/$package_base_name.pkg"
+
+          xcrun stapler validate "$dmg_path"
+          xcrun stapler validate "$pkg_path"
+          spctl --assess \
+            --type open \
+            --context context:primary-signature \
+            --verbose=2 \
+            "$dmg_path"
+          spctl --assess --type install --verbose=2 "$pkg_path"
 
       - name: Upload macOS installers to release
         shell: bash
@@ -95,3 +246,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release upload "${{ github.event.release.tag_name }}" dist/macos/*.dmg dist/macos/*.pkg --clobber
+
+      - name: Remove signing credentials
+        if: always()
+        shell: bash
+        run: |
+          security delete-keychain "$KEYCHAIN_PATH" >/dev/null 2>&1 || true
+          rm -f \
+            "$APPLICATION_CERT_PATH" \
+            "$INSTALLER_CERT_PATH" \
+            "$NOTARY_KEY_PATH" \
+            "$G2_CERT_PATH"

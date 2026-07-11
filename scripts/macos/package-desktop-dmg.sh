@@ -179,7 +179,35 @@ fi
 
 if [[ "$SKIP_BUILD" != "1" ]]; then
   (cd "$REPO_ROOT" && cargo build -p rieul-macos-daemon --release --bin rieul-macos-system --bin rieul-macos-launcher)
-  (cd "$REPO_ROOT/web" && deno task desktop:build:macos)
+  if [[ -n "$SIGN_IDENTITY" && "$SIGN_IDENTITY" != "-" ]]; then
+    TEMP_DENO_CONFIG="$(mktemp "$REPO_ROOT/web/.rieul-deno-signing.XXXXXX")"
+    trap 'rm -f "${TEMP_DENO_CONFIG:-}"' EXIT
+    deno eval --no-config '
+      const [sourcePath, destinationPath, identity] = Deno.args;
+      const config = JSON.parse(await Deno.readTextFile(sourcePath));
+      config.desktop.macos ??= {};
+      config.desktop.macos.codesignIdentity = identity;
+      await Deno.writeTextFile(destinationPath, JSON.stringify(config));
+    ' "$REPO_ROOT/web/deno.json" "$TEMP_DENO_CONFIG" "$SIGN_IDENTITY"
+    (
+      cd "$REPO_ROOT/web"
+      deno task desktop:icons
+      deno task build
+      deno desktop \
+        --config "$TEMP_DENO_CONFIG" \
+        --backend cef \
+        -A \
+        --include ./dist \
+        --include ./desktop/tray.png \
+        --output ../target/release/Rieul-desktop.app \
+        ./desktop/main.ts
+    )
+    rm -f "$TEMP_DENO_CONFIG"
+    TEMP_DENO_CONFIG=""
+    trap - EXIT
+  else
+    (cd "$REPO_ROOT/web" && deno task desktop:build:macos)
+  fi
 fi
 
 RELEASE_DIR="$REPO_ROOT/target/release"
@@ -197,6 +225,14 @@ fi
 if [[ ! -d "$GUI_APP" ]]; then
   echo "Missing Deno Desktop app: $GUI_APP" >&2
   exit 1
+fi
+if [[ "$SKIP_BUILD" == "1" && -n "$SIGN_IDENTITY" && "$SIGN_IDENTITY" != "-" ]]; then
+  signing_details="$(codesign -dvv "$GUI_APP" 2>&1)"
+  if [[ "$signing_details" != *"Authority=$SIGN_IDENTITY"* ]]; then
+    echo "The reused Deno Desktop app was not signed by $SIGN_IDENTITY." >&2
+    echo "Build it with the same identity before using --skip-build." >&2
+    exit 1
+  fi
 fi
 
 SYSTEM_LABEL="app.rieul.system"
@@ -468,8 +504,12 @@ if [[ -n "$SIGN_IDENTITY" ]]; then
     "$APP_PATH/Contents/Resources/rieul-macos-system"
   codesign --force --options runtime --timestamp --sign "$SIGN_IDENTITY" \
     "$APP_PATH/Contents/Resources/rieul-macos-launcher"
-  codesign --force --deep --options runtime --timestamp --sign "$SIGN_IDENTITY" \
-    "$APP_PATH"
+  if [[ "$SIGN_IDENTITY" == "-" ]]; then
+    codesign --force --deep --options runtime --sign - "$APP_PATH"
+  else
+    codesign --force --options runtime --timestamp --sign "$SIGN_IDENTITY" \
+      "$APP_PATH"
+  fi
 else
   codesign --force --deep --sign - "$APP_PATH"
 fi
@@ -505,6 +545,11 @@ hdiutil convert "$RW_DMG_PATH" \
   -o "$TMP_DMG_PATH"
 mv -f "$TMP_DMG_PATH" "$DMG_PATH"
 rm -f "$RW_DMG_PATH"
+
+if [[ -n "$SIGN_IDENTITY" ]]; then
+  codesign --force --timestamp --sign "$SIGN_IDENTITY" "$DMG_PATH"
+  codesign --verify --verbose=2 "$DMG_PATH"
+fi
 
 echo "Wrote app: $APP_PATH"
 echo "Wrote dmg: $DMG_PATH"
