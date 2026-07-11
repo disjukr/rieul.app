@@ -269,6 +269,19 @@ if [[ -z "$GUI_EXECUTABLE_NAME" || ! -x "$APP_PATH/Contents/MacOS/$GUI_EXECUTABL
   exit 1
 fi
 
+# Code signing treats every regular file under Contents/MacOS as nested code.
+# Keep Deno's updater marker in Resources and retain its expected adjacent path
+# through an internal symlink.
+GUI_UPDATE_MARKER_NAME="$GUI_EXECUTABLE_NAME.dylib.update-ok"
+if [[ -f "$APP_PATH/Contents/MacOS/$GUI_UPDATE_MARKER_NAME" ]]; then
+  mv \
+    "$APP_PATH/Contents/MacOS/$GUI_UPDATE_MARKER_NAME" \
+    "$APP_PATH/Contents/Resources/$GUI_UPDATE_MARKER_NAME"
+  ln -s \
+    "../Resources/$GUI_UPDATE_MARKER_NAME" \
+    "$APP_PATH/Contents/MacOS/$GUI_UPDATE_MARKER_NAME"
+fi
+
 install -m 0755 "$LAUNCHER_EXE" "$APP_PATH/Contents/Resources/rieul-macos-launcher"
 install -m 0755 "$SYSTEM_EXE" "$APP_PATH/Contents/Resources/rieul-macos-system"
 install -m 0644 "$REPO_ROOT/rieul.svg" "$APP_PATH/Contents/Resources/rieul.svg"
@@ -295,7 +308,7 @@ exec "\$CONTENTS_DIR/Resources/rieul-macos-launcher" run
 EOF
 chmod 0755 "$APP_PATH/Contents/MacOS/rieul-macos-app"
 
-cat >"$APP_PATH/Contents/MacOS/install" <<EOF
+cat >"$APP_PATH/Contents/Resources/install" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
 
@@ -371,7 +384,7 @@ echo "System daemon: $SYSTEM_DAEMON_EXE"
 echo "Logs: $LOG_DIR"
 EOF
 
-cat >"$APP_PATH/Contents/MacOS/uninstall" <<EOF
+cat >"$APP_PATH/Contents/Resources/uninstall" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
 
@@ -406,8 +419,10 @@ EOF
 
 chmod 0755 \
   "$APP_PATH/Contents/MacOS/rieul-macos-app" \
-  "$APP_PATH/Contents/MacOS/install" \
-  "$APP_PATH/Contents/MacOS/uninstall"
+  "$APP_PATH/Contents/Resources/install" \
+  "$APP_PATH/Contents/Resources/uninstall"
+ln -s ../Resources/install "$APP_PATH/Contents/MacOS/install"
+ln -s ../Resources/uninstall "$APP_PATH/Contents/MacOS/uninstall"
 
 set_plist_string() {
   local key="$1"
@@ -499,20 +514,26 @@ plutil -lint \
   "$APP_PATH/Contents/Resources/$SYSTEM_LABEL.plist" \
   "$APP_PATH/Contents/Resources/$GUI_LABEL.plist" >/dev/null
 
-if [[ -n "$SIGN_IDENTITY" ]]; then
-  codesign --force --options runtime --timestamp --sign "$SIGN_IDENTITY" \
-    "$APP_PATH/Contents/Resources/rieul-macos-system"
-  codesign --force --options runtime --timestamp --sign "$SIGN_IDENTITY" \
-    "$APP_PATH/Contents/Resources/rieul-macos-launcher"
-  if [[ "$SIGN_IDENTITY" == "-" ]]; then
-    codesign --force --deep --options runtime --sign - "$APP_PATH"
-  else
-    codesign --force --options runtime --timestamp --sign "$SIGN_IDENTITY" \
-      "$APP_PATH"
-  fi
+if [[ -n "$SIGN_IDENTITY" && "$SIGN_IDENTITY" != "-" ]]; then
+  codesign_args=(--force --options runtime --timestamp --sign "$SIGN_IDENTITY")
+  codesign \
+    --force \
+    --preserve-metadata=identifier,entitlements,requirements,flags,runtime \
+    --timestamp \
+    --sign "$SIGN_IDENTITY" \
+    "$APP_PATH/Contents/MacOS/$GUI_EXECUTABLE_NAME"
+elif [[ -n "$SIGN_IDENTITY" ]]; then
+  codesign_args=(--force --options runtime --sign -)
+  codesign --force --sign - "$APP_PATH/Contents/MacOS/$GUI_EXECUTABLE_NAME"
 else
-  codesign --force --deep --sign - "$APP_PATH"
+  codesign_args=(--force --sign -)
+  codesign --force --sign - "$APP_PATH/Contents/MacOS/$GUI_EXECUTABLE_NAME"
 fi
+codesign "${codesign_args[@]}" \
+  "$APP_PATH/Contents/Resources/rieul-macos-system"
+codesign "${codesign_args[@]}" \
+  "$APP_PATH/Contents/Resources/rieul-macos-launcher"
+codesign "${codesign_args[@]}" "$APP_PATH"
 
 if [[ "$SKIP_DMG" == "1" ]]; then
   echo "Wrote app: $APP_PATH"
