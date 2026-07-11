@@ -812,7 +812,7 @@ impl TerminalBackend for LocalTerminalBackend {
         let initial_cwd = request
             .cwd
             .clone()
-            .or_else(|| launch.cwd.clone())
+            .or_else(|| spawn_launch.cwd.clone())
             .or_else(|| {
                 std::env::current_dir()
                     .ok()
@@ -940,29 +940,52 @@ fn terminal_spawn_launch(launch: &LaunchCommand, shell_integration_dir: &Path) -
     #[cfg(target_os = "macos")]
     if should_spawn_terminal_as_macos_console_user() {
         if let Some(user) = macos_console_user() {
-            let mut args = vec![
-                "-H".to_string(),
-                "-u".to_string(),
-                user.name.clone(),
-                "--".to_string(),
-                "/usr/bin/env".to_string(),
-                format!("HOME={}", user.home),
-                format!("USER={}", user.name),
-                format!("LOGNAME={}", user.name),
-                format!("SHELL={}", user.shell),
-                launch.command.clone(),
-            ];
-            args.extend(launch.args.clone());
-            return LaunchCommand {
-                command: "/usr/bin/sudo".to_string(),
-                args,
-                cwd: launch.cwd.clone(),
-                env: launch.env.clone(),
-            };
+            return macos_console_user_launch(&launch, &user);
         }
     }
 
     launch
+}
+
+#[cfg(target_os = "macos")]
+fn macos_console_user_launch(launch: &LaunchCommand, user: &MacosConsoleUser) -> LaunchCommand {
+    let mut child_env = launch.env.clone();
+    set_launch_env(&mut child_env, "TERM", "xterm-256color");
+    set_launch_env(&mut child_env, "COLORTERM", "truecolor");
+    set_launch_env(&mut child_env, "TERM_PROGRAM", "Rieul");
+    if child_env.iter().any(|(key, _)| key == "RIEUL_USER_ZDOTDIR") {
+        set_launch_env(&mut child_env, "RIEUL_USER_ZDOTDIR", &user.home);
+    }
+
+    let mut args = vec![
+        "-flq".to_string(),
+        user.name.clone(),
+        "/usr/bin/env".to_string(),
+        format!("HOME={}", user.home),
+        format!("USER={}", user.name),
+        format!("LOGNAME={}", user.name),
+        format!("SHELL={}", user.shell),
+    ];
+    args.extend(
+        child_env
+            .iter()
+            .map(|(key, value)| format!("{key}={value}")),
+    );
+    args.push(launch.command.clone());
+    args.extend(launch.args.clone());
+
+    LaunchCommand {
+        command: "/usr/bin/login".to_string(),
+        args,
+        cwd: launch.cwd.clone().or_else(|| Some(user.home.clone())),
+        env: Vec::new(),
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn set_launch_env(env: &mut Vec<(String, String)>, key: &str, value: &str) {
+    env.retain(|(candidate, _)| candidate != key);
+    env.push((key.to_string(), value.to_string()));
 }
 
 #[cfg(target_os = "macos")]
@@ -1316,11 +1339,15 @@ fn discover_unix_shells(shells: &mut Vec<AvailableShellInfo>) {
             .unwrap_or(path.as_str())
             .to_string();
         let id = format!("path:{path}");
+        #[cfg(target_os = "macos")]
+        let args = vec!["-l".to_string()];
+        #[cfg(not(target_os = "macos"))]
+        let args = Vec::new();
         shells.push(shell_info(
             &id,
             &name,
             path.clone(),
-            Vec::new(),
+            args,
             default_shell.as_deref() == Some(path.as_str()) || shells.is_empty(),
         ));
     }
@@ -1488,7 +1515,10 @@ mod tests {
     use std::time::Duration;
 
     #[cfg(target_os = "macos")]
-    use super::parse_dscl_console_user;
+    use super::{
+        discover_available_shells, macos_console_user_launch, parse_dscl_console_user,
+        LaunchCommand, MacosConsoleUser,
+    };
 
     #[test]
     fn parses_osc633_cwd_property() {
@@ -1587,5 +1617,51 @@ mod tests {
                 "/bin/zsh".to_string()
             ))
         );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_console_user_uses_login_without_a_nested_sudo_pty() {
+        let launch = LaunchCommand {
+            command: "/bin/zsh".to_string(),
+            args: vec!["-l".to_string()],
+            cwd: None,
+            env: vec![
+                ("ZDOTDIR".to_string(), "/tmp/rieul-zdotdir".to_string()),
+                ("RIEUL_USER_ZDOTDIR".to_string(), "/var/root".to_string()),
+            ],
+        };
+        let user = MacosConsoleUser {
+            name: "me".to_string(),
+            home: "/Users/me".to_string(),
+            shell: "/bin/zsh".to_string(),
+        };
+
+        let wrapped = macos_console_user_launch(&launch, &user);
+
+        assert_eq!(wrapped.command, "/usr/bin/login");
+        assert_eq!(wrapped.cwd.as_deref(), Some("/Users/me"));
+        assert!(wrapped.env.is_empty());
+        assert!(wrapped.args.starts_with(&[
+            "-flq".to_string(),
+            "me".to_string(),
+            "/usr/bin/env".to_string(),
+        ]));
+        assert!(wrapped
+            .args
+            .contains(&"RIEUL_USER_ZDOTDIR=/Users/me".to_string()));
+        assert!(wrapped.args.contains(&"TERM=xterm-256color".to_string()));
+        assert!(wrapped.args.contains(&"COLORTERM=truecolor".to_string()));
+        assert!(wrapped
+            .args
+            .ends_with(&["/bin/zsh".to_string(), "-l".to_string()]));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_shells_start_as_login_shells() {
+        let shells = discover_available_shells();
+        assert!(!shells.is_empty());
+        assert!(shells.iter().all(|shell| shell.args == ["-l"]));
     }
 }
