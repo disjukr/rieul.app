@@ -516,19 +516,28 @@ plutil -lint \
 
 if [[ -n "$SIGN_IDENTITY" && "$SIGN_IDENTITY" != "-" ]]; then
   codesign_args=(--force --options runtime --timestamp --sign "$SIGN_IDENTITY")
-  codesign \
-    --force \
-    --preserve-metadata=identifier,entitlements,requirements,flags,runtime \
-    --timestamp \
-    --sign "$SIGN_IDENTITY" \
-    "$APP_PATH/Contents/MacOS/$GUI_EXECUTABLE_NAME"
 elif [[ -n "$SIGN_IDENTITY" ]]; then
   codesign_args=(--force --options runtime --sign -)
-  codesign --force --sign - "$APP_PATH/Contents/MacOS/$GUI_EXECUTABLE_NAME"
 else
   codesign_args=(--force --sign -)
-  codesign --force --sign - "$APP_PATH/Contents/MacOS/$GUI_EXECUTABLE_NAME"
 fi
+
+# Deno signs the CEF framework itself, but its nested dylibs may retain ad-hoc
+# signatures. Notarization validates each Mach-O file independently, so sign
+# the libraries first and then refresh the enclosing framework signature.
+CEF_FRAMEWORK="$APP_PATH/Contents/Frameworks/Chromium Embedded Framework.framework"
+if [[ -d "$CEF_FRAMEWORK" ]]; then
+  while IFS= read -r -d '' cef_library; do
+    codesign "${codesign_args[@]}" "$cef_library"
+  done < <(find "$CEF_FRAMEWORK" -type f -name '*.dylib' -print0)
+  codesign "${codesign_args[@]}" \
+    --preserve-metadata=identifier,entitlements,requirements,flags,runtime \
+    "$CEF_FRAMEWORK"
+fi
+
+codesign "${codesign_args[@]}" \
+  --preserve-metadata=identifier,entitlements,requirements,flags,runtime \
+  "$APP_PATH/Contents/MacOS/$GUI_EXECUTABLE_NAME"
 codesign "${codesign_args[@]}" \
   "$APP_PATH/Contents/Resources/rieul-macos-system"
 codesign "${codesign_args[@]}" \
