@@ -5,8 +5,8 @@ use std::sync::Arc;
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use rieul_daemon_core::config::{
-    client_credentials_path, load_or_generated_default, save, windows_program_data_config_path,
-    SystemConfig,
+    client_credentials_path, load_or_generated_default, profile_id_for_config_path, save,
+    windows_program_data_config_path, SystemConfig,
 };
 use rieul_daemon_host::server::run_system_server;
 use rieul_windows_daemon::fs::WindowsFileService;
@@ -14,6 +14,7 @@ use rieul_windows_daemon::ipc::{UserGuiPairingNotifier, UserSessionWindowService
 use rieul_windows_daemon::process_modules::WindowsProcessModulesService;
 use rieul_windows_daemon::process_resources::WindowsProcessResourcesInUseService;
 use rieul_windows_daemon::process_sockets::WindowsProcessSocketsInUseService;
+use rieul_windows_daemon::terminal_ipc::WindowsAgentTerminalBackend;
 
 #[derive(Debug, Parser)]
 #[command(name = "rieul-windows-system")]
@@ -117,6 +118,8 @@ fn run_system_server_blocking(listen: Option<SocketAddr>, config_path: PathBuf) 
         .build()?;
     let window_service = UserSessionWindowService::from_config_path(&config_path);
     let pairing_notifier = UserGuiPairingNotifier::from_config_path(&config_path);
+    let terminal_backend =
+        WindowsAgentTerminalBackend::new(profile_id_for_config_path(&config_path));
     runtime.block_on(run_system_server(
         listen,
         config_path,
@@ -126,6 +129,7 @@ fn run_system_server_blocking(listen: Option<SocketAddr>, config_path: PathBuf) 
         Some(Arc::new(WindowsProcessSocketsInUseService)),
         Some(Arc::new(WindowsProcessModulesService)),
         Some(Arc::new(pairing_notifier)),
+        Some(Arc::new(terminal_backend)),
         "Windows system daemon",
     ))
 }

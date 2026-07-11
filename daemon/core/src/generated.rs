@@ -116,4 +116,43 @@ mod tests {
             ipc::RpcRequest::ShowPairingCode(payload)
         );
     }
+
+    #[test]
+    fn generated_agent_terminal_ipc_contract_roundtrips() {
+        let command = ipc::AgentTerminalCommand::Start {
+            cols: 120,
+            rows: 40,
+            cwd: Some(r"C:\Users\alice".to_string()),
+            launch: ipc::AgentTerminalLaunchSpec {
+                command: r"C:\Program Files\Git\bin\bash.exe".to_string(),
+                args: vec!["--login".to_string(), "-i".to_string()],
+            },
+        };
+
+        assert_eq!(ipc::ProcId::from_u64(7), Some(ipc::ProcId::GetAgentInfo));
+        assert_eq!(
+            ipc::ProcId::from_u64(8),
+            Some(ipc::ProcId::SnapshotAgentTerminalShells)
+        );
+        assert_eq!(
+            ipc::ProcId::from_u64(9),
+            Some(ipc::ProcId::HostAgentTerminal)
+        );
+        assert_eq!(
+            ipc::ProcId::HostAgentTerminal.stream(),
+            ipc::ProcStream::Bidi
+        );
+        assert_eq!(
+            ipc::AgentTerminalCommand::decode(&command.encode()).unwrap(),
+            command
+        );
+
+        let event = ipc::AgentTerminalEvent::Output {
+            bytes: b"hello\r\n".to_vec(),
+        };
+        assert_eq!(
+            ipc::AgentTerminalEvent::decode(&event.encode()).unwrap(),
+            event
+        );
+    }
 }

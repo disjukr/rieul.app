@@ -10,23 +10,17 @@ use rieul_daemon_core::ipc::{
     SnapshotWindowsRes,
 };
 use rieul_daemon_core::rpc::WindowDetail;
-use rieul_daemon_core::socket_wire::{
-    SocketReqResMessage, SocketRpcErrorKind, MAX_SOCKET_WIRE_SEQUENCE_SIZE,
-};
+use rieul_daemon_core::socket_wire::{SocketReqResMessage, MAX_SOCKET_WIRE_SEQUENCE_SIZE};
 use rieul_daemon_core::traits::{BoxFutureResult, ServiceError, WindowService};
 pub use rieul_daemon_host::server::PairingConfirmationRequest;
 use rieul_daemon_host::server::{PairingCodeNotification, PairingNotifier};
 #[cfg(windows)]
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 #[cfg(windows)]
-use tokio::net::windows::named_pipe::{
-    ClientOptions, NamedPipeClient, NamedPipeServer, ServerOptions,
-};
+use tokio::net::windows::named_pipe::{ClientOptions, NamedPipeClient};
 
 #[cfg(windows)]
 const IPC_MAX_BYTES: usize = MAX_SOCKET_WIRE_SEQUENCE_SIZE;
-#[cfg(windows)]
-const WINDOW_IPC_MAX_INSTANCES: usize = 32;
 #[cfg(windows)]
 const WINDOW_IPC_BUSY_RETRY_DELAY: Duration = Duration::from_millis(25);
 #[cfg(windows)]
@@ -215,7 +209,9 @@ async fn send_window_snapshot_request(profile_id: &str) -> Result<Vec<WindowDeta
 
 #[cfg(windows)]
 async fn open_window_snapshot_pipe(profile_id: &str) -> Result<NamedPipeClient, ServiceError> {
-    let pipe_name = agent_pipe_name(profile_id);
+    let session_id = crate::terminal_ipc::active_console_session_id()
+        .map_err(|err| ServiceError::OperationFailed(err.to_string()))?;
+    let pipe_name = crate::terminal_ipc::agent_pipe_name(profile_id, session_id);
     for attempt in 0..=WINDOW_IPC_BUSY_RETRY_COUNT {
         match ClientOptions::new().open(&pipe_name) {
             Ok(client) => return Ok(client),
@@ -243,60 +239,13 @@ async fn send_window_snapshot_request(
 #[cfg(windows)]
 pub async fn run_window_snapshot_server(profile_id: impl Into<String>) -> Result<()> {
     let profile_id = profile_id.into();
-    let pipe_name = agent_pipe_name(&profile_id);
-    let mut server = ServerOptions::new()
-        .first_pipe_instance(true)
-        .max_instances(WINDOW_IPC_MAX_INSTANCES)
-        .create(&pipe_name)
-        .with_context(|| format!("create user window pipe {pipe_name}"))?;
-    loop {
-        server.connect().await?;
-        let connected = server;
-        server = ServerOptions::new()
-            .max_instances(WINDOW_IPC_MAX_INSTANCES)
-            .create(&pipe_name)
-            .with_context(|| format!("create user window pipe {pipe_name}"))?;
-        tokio::spawn(async move {
-            let mut pipe = connected;
-            let response = match read_snapshot_windows_request(&mut pipe).await {
-                Ok(stream_id) => {
-                    let payload = match tokio::task::spawn_blocking(crate::windows::snapshot).await
-                    {
-                        Ok(Ok(details)) => Ok(Some(
-                            SnapshotWindowsRes {
-                                windows: details.into_iter().map(Into::into).collect(),
-                            }
-                            .encode(),
-                        )),
-                        Ok(Err(err)) => Err(IpcProcError::Failed {
-                            message: err.to_string(),
-                        }),
-                        Err(err) => Err(IpcProcError::Failed {
-                            message: err.to_string(),
-                        }),
-                    };
-                    write_ipc_unary_response(&mut pipe, stream_id, payload).await
-                }
-                Err(err) => {
-                    write_ipc_unary_response(
-                        &mut pipe,
-                        DEFAULT_STREAM_ID,
-                        Err(IpcProcError::Failed {
-                            message: err.to_string(),
-                        }),
-                    )
-                    .await
-                }
-            };
-            if let Err(err) = response {
-                tracing::warn!(?err, "failed to write window snapshot pipe response");
-                return;
-            }
-            if let Err(err) = pipe.shutdown().await {
-                tracing::warn!(?err, "failed to finish window snapshot pipe response");
-            }
-        });
-    }
+    let shell_integration_dir = std::env::var_os("LOCALAPPDATA")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(std::env::temp_dir)
+        .join("Rieul")
+        .join(&profile_id)
+        .join("shell-integration");
+    crate::terminal_ipc::run_agent_server(profile_id, shell_integration_dir).await
 }
 
 #[cfg(not(windows))]
@@ -310,10 +259,6 @@ pub fn default_profile_id() -> String {
 
 pub fn gui_pipe_name(profile_id: &str) -> String {
     format!(r"\\.\pipe\rieul-gui-profile-{profile_id}")
-}
-
-pub fn agent_pipe_name(profile_id: &str) -> String {
-    format!(r"\\.\pipe\rieul-agent-profile-{profile_id}")
 }
 
 #[cfg(windows)]
@@ -336,26 +281,6 @@ async fn open_gui_pipe(profile_id: &str) -> Result<NamedPipeClient> {
         }
     }
     bail!("GUI daemon pipe stayed busy: {pipe_name}")
-}
-
-#[cfg(windows)]
-async fn read_snapshot_windows_request(pipe: &mut NamedPipeServer) -> Result<u64> {
-    let request = read_ipc_unary_request(pipe).await?;
-    if ProcId::from_u64(request.proc_id) != Some(ProcId::SnapshotWindows) {
-        bail!("unsupported window IPC proc id {}", request.proc_id);
-    }
-    if request.payload.is_some() {
-        bail!("SnapshotWindows request must not have a payload");
-    }
-    Ok(request.stream_id)
-}
-
-#[cfg(windows)]
-#[derive(Debug)]
-struct IpcUnaryRequest {
-    stream_id: u64,
-    proc_id: u64,
-    payload: Option<Vec<u8>>,
 }
 
 #[cfg(windows)]
@@ -383,43 +308,6 @@ where
     stream.flush().await.context("flush IPC request")?;
 
     read_ipc_unary_response(stream, stream_id).await
-}
-
-#[cfg(windows)]
-async fn read_ipc_unary_request<R>(reader: &mut R) -> Result<IpcUnaryRequest>
-where
-    R: AsyncRead + Unpin,
-{
-    let mut messages = SocketWireMessageReader::new(IPC_MAX_BYTES);
-    let mut request: Option<IpcUnaryRequest> = None;
-    loop {
-        let message = messages.read_next(reader).await?;
-        match message {
-            SocketReqResMessage::RequestUnary {
-                stream_id,
-                proc_id,
-                payload,
-            } => {
-                if request.is_some() {
-                    bail!("IPC stream sent more than one unary request");
-                }
-                request = Some(IpcUnaryRequest {
-                    stream_id,
-                    proc_id,
-                    payload,
-                });
-            }
-            SocketReqResMessage::RequestStreamEnd { stream_id } => {
-                let request =
-                    request.ok_or_else(|| anyhow!("IPC stream ended before unary request"))?;
-                if request.stream_id != stream_id {
-                    bail!("IPC request stream id mismatch");
-                }
-                return Ok(request);
-            }
-            other => bail!("unexpected IPC request message {other:?}"),
-        }
-    }
 }
 
 #[cfg(windows)]
@@ -455,34 +343,6 @@ where
             other => bail!("unexpected IPC response message {other:?}"),
         }
     }
-}
-
-#[cfg(windows)]
-async fn write_ipc_unary_response<W>(
-    writer: &mut W,
-    stream_id: u64,
-    response: Result<Option<Vec<u8>>, IpcProcError>,
-) -> Result<()>
-where
-    W: AsyncWrite + Unpin,
-{
-    let response = match response {
-        Ok(payload) => SocketReqResMessage::ResponseUnaryOk { payload, stream_id },
-        Err(error) => SocketReqResMessage::ResponseUnaryError {
-            error: error.encode(),
-            error_kind: SocketRpcErrorKind::Method,
-            stream_id,
-        },
-    };
-    let bytes = SocketReqResMessage::encode_sequence(&[
-        response,
-        SocketReqResMessage::ResponseStreamEnd { stream_id },
-    ]);
-    writer
-        .write_all(&bytes)
-        .await
-        .context("write IPC response")?;
-    writer.flush().await.context("flush IPC response")
 }
 
 #[cfg(windows)]
@@ -536,8 +396,8 @@ mod tests {
             r"\\.\pipe\rieul-gui-profile-abc123"
         );
         assert_eq!(
-            agent_pipe_name("abc123"),
-            r"\\.\pipe\rieul-agent-profile-abc123"
+            crate::terminal_ipc::agent_pipe_name("abc123", 7),
+            r"\\.\pipe\rieul-agent-profile-abc123-session-7"
         );
     }
 

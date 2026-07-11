@@ -86,6 +86,7 @@ async fn main() -> Result<()> {
                 Some(Arc::new(MacProcessSocketsInUseService)),
                 Some(Arc::new(MacProcessModulesService)),
                 Some(Arc::new(pairing_notifier)),
+                None,
                 "macOS system daemon",
             )
             .await

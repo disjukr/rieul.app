@@ -295,12 +295,22 @@ function New-DesktopMsiSource {
     </UI>
     <UIRef Id="WixUI_Common" />
 
-    <SetProperty
-      Id="WixUnelevatedShellExecTarget"
+    <CustomAction
+      Id="SetRieulUserAgentLaunchTarget"
+      Property="WixUnelevatedShellExecTarget"
+      Value="[#UserAgentExe]"
+      Execute="immediate" />
+    <CustomAction
+      Id="LaunchRieulUserAgent"
+      BinaryRef="Wix4UtilCA_`$(sys.BUILDARCHSHORT)"
+      DllEntry="WixUnelevatedShellExec"
+      Execute="immediate"
+      Return="ignore" />
+    <CustomAction
+      Id="SetRieulGuiLaunchTarget"
+      Property="WixUnelevatedShellExecTarget"
       Value="[#GuiExe]"
-      Before="LaunchRieulGuiApp"
-      Sequence="execute"
-      Condition="NOT Installed" />
+      Execute="immediate" />
     <CustomAction
       Id="LaunchRieulGuiApp"
       BinaryRef="Wix4UtilCA_`$(sys.BUILDARCHSHORT)"
@@ -308,7 +318,10 @@ function New-DesktopMsiSource {
       Execute="immediate"
       Return="ignore" />
     <InstallExecuteSequence>
-      <Custom Action="LaunchRieulGuiApp" After="InstallFinalize" Condition="NOT Installed" />
+      <Custom Action="SetRieulUserAgentLaunchTarget" After="InstallFinalize" Condition="NOT Installed" />
+      <Custom Action="LaunchRieulUserAgent" After="SetRieulUserAgentLaunchTarget" Condition="NOT Installed" />
+      <Custom Action="SetRieulGuiLaunchTarget" After="LaunchRieulUserAgent" Condition="NOT Installed" />
+      <Custom Action="LaunchRieulGuiApp" After="SetRieulGuiLaunchTarget" Condition="NOT Installed" />
     </InstallExecuteSequence>
 
     <StandardDirectory Id="ProgramFiles64Folder">
