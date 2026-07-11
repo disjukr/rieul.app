@@ -59,6 +59,127 @@ function ConvertTo-WixSourcePath {
   return (ConvertTo-XmlEscapedText ((Resolve-Path -LiteralPath $Path).Path))
 }
 
+function Assert-GuiBundle {
+  param([string]$Path)
+
+  if (-not (Test-Path -LiteralPath $Path -PathType Container)) {
+    throw "Missing GUI bundle: $Path"
+  }
+
+  $requiredPaths = @(
+    "rieul-windows-gui.exe",
+    "rieul-windows-gui.dll",
+    "libcef.dll",
+    "resources.pak",
+    "locales"
+  )
+  foreach ($relativePath in $requiredPaths) {
+    $requiredPath = Join-Path $Path $relativePath
+    if (-not (Test-Path -LiteralPath $requiredPath)) {
+      throw "GUI bundle is incomplete; missing: $requiredPath"
+    }
+  }
+}
+
+function Add-GuiBundleDirectorySource {
+  param(
+    [System.IO.DirectoryInfo]$Directory,
+    [string]$DirectoryId,
+    [string]$Indent,
+    [string]$BundleRoot,
+    [hashtable]$DirectoryIds,
+    [System.Collections.Generic.List[string]]$Lines,
+    [System.Collections.Generic.List[string]]$ComponentRefs,
+    [ref]$FileIndex,
+    [ref]$LauncherFound
+  )
+
+  $directoryName = if ($Directory.FullName -eq $BundleRoot) {
+    "gui"
+  } else {
+    ConvertTo-XmlEscapedText $Directory.Name
+  }
+  $Lines.Add("$Indent<Directory Id=`"$DirectoryId`" Name=`"$directoryName`">")
+
+  $childIndent = "$Indent  "
+  $files = @(Get-ChildItem -LiteralPath $Directory.FullName -File -Force | Sort-Object Name)
+  foreach ($file in $files) {
+    $index = $FileIndex.Value
+    $FileIndex.Value = $index + 1
+    $componentId = "GuiBundleComponent{0:D4}" -f $index
+    $relativePath = $file.FullName.Substring($BundleRoot.Length + 1)
+    $isLauncher = $relativePath -ieq "rieul-windows-gui.exe"
+    $fileId = if ($isLauncher) { "GuiExe" } else { "GuiBundleFile{0:D4}" -f $index }
+    $filePath = ConvertTo-WixSourcePath $file.FullName
+
+    $Lines.Add("$childIndent<Component Id=`"$componentId`" Guid=`"*`" Bitness=`"always64`">")
+    $Lines.Add("$childIndent  <File Id=`"$fileId`" Source=`"$filePath`" KeyPath=`"yes`" />")
+    if ($isLauncher) {
+      $LauncherFound.Value = $true
+      $Lines.Add("$childIndent  <RegistryValue")
+      $Lines.Add("$childIndent    Root=`"HKLM`"")
+      $Lines.Add("$childIndent    Key=`"Software\Microsoft\Windows\CurrentVersion\Run`"")
+      $Lines.Add("$childIndent    Name=`"Rieul GUI`"")
+      $Lines.Add("$childIndent    Type=`"string`"")
+      $Lines.Add("$childIndent    Value=`"&quot;[#GuiExe]&quot;`" />")
+    }
+    $Lines.Add("$childIndent</Component>")
+    $ComponentRefs.Add("      <ComponentRef Id=`"$componentId`" />")
+  }
+
+  $childDirectories = @(Get-ChildItem -LiteralPath $Directory.FullName -Directory -Force | Sort-Object Name)
+  foreach ($childDirectory in $childDirectories) {
+    Add-GuiBundleDirectorySource `
+      -Directory $childDirectory `
+      -DirectoryId $DirectoryIds[$childDirectory.FullName] `
+      -Indent $childIndent `
+      -BundleRoot $BundleRoot `
+      -DirectoryIds $DirectoryIds `
+      -Lines $Lines `
+      -ComponentRefs $ComponentRefs `
+      -FileIndex $FileIndex `
+      -LauncherFound $LauncherFound
+  }
+
+  $Lines.Add("$Indent</Directory>")
+}
+
+function New-GuiBundleWixSource {
+  param([string]$GuiBundle)
+
+  $bundle = Get-Item -LiteralPath $GuiBundle
+  $bundleRoot = $bundle.FullName.TrimEnd([System.IO.Path]::DirectorySeparatorChar)
+  $directoryIds = @{}
+  $directories = @(Get-ChildItem -LiteralPath $bundleRoot -Directory -Recurse -Force | Sort-Object FullName)
+  for ($index = 0; $index -lt $directories.Count; $index++) {
+    $directoryIds[$directories[$index].FullName] = "GuiBundleDirectory{0:D4}" -f $index
+  }
+
+  $lines = [System.Collections.Generic.List[string]]::new()
+  $componentRefs = [System.Collections.Generic.List[string]]::new()
+  $fileIndex = 0
+  $launcherFound = $false
+  Add-GuiBundleDirectorySource `
+    -Directory $bundle `
+    -DirectoryId "GuiBundleFolder" `
+    -Indent "        " `
+    -BundleRoot $bundleRoot `
+    -DirectoryIds $directoryIds `
+    -Lines $lines `
+    -ComponentRefs $componentRefs `
+    -FileIndex ([ref]$fileIndex) `
+    -LauncherFound ([ref]$launcherFound)
+
+  if (-not $launcherFound) {
+    throw "GUI bundle launcher was not found: $(Join-Path $bundleRoot 'rieul-windows-gui.exe')"
+  }
+
+  return @{
+    DirectorySource = $lines -join "`r`n"
+    ComponentRefs = $componentRefs -join "`r`n"
+  }
+}
+
 function Test-DotnetSdkAvailable {
   $dotnet = Get-Command dotnet -ErrorAction SilentlyContinue
   if (-not $dotnet) {
@@ -119,7 +240,7 @@ function New-DaemonMsiSource {
     [string]$Manufacturer,
     [string]$SystemExe,
     [string]$UserExe,
-    [string]$GuiExe,
+    [string]$GuiBundle,
     [string]$Icon
   )
 
@@ -127,8 +248,10 @@ function New-DaemonMsiSource {
   $manufacturerText = ConvertTo-XmlEscapedText $Manufacturer
   $systemExePath = ConvertTo-WixSourcePath $SystemExe
   $userExePath = ConvertTo-WixSourcePath $UserExe
-  $guiExePath = ConvertTo-WixSourcePath $GuiExe
   $iconPath = ConvertTo-WixSourcePath $Icon
+  $guiBundleSource = New-GuiBundleWixSource $GuiBundle
+  $guiDirectorySource = $guiBundleSource.DirectorySource
+  $guiComponentRefs = $guiBundleSource.ComponentRefs
 
   $source = @"
 <Wix
@@ -221,15 +344,7 @@ function New-DaemonMsiSource {
             Value="&quot;[INSTALLFOLDER]rieul-windows-user.exe&quot;" />
         </Component>
 
-        <Component Id="GuiComponent" Guid="{D9899A91-9F60-4A7F-BDC9-42B9EF3826E2}" Bitness="always64">
-          <File Id="GuiExe" Source="$guiExePath" KeyPath="yes" />
-          <RegistryValue
-            Root="HKLM"
-            Key="Software\Microsoft\Windows\CurrentVersion\Run"
-            Name="Rieul GUI"
-            Type="string"
-            Value="&quot;[INSTALLFOLDER]rieul-windows-gui.exe&quot;" />
-        </Component>
+$guiDirectorySource
       </Directory>
     </StandardDirectory>
 
@@ -239,8 +354,8 @@ function New-DaemonMsiSource {
           <Shortcut
             Id="StartMenuShortcut"
             Name="Rieul"
-            Target="[INSTALLFOLDER]rieul-windows-gui.exe"
-            WorkingDirectory="INSTALLFOLDER"
+            Target="[#GuiExe]"
+            WorkingDirectory="GuiBundleFolder"
             Icon="RieulGuiIcon.ico" />
           <RemoveFolder Id="RemoveProgramMenuAppFolder" On="uninstall" />
           <RegistryValue
@@ -257,7 +372,7 @@ function New-DaemonMsiSource {
     <Feature Id="MainFeature" Title="Rieul Daemon" Level="1">
       <ComponentRef Id="SystemDaemonComponent" />
       <ComponentRef Id="UserAgentComponent" />
-      <ComponentRef Id="GuiComponent" />
+$guiComponentRefs
       <ComponentRef Id="StartMenuShortcutComponent" />
     </Feature>
   </Package>
@@ -284,7 +399,7 @@ $MsiPath = Join-Path $OutDir "$PackageBaseName.msi"
 $ReleaseDir = Join-Path $RepoRoot "target\release"
 $SystemExe = Join-Path $ReleaseDir "rieul-windows-system.exe"
 $UserExe = Join-Path $ReleaseDir "rieul-windows-user.exe"
-$GuiExe = Join-Path $ReleaseDir "rieul-windows-gui.exe"
+$GuiBundle = Join-Path $ReleaseDir "rieul-windows-gui"
 $Icon = Join-Path $RepoRoot "web\desktop\icon.ico"
 
 if (-not $SkipBuild) {
@@ -308,9 +423,7 @@ if (-not (Test-Path -LiteralPath $SystemExe)) {
 if (-not (Test-Path -LiteralPath $UserExe)) {
   throw "Missing release binary: $UserExe"
 }
-if (-not (Test-Path -LiteralPath $GuiExe)) {
-  throw "Missing release binary: $GuiExe"
-}
+Assert-GuiBundle $GuiBundle
 if (-not (Test-Path -LiteralPath $Icon)) {
   throw "Missing app icon: $Icon"
 }
@@ -326,7 +439,7 @@ New-DaemonMsiSource `
   -Manufacturer $Manufacturer `
   -SystemExe $SystemExe `
   -UserExe $UserExe `
-  -GuiExe $GuiExe `
+  -GuiBundle $GuiBundle `
   -Icon $Icon
 
 if (Test-Path -LiteralPath $MsiPath) {
