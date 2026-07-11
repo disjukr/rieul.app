@@ -60,12 +60,6 @@ jobs:
   macos:
     name: Build macOS installers
     runs-on: macos-latest
-    env:
-      APPLICATION_CERT_PATH: ${{ runner.temp }}/developer-id-application.p12
-      INSTALLER_CERT_PATH: ${{ runner.temp }}/developer-id-installer.p12
-      NOTARY_KEY_PATH: ${{ runner.temp }}/notary-api-key.p8
-      G2_CERT_PATH: ${{ runner.temp }}/DeveloperIDG2CA.cer
-      KEYCHAIN_PATH: ${{ runner.temp }}/rieul-signing.keychain-db
 
     steps:
       - name: Check out repository
@@ -92,6 +86,12 @@ jobs:
           APPLE_API_PRIVATE_KEY: ${{ secrets.APPLE_API_PRIVATE_KEY }}
         run: |
           set -euo pipefail
+          APPLICATION_CERT_PATH="$RUNNER_TEMP/developer-id-application.p12"
+          INSTALLER_CERT_PATH="$RUNNER_TEMP/developer-id-installer.p12"
+          NOTARY_KEY_PATH="$RUNNER_TEMP/notary-api-key.p8"
+          G2_CERT_PATH="$RUNNER_TEMP/DeveloperIDG2CA.cer"
+          KEYCHAIN_PATH="$RUNNER_TEMP/rieul-signing.keychain-db"
+
           : "${APPLICATION_CERT_P12:?Missing MACOS_APPLICATION_CERT_P12 secret}"
           : "${APPLICATION_CERT_PASSWORD:?Missing MACOS_APPLICATION_CERT_PASSWORD secret}"
           : "${INSTALLER_CERT_P12:?Missing MACOS_INSTALLER_CERT_P12 secret}"
@@ -210,14 +210,14 @@ jobs:
           pkg_path="dist/macos/$package_base_name.pkg"
 
           xcrun notarytool submit "$dmg_path" \
-            --key "$NOTARY_KEY_PATH" \
+            --key "$RUNNER_TEMP/notary-api-key.p8" \
             --key-id "$APPLE_API_KEY_ID" \
             --issuer "$APPLE_API_ISSUER_ID" \
             --wait
           xcrun stapler staple "$dmg_path"
 
           xcrun notarytool submit "$pkg_path" \
-            --key "$NOTARY_KEY_PATH" \
+            --key "$RUNNER_TEMP/notary-api-key.p8" \
             --key-id "$APPLE_API_KEY_ID" \
             --issuer "$APPLE_API_ISSUER_ID" \
             --wait
@@ -251,9 +251,10 @@ jobs:
         if: always()
         shell: bash
         run: |
-          security delete-keychain "$KEYCHAIN_PATH" >/dev/null 2>&1 || true
+          security delete-keychain \
+            "$RUNNER_TEMP/rieul-signing.keychain-db" >/dev/null 2>&1 || true
           rm -f \
-            "$APPLICATION_CERT_PATH" \
-            "$INSTALLER_CERT_PATH" \
-            "$NOTARY_KEY_PATH" \
-            "$G2_CERT_PATH"
+            "$RUNNER_TEMP/developer-id-application.p12" \
+            "$RUNNER_TEMP/developer-id-installer.p12" \
+            "$RUNNER_TEMP/notary-api-key.p8" \
+            "$RUNNER_TEMP/DeveloperIDG2CA.cer"
