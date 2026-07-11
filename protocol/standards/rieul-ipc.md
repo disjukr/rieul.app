@@ -49,8 +49,13 @@ Preferred Windows names:
 
 ```text
 \\.\pipe\rieul-gui-profile-<profileId>
-\\.\pipe\rieul-agent-profile-<profileId>
+\\.\pipe\rieul-agent-profile-<profileId>-session-<sessionId>
 ```
+
+User-agent endpoints SHOULD include the OS login-session identity when a host
+can have multiple interactive sessions. A system daemon MUST verify the peer
+process token and session identity before routing privileged requests to an
+agent; self-reported IPC identity fields are diagnostic metadata only.
 
 Preferred macOS names:
 
@@ -100,6 +105,9 @@ Example IPC procs:
 - `ActivateGui`
 - `PairingCompleted`
 - `SnapshotWindows`
+- `GetAgentInfo`
+- `SnapshotAgentTerminalShells`
+- `HostAgentTerminal`
 
 These procs are implementation plumbing. They are not public client RPC methods
 unless a future public API explicitly promotes them.
@@ -123,6 +131,11 @@ provides a reliable mechanism.
 
 IPC messages MUST NOT carry long-lived credential secrets. Pairing IPC may
 carry short-lived display codes and confirmation codes.
+
+Privileged daemons MUST NOT execute user-context operations in the privileged
+process as a fallback when an expected agent is unavailable. In particular, a
+terminal requested through a user agent MUST fail closed rather than launch as
+root or LocalSystem.
 
 Receivers MUST validate socket-wire messages, endpoint profile, proc id,
 payload schema, numeric fields, and size limits before acting on requests.

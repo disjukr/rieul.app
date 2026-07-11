@@ -17,7 +17,198 @@ import rieul.rpc.window {
 @ client - system
 proc SnapshotWindows = void -> SnapshotWindowsRes throws IpcProcError
 
+@ description
+| Returns the identity and capabilities of this user-session agent instance.
+| The system process uses the OS transport peer identity as the security source
+| of truth; the fields in this response are for routing consistency,
+| diagnostics, and restart detection.
+@ id - 7
+@ stream - unary
+@ server - agent
+@ client - system
+proc GetAgentInfo = void -> AgentInfo throws IpcProcError
+
+@ description
+| Returns shell launch options discovered in the agent user's environment.
+| Commands and paths MUST be resolved using that user's environment and
+| profile, never the system process environment.
+@ id - 8
+@ stream - unary
+@ server - agent
+@ client - system
+proc SnapshotAgentTerminalShells = void -> SnapshotAgentTerminalShellsRes throws IpcProcError
+
+@ description
+| Hosts one pseudo-terminal in the agent user's security context. The request
+| stream MUST begin with exactly one AgentTerminalCommand.Start. After the
+| agent successfully creates the pseudo-terminal and child process it MUST emit
+| AgentTerminalEvent.Started first. Later request messages may write input,
+| resize the pseudo-terminal, or close it. Output ordering on the response
+| stream is authoritative; the system process assigns public terminal output
+| sequence numbers in that order.
+|
+| The pseudo-terminal lifetime is bound to this IPC stream. Request EOF,
+| transport loss, an invalid command sequence, or agent shutdown MUST terminate
+| the hosted process and release the pseudo-terminal. Process exit is reported
+| once with AgentTerminalEvent.Exited and followed by normal response-stream
+| completion.
+@ id - 9
+@ stream - bidi
+@ server - agent
+@ client - system
+proc HostAgentTerminal = AgentTerminalCommand -> AgentTerminalEvent throws IpcProcError
+
 struct SnapshotWindowsRes {
   @ id - 1
   windows: WindowDetail[],
+}
+
+struct AgentInfo {
+  @ id - 1
+  @ description - Random identifier fixed for this agent process lifetime.
+  agentInstanceId: string,
+
+  @ id - 2
+  @ description - Stable daemon profile selected by the IPC endpoint.
+  profileId: string,
+
+  @ id - 3
+  @ description - Opaque operating-system login/session identifier.
+  loginSessionId: string,
+
+  @ id - 4
+  @ description - Human-readable local account name for diagnostics.
+  userName: string,
+
+  @ id - 5
+  @ description - IPC proc ids implemented by this agent instance.
+  supportedProcIds: u53[],
+}
+
+struct SnapshotAgentTerminalShellsRes {
+  @ id - 1
+  shells: AgentAvailableShellInfo[],
+}
+
+@ description - Shell launch option resolved in the agent user's environment.
+struct AgentAvailableShellInfo {
+  @ id - 1
+  shellId: string,
+
+  @ id - 2
+  name: string,
+
+  @ id - 3
+  command: string,
+
+  @ id - 4
+  args: string[],
+
+  @ id - 5
+  isDefault: bool,
+}
+
+@ description - Exact command line to host in the agent-owned PTY.
+struct AgentTerminalLaunchSpec {
+  @ id - 1
+  command: string,
+
+  @ id - 2
+  args: string[],
+}
+
+@ description - Command stream sent by the system process to one hosted PTY.
+union AgentTerminalCommand {
+  @ id - 1
+  @ description
+  | First and only start command. The agent resolves the executable, working
+  | directory, environment, and shell integration in its own user context.
+  Start(
+    @ id - 1
+    cols: u53,
+
+    @ id - 2
+    rows: u53,
+
+    @ id - 3
+    cwd?: string,
+
+    @ id - 4
+    launch: AgentTerminalLaunchSpec,
+  ),
+
+  @ id - 2
+  @ description - Raw bytes to write to the pseudo-terminal input.
+  Input(
+    @ id - 1
+    bytes: bytes,
+  ),
+
+  @ id - 3
+  @ description - Replaces the pseudo-terminal's current character dimensions.
+  Resize(
+    @ id - 1
+    cols: u53,
+
+    @ id - 2
+    rows: u53,
+  ),
+
+  @ id - 4
+  @ description - Requests child termination and pseudo-terminal cleanup.
+  Close(),
+}
+
+@ description - Event stream emitted by one user-agent-hosted PTY.
+union AgentTerminalEvent {
+  @ id - 1
+  @ description
+  | First response after the PTY and child process have been created. The
+  | optional cwd is the agent's resolved initial working directory.
+  Started(
+    @ id - 1
+    cwd?: string,
+  ),
+
+  @ id - 2
+  @ description
+  | Raw pseudo-terminal output. The system process preserves response order and
+  | assigns public TerminalEvent.OutputChunk sequence numbers.
+  Output(
+    @ id - 1
+    bytes: bytes,
+  ),
+
+  @ id - 3
+  @ description - The hosted child process exited normally or by OS signal.
+  Exited(
+    @ id - 1
+    code?: i53,
+
+    @ id - 2
+    signal?: string,
+  ),
+
+  @ id - 4
+  @ description
+  | The PTY closed without process-exit metadata. This is emitted for a
+  | system-requested close or a failure detected while the IPC stream is live.
+  Closed(
+    @ id - 1
+    reason: AgentTerminalCloseReason,
+  ),
+}
+
+union AgentTerminalCloseReason {
+  @ id - 0
+  Failed(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 1
+  ClosedBySystem(),
+
+  @ id - 2
+  AgentShuttingDown(),
 }
