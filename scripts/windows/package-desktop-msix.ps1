@@ -22,7 +22,7 @@ function Get-CargoPackageVersion {
     Where-Object { $_ -match '^version\s*=\s*"([^"]+)"' } |
     Select-Object -First 1
   if (-not $versionLine) {
-    throw "Could not infer daemon version from $CargoTomlPath"
+    throw "Could not infer desktop package version from $CargoTomlPath"
   }
   return [regex]::Match($versionLine, '^version\s*=\s*"([^"]+)"').Groups[1].Value
 }
@@ -176,7 +176,7 @@ function New-AppxManifest {
     Version="$identityVersion"
     ProcessorArchitecture="x64" />
   <Properties>
-    <DisplayName>Rieul</DisplayName>
+    <DisplayName>Rieul Desktop</DisplayName>
     <PublisherDisplayName>$displayPublisher</PublisherDisplayName>
     <Logo>Assets\StoreLogo.png</Logo>
   </Properties>
@@ -195,8 +195,8 @@ function New-AppxManifest {
       Executable="gui\rieul-windows-gui.exe"
       EntryPoint="Windows.FullTrustApplication">
       <uap:VisualElements
-        DisplayName="Rieul"
-        Description="Remote machine explorer and daemon GUI"
+        DisplayName="Rieul Desktop"
+        Description="Rieul Desktop"
         BackgroundColor="transparent"
         Square44x44Logo="Assets\Square44x44Logo.png"
         Square150x150Logo="Assets\Square150x150Logo.png" />
@@ -208,7 +208,7 @@ function New-AppxManifest {
           <desktop:StartupTask
             TaskId="RieulGui"
             Enabled="true"
-            DisplayName="Rieul" />
+            DisplayName="Rieul Desktop" />
         </desktop:Extension>
         <desktop7:Extension
           Category="windows.service"
@@ -296,7 +296,7 @@ if (-not $SkipSign) {
   $SignTool = Find-WindowsSdkTool "signtool.exe"
 }
 
-$PackageBaseName = "rieul-windows-daemon-$Version"
+$PackageBaseName = "rieul-windows-desktop-$Version"
 $StagingDir = Join-Path $OutDir "$PackageBaseName-msix"
 if ($SkipSign) {
   $MsixPath = Join-Path $OutDir "$PackageBaseName.unsigned.msix"

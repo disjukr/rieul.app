@@ -182,7 +182,7 @@ Stop-DevDaemon `
   -RequiredListeningPort $WebPort
 
 if ($StoppedProcessCount -eq 0) {
-  Write-Host "No matching dev daemons found."
+  Write-Host "No matching desktop dev processes found."
 } else {
-  Write-Host "Stopped $StoppedProcessCount dev daemon process(es)."
+  Write-Host "Stopped $StoppedProcessCount desktop dev process(es)."
 }

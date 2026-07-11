@@ -9,7 +9,7 @@ use std::process::Command as ProcessCommand;
 
 #[derive(Debug, Parser)]
 #[command(name = "rieul-macos-launcher")]
-#[command(about = "macOS installer and GUI launcher for rieul")]
+#[command(about = "macOS Rieul Desktop installer and daemon GUI launcher")]
 struct Args {
     #[command(subcommand)]
     command: Command,

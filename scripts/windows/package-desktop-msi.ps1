@@ -17,7 +17,7 @@ function Get-CargoPackageVersion {
     Where-Object { $_ -match '^version\s*=\s*"([^"]+)"' } |
     Select-Object -First 1
   if (-not $versionLine) {
-    throw "Could not infer daemon version from $CargoTomlPath"
+    throw "Could not infer desktop package version from $CargoTomlPath"
   }
   return [regex]::Match($versionLine, '^version\s*=\s*"([^"]+)"').Groups[1].Value
 }
@@ -119,7 +119,7 @@ function Add-GuiBundleDirectorySource {
       $Lines.Add("$childIndent  <RegistryValue")
       $Lines.Add("$childIndent    Root=`"HKLM`"")
       $Lines.Add("$childIndent    Key=`"Software\Microsoft\Windows\CurrentVersion\Run`"")
-      $Lines.Add("$childIndent    Name=`"Rieul GUI`"")
+      $Lines.Add("$childIndent    Name=`"Rieul Desktop`"")
       $Lines.Add("$childIndent    Type=`"string`"")
       $Lines.Add("$childIndent    Value=`"&quot;[#GuiExe]&quot;`" />")
     }
@@ -233,7 +233,7 @@ function Add-WixExtension {
   }
 }
 
-function New-DaemonMsiSource {
+function New-DesktopMsiSource {
   param(
     [string]$Path,
     [string]$Version,
@@ -257,7 +257,7 @@ function New-DaemonMsiSource {
 <Wix
   xmlns="http://wixtoolset.org/schemas/v4/wxs">
   <Package
-    Name="Rieul Daemon"
+    Name="Rieul Desktop"
     Manufacturer="$manufacturerText"
     Version="$versionText"
     UpgradeCode="{B7314DA6-AE47-45BB-BC82-C35F06A44FD8}"
@@ -269,7 +269,7 @@ function New-DaemonMsiSource {
     <Property Id="ARPPRODUCTICON" Value="RieulGuiIcon.ico" />
 
     <Launch Condition="Privileged" Message="[ProductName] installs a LocalSystem service and must be installed with administrator privileges." />
-    <Property Id="WIXUI_EXITDIALOGOPTIONALTEXT" Value="Rieul Daemon was installed successfully." />
+    <Property Id="WIXUI_EXITDIALOGOPTIONALTEXT" Value="Rieul Desktop was installed successfully." />
     <Property Id="ARPNOMODIFY" Value="1" />
 
     <UI Id="RieulInstallUI">
@@ -353,7 +353,7 @@ $guiDirectorySource
         <Component Id="StartMenuShortcutComponent" Guid="{60994307-B63F-4488-BD16-20196C11EED1}" Bitness="always64">
           <Shortcut
             Id="StartMenuShortcut"
-            Name="Rieul"
+            Name="Rieul Desktop"
             Target="[#GuiExe]"
             WorkingDirectory="GuiBundleFolder"
             Icon="RieulGuiIcon.ico" />
@@ -369,7 +369,7 @@ $guiDirectorySource
       </Directory>
     </StandardDirectory>
 
-    <Feature Id="MainFeature" Title="Rieul Daemon" Level="1">
+    <Feature Id="MainFeature" Title="Rieul Desktop" Level="1">
       <ComponentRef Id="SystemDaemonComponent" />
       <ComponentRef Id="UserAgentComponent" />
 $guiComponentRefs
@@ -392,7 +392,7 @@ if (-not $OutDir) {
   $OutDir = Join-Path $RepoRoot "dist\windows"
 }
 
-$PackageBaseName = "rieul-windows-daemon-$PackageVersion"
+$PackageBaseName = "rieul-windows-desktop-$PackageVersion"
 $StagingDir = Join-Path $OutDir "$PackageBaseName-msi"
 $MsiSourcePath = Join-Path $StagingDir "Package.wxs"
 $MsiPath = Join-Path $OutDir "$PackageBaseName.msi"
@@ -433,7 +433,7 @@ if (Test-Path -LiteralPath $StagingDir) {
 }
 New-Item -ItemType Directory -Force -Path $StagingDir | Out-Null
 
-New-DaemonMsiSource `
+New-DesktopMsiSource `
   -Path $MsiSourcePath `
   -Version $MsiVersion `
   -Manufacturer $Manufacturer `
