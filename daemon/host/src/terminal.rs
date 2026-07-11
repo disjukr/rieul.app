@@ -2,15 +2,14 @@ use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::shell_integration;
 use anyhow::Result;
-use portable_pty::{
-    native_pty_system, Child, ChildKiller, CommandBuilder, ExitStatus, MasterPty, PtySize,
-};
+use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, MasterPty, PtySize};
 use rieul_daemon_core::rpc::{
     AttachTerminalSessionReq, AvailableShellInfo, CreateTerminalSessionReq, TakeTerminalControlReq,
     TakeTerminalControlRes, TerminalEvent, TerminalExit, TerminalLaunchSpec,
@@ -31,7 +30,7 @@ type SharedSession = Arc<Mutex<TerminalSession>>;
 #[derive(Clone)]
 pub struct TerminalManager {
     inner: Arc<TerminalManagerInner>,
-    shell_integration_dir: PathBuf,
+    backend: Arc<dyn TerminalBackend>,
 }
 
 struct TerminalManagerInner {
@@ -43,15 +42,61 @@ struct TerminalManagerInner {
 
 struct TerminalSession {
     info: TerminalSessionInfo,
-    master: Box<dyn MasterPty + Send>,
-    writer: Box<dyn Write + Send>,
-    child_killer: Option<Box<dyn ChildKiller + Send + Sync>>,
+    host: Box<dyn HostedTerminalControl>,
     output_tx: broadcast::Sender<TerminalEvent>,
     output_buffer: VecDeque<OutputRecord>,
     retained_output_bytes: usize,
     metadata_parser: TerminalMetadataParser,
     attach_owners: HashMap<String, u64>,
     closed: bool,
+}
+
+pub trait TerminalBackend: Send + Sync {
+    fn available_shells(&self) -> Result<Vec<AvailableShellInfo>, ServiceError>;
+
+    fn spawn(&self, request: &CreateTerminalSessionReq) -> Result<HostedTerminal, ServiceError>;
+}
+
+pub trait HostedTerminalControl: Send {
+    fn write_input(&mut self, bytes: &[u8]) -> Result<(), ServiceError>;
+    fn resize(&mut self, cols: u64, rows: u64) -> Result<(), ServiceError>;
+    fn close(&mut self) -> Result<(), ServiceError>;
+}
+
+pub struct HostedTerminal {
+    pub initial_cwd: Option<String>,
+    pub control: Box<dyn HostedTerminalControl>,
+    pub events: mpsc::Receiver<HostedTerminalEvent>,
+}
+
+#[derive(Debug)]
+pub enum HostedTerminalEvent {
+    Output(Vec<u8>),
+    Exited {
+        code: Option<i64>,
+        signal: Option<String>,
+    },
+    Closed {
+        message: String,
+    },
+}
+
+pub struct LocalTerminalBackend {
+    shell_integration_dir: PathBuf,
+}
+
+impl LocalTerminalBackend {
+    pub fn new(shell_integration_dir: PathBuf) -> Self {
+        Self {
+            shell_integration_dir,
+        }
+    }
+}
+
+struct LocalHostedTerminalControl {
+    master: Box<dyn MasterPty + Send>,
+    writer: Box<dyn Write + Send>,
+    child_killer: Option<Box<dyn ChildKiller + Send + Sync>>,
 }
 
 #[derive(Debug, Clone)]
@@ -293,6 +338,10 @@ fn non_empty_string(text: &str) -> Option<String> {
 
 impl TerminalManager {
     pub fn new(shell_integration_dir: PathBuf) -> Self {
+        Self::with_backend(Arc::new(LocalTerminalBackend::new(shell_integration_dir)))
+    }
+
+    pub fn with_backend(backend: Arc<dyn TerminalBackend>) -> Self {
         let (table_tx, _) = broadcast::channel(TERMINAL_TABLE_CHANNEL_CAPACITY);
         Self {
             inner: Arc::new(TerminalManagerInner {
@@ -301,7 +350,7 @@ impl TerminalManager {
                 next_attach_id: AtomicU64::new(1),
                 table_tx,
             }),
-            shell_integration_dir,
+            backend,
         }
     }
 
@@ -311,44 +360,7 @@ impl TerminalManager {
         creator_client_id: String,
     ) -> Result<TerminalSessionInfo, ServiceError> {
         validate_size(request.cols, request.rows)?;
-        let launch = resolve_launch(&request.launch)?;
-        let spawn_launch = self.terminal_spawn_launch(&launch);
-        let mut command = CommandBuilder::new(&spawn_launch.command);
-        command.args(&spawn_launch.args);
-        for (key, value) in &spawn_launch.env {
-            command.env(key, value);
-        }
-        let initial_cwd = request
-            .cwd
-            .clone()
-            .or_else(|| launch.cwd.clone())
-            .or_else(|| {
-                std::env::current_dir()
-                    .ok()
-                    .map(|path| path.to_string_lossy().into_owned())
-            });
-        if let Some(cwd) = initial_cwd.as_deref() {
-            command.cwd(PathBuf::from(cwd));
-        }
-
-        let pty_system = native_pty_system();
-        let pair = pty_system
-            .openpty(PtySize {
-                rows: request.rows as u16,
-                cols: request.cols as u16,
-                pixel_width: 0,
-                pixel_height: 0,
-            })
-            .map_err(operation_failed)?;
-        let child = pair
-            .slave
-            .spawn_command(command)
-            .map_err(operation_failed)?;
-        let child_killer = child.clone_killer();
-        drop(pair.slave);
-
-        let reader = pair.master.try_clone_reader().map_err(operation_failed)?;
-        let writer = pair.master.take_writer().map_err(operation_failed)?;
+        let hosted = self.backend.spawn(&request)?;
         let terminal_session_id = format!(
             "terminal-{}",
             self.inner.next_session_id.fetch_add(1, Ordering::Relaxed)
@@ -368,14 +380,12 @@ impl TerminalManager {
             latest_output_seq: 0,
             last_known_title: request.title.clone(),
             exit: None,
-            last_known_cwd: initial_cwd,
+            last_known_cwd: hosted.initial_cwd,
             launch: request.launch.clone(),
         };
         let session = Arc::new(Mutex::new(TerminalSession {
             info: info.clone(),
-            master: pair.master,
-            writer,
-            child_killer: Some(child_killer),
+            host: hosted.control,
             output_tx,
             output_buffer: VecDeque::new(),
             retained_output_bytes: 0,
@@ -390,8 +400,7 @@ impl TerminalManager {
             .expect("terminal sessions lock poisoned")
             .insert(terminal_session_id.clone(), session.clone());
         self.broadcast_table_upsert(&info);
-        spawn_output_reader(self.clone(), terminal_session_id.clone(), reader);
-        spawn_child_waiter(self.clone(), terminal_session_id.clone(), child);
+        spawn_host_event_reader(self.clone(), terminal_session_id, hosted.events);
         Ok(info)
     }
 
@@ -416,7 +425,13 @@ impl TerminalManager {
     }
 
     pub fn available_shells_snapshot(&self) -> Vec<AvailableShellInfo> {
-        discover_available_shells()
+        match self.backend.available_shells() {
+            Ok(shells) => shells,
+            Err(err) => {
+                warn!(?err, "failed to discover terminal shells");
+                Vec::new()
+            }
+        }
     }
 
     pub fn attach(
@@ -483,14 +498,8 @@ impl TerminalManager {
         guard.info.cols = request.viewport_cols;
         guard.info.rows = request.viewport_rows;
         guard
-            .master
-            .resize(PtySize {
-                rows: request.viewport_rows as u16,
-                cols: request.viewport_cols as u16,
-                pixel_width: 0,
-                pixel_height: 0,
-            })
-            .map_err(operation_failed)?;
+            .host
+            .resize(request.viewport_cols, request.viewport_rows)?;
 
         let info = guard.info.clone();
         if previous_primary.as_deref() != Some(request.attach_id.as_str()) {
@@ -526,9 +535,7 @@ impl TerminalManager {
                 "attach is not the live primary attach".to_string(),
             ));
         }
-        guard.writer.write_all(bytes).map_err(operation_failed)?;
-        guard.writer.flush().map_err(operation_failed)?;
-        Ok(())
+        guard.host.write_input(bytes)
     }
 
     pub fn close_session(&self, terminal_session_id: &str) -> Result<(), ServiceError> {
@@ -545,11 +552,9 @@ impl TerminalManager {
 
         let mut guard = session.lock().expect("terminal session lock poisoned");
         guard.closed = true;
-        if let Some(mut child_killer) = guard.child_killer.take() {
-            if guard.info.exit.is_none() {
-                if let Err(err) = child_killer.kill() {
-                    warn!(?err, terminal_session_id, "failed to kill terminal child");
-                }
+        if guard.info.exit.is_none() {
+            if let Err(err) = guard.host.close() {
+                warn!(?err, terminal_session_id, "failed to close terminal host");
             }
         }
         let _ = guard.output_tx.send(TerminalEvent::SessionClosed {
@@ -623,7 +628,7 @@ impl TerminalManager {
         true
     }
 
-    fn mark_exited(&self, terminal_session_id: &str, status: Option<ExitStatus>) {
+    fn mark_exited(&self, terminal_session_id: &str, code: Option<i64>, signal: Option<String>) {
         let Ok(session) = self.get_session(terminal_session_id) else {
             return;
         };
@@ -631,12 +636,9 @@ impl TerminalManager {
         if guard.closed || guard.info.exit.is_some() {
             return;
         }
-        guard.child_killer = None;
         let exit = TerminalExit {
-            code: status.as_ref().map(|status| i64::from(status.exit_code())),
-            signal: status
-                .as_ref()
-                .and_then(|status| status.signal().map(ToString::to_string)),
+            code,
+            signal,
             exited_at_ms: current_unix_ms(),
         };
         guard.info.exit = Some(exit.clone());
@@ -644,6 +646,30 @@ impl TerminalManager {
         let _ = guard.output_tx.send(TerminalEvent::SessionExited { exit });
         drop(guard);
         self.broadcast_table_upsert(&info);
+    }
+
+    fn mark_host_closed(&self, terminal_session_id: &str, message: String) {
+        let session = {
+            let mut sessions = self
+                .inner
+                .sessions
+                .lock()
+                .expect("terminal sessions lock poisoned");
+            let Some(session) = sessions.remove(terminal_session_id) else {
+                return;
+            };
+            session
+        };
+        let mut guard = session.lock().expect("terminal session lock poisoned");
+        if guard.closed || guard.info.exit.is_some() {
+            return;
+        }
+        guard.closed = true;
+        let _ = guard.output_tx.send(TerminalEvent::SessionClosed {
+            reason: TerminalSessionCloseReason::Failed { message },
+        });
+        drop(guard);
+        self.broadcast_table_remove(terminal_session_id);
     }
 
     fn get_session(&self, terminal_session_id: &str) -> Result<SharedSession, ServiceError> {
@@ -682,47 +708,29 @@ pub struct AttachedTerminal {
     pub receiver: broadcast::Receiver<TerminalEvent>,
 }
 
-fn spawn_output_reader(
+fn spawn_host_event_reader(
     manager: TerminalManager,
     terminal_session_id: String,
-    mut reader: Box<dyn Read + Send>,
+    events: mpsc::Receiver<HostedTerminalEvent>,
 ) {
     thread::spawn(move || {
-        let mut buffer = [0_u8; 8192];
-        loop {
-            match reader.read(&mut buffer) {
-                Ok(0) => break,
-                Ok(count) => {
-                    if !manager.record_output(&terminal_session_id, buffer[..count].to_vec()) {
+        while let Ok(event) = events.recv() {
+            match event {
+                HostedTerminalEvent::Output(bytes) => {
+                    if !manager.record_output(&terminal_session_id, bytes) {
                         break;
                     }
                 }
-                Err(err) => {
-                    warn!(?err, terminal_session_id, "terminal output reader failed");
+                HostedTerminalEvent::Exited { code, signal } => {
+                    manager.mark_exited(&terminal_session_id, code, signal);
+                    break;
+                }
+                HostedTerminalEvent::Closed { message } => {
+                    manager.mark_host_closed(&terminal_session_id, message);
                     break;
                 }
             }
         }
-    });
-}
-
-fn spawn_child_waiter(
-    manager: TerminalManager,
-    terminal_session_id: String,
-    mut child: Box<dyn Child + Send + Sync>,
-) {
-    thread::spawn(move || {
-        let status = match child.wait() {
-            Ok(status) => Some(status),
-            Err(err) => {
-                warn!(
-                    ?err,
-                    terminal_session_id, "failed to wait for terminal child"
-                );
-                None
-            }
-        };
-        manager.mark_exited(&terminal_session_id, status);
     });
 }
 
@@ -787,9 +795,132 @@ fn resolve_launch(launch: &TerminalLaunchSpec) -> Result<LaunchCommand, ServiceE
     })
 }
 
-impl TerminalManager {
-    fn terminal_spawn_launch(&self, launch: &LaunchCommand) -> LaunchCommand {
-        terminal_spawn_launch(launch, &self.shell_integration_dir)
+impl TerminalBackend for LocalTerminalBackend {
+    fn available_shells(&self) -> Result<Vec<AvailableShellInfo>, ServiceError> {
+        Ok(discover_available_shells())
+    }
+
+    fn spawn(&self, request: &CreateTerminalSessionReq) -> Result<HostedTerminal, ServiceError> {
+        validate_size(request.cols, request.rows)?;
+        let launch = resolve_launch(&request.launch)?;
+        let spawn_launch = terminal_spawn_launch(&launch, &self.shell_integration_dir);
+        let mut command = CommandBuilder::new(&spawn_launch.command);
+        command.args(&spawn_launch.args);
+        for (key, value) in &spawn_launch.env {
+            command.env(key, value);
+        }
+        let initial_cwd = request
+            .cwd
+            .clone()
+            .or_else(|| launch.cwd.clone())
+            .or_else(|| {
+                std::env::current_dir()
+                    .ok()
+                    .map(|path| path.to_string_lossy().into_owned())
+            });
+        if let Some(cwd) = initial_cwd.as_deref() {
+            command.cwd(PathBuf::from(cwd));
+        }
+
+        let pty_system = native_pty_system();
+        let pair = pty_system
+            .openpty(PtySize {
+                rows: request.rows as u16,
+                cols: request.cols as u16,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
+            .map_err(operation_failed)?;
+        let mut child = pair
+            .slave
+            .spawn_command(command)
+            .map_err(operation_failed)?;
+        let child_killer = child.clone_killer();
+        drop(pair.slave);
+
+        let mut reader = pair.master.try_clone_reader().map_err(operation_failed)?;
+        let writer = pair.master.take_writer().map_err(operation_failed)?;
+        let (event_tx, events) = mpsc::channel();
+        let output_tx = event_tx.clone();
+        thread::spawn(move || {
+            let mut buffer = [0_u8; 8192];
+            loop {
+                match reader.read(&mut buffer) {
+                    Ok(0) => break,
+                    Ok(count) => {
+                        if output_tx
+                            .send(HostedTerminalEvent::Output(buffer[..count].to_vec()))
+                            .is_err()
+                        {
+                            break;
+                        }
+                    }
+                    Err(err) => {
+                        let _ = output_tx.send(HostedTerminalEvent::Closed {
+                            message: format!("terminal output reader failed: {err}"),
+                        });
+                        break;
+                    }
+                }
+            }
+        });
+        thread::spawn(move || match child.wait() {
+            Ok(status) => {
+                let _ = event_tx.send(HostedTerminalEvent::Exited {
+                    code: Some(i64::from(status.exit_code())),
+                    signal: status.signal().map(ToString::to_string),
+                });
+            }
+            Err(err) => {
+                let _ = event_tx.send(HostedTerminalEvent::Closed {
+                    message: format!("failed to wait for terminal child: {err}"),
+                });
+            }
+        });
+
+        Ok(HostedTerminal {
+            initial_cwd,
+            control: Box::new(LocalHostedTerminalControl {
+                master: pair.master,
+                writer,
+                child_killer: Some(child_killer),
+            }),
+            events,
+        })
+    }
+}
+
+impl HostedTerminalControl for LocalHostedTerminalControl {
+    fn write_input(&mut self, bytes: &[u8]) -> Result<(), ServiceError> {
+        self.writer.write_all(bytes).map_err(operation_failed)?;
+        self.writer.flush().map_err(operation_failed)
+    }
+
+    fn resize(&mut self, cols: u64, rows: u64) -> Result<(), ServiceError> {
+        validate_size(cols, rows)?;
+        self.master
+            .resize(PtySize {
+                rows: rows as u16,
+                cols: cols as u16,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
+            .map_err(operation_failed)
+    }
+
+    fn close(&mut self) -> Result<(), ServiceError> {
+        let Some(mut child_killer) = self.child_killer.take() else {
+            return Ok(());
+        };
+        child_killer.kill().map_err(operation_failed)
+    }
+}
+
+impl Drop for LocalHostedTerminalControl {
+    fn drop(&mut self) {
+        if let Some(mut child_killer) = self.child_killer.take() {
+            let _ = child_killer.kill();
+        }
     }
 }
 
@@ -890,6 +1021,15 @@ fn discover_windows_shells(shells: &mut Vec<AvailableShellInfo>) {
     if let Some(path) = find_on_path("bash.exe") {
         shells.push(shell_info("bash", "Bash", path, Vec::new(), false));
     }
+    if let Some(command) = find_git_bash_command() {
+        shells.push(shell_info(
+            "git-bash",
+            "Git Bash",
+            command,
+            vec!["--login".to_string(), "-i".to_string()],
+            false,
+        ));
+    }
 }
 
 #[cfg(windows)]
@@ -980,7 +1120,7 @@ fn windows_terminal_source_shell_info(
                 .filter(|name| !name.is_empty())
                 .unwrap_or("Git Bash");
             Some(shell_info(
-                "bash",
+                "git-bash",
                 name,
                 command,
                 vec!["--login".to_string(), "-i".to_string()],
@@ -1320,6 +1460,16 @@ fn operation_failed(err: impl std::fmt::Display) -> ServiceError {
 mod tests {
     use super::{parse_osc_metadata, TerminalMetadata};
 
+    #[cfg(windows)]
+    use super::{
+        discover_available_shells, find_git_bash_command, HostedTerminalEvent,
+        LocalTerminalBackend, TerminalBackend,
+    };
+    #[cfg(windows)]
+    use crate::terminal::{CreateTerminalSessionReq, TerminalLaunchSpec};
+    #[cfg(windows)]
+    use std::time::Duration;
+
     #[cfg(target_os = "macos")]
     use super::parse_dscl_console_user;
 
@@ -1337,6 +1487,58 @@ mod tests {
             parse_osc_metadata("633;P;Cwd=/tmp/has\\x3bsemi"),
             Some(TerminalMetadata::Cwd("/tmp/has;semi".to_string()))
         );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn local_terminal_backend_reports_output_and_exit() {
+        let backend = LocalTerminalBackend::new(std::env::temp_dir().join("rieul-terminal-test"));
+        let mut hosted = backend
+            .spawn(&CreateTerminalSessionReq {
+                cols: 80,
+                rows: 24,
+                cwd: None,
+                launch: TerminalLaunchSpec {
+                    command: "powershell.exe".to_string(),
+                    args: vec!["-NoLogo".to_string(), "-NoProfile".to_string()],
+                },
+                title: None,
+            })
+            .unwrap();
+        let mut saw_output = false;
+        let mut sent_command = false;
+        loop {
+            match hosted.events.recv_timeout(Duration::from_secs(10)).unwrap() {
+                HostedTerminalEvent::Output(bytes) => {
+                    saw_output |= !bytes.is_empty();
+                    if bytes.windows(4).any(|window| window == b"\x1b[6n") {
+                        hosted.control.write_input(b"\x1b[1;1R").unwrap();
+                        if !sent_command {
+                            hosted.control.write_input(b"whoami\r\nexit\r\n").unwrap();
+                            sent_command = true;
+                        }
+                    }
+                }
+                HostedTerminalEvent::Exited { .. } => break,
+                HostedTerminalEvent::Closed { message } => panic!("terminal closed: {message}"),
+            }
+        }
+        assert!(saw_output);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn standard_git_bash_install_is_discoverable() {
+        let Some(command) = find_git_bash_command() else {
+            return;
+        };
+        let shells = discover_available_shells();
+        let git_bash = shells
+            .iter()
+            .find(|shell| shell.shell_id == "git-bash")
+            .expect("Git Bash shell option");
+        assert_eq!(git_bash.command, command);
+        assert_eq!(git_bash.args, ["--login", "-i"]);
     }
 
     #[cfg(target_os = "macos")]

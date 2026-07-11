@@ -69,7 +69,7 @@ use crate::cert::{
 };
 use crate::command::{CommandError, CommandErrorKind, CommandManager};
 use crate::state_db::DaemonStateDb;
-use crate::terminal::{AttachedTerminal, TerminalManager};
+use crate::terminal::{AttachedTerminal, TerminalBackend, TerminalManager};
 
 const CERT_RELOAD_DEBOUNCE: Duration = Duration::from_millis(250);
 const CONFIG_STARTUP_RETRY_INTERVAL: Duration = Duration::from_secs(5);
@@ -102,6 +102,7 @@ type SharedProcessModulesService = Arc<dyn ProcessModulesService>;
 type SharedHostRpcHandlers = Arc<HostRpcHandlers>;
 type SharedPairingNotifier = Arc<dyn PairingNotifier>;
 type SharedTerminalManager = Arc<TerminalManager>;
+type SharedTerminalBackend = Arc<dyn TerminalBackend>;
 type SharedCommandManager = Arc<CommandManager>;
 type SharedTrashEvents = watch::Sender<u64>;
 type SharedSendStream = Arc<Mutex<web_transport_quinn::SendStream>>;
@@ -184,6 +185,7 @@ pub async fn run_system_server(
     process_sockets_in_use: Option<SharedProcessSocketsInUseService>,
     process_modules: Option<SharedProcessModulesService>,
     pairing_notifier: Option<SharedPairingNotifier>,
+    terminal_backend: Option<SharedTerminalBackend>,
     log_label: &'static str,
 ) -> Result<()> {
     loop {
@@ -197,6 +199,7 @@ pub async fn run_system_server(
             process_sockets_in_use.clone(),
             process_modules.clone(),
             pairing_notifier.clone(),
+            terminal_backend.clone(),
             log_label,
         )
         .await
@@ -224,6 +227,7 @@ async fn run_system_server_once(
     process_sockets_in_use: Option<SharedProcessSocketsInUseService>,
     process_modules: Option<SharedProcessModulesService>,
     pairing_notifier: Option<SharedPairingNotifier>,
+    terminal_backend: Option<SharedTerminalBackend>,
     log_label: &'static str,
 ) -> Result<()> {
     let provider = web_transport_quinn::crypto::default_provider();
@@ -243,7 +247,10 @@ async fn run_system_server_once(
     let client_credentials = Arc::new(Mutex::new(initial_client_credentials.clone()));
     let (client_credentials_events, _) = watch::channel(initial_client_credentials);
     let pairing_challenge = Arc::new(Mutex::new(PairingState::default()));
-    let terminals = Arc::new(TerminalManager::new(shell_integration_dir(&config_path)));
+    let terminals = Arc::new(match terminal_backend {
+        Some(backend) => TerminalManager::with_backend(backend),
+        None => TerminalManager::new(shell_integration_dir(&config_path)),
+    });
     let (trash_events, _) = watch::channel(0);
     let rpc_handlers = Arc::new(build_rpc_handlers(
         windows.as_ref(),

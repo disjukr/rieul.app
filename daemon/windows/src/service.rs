@@ -6,7 +6,7 @@ use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Result};
-use rieul_daemon_core::config::windows_program_data_config_path;
+use rieul_daemon_core::config::{profile_id_for_config_path, windows_program_data_config_path};
 use windows_service::define_windows_service;
 use windows_service::service::{
     ServiceAccess, ServiceAction, ServiceActionType, ServiceControl, ServiceControlAccept,
@@ -22,6 +22,7 @@ use crate::ipc::{UserGuiPairingNotifier, UserSessionWindowService};
 use crate::process_modules::WindowsProcessModulesService;
 use crate::process_resources::WindowsProcessResourcesInUseService;
 use crate::process_sockets::WindowsProcessSocketsInUseService;
+use crate::terminal_ipc::WindowsAgentTerminalBackend;
 use rieul_daemon_host::server::run_system_server;
 use std::sync::Arc;
 
@@ -251,6 +252,8 @@ fn run_server_until_shutdown(
         let shutdown = tokio::task::spawn_blocking(move || shutdown_rx.recv());
         let window_service = UserSessionWindowService::from_config_path(&options.config_path);
         let pairing_notifier = UserGuiPairingNotifier::from_config_path(&options.config_path);
+        let terminal_backend =
+            WindowsAgentTerminalBackend::new(profile_id_for_config_path(&options.config_path));
         tokio::select! {
             result = run_system_server(
                 options.listen,
@@ -261,6 +264,7 @@ fn run_server_until_shutdown(
                 Some(Arc::new(WindowsProcessSocketsInUseService)),
                 Some(Arc::new(WindowsProcessModulesService)),
                 Some(Arc::new(pairing_notifier)),
+                Some(Arc::new(terminal_backend)),
                 "Windows system service",
             ) => result,
             _ = shutdown => Ok(()),
