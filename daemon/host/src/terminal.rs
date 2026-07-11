@@ -1019,11 +1019,7 @@ fn discover_windows_shells(shells: &mut Vec<AvailableShellInfo>) {
         shells.is_empty(),
     ));
     let git_bash = find_git_bash_command();
-    if let Some(path) = find_on_path("bash.exe").filter(|path| {
-        git_bash
-            .as_deref()
-            .is_none_or(|git_bash| !same_windows_command(path, git_bash))
-    }) {
+    if let Some(path) = find_on_path("bash.exe").filter(|path| !is_git_bash_command(path)) {
         shells.push(shell_info("bash", "Bash", path, Vec::new(), false));
     }
     if let Some(command) = git_bash {
@@ -1148,31 +1144,24 @@ fn find_git_bash_command() -> Option<String> {
 fn git_bash_candidate_paths() -> Vec<PathBuf> {
     let mut paths = Vec::new();
     if let Some(program_files) = std::env::var_os("ProgramFiles") {
-        paths.push(
-            PathBuf::from(program_files)
-                .join("Git")
-                .join("bin")
-                .join("bash.exe"),
-        );
+        push_git_bash_candidate_paths(&mut paths, PathBuf::from(program_files).join("Git"));
     }
     if let Some(program_files_x86) = std::env::var_os("ProgramFiles(x86)") {
-        paths.push(
-            PathBuf::from(program_files_x86)
-                .join("Git")
-                .join("bin")
-                .join("bash.exe"),
-        );
+        push_git_bash_candidate_paths(&mut paths, PathBuf::from(program_files_x86).join("Git"));
     }
     if let Some(local_app_data) = std::env::var_os("LOCALAPPDATA") {
-        paths.push(
-            PathBuf::from(local_app_data)
-                .join("Programs")
-                .join("Git")
-                .join("bin")
-                .join("bash.exe"),
+        push_git_bash_candidate_paths(
+            &mut paths,
+            PathBuf::from(local_app_data).join("Programs").join("Git"),
         );
     }
     paths
+}
+
+#[cfg(windows)]
+fn push_git_bash_candidate_paths(paths: &mut Vec<PathBuf>, git_root: PathBuf) {
+    paths.push(git_root.join("bin").join("bash.exe"));
+    paths.push(git_root.join("usr").join("bin").join("bash.exe"));
 }
 
 #[cfg(windows)]
@@ -1489,8 +1478,9 @@ mod tests {
 
     #[cfg(windows)]
     use super::{
-        discover_available_shells, find_git_bash_command, same_windows_command,
-        windows_terminal_shell_id, HostedTerminalEvent, LocalTerminalBackend, TerminalBackend,
+        discover_available_shells, find_git_bash_command, is_git_bash_command,
+        same_windows_command, windows_terminal_shell_id, HostedTerminalEvent, LocalTerminalBackend,
+        TerminalBackend,
     };
     #[cfg(windows)]
     use crate::terminal::{CreateTerminalSessionReq, TerminalLaunchSpec};
@@ -1579,6 +1569,9 @@ mod tests {
         assert!(same_windows_command(
             r"\\?\C:\Program Files\Git\bin\bash.exe",
             r"C:\Program Files\Git\bin\bash.exe"
+        ));
+        assert!(is_git_bash_command(
+            r"C:\Program Files\Git\usr\bin\bash.exe"
         ));
     }
 
