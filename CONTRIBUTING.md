@@ -105,21 +105,29 @@ deno task dev
 ## GitHub Releases
 
 Publishing a GitHub release runs the `Release desktop installers` workflow. It
-builds the unsigned Windows MSI on a Windows runner and Developer ID-signed,
-notarized macOS DMG and PKG installers on a macOS runner, then attaches the
-installers to the release. Installer versions come from release tags in the
-`desktop-x.y.z` or `desktop-x.y.z-rc.n` format; for example, `desktop-1.2.3`
-builds installers with package version `1.2.3`, and `desktop-1.2.3-rc.1` builds
-installer files containing `1.2.3-rc.1`. MSI `ProductVersion` still uses the
+builds the unsigned Windows MSI on a Windows runner and a Developer ID-signed,
+notarized macOS PKG on a macOS runner, then attaches the installers and their
+SHA-256 checksum files to the release. Installer versions come from release
+tags in the `desktop-x.y.z` or `desktop-x.y.z-rc.n` format; for example,
+`desktop-1.2.3` builds packages with version `1.2.3`, and
+`desktop-1.2.3-rc.1` builds packages with version `1.2.3-rc.1`. Release assets
+use stable names so the website install scripts can download them through
+GitHub's `releases/latest` URL:
+
+- `rieul-windows-desktop.msi`
+- `rieul-windows-desktop.msi.sha256`
+- `rieul-macos-desktop.pkg`
+- `rieul-macos-desktop.pkg.sha256`
+
+MSI `ProductVersion` still uses the
 numeric `x.y.z` part because Windows Installer does not accept prerelease
 suffixes there. The Windows release job accepts the WiX 7 EULA before building
 the MSI.
 
 The macOS release job imports the Developer ID Application and Installer
-identities into an ephemeral keychain, signs the app and both distribution
-containers, submits the DMG and PKG to Apple's notary service, staples their
-tickets, and validates them before upload. It reads these repository Actions
-secrets:
+identities into an ephemeral keychain, signs the app and PKG, submits the PKG to
+Apple's notary service, staples its ticket, and validates it before upload. It
+reads these repository Actions secrets:
 
 - `MACOS_APPLICATION_CERT_P12`
 - `MACOS_APPLICATION_CERT_PASSWORD`

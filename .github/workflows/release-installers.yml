@@ -48,14 +48,30 @@ jobs:
             throw "Release tag must match desktop-x.y.z or desktop-x.y.z-rc.n. Got: $env:RELEASE_TAG"
           }
           $version = $Matches.version
+          "WINDOWS_RELEASE_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append
           powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/windows/package-desktop-msi.ps1 -Version $version
 
-      - name: Upload MSI to release
+      - name: Prepare Windows release assets
+        shell: pwsh
+        run: |
+          $sourcePath = "dist/windows/rieul-windows-desktop-$env:WINDOWS_RELEASE_VERSION.msi"
+          $releasePath = "dist/windows/rieul-windows-desktop.msi"
+          $checksumPath = "$releasePath.sha256"
+
+          Move-Item -LiteralPath $sourcePath -Destination $releasePath
+          $hash = (Get-FileHash -LiteralPath $releasePath -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  rieul-windows-desktop.msi" |
+            Set-Content -LiteralPath $checksumPath -Encoding ascii
+
+      - name: Upload Windows installer to release
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release upload "${{ github.event.release.tag_name }}" dist/windows/*.msi --clobber
+          gh release upload "${{ github.event.release.tag_name }}" `
+            dist/windows/rieul-windows-desktop.msi `
+            dist/windows/rieul-windows-desktop.msi.sha256 `
+            --clobber
 
   macos:
     name: Build macOS installers
@@ -219,12 +235,27 @@ jobs:
           xcrun stapler validate "$pkg_path"
           spctl --assess --type install --verbose=2 "$pkg_path"
 
+      - name: Prepare macOS release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_path="dist/macos/rieul-macos-desktop-$MACOS_RELEASE_VERSION.pkg"
+          release_path="dist/macos/rieul-macos-desktop.pkg"
+          checksum_path="$release_path.sha256"
+
+          mv "$source_path" "$release_path"
+          shasum -a 256 "$release_path" |
+            awk '{ print $1 "  rieul-macos-desktop.pkg" }' >"$checksum_path"
+
       - name: Upload macOS installer to release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release upload "${{ github.event.release.tag_name }}" dist/macos/*.pkg --clobber
+          gh release upload "${{ github.event.release.tag_name }}" \
+            dist/macos/rieul-macos-desktop.pkg \
+            dist/macos/rieul-macos-desktop.pkg.sha256 \
+            --clobber
 
       - name: Remove signing credentials
         if: always()
