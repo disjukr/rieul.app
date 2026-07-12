@@ -1624,6 +1624,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "rieul-windows-close-guard"
+version = "0.1.0"
+
+[[package]]
 name = "rieul-windows-daemon"
 version = "0.1.0"
 dependencies = [

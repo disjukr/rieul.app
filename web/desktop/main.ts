@@ -3,7 +3,9 @@ import net from "node:net";
 import { fileURLToPath } from "node:url";
 import {
   applyWindowsWindowIcon,
+  createWindowsCloseGuard,
   removeWindowsMinimizeMaximizeButtons,
+  type WindowsCloseGuard,
 } from "./windows-window-icon.ts";
 import { createWindowsTray, type WindowsTray } from "./windows-tray.ts";
 import {
@@ -73,12 +75,20 @@ const info = await daemonInfo(configPath, profileId);
 let route: Route = { kind: "idle", model: info };
 let pendingConfirmation: PendingConfirmation | undefined;
 let uiShouldBeVisible = false;
+let closeGuardInstallGeneration = 0;
 const activeNotifications = new Set<Notification>();
 let notificationIconDataUrl: Promise<string> | undefined;
 
 await desktopLog(`starting desktop process: profileId=${profileId}`);
 if (Deno.build.os === "darwin") {
   Deno.dock?.setVisible?.(false);
+}
+if (
+  Deno.build.os === "windows" &&
+  await activateExistingGuiIfRunning(guiEndpoint(profileId))
+) {
+  await desktopLog("activated existing GUI; exiting duplicate process");
+  Deno.exit(0);
 }
 
 const assetServer = Deno.serve(handleRequest);
@@ -87,6 +97,19 @@ const desktopApiUrl = `http://127.0.0.1:${port}`;
 const appUrl = args.devUrl ??
   `http://127.0.0.1:${port}/daemon-main.html`;
 let uiWin = createUiWindow();
+let windowsCloseGuard: WindowsCloseGuard | undefined;
+if (Deno.build.os === "windows") {
+  try {
+    windowsCloseGuard = createWindowsCloseGuard(
+      windowsCloseGuardPath(),
+      () => handleWindowClose(uiWin),
+    );
+  } catch (error) {
+    await desktopLog(
+      `failed to load native Windows close guard: ${errorMessage(error)}`,
+    );
+  }
+}
 const backgroundWin = new Deno.BrowserWindow({
   frameless: true,
   height: 1,
@@ -97,6 +120,11 @@ backgroundWin.hide();
 setTimeout(() => backgroundWin.hide(), 0);
 const ipcServer = await startGuiIpcServer(profileId);
 const tray = await createTray();
+const visibilityGuard = setInterval(() => {
+  if (!uiShouldBeVisible && !uiWin.isClosed() && uiWin.isVisible()) {
+    uiWin.hide();
+  }
+}, 100);
 if (Deno.build.os === "darwin") {
   for (const signal of ["SIGINT", "SIGTERM"] as const) {
     Deno.addSignalListener(signal, () => {
@@ -105,14 +133,9 @@ if (Deno.build.os === "darwin") {
     });
   }
 }
-const visibilityGuard = setInterval(() => {
-  if (!uiShouldBeVisible && !uiWin.isClosed() && uiWin.isVisible()) {
-    uiWin.hide();
-  }
-}, 100);
-
 globalThis.addEventListener("unload", () => {
   clearInterval(visibilityGuard);
+  windowsCloseGuard?.destroy();
   ipcServer?.close();
   removeGuiSocket();
   tray?.destroy();
@@ -168,13 +191,24 @@ async function createTray(): Promise<TrayController | undefined> {
 }
 
 function createUiWindow(): Deno.BrowserWindow {
+  const window = createHiddenUiWindow(routeTitle(route));
+  initializeUiWindow(window);
+  return window;
+}
+
+function createHiddenUiWindow(title: string): Deno.BrowserWindow {
   const window = new Deno.BrowserWindow({
     height: 360,
     resizable: false,
-    title: routeTitle(route),
+    title,
     width: 640,
   });
-  if (!uiShouldBeVisible) window.hide();
+  window.hide();
+  return window;
+}
+
+function initializeUiWindow(window: Deno.BrowserWindow) {
+  window.setTitle(routeTitle(route));
   bindWindow(window);
   window.navigate(appUrl);
   setTimeout(() => {
@@ -197,26 +231,10 @@ function createUiWindow(): Deno.BrowserWindow {
       );
     }
   }, 0);
-  return window;
 }
 
 function bindWindow(window: Deno.BrowserWindow) {
-  window.addEventListener("close", (event) => {
-    uiShouldBeVisible = false;
-    void desktopLog("BrowserWindow close requested");
-    event.preventDefault();
-    if (route.kind === "confirmPairing") {
-      if (pendingConfirmation) void resolvePairingConfirmation(false);
-      setRoute({ kind: "idle", model: info });
-    }
-    void desktopLog("BrowserWindow close prevented; hiding window");
-    window.hide();
-    setTimeout(() => {
-      if (window.isClosed() && uiWin === window) {
-        uiWin = createUiWindow();
-      }
-    }, 100);
-  });
+  bindFallbackWindowClose(window);
   window.bind("getSnapshot", async () => ({ desktopApiUrl, route }));
   window.bind("openConfig", async () => {
     await openSystemPath(configPath);
@@ -230,6 +248,37 @@ function bindWindow(window: Deno.BrowserWindow) {
     await resolvePairingConfirmation(Boolean(accepted));
     return null;
   });
+}
+
+function bindFallbackWindowClose(window: Deno.BrowserWindow) {
+  window.addEventListener("close", (event) => {
+    event.preventDefault();
+    handleWindowClose(window);
+  });
+}
+
+function handleWindowClose(window: Deno.BrowserWindow) {
+  if (window !== uiWin) return;
+  uiShouldBeVisible = false;
+  void desktopLog("BrowserWindow close requested; hiding window");
+  if (route.kind === "confirmPairing") {
+    if (pendingConfirmation) void resolvePairingConfirmation(false);
+    setRoute({ kind: "idle", model: info });
+  }
+  window.hide();
+  setTimeout(() => {
+    if (!window.isClosed()) return;
+    for (
+      const name of [
+        "getSnapshot",
+        "openConfig",
+        "showDaemonInfo",
+        "resolvePairingConfirmation",
+      ]
+    ) {
+      window.unbind(name);
+    }
+  }, 100);
 }
 
 function trayMenuItems(): Deno.MenuItem[] {
@@ -308,7 +357,9 @@ async function startGuiIpcServer(
         await listenGuiIpc(server, endpoint);
       }
     } else {
-      await desktopLog(`failed to start GUI IPC server: ${errorMessage(error)}`);
+      await desktopLog(
+        `failed to start GUI IPC server: ${errorMessage(error)}`,
+      );
       throw error;
     }
   }
@@ -335,12 +386,44 @@ async function activateExistingGui(endpoint: string) {
   );
   await new Promise<void>((resolve, reject) => {
     const socket = net.createConnection(endpoint);
-    socket.once("error", reject);
+    let settled = false;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const finish = (error?: Error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      if (!socket.destroyed) socket.destroy();
+      if (error) reject(error);
+      else resolve();
+    };
+    timeout = setTimeout(() => {
+      finish(new Error(`timed out activating existing GUI: ${endpoint}`));
+    }, 5_000);
+    socket.once("data", () => {
+      // Any response means the existing process handled the activation request.
+      finish();
+    });
+    socket.once("error", finish);
     socket.once("connect", () => {
       socket.end(request);
     });
-    socket.once("close", () => resolve());
+    socket.once("end", () => finish());
+    socket.once("close", (hadError) => {
+      if (!hadError) finish();
+    });
   });
+}
+
+async function activateExistingGuiIfRunning(endpoint: string) {
+  try {
+    await activateExistingGui(endpoint);
+    return true;
+  } catch (error) {
+    if (["ENOENT", "ECONNREFUSED"].includes(nodeErrorCode(error) ?? "")) {
+      return false;
+    }
+    throw error;
+  }
 }
 
 function handleIpcSocket(socket: net.Socket) {
@@ -560,6 +643,7 @@ function showWindow() {
   }
   void desktopLog(`showing UI BrowserWindow: windowId=${uiWin.windowId}`);
   uiWin.show();
+  scheduleWindowsCloseGuardInstall();
   uiWin.focus();
   publishSnapshot();
   void Deno.dock?.bounce?.();
@@ -568,6 +652,24 @@ function showWindow() {
 function hideWindow() {
   uiShouldBeVisible = false;
   if (!uiWin.isClosed()) uiWin.hide();
+}
+
+function scheduleWindowsCloseGuardInstall() {
+  if (!windowsCloseGuard) return;
+  const generation = ++closeGuardInstallGeneration;
+  const tryInstall = (attempt: number) => {
+    if (generation !== closeGuardInstallGeneration || !uiShouldBeVisible) {
+      return;
+    }
+    const result = windowsCloseGuard.install();
+    if (result > 0) return;
+    if (result === 0 && attempt < 40) {
+      setTimeout(() => tryInstall(attempt + 1), 25);
+      return;
+    }
+    void desktopLog(`failed to install native Windows close guard: ${result}`);
+  };
+  tryInstall(0);
 }
 
 async function showPairingNotification(title: string, body: string) {
@@ -808,6 +910,19 @@ function guiEndpoint(profileId: string): string {
 
 function assetPath(relativePath: string): string {
   return path.join(path.dirname(fileURLToPath(import.meta.url)), relativePath);
+}
+
+function windowsCloseGuardPath(): string {
+  if (args.devUrl) {
+    return path.resolve(
+      Deno.cwd(),
+      "../target/debug/rieul_windows_close_guard.dll",
+    );
+  }
+  return path.join(
+    path.dirname(Deno.execPath()),
+    "rieul_windows_close_guard.dll",
+  );
 }
 
 async function desktopLog(message: string) {
