@@ -26,13 +26,17 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::windows::named_pipe::{
     ClientOptions, NamedPipeClient, NamedPipeServer, ServerOptions,
 };
-use windows::Win32::Foundation::HANDLE;
-use windows::Win32::System::Pipes::{GetNamedPipeClientProcessId, GetNamedPipeServerProcessId};
+use windows::Win32::Foundation::{CloseHandle, HANDLE};
+use windows::Win32::Security::{
+    GetTokenInformation, IsWellKnownSid, RevertToSelf, TokenUser, WinLocalSystemSid, TOKEN_QUERY,
+    TOKEN_USER,
+};
+use windows::Win32::System::Pipes::{GetNamedPipeServerProcessId, ImpersonateNamedPipeClient};
 use windows::Win32::System::RemoteDesktop::{
     ProcessIdToSessionId, WTSActive, WTSEnumerateSessionsW, WTSFreeMemory,
     WTSGetActiveConsoleSessionId, WTS_SESSION_INFOW,
 };
-use windows::Win32::System::Threading::GetCurrentProcessId;
+use windows::Win32::System::Threading::{GetCurrentProcessId, GetCurrentThread, OpenThreadToken};
 
 const PIPE_BUSY_RETRY_DELAY: Duration = Duration::from_millis(25);
 const PIPE_BUSY_RETRY_COUNT: usize = 120;
@@ -150,7 +154,7 @@ async fn handle_agent_connection(
     pipe: NamedPipeServer,
     context: Arc<AgentServerContext>,
 ) -> Result<()> {
-    verify_agent_pipe_client(&pipe, &context.info)?;
+    verify_agent_pipe_client(&pipe)?;
     let (mut reader, mut writer) = tokio::io::split(pipe);
     let mut messages = AsyncSocketWireReader::new();
     let first = messages.read_next(&mut reader).await?;
@@ -860,21 +864,84 @@ fn verify_agent_pipe_server_handle(
     Ok(())
 }
 
-fn verify_agent_pipe_client(pipe: &NamedPipeServer, info: &AgentInfo) -> Result<()> {
-    let mut process_id = 0;
-    unsafe { GetNamedPipeClientProcessId(HANDLE(pipe.as_raw_handle()), &mut process_id) }
-        .context("resolve user-agent pipe client process")?;
-    let mut session_id = 0;
-    unsafe { ProcessIdToSessionId(process_id, &mut session_id) }
-        .context("resolve user-agent pipe client session")?;
-    let agent_session_id = info
-        .login_session_id
-        .parse::<u32>()
-        .context("parse user-agent login session id")?;
-    if session_id != 0 && session_id != agent_session_id {
-        bail!("user-agent IPC client belongs to another login session");
+fn verify_agent_pipe_client(pipe: &NamedPipeServer) -> Result<()> {
+    let impersonation = NamedPipeClientImpersonation::start(pipe)?;
+    let verification = verify_impersonated_pipe_client();
+    impersonation.revert()?;
+    verification
+}
+
+fn verify_impersonated_pipe_client() -> Result<()> {
+    let mut token = HANDLE::default();
+    unsafe { OpenThreadToken(GetCurrentThread(), TOKEN_QUERY, false, &mut token) }
+        .context("open impersonated pipe client token")?;
+    let token = OwnedTokenHandle(token);
+    let is_local_system = token_user_is_local_system(token.0)?;
+    // Development runs both daemons as the interactive user. Release builds
+    // accept only the LocalSystem service token.
+    if !is_local_system && !cfg!(debug_assertions) {
+        bail!("user-agent IPC client is not LocalSystem");
     }
     Ok(())
+}
+
+fn token_user_is_local_system(token: HANDLE) -> Result<bool> {
+    let mut required_len = 0;
+    let size_result = unsafe { GetTokenInformation(token, TokenUser, None, 0, &mut required_len) };
+    if required_len == 0 {
+        size_result.context("resolve pipe client token user size")?;
+        bail!("pipe client token user size is zero");
+    }
+
+    let word_size = std::mem::size_of::<usize>();
+    let word_count = (required_len as usize).div_ceil(word_size);
+    let mut buffer = vec![0_usize; word_count];
+    unsafe {
+        GetTokenInformation(
+            token,
+            TokenUser,
+            Some(buffer.as_mut_ptr().cast()),
+            required_len,
+            &mut required_len,
+        )
+    }
+    .context("resolve pipe client token user")?;
+    let token_user = unsafe { &*buffer.as_ptr().cast::<TOKEN_USER>() };
+    Ok(unsafe { IsWellKnownSid(token_user.User.Sid, WinLocalSystemSid).as_bool() })
+}
+
+struct NamedPipeClientImpersonation {
+    active: bool,
+}
+
+impl NamedPipeClientImpersonation {
+    fn start(pipe: &NamedPipeServer) -> Result<Self> {
+        unsafe { ImpersonateNamedPipeClient(HANDLE(pipe.as_raw_handle())) }
+            .context("impersonate user-agent IPC client")?;
+        Ok(Self { active: true })
+    }
+
+    fn revert(mut self) -> Result<()> {
+        unsafe { RevertToSelf() }.context("revert user-agent IPC client impersonation")?;
+        self.active = false;
+        Ok(())
+    }
+}
+
+impl Drop for NamedPipeClientImpersonation {
+    fn drop(&mut self) {
+        if self.active {
+            let _ = unsafe { RevertToSelf() };
+        }
+    }
+}
+
+struct OwnedTokenHandle(HANDLE);
+
+impl Drop for OwnedTokenHandle {
+    fn drop(&mut self) {
+        let _ = unsafe { CloseHandle(self.0) };
+    }
 }
 
 struct SyncSocketWireReader<R> {
