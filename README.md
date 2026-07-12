@@ -15,6 +15,8 @@ Rieul is a remote workspace for the machines you own.
 Install the Rieul daemon on a device, connect to it from a client, and work with
 that machine through a structured remote interface from wherever you are.
 
+https://github.com/user-attachments/assets/50d072d2-a718-41a3-961f-1ca05987a029
+
 ## Install
 
 Before installing Rieul:
