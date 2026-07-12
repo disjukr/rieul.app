@@ -256,7 +256,8 @@ function New-DesktopMsiSource {
 
   $source = @"
 <Wix
-  xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  xmlns="http://wixtoolset.org/schemas/v4/wxs"
+  xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
   <Package
     Name="Rieul Desktop"
     Manufacturer="$manufacturerText"
@@ -265,6 +266,25 @@ function New-DesktopMsiSource {
     Scope="perMachine">
     <MajorUpgrade DowngradeErrorMessage="A newer version of [ProductName] is already installed." />
     <MediaTemplate EmbedCab="yes" />
+
+    <util:CloseApplication
+      Id="CloseRieulUserAgent"
+      Target="rieul-windows-user.exe"
+      CloseMessage="yes"
+      ElevatedCloseMessage="yes"
+      TerminateProcess="0"
+      RebootPrompt="no"
+      Timeout="1"
+      Condition="NOT Installed OR REMOVE~=&quot;ALL&quot;" />
+    <util:CloseApplication
+      Id="CloseRieulGui"
+      Target="rieul-windows-gui.exe"
+      CloseMessage="yes"
+      ElevatedCloseMessage="yes"
+      TerminateProcess="0"
+      RebootPrompt="no"
+      Timeout="1"
+      Condition="NOT Installed OR REMOVE~=&quot;ALL&quot;" />
 
     <Icon Id="RieulGuiIcon.ico" SourceFile="$iconPath" />
     <Property Id="ARPPRODUCTICON" Value="RieulGuiIcon.ico" />
