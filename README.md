@@ -15,6 +15,20 @@ Rieul is a remote workspace for the machines you own.
 Install the Rieul daemon on a device, connect to it from a client, and work with
 that machine through a structured remote interface from wherever you are.
 
+## Install
+
+On macOS:
+
+```sh
+curl -fsSL https://rieul.app/install.sh | sh
+```
+
+On Windows, run PowerShell:
+
+```powershell
+irm https://rieul.app/install.ps1 | iex
+```
+
 ## What Rieul Does
 
 Rieul is built around two parts:
