@@ -17,6 +17,15 @@ that machine through a structured remote interface from wherever you are.
 
 ## Install
 
+Before installing Rieul:
+
+1. [Install Tailscale](https://tailscale.com/docs/install) and connect the
+   device to your tailnet.
+2. In the Tailscale admin console, make sure both
+   [MagicDNS](https://tailscale.com/docs/features/magicdns) and
+   [HTTPS certificates](https://tailscale.com/docs/how-to/set-up-https-certificates)
+   are enabled for your tailnet.
+
 On macOS:
 
 ```sh
