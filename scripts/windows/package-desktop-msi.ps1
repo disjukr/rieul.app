@@ -69,6 +69,7 @@ function Assert-GuiBundle {
   $requiredPaths = @(
     "rieul-windows-gui.exe",
     "rieul-windows-gui.dll",
+    "rieul_windows_close_guard.dll",
     "libcef.dll",
     "resources.pak",
     "locales"

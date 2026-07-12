@@ -4,6 +4,7 @@ members = [
   "daemon/host",
   "daemon/macos",
   "daemon/windows",
+  "daemon/windows-close-guard",
 ]
 resolver = "2"
 

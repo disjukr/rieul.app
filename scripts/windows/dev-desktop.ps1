@@ -217,7 +217,7 @@ Stop-PreviousDaemon `
 if (-not $SkipBuild) {
   Push-Location $RepoRoot
   try {
-    cargo build -p rieul-windows-daemon --bin rieul-windows-system --bin rieul-windows-user
+    cargo build -p rieul-windows-daemon -p rieul-windows-close-guard
   } finally {
     Pop-Location
   }
