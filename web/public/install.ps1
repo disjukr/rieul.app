@@ -45,9 +45,11 @@ try {
   }
 
   Write-Host "Installing Rieul..."
-  $process = Start-Process -FilePath "msiexec.exe" -ArgumentList @(
+  $process = Start-Process -FilePath "msiexec.exe" -Verb "RunAs" -ArgumentList @(
     "/i"
     "`"$installerPath`""
+    "/quiet"
+    "/norestart"
   ) -Wait -PassThru
 
   if ($process.ExitCode -ne 0 -and $process.ExitCode -ne 3010) {
