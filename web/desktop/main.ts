@@ -26,6 +26,7 @@ import {
   IPC_PROC_SHOW_PAIRING_CODE,
   type SocketUnaryRequest,
 } from "../src/protocol/socket-ipc.ts";
+import { withDesktopConfigPath } from "../src/desktop-context.ts";
 
 interface Args {
   configPath: string;
@@ -94,8 +95,10 @@ if (
 const assetServer = Deno.serve(handleRequest);
 const port = desktopServePort(assetServer);
 const desktopApiUrl = `http://127.0.0.1:${port}`;
-const appUrl = args.devUrl ??
-  `http://127.0.0.1:${port}/daemon-main.html`;
+const appUrl = withDesktopConfigPath(
+  args.devUrl ?? `http://127.0.0.1:${port}/daemon-main.html`,
+  configPath,
+);
 let uiWin = createUiWindow();
 let windowsCloseGuard: WindowsCloseGuard | undefined;
 if (Deno.build.os === "windows") {
