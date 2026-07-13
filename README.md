@@ -23,7 +23,9 @@ Before installing Rieul:
 
 1. [Install Tailscale](https://tailscale.com/docs/install) and connect the
    device to your tailnet.
-2. In the Tailscale admin console, make sure both
+2. [Set up the Tailscale CLI](https://tailscale.com/docs/reference/tailscale-cli)
+   so the `tailscale` command is available from your terminal.
+3. In the Tailscale admin console, make sure both
    [MagicDNS](https://tailscale.com/docs/features/magicdns) and
    [HTTPS certificates](https://tailscale.com/docs/how-to/set-up-https-certificates)
    are enabled for your tailnet.

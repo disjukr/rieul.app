@@ -21,9 +21,11 @@ import type {
   PairingCodeModel,
   PairingConfirmationModel,
 } from "../../desktop-bindings.d.ts";
+import { desktopConfigPathFromUrl } from "../../desktop-context.ts";
 
 const fallbackInfo: DaemonInfoModel = {
-  configPath: "Not connected",
+  configPath: desktopConfigPathFromUrl(globalThis.location.href) ??
+    "Not connected",
   daemonUrl: "https://localhost:9012",
   daemonVersion: "dev",
   profileId: "preview",
