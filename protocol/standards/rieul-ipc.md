@@ -1,6 +1,6 @@
 # rieul IPC
 
-This document defines local IPC policy for rieul system, GUI, and user-agent
+This document defines local IPC policy for rieul system, GUI, and user
 processes. It builds on `rieul-socket-wire` for framing and on `rieul-rpc` for
 business-level proc contracts.
 
@@ -15,8 +15,10 @@ rieul uses these local process roles:
   service; on macOS this may run as a privileged or launchd-managed daemon.
 - `gui`: user-session process that owns tray/menu-bar UI, notifications,
   pairing prompts, and settings/info windows.
-- `agent`: user-session process that exposes desktop-session data to the system
-  daemon. A platform MAY merge this role into the GUI process.
+- `user`: user-session process that exposes desktop-session data to the system
+  daemon. This role names rieul's dedicated user process, not every process
+  running under a user account. A platform MAY merge this role into the GUI
+  process.
 - `launcher`: short-lived process that attempts to activate an already-running
   GUI process.
 
@@ -30,7 +32,7 @@ changes when the daemon process restarts.
 
 `profileId` identifies a stable local daemon slot such as production, dev, or a
 specific config path. Local IPC endpoints, GUI single-instance locks, and user
-agents SHOULD be scoped by `profileId`.
+processes SHOULD be scoped by `profileId`.
 
 If the user does not pass an explicit profile, implementations SHOULD derive
 `profileId` from the canonical daemon config path:
@@ -49,19 +51,19 @@ Preferred Windows names:
 
 ```text
 \\.\pipe\rieul-gui-profile-<profileId>
-\\.\pipe\rieul-agent-profile-<profileId>-session-<sessionId>
+\\.\pipe\rieul-user-profile-<profileId>-session-<sessionId>
 ```
 
-User-agent endpoints SHOULD include the OS login-session identity when a host
+User-process endpoints SHOULD include the OS login-session identity when a host
 can have multiple interactive sessions. A system daemon MUST verify the peer
-process token and session identity before routing privileged requests to an
-agent; self-reported IPC identity fields are diagnostic metadata only.
+process token and session identity before routing privileged requests to a user
+process; self-reported IPC identity fields are diagnostic metadata only.
 
 Preferred macOS names:
 
 ```text
 /tmp/rieul-gui-profile-<profileId>-<uid>.sock
-/tmp/rieul-agent-profile-<profileId>-<uid>.sock
+/tmp/rieul-user-profile-<profileId>-<uid>.sock
 ```
 
 ## Socket Wire Binding
@@ -80,12 +82,12 @@ registry.
 
 ## IPC RPC Service
 
-Local GUI/agent operations are modeled as `rieul-ipc` procs in the IPC registry
-selected by the endpoint.
+Local GUI/user-process operations are modeled as `rieul-ipc` procs in the IPC
+registry selected by the endpoint.
 
 IPC proc schema files SHOULD be grouped by provider role. For example,
 `schemas/ipc/gui.bdl` contains procs whose `@ server` role is `gui`, and
-`schemas/ipc/agent.bdl` contains procs whose `@ server` role is `agent`.
+`schemas/ipc/user.bdl` contains procs whose `@ server` role is `user`.
 
 IPC proc schemas use the `rieul-ipc` BDL standard. It reuses `rieul-rpc` proc
 semantics and adds required proc direction attributes:
@@ -105,9 +107,9 @@ Example IPC procs:
 - `ActivateGui`
 - `PairingCompleted`
 - `SnapshotWindows`
-- `GetAgentInfo`
-- `SnapshotAgentTerminalShells`
-- `HostAgentTerminal`
+- `GetUserProcessInfo`
+- `SnapshotUserTerminalShells`
+- `HostUserTerminal`
 
 These procs are implementation plumbing. They are not public client RPC methods
 unless a future public API explicitly promotes them.
@@ -133,9 +135,9 @@ IPC messages MUST NOT carry long-lived credential secrets. Pairing IPC may
 carry short-lived display codes and confirmation codes.
 
 Privileged daemons MUST NOT execute user-context operations in the privileged
-process as a fallback when an expected agent is unavailable. In particular, a
-terminal requested through a user agent MUST fail closed rather than launch as
-root or LocalSystem.
+process as a fallback when an expected user process is unavailable. In
+particular, a terminal requested through a user process MUST fail closed rather
+than launch as root or LocalSystem.
 
 Receivers MUST validate socket-wire messages, endpoint profile, proc id,
 payload schema, numeric fields, and size limits before acting on requests.

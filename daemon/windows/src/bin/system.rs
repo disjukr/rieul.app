@@ -14,7 +14,7 @@ use rieul_windows_daemon::ipc::{UserGuiPairingNotifier, UserSessionWindowService
 use rieul_windows_daemon::process_modules::WindowsProcessModulesService;
 use rieul_windows_daemon::process_resources::WindowsProcessResourcesInUseService;
 use rieul_windows_daemon::process_sockets::WindowsProcessSocketsInUseService;
-use rieul_windows_daemon::terminal_ipc::WindowsAgentTerminalBackend;
+use rieul_windows_daemon::terminal_ipc::WindowsUserTerminalBackend;
 
 #[derive(Debug, Parser)]
 #[command(name = "rieul-windows-system")]
@@ -119,7 +119,7 @@ fn run_system_server_blocking(listen: Option<SocketAddr>, config_path: PathBuf) 
     let window_service = UserSessionWindowService::from_config_path(&config_path);
     let pairing_notifier = UserGuiPairingNotifier::from_config_path(&config_path);
     let terminal_backend =
-        WindowsAgentTerminalBackend::new(profile_id_for_config_path(&config_path));
+        WindowsUserTerminalBackend::new(profile_id_for_config_path(&config_path));
     runtime.block_on(run_system_server(
         listen,
         config_path,

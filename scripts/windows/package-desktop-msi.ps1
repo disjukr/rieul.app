@@ -268,7 +268,7 @@ function New-DesktopMsiSource {
     <MediaTemplate EmbedCab="yes" />
 
     <util:CloseApplication
-      Id="CloseRieulUserAgent"
+      Id="CloseRieulUserProcess"
       Target="rieul-windows-user.exe"
       CloseMessage="yes"
       ElevatedCloseMessage="yes"
@@ -317,12 +317,12 @@ function New-DesktopMsiSource {
     <UIRef Id="WixUI_Common" />
 
     <CustomAction
-      Id="SetRieulUserAgentLaunchTarget"
+      Id="SetRieulUserProcessLaunchTarget"
       Property="WixUnelevatedShellExecTarget"
-      Value="[#UserAgentExe]"
+      Value="[#UserProcessExe]"
       Execute="immediate" />
     <CustomAction
-      Id="LaunchRieulUserAgent"
+      Id="LaunchRieulUserProcess"
       BinaryRef="Wix4UtilCA_`$(sys.BUILDARCHSHORT)"
       DllEntry="WixUnelevatedShellExec"
       Execute="immediate"
@@ -339,9 +339,9 @@ function New-DesktopMsiSource {
       Execute="immediate"
       Return="ignore" />
     <InstallExecuteSequence>
-      <Custom Action="SetRieulUserAgentLaunchTarget" After="InstallFinalize" Condition="NOT Installed" />
-      <Custom Action="LaunchRieulUserAgent" After="SetRieulUserAgentLaunchTarget" Condition="NOT Installed" />
-      <Custom Action="SetRieulGuiLaunchTarget" After="LaunchRieulUserAgent" Condition="NOT Installed" />
+      <Custom Action="SetRieulUserProcessLaunchTarget" After="InstallFinalize" Condition="NOT Installed" />
+      <Custom Action="LaunchRieulUserProcess" After="SetRieulUserProcessLaunchTarget" Condition="NOT Installed" />
+      <Custom Action="SetRieulGuiLaunchTarget" After="LaunchRieulUserProcess" Condition="NOT Installed" />
       <Custom Action="LaunchRieulGuiApp" After="SetRieulGuiLaunchTarget" Condition="NOT Installed" />
     </InstallExecuteSequence>
 
@@ -368,8 +368,8 @@ function New-DesktopMsiSource {
             Wait="yes" />
         </Component>
 
-        <Component Id="UserAgentComponent" Guid="{6F43D08E-426E-4F73-A947-06987D99CDA3}" Bitness="always64">
-          <File Id="UserAgentExe" Source="$userExePath" KeyPath="yes" />
+        <Component Id="UserProcessComponent" Guid="{6F43D08E-426E-4F73-A947-06987D99CDA3}" Bitness="always64">
+          <File Id="UserProcessExe" Source="$userExePath" KeyPath="yes" />
           <RegistryValue
             Root="HKLM"
             Key="Software\Microsoft\Windows\CurrentVersion\Run"
@@ -405,7 +405,7 @@ $guiDirectorySource
 
     <Feature Id="MainFeature" Title="Rieul Desktop" Level="1">
       <ComponentRef Id="SystemDaemonComponent" />
-      <ComponentRef Id="UserAgentComponent" />
+      <ComponentRef Id="UserProcessComponent" />
 $guiComponentRefs
       <ComponentRef Id="StartMenuShortcutComponent" />
     </Feature>

@@ -211,7 +211,7 @@ async fn send_window_snapshot_request(profile_id: &str) -> Result<Vec<WindowDeta
 async fn open_window_snapshot_pipe(profile_id: &str) -> Result<NamedPipeClient, ServiceError> {
     let session_id = crate::terminal_ipc::active_console_session_id()
         .map_err(|err| ServiceError::OperationFailed(err.to_string()))?;
-    let pipe_name = crate::terminal_ipc::agent_pipe_name(profile_id, session_id);
+    let pipe_name = crate::terminal_ipc::user_pipe_name(profile_id, session_id);
     for attempt in 0..=WINDOW_IPC_BUSY_RETRY_COUNT {
         match ClientOptions::new().open(&pipe_name) {
             Ok(client) => return Ok(client),
@@ -237,7 +237,7 @@ async fn send_window_snapshot_request(
 }
 
 #[cfg(windows)]
-pub async fn run_window_snapshot_server(profile_id: impl Into<String>) -> Result<()> {
+pub async fn run_user_ipc_server(profile_id: impl Into<String>) -> Result<()> {
     let profile_id = profile_id.into();
     let shell_integration_dir = std::env::var_os("LOCALAPPDATA")
         .map(std::path::PathBuf::from)
@@ -245,12 +245,12 @@ pub async fn run_window_snapshot_server(profile_id: impl Into<String>) -> Result
         .join("Rieul")
         .join(&profile_id)
         .join("shell-integration");
-    crate::terminal_ipc::run_agent_server(profile_id, shell_integration_dir).await
+    crate::terminal_ipc::run_user_ipc_server(profile_id, shell_integration_dir).await
 }
 
 #[cfg(not(windows))]
-pub async fn run_window_snapshot_server(_profile_id: impl Into<String>) -> Result<()> {
-    bail!("Windows user window snapshot server is only available on Windows");
+pub async fn run_user_ipc_server(_profile_id: impl Into<String>) -> Result<()> {
+    bail!("Windows user IPC server is only available on Windows");
 }
 
 pub fn default_profile_id() -> String {
@@ -396,8 +396,8 @@ mod tests {
             r"\\.\pipe\rieul-gui-profile-abc123"
         );
         assert_eq!(
-            crate::terminal_ipc::agent_pipe_name("abc123", 7),
-            r"\\.\pipe\rieul-agent-profile-abc123-session-7"
+            crate::terminal_ipc::user_pipe_name("abc123", 7),
+            r"\\.\pipe\rieul-user-profile-abc123-session-7"
         );
     }
 

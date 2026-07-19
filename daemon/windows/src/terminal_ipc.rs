@@ -9,9 +9,9 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{anyhow, bail, Context, Result};
 use rieul_daemon_core::ipc::{
-    AgentAvailableShellInfo, AgentInfo, AgentTerminalCloseReason, AgentTerminalCommand,
-    AgentTerminalEvent, AgentTerminalLaunchSpec, IpcProcError, ProcId,
-    SnapshotAgentTerminalShellsRes, SnapshotWindowsRes,
+    IpcProcError, ProcId, SnapshotUserTerminalShellsRes, SnapshotWindowsRes,
+    UserAvailableShellInfo, UserProcessInfo, UserTerminalCloseReason, UserTerminalCommand,
+    UserTerminalEvent, UserTerminalLaunchSpec,
 };
 use rieul_daemon_core::rpc::{AvailableShellInfo, CreateTerminalSessionReq, TerminalLaunchSpec};
 use rieul_daemon_core::socket_wire::{
@@ -42,21 +42,21 @@ const PIPE_BUSY_RETRY_DELAY: Duration = Duration::from_millis(25);
 const PIPE_BUSY_RETRY_COUNT: usize = 120;
 const ERROR_FILE_NOT_FOUND: i32 = 2;
 const ERROR_PIPE_BUSY: i32 = 231;
-const MAX_AGENT_PIPE_INSTANCES: usize = 32;
+const MAX_USER_PIPE_INSTANCES: usize = 32;
 const MAX_TERMINAL_IO_CHUNK: usize = 64 * 1024;
 const STREAM_ID: u64 = 1;
 
 #[derive(Clone)]
-struct AgentServerContext {
-    info: AgentInfo,
+struct UserProcessServerContext {
+    info: UserProcessInfo,
     terminal_backend: Arc<LocalTerminalBackend>,
 }
 
-pub struct WindowsAgentTerminalBackend {
+pub struct WindowsUserTerminalBackend {
     profile_id: String,
 }
 
-impl WindowsAgentTerminalBackend {
+impl WindowsUserTerminalBackend {
     pub fn new(profile_id: impl Into<String>) -> Self {
         Self {
             profile_id: profile_id.into(),
@@ -64,8 +64,8 @@ impl WindowsAgentTerminalBackend {
     }
 }
 
-pub fn agent_pipe_name(profile_id: &str, session_id: u32) -> String {
-    format!(r"\\.\pipe\rieul-agent-profile-{profile_id}-session-{session_id}")
+pub fn user_pipe_name(profile_id: &str, session_id: u32) -> String {
+    format!(r"\\.\pipe\rieul-user-profile-{profile_id}-session-{session_id}")
 }
 
 pub fn active_console_session_id() -> Result<u32> {
@@ -104,57 +104,57 @@ pub fn current_process_session_id() -> Result<u32> {
     Ok(session_id)
 }
 
-pub async fn run_agent_server(profile_id: String, shell_integration_dir: PathBuf) -> Result<()> {
+pub async fn run_user_ipc_server(profile_id: String, shell_integration_dir: PathBuf) -> Result<()> {
     let session_id = current_process_session_id()?;
-    let pipe_name = agent_pipe_name(&profile_id, session_id);
-    let context = Arc::new(AgentServerContext {
-        info: AgentInfo {
-            agent_instance_id: new_agent_instance_id(),
+    let pipe_name = user_pipe_name(&profile_id, session_id);
+    let context = Arc::new(UserProcessServerContext {
+        info: UserProcessInfo {
+            user_process_instance_id: new_user_process_instance_id(),
             profile_id,
             login_session_id: session_id.to_string(),
             user_name: current_user_name(),
             supported_proc_ids: vec![
                 ProcId::SnapshotWindows.as_u64(),
-                ProcId::GetAgentInfo.as_u64(),
-                ProcId::SnapshotAgentTerminalShells.as_u64(),
-                ProcId::HostAgentTerminal.as_u64(),
+                ProcId::GetUserProcessInfo.as_u64(),
+                ProcId::SnapshotUserTerminalShells.as_u64(),
+                ProcId::HostUserTerminal.as_u64(),
             ],
         },
         terminal_backend: Arc::new(LocalTerminalBackend::new(shell_integration_dir)),
     });
 
     let mut first = true;
-    let mut server = create_agent_pipe(&pipe_name, first)?;
+    let mut server = create_user_pipe(&pipe_name, first)?;
     first = false;
     loop {
         server.connect().await?;
         let connected = server;
-        server = create_agent_pipe(&pipe_name, first)?;
+        server = create_user_pipe(&pipe_name, first)?;
         let context = context.clone();
         tokio::spawn(async move {
-            if let Err(err) = handle_agent_connection(connected, context).await {
-                tracing::warn!(?err, "user-agent IPC connection failed");
+            if let Err(err) = handle_user_connection(connected, context).await {
+                tracing::warn!(?err, "user process IPC connection failed");
             }
         });
     }
 }
 
-fn create_agent_pipe(pipe_name: &str, first: bool) -> Result<NamedPipeServer> {
+fn create_user_pipe(pipe_name: &str, first: bool) -> Result<NamedPipeServer> {
     let mut options = ServerOptions::new();
-    options.max_instances(MAX_AGENT_PIPE_INSTANCES);
+    options.max_instances(MAX_USER_PIPE_INSTANCES);
     if first {
         options.first_pipe_instance(true);
     }
     options
         .create(pipe_name)
-        .with_context(|| format!("create user-agent pipe {pipe_name}"))
+        .with_context(|| format!("create user process pipe {pipe_name}"))
 }
 
-async fn handle_agent_connection(
+async fn handle_user_connection(
     pipe: NamedPipeServer,
-    context: Arc<AgentServerContext>,
+    context: Arc<UserProcessServerContext>,
 ) -> Result<()> {
-    verify_agent_pipe_client(&pipe)?;
+    verify_user_pipe_client(&pipe)?;
     let (mut reader, mut writer) = tokio::io::split(pipe);
     let mut messages = AsyncSocketWireReader::new();
     let first = messages.read_next(&mut reader).await?;
@@ -165,13 +165,13 @@ async fn handle_agent_connection(
             stream_id,
         } => {
             expect_request_end(&mut messages, &mut reader, stream_id).await?;
-            handle_agent_unary(proc_id, payload, stream_id, &context, &mut writer).await
+            handle_user_unary(proc_id, payload, stream_id, &context, &mut writer).await
         }
         SocketReqResMessage::RequestStreamStart {
             proc_id,
             payload,
             stream_id,
-        } if ProcId::from_u64(proc_id) == Some(ProcId::HostAgentTerminal) => {
+        } if ProcId::from_u64(proc_id) == Some(ProcId::HostUserTerminal) => {
             handle_host_terminal(
                 payload,
                 stream_id,
@@ -182,15 +182,15 @@ async fn handle_agent_connection(
             )
             .await
         }
-        other => bail!("unsupported first user-agent IPC message {other:?}"),
+        other => bail!("unsupported first user process IPC message {other:?}"),
     }
 }
 
-async fn handle_agent_unary<W: AsyncWrite + Unpin>(
+async fn handle_user_unary<W: AsyncWrite + Unpin>(
     proc_id: u64,
     payload: Option<Vec<u8>>,
     stream_id: u64,
-    context: &AgentServerContext,
+    context: &UserProcessServerContext,
     writer: &mut W,
 ) -> Result<()> {
     if payload.is_some() {
@@ -198,7 +198,7 @@ async fn handle_agent_unary<W: AsyncWrite + Unpin>(
             writer,
             stream_id,
             IpcProcError::Rejected {
-                message: "unary agent request must not include a payload".to_string(),
+                message: "unary user process request must not include a payload".to_string(),
             },
         )
         .await;
@@ -214,14 +214,14 @@ async fn handle_agent_unary<W: AsyncWrite + Unpin>(
             }
             .encode()
         }
-        Some(ProcId::GetAgentInfo) => context.info.encode(),
-        Some(ProcId::SnapshotAgentTerminalShells) => {
+        Some(ProcId::GetUserProcessInfo) => context.info.encode(),
+        Some(ProcId::SnapshotUserTerminalShells) => {
             let shells = context
                 .terminal_backend
                 .available_shells()
                 .map_err(service_error)?;
-            SnapshotAgentTerminalShellsRes {
-                shells: shells.into_iter().map(agent_shell_info).collect(),
+            SnapshotUserTerminalShellsRes {
+                shells: shells.into_iter().map(user_shell_info).collect(),
             }
             .encode()
         }
@@ -230,7 +230,7 @@ async fn handle_agent_unary<W: AsyncWrite + Unpin>(
                 writer,
                 stream_id,
                 IpcProcError::Unsupported {
-                    message: format!("agent IPC proc {proc_id} is not implemented"),
+                    message: format!("user process IPC proc {proc_id} is not implemented"),
                 },
             )
             .await;
@@ -262,8 +262,8 @@ where
     R: AsyncRead + Unpin,
     W: AsyncWrite + Unpin,
 {
-    let start = match decode_agent_command(payload.as_deref()) {
-        Ok(AgentTerminalCommand::Start {
+    let start = match decode_user_command(payload.as_deref()) {
+        Ok(UserTerminalCommand::Start {
             cols,
             rows,
             cwd,
@@ -283,7 +283,7 @@ where
                 &mut writer,
                 stream_id,
                 IpcProcError::Rejected {
-                    message: "HostAgentTerminal must start with Start".to_string(),
+                    message: "HostUserTerminal must start with Start".to_string(),
                 },
             )
             .await;
@@ -317,7 +317,7 @@ where
         &mut writer,
         &[SocketReqResMessage::ResponseStreamStart {
             payload: Some(
-                AgentTerminalEvent::Started {
+                UserTerminalEvent::Started {
                     cwd: hosted.initial_cwd.clone(),
                 }
                 .encode(),
@@ -350,10 +350,10 @@ where
                     SocketReqResMessage::RequestStreamChunk { payload, stream_id: next }
                         if next == stream_id =>
                     {
-                        match AgentTerminalCommand::decode(&payload)
+                        match UserTerminalCommand::decode(&payload)
                             .map_err(|err| anyhow!("decode terminal command: {err}"))?
                         {
-                            AgentTerminalCommand::Input { bytes } => {
+                            UserTerminalCommand::Input { bytes } => {
                                 if bytes.len() > MAX_TERMINAL_IO_CHUNK {
                                     return finish_host_with_error(
                                         &mut hosted.control,
@@ -364,14 +364,14 @@ where
                                 }
                                 hosted.control.write_input(&bytes).map_err(service_error)?;
                             }
-                            AgentTerminalCommand::Resize { cols, rows } => {
+                            UserTerminalCommand::Resize { cols, rows } => {
                                 hosted.control.resize(cols, rows).map_err(service_error)?;
                             }
-                            AgentTerminalCommand::Close => {
+                            UserTerminalCommand::Close => {
                                 hosted.control.close().map_err(service_error)?;
                                 return finish_host_closed(&mut writer, stream_id).await;
                             }
-                            AgentTerminalCommand::Start { .. } => {
+                            UserTerminalCommand::Start { .. } => {
                                 return finish_host_with_error(
                                     &mut hosted.control,
                                     &mut writer,
@@ -411,14 +411,14 @@ where
                         write_terminal_event(
                             &mut writer,
                             stream_id,
-                            AgentTerminalEvent::Output { bytes },
+                            UserTerminalEvent::Output { bytes },
                         ).await?;
                     }
                     HostedTerminalEvent::Exited { code, signal } => {
                         write_terminal_event(
                             &mut writer,
                             stream_id,
-                            AgentTerminalEvent::Exited { code, signal },
+                            UserTerminalEvent::Exited { code, signal },
                         ).await?;
                         return write_response_end(&mut writer, stream_id).await;
                     }
@@ -426,8 +426,8 @@ where
                         write_terminal_event(
                             &mut writer,
                             stream_id,
-                            AgentTerminalEvent::Closed {
-                                reason: AgentTerminalCloseReason::Failed { message },
+                            UserTerminalEvent::Closed {
+                                reason: UserTerminalCloseReason::Failed { message },
                             },
                         ).await?;
                         return write_response_end(&mut writer, stream_id).await;
@@ -438,22 +438,22 @@ where
     }
 }
 
-impl TerminalBackend for WindowsAgentTerminalBackend {
+impl TerminalBackend for WindowsUserTerminalBackend {
     fn available_shells(&self) -> Result<Vec<AvailableShellInfo>, ServiceError> {
-        verify_agent_capability(&self.profile_id, ProcId::SnapshotAgentTerminalShells)?;
-        let payload = call_agent_unary(&self.profile_id, ProcId::SnapshotAgentTerminalShells)?;
-        let response = SnapshotAgentTerminalShellsRes::decode(&payload)
+        verify_user_capability(&self.profile_id, ProcId::SnapshotUserTerminalShells)?;
+        let payload = call_user_unary(&self.profile_id, ProcId::SnapshotUserTerminalShells)?;
+        let response = SnapshotUserTerminalShellsRes::decode(&payload)
             .map_err(|err| ServiceError::OperationFailed(err.to_string()))?;
         Ok(response.shells.into_iter().map(public_shell_info).collect())
     }
 
     fn spawn(&self, request: &CreateTerminalSessionReq) -> Result<HostedTerminal, ServiceError> {
-        verify_agent_capability(&self.profile_id, ProcId::HostAgentTerminal)?;
-        let start = AgentTerminalCommand::Start {
+        verify_user_capability(&self.profile_id, ProcId::HostUserTerminal)?;
+        let start = UserTerminalCommand::Start {
             cols: request.cols,
             rows: request.rows,
             cwd: request.cwd.clone(),
-            launch: AgentTerminalLaunchSpec {
+            launch: UserTerminalLaunchSpec {
                 command: request.launch.command.clone(),
                 args: request.launch.args.clone(),
             },
@@ -475,7 +475,7 @@ impl TerminalBackend for WindowsAgentTerminalBackend {
                     return;
                 }
             };
-            runtime.block_on(run_agent_terminal_client(
+            runtime.block_on(run_user_terminal_client(
                 profile_id,
                 start,
                 command_rx,
@@ -488,13 +488,13 @@ impl TerminalBackend for WindowsAgentTerminalBackend {
             .recv_timeout(Duration::from_secs(10))
             .map_err(|err| {
                 ServiceError::OperationFailed(format!(
-                    "user-agent terminal startup timed out: {err}"
+                    "user process terminal startup timed out: {err}"
                 ))
             })??;
 
         Ok(HostedTerminal {
             initial_cwd,
-            control: Box::new(AgentHostedTerminalControl {
+            control: Box::new(UserHostedTerminalControl {
                 commands: command_tx,
                 closed,
             }),
@@ -503,70 +503,68 @@ impl TerminalBackend for WindowsAgentTerminalBackend {
     }
 }
 
-struct AgentHostedTerminalControl {
-    commands: tokio::sync::mpsc::UnboundedSender<AgentTerminalCommand>,
+struct UserHostedTerminalControl {
+    commands: tokio::sync::mpsc::UnboundedSender<UserTerminalCommand>,
     closed: Arc<AtomicBool>,
 }
 
-impl HostedTerminalControl for AgentHostedTerminalControl {
+impl HostedTerminalControl for UserHostedTerminalControl {
     fn write_input(&mut self, bytes: &[u8]) -> Result<(), ServiceError> {
         if bytes.len() > MAX_TERMINAL_IO_CHUNK {
             return Err(ServiceError::OperationFailed(
                 "terminal input chunk is too large".to_string(),
             ));
         }
-        self.send(AgentTerminalCommand::Input {
+        self.send(UserTerminalCommand::Input {
             bytes: bytes.to_vec(),
         })
     }
 
     fn resize(&mut self, cols: u64, rows: u64) -> Result<(), ServiceError> {
-        self.send(AgentTerminalCommand::Resize { cols, rows })
+        self.send(UserTerminalCommand::Resize { cols, rows })
     }
 
     fn close(&mut self) -> Result<(), ServiceError> {
         if self.closed.swap(true, Ordering::SeqCst) {
             return Ok(());
         }
-        self.commands
-            .send(AgentTerminalCommand::Close)
-            .map_err(|_| {
-                ServiceError::OperationFailed("user-agent terminal stream is closed".to_string())
-            })
-    }
-}
-
-impl AgentHostedTerminalControl {
-    fn send(&self, command: AgentTerminalCommand) -> Result<(), ServiceError> {
-        if self.closed.load(Ordering::SeqCst) {
-            return Err(ServiceError::OperationFailed(
-                "user-agent terminal stream is closed".to_string(),
-            ));
-        }
-        self.commands.send(command).map_err(|_| {
-            ServiceError::OperationFailed("user-agent terminal stream is closed".to_string())
+        self.commands.send(UserTerminalCommand::Close).map_err(|_| {
+            ServiceError::OperationFailed("user process terminal stream is closed".to_string())
         })
     }
 }
 
-impl Drop for AgentHostedTerminalControl {
+impl UserHostedTerminalControl {
+    fn send(&self, command: UserTerminalCommand) -> Result<(), ServiceError> {
+        if self.closed.load(Ordering::SeqCst) {
+            return Err(ServiceError::OperationFailed(
+                "user process terminal stream is closed".to_string(),
+            ));
+        }
+        self.commands.send(command).map_err(|_| {
+            ServiceError::OperationFailed("user process terminal stream is closed".to_string())
+        })
+    }
+}
+
+impl Drop for UserHostedTerminalControl {
     fn drop(&mut self) {
         if self.closed.swap(true, Ordering::SeqCst) {
             return;
         }
-        let _ = self.commands.send(AgentTerminalCommand::Close);
+        let _ = self.commands.send(UserTerminalCommand::Close);
     }
 }
 
-async fn run_agent_terminal_client(
+async fn run_user_terminal_client(
     profile_id: String,
-    start: AgentTerminalCommand,
-    mut commands: tokio::sync::mpsc::UnboundedReceiver<AgentTerminalCommand>,
+    start: UserTerminalCommand,
+    mut commands: tokio::sync::mpsc::UnboundedReceiver<UserTerminalCommand>,
     startup: mpsc::Sender<Result<Option<String>, ServiceError>>,
     events: mpsc::Sender<HostedTerminalEvent>,
     closed: Arc<AtomicBool>,
 ) {
-    let result = run_agent_terminal_client_inner(
+    let result = run_user_terminal_client_inner(
         &profile_id,
         start,
         &mut commands,
@@ -588,20 +586,20 @@ async fn run_agent_terminal_client(
     }
 }
 
-async fn run_agent_terminal_client_inner(
+async fn run_user_terminal_client_inner(
     profile_id: &str,
-    start: AgentTerminalCommand,
-    commands: &mut tokio::sync::mpsc::UnboundedReceiver<AgentTerminalCommand>,
+    start: UserTerminalCommand,
+    commands: &mut tokio::sync::mpsc::UnboundedReceiver<UserTerminalCommand>,
     startup: &mpsc::Sender<Result<Option<String>, ServiceError>>,
     events: &mpsc::Sender<HostedTerminalEvent>,
     closed: &Arc<AtomicBool>,
 ) -> Result<(), ServiceError> {
-    let pipe = open_active_agent_pipe_async(profile_id).await?;
+    let pipe = open_active_user_pipe_async(profile_id).await?;
     let (mut reader, mut writer) = tokio::io::split(pipe);
     write_messages(
         &mut writer,
         &[SocketReqResMessage::RequestStreamStart {
-            proc_id: ProcId::HostAgentTerminal.as_u64(),
+            proc_id: ProcId::HostUserTerminal.as_u64(),
             payload: Some(start.encode()),
             stream_id: STREAM_ID,
         }],
@@ -618,13 +616,13 @@ async fn run_agent_terminal_client_inner(
         SocketReqResMessage::ResponseStreamStart {
             payload: Some(payload),
             stream_id: STREAM_ID,
-        } => match AgentTerminalEvent::decode(&payload)
+        } => match UserTerminalEvent::decode(&payload)
             .map_err(|err| ServiceError::OperationFailed(err.to_string()))?
         {
-            AgentTerminalEvent::Started { cwd } => cwd,
+            UserTerminalEvent::Started { cwd } => cwd,
             _ => {
                 return Err(ServiceError::OperationFailed(
-                    "agent terminal response did not start with Started".to_string(),
+                    "user terminal response did not start with Started".to_string(),
                 ));
             }
         },
@@ -636,7 +634,7 @@ async fn run_agent_terminal_client_inner(
         }
         other => {
             return Err(ServiceError::OperationFailed(format!(
-                "unexpected agent terminal response {other:?}"
+                "unexpected user terminal response {other:?}"
             )));
         }
     };
@@ -654,7 +652,7 @@ async fn run_agent_terminal_client_inner(
                     ).await.map_err(operation_failed)?;
                     return Ok(());
                 };
-                let is_close = matches!(command, AgentTerminalCommand::Close);
+                let is_close = matches!(command, UserTerminalCommand::Close);
                 let mut outgoing = vec![SocketReqResMessage::RequestStreamChunk {
                     payload: command.encode(),
                     stream_id: STREAM_ID,
@@ -675,43 +673,43 @@ async fn run_agent_terminal_client_inner(
                     SocketReqResMessage::ResponseStreamChunk {
                         payload,
                         stream_id: STREAM_ID,
-                    } => match AgentTerminalEvent::decode(&payload)
+                    } => match UserTerminalEvent::decode(&payload)
                         .map_err(|err| ServiceError::OperationFailed(err.to_string()))?
                     {
-                        AgentTerminalEvent::Output { bytes } => {
+                        UserTerminalEvent::Output { bytes } => {
                             if events.send(HostedTerminalEvent::Output(bytes)).is_err() {
                                 return Ok(());
                             }
                         }
-                        AgentTerminalEvent::Exited { code, signal } => {
+                        UserTerminalEvent::Exited { code, signal } => {
                             closed.store(true, Ordering::SeqCst);
                             let _ = events.send(HostedTerminalEvent::Exited { code, signal });
                             return Ok(());
                         }
-                        AgentTerminalEvent::Closed { reason } => {
+                        UserTerminalEvent::Closed { reason } => {
                             closed.store(true, Ordering::SeqCst);
                             let message = match reason {
-                                AgentTerminalCloseReason::Failed { message } => message,
-                                AgentTerminalCloseReason::ClosedBySystem => {
+                                UserTerminalCloseReason::Failed { message } => message,
+                                UserTerminalCloseReason::ClosedBySystem => {
                                     "terminal closed by system".to_string()
                                 }
-                                AgentTerminalCloseReason::AgentShuttingDown => {
-                                    "user agent is shutting down".to_string()
+                                UserTerminalCloseReason::UserProcessShuttingDown => {
+                                    "user process is shutting down".to_string()
                                 }
                             };
                             let _ = events.send(HostedTerminalEvent::Closed { message });
                             return Ok(());
                         }
-                        AgentTerminalEvent::Started { .. } => {
+                        UserTerminalEvent::Started { .. } => {
                             return Err(ServiceError::OperationFailed(
-                                "user agent emitted Started more than once".to_string(),
+                                "user process emitted Started more than once".to_string(),
                             ));
                         }
                     },
                     SocketReqResMessage::ResponseStreamEnd { stream_id: STREAM_ID } => {
                         if !closed.load(Ordering::SeqCst) {
                             return Err(ServiceError::OperationFailed(
-                                "user-agent terminal stream ended unexpectedly".to_string(),
+                                "user process terminal stream ended unexpectedly".to_string(),
                             ));
                         }
                         return Ok(());
@@ -724,7 +722,7 @@ async fn run_agent_terminal_client_inner(
                     }
                     other => {
                         return Err(ServiceError::OperationFailed(format!(
-                            "unexpected user-agent terminal event {other:?}"
+                            "unexpected user process terminal event {other:?}"
                         )));
                     }
                 }
@@ -733,13 +731,13 @@ async fn run_agent_terminal_client_inner(
     }
 }
 
-async fn open_active_agent_pipe_async(profile_id: &str) -> Result<NamedPipeClient, ServiceError> {
+async fn open_active_user_pipe_async(profile_id: &str) -> Result<NamedPipeClient, ServiceError> {
     let session_id = active_console_session_id().map_err(operation_failed)?;
-    let pipe_name = agent_pipe_name(profile_id, session_id);
+    let pipe_name = user_pipe_name(profile_id, session_id);
     for attempt in 0..=PIPE_BUSY_RETRY_COUNT {
         match ClientOptions::new().open(&pipe_name) {
             Ok(pipe) => {
-                verify_agent_pipe_server_handle(pipe.as_raw_handle(), session_id)?;
+                verify_user_pipe_server_handle(pipe.as_raw_handle(), session_id)?;
                 return Ok(pipe);
             }
             Err(err)
@@ -752,18 +750,18 @@ async fn open_active_agent_pipe_async(profile_id: &str) -> Result<NamedPipeClien
             }
             Err(err) => {
                 return Err(ServiceError::OperationFailed(format!(
-                    "connect user-agent pipe {pipe_name}: {err}"
+                    "connect user process pipe {pipe_name}: {err}"
                 )));
             }
         }
     }
     Err(ServiceError::OperationFailed(format!(
-        "user-agent pipe was unavailable: {pipe_name}"
+        "user process pipe was unavailable: {pipe_name}"
     )))
 }
 
-fn call_agent_unary(profile_id: &str, proc_id: ProcId) -> Result<Vec<u8>, ServiceError> {
-    let mut pipe = open_active_agent_pipe(profile_id)?;
+fn call_user_unary(profile_id: &str, proc_id: ProcId) -> Result<Vec<u8>, ServiceError> {
+    let mut pipe = open_active_user_pipe(profile_id)?;
     pipe.write_all(&SocketReqResMessage::encode_sequence(&[
         SocketReqResMessage::RequestUnary {
             proc_id: proc_id.as_u64(),
@@ -790,24 +788,27 @@ fn call_agent_unary(profile_id: &str, proc_id: ProcId) -> Result<Vec<u8>, Servic
             Err(ServiceError::OperationFailed(message))
         }
         other => Err(ServiceError::OperationFailed(format!(
-            "unexpected user-agent unary response {other:?}"
+            "unexpected user process unary response {other:?}"
         ))),
     }
 }
 
-fn verify_agent_capability(profile_id: &str, required: ProcId) -> Result<AgentInfo, ServiceError> {
-    let payload = call_agent_unary(profile_id, ProcId::GetAgentInfo)?;
-    let info = AgentInfo::decode(&payload)
+fn verify_user_capability(
+    profile_id: &str,
+    required: ProcId,
+) -> Result<UserProcessInfo, ServiceError> {
+    let payload = call_user_unary(profile_id, ProcId::GetUserProcessInfo)?;
+    let info = UserProcessInfo::decode(&payload)
         .map_err(|err| ServiceError::OperationFailed(err.to_string()))?;
     let expected_session = active_console_session_id().map_err(operation_failed)?;
     if info.profile_id != profile_id {
         return Err(ServiceError::OperationFailed(
-            "user agent reported a different daemon profile".to_string(),
+            "user process reported a different daemon profile".to_string(),
         ));
     }
     if info.login_session_id != expected_session.to_string() {
         return Err(ServiceError::OperationFailed(
-            "user agent reported a different Windows login session".to_string(),
+            "user process reported a different Windows login session".to_string(),
         ));
     }
     if !info.supported_proc_ids.contains(&required.as_u64()) {
@@ -816,13 +817,13 @@ fn verify_agent_capability(profile_id: &str, required: ProcId) -> Result<AgentIn
     Ok(info)
 }
 
-fn open_active_agent_pipe(profile_id: &str) -> Result<File, ServiceError> {
+fn open_active_user_pipe(profile_id: &str) -> Result<File, ServiceError> {
     let session_id = active_console_session_id().map_err(operation_failed)?;
-    let pipe_name = agent_pipe_name(profile_id, session_id);
+    let pipe_name = user_pipe_name(profile_id, session_id);
     for attempt in 0..=PIPE_BUSY_RETRY_COUNT {
         match OpenOptions::new().read(true).write(true).open(&pipe_name) {
             Ok(pipe) => {
-                verify_agent_pipe_server(&pipe, session_id)?;
+                verify_user_pipe_server(&pipe, session_id)?;
                 return Ok(pipe);
             }
             Err(err)
@@ -835,21 +836,21 @@ fn open_active_agent_pipe(profile_id: &str) -> Result<File, ServiceError> {
             }
             Err(err) => {
                 return Err(ServiceError::OperationFailed(format!(
-                    "connect user-agent pipe {pipe_name}: {err}"
+                    "connect user process pipe {pipe_name}: {err}"
                 )));
             }
         }
     }
     Err(ServiceError::OperationFailed(format!(
-        "user-agent pipe was unavailable: {pipe_name}"
+        "user process pipe was unavailable: {pipe_name}"
     )))
 }
 
-fn verify_agent_pipe_server(pipe: &File, expected_session_id: u32) -> Result<(), ServiceError> {
-    verify_agent_pipe_server_handle(pipe.as_raw_handle(), expected_session_id)
+fn verify_user_pipe_server(pipe: &File, expected_session_id: u32) -> Result<(), ServiceError> {
+    verify_user_pipe_server_handle(pipe.as_raw_handle(), expected_session_id)
 }
 
-fn verify_agent_pipe_server_handle(
+fn verify_user_pipe_server_handle(
     handle: RawHandle,
     expected_session_id: u32,
 ) -> Result<(), ServiceError> {
@@ -864,7 +865,7 @@ fn verify_agent_pipe_server_handle(
     Ok(())
 }
 
-fn verify_agent_pipe_client(pipe: &NamedPipeServer) -> Result<()> {
+fn verify_user_pipe_client(pipe: &NamedPipeServer) -> Result<()> {
     let impersonation = NamedPipeClientImpersonation::start(pipe)?;
     let verification = verify_impersonated_pipe_client();
     impersonation.revert()?;
@@ -880,7 +881,7 @@ fn verify_impersonated_pipe_client() -> Result<()> {
     // Development runs both daemons as the interactive user. Release builds
     // accept only the LocalSystem service token.
     if !is_local_system && !cfg!(debug_assertions) {
-        bail!("user-agent IPC client is not LocalSystem");
+        bail!("user process IPC client is not LocalSystem");
     }
     Ok(())
 }
@@ -917,12 +918,12 @@ struct NamedPipeClientImpersonation {
 impl NamedPipeClientImpersonation {
     fn start(pipe: &NamedPipeServer) -> Result<Self> {
         unsafe { ImpersonateNamedPipeClient(HANDLE(pipe.as_raw_handle())) }
-            .context("impersonate user-agent IPC client")?;
+            .context("impersonate user process IPC client")?;
         Ok(Self { active: true })
     }
 
     fn revert(mut self) -> Result<()> {
-        unsafe { RevertToSelf() }.context("revert user-agent IPC client impersonation")?;
+        unsafe { RevertToSelf() }.context("revert user process IPC client impersonation")?;
         self.active = false;
         Ok(())
     }
@@ -966,11 +967,11 @@ impl<R: Read> SyncSocketWireReader<R> {
             }
             let count = self.reader.read(&mut buffer)?;
             if count == 0 {
-                bail!("agent pipe closed before a complete socket-wire message");
+                bail!("user process pipe closed before a complete socket-wire message");
             }
             self.bytes.extend_from_slice(&buffer[..count]);
             if self.bytes.len() > MAX_SOCKET_WIRE_SEQUENCE_SIZE {
-                bail!("agent socket-wire sequence is too large");
+                bail!("user process socket-wire sequence is too large");
             }
         }
     }
@@ -997,11 +998,11 @@ impl AsyncSocketWireReader {
             }
             let count = reader.read(&mut buffer).await?;
             if count == 0 {
-                bail!("agent pipe closed before a complete socket-wire message");
+                bail!("user process pipe closed before a complete socket-wire message");
             }
             self.bytes.extend_from_slice(&buffer[..count]);
             if self.bytes.len() > MAX_SOCKET_WIRE_SEQUENCE_SIZE {
-                bail!("agent socket-wire sequence is too large");
+                bail!("user process socket-wire sequence is too large");
             }
         }
     }
@@ -1067,7 +1068,7 @@ async fn write_stream_error<W: AsyncWrite + Unpin>(
 async fn write_terminal_event<W: AsyncWrite + Unpin>(
     writer: &mut W,
     stream_id: u64,
-    event: AgentTerminalEvent,
+    event: UserTerminalEvent,
 ) -> Result<()> {
     write_messages(
         writer,
@@ -1091,8 +1092,8 @@ async fn finish_host_closed<W: AsyncWrite + Unpin>(writer: &mut W, stream_id: u6
     write_terminal_event(
         writer,
         stream_id,
-        AgentTerminalEvent::Closed {
-            reason: AgentTerminalCloseReason::ClosedBySystem,
+        UserTerminalEvent::Closed {
+            reason: UserTerminalCloseReason::ClosedBySystem,
         },
     )
     .await?;
@@ -1116,13 +1117,13 @@ async fn finish_host_with_error<W: AsyncWrite + Unpin>(
     .await
 }
 
-fn decode_agent_command(payload: Option<&[u8]>) -> Result<AgentTerminalCommand> {
+fn decode_user_command(payload: Option<&[u8]>) -> Result<UserTerminalCommand> {
     let payload = payload.ok_or_else(|| anyhow!("terminal start payload is missing"))?;
-    AgentTerminalCommand::decode(payload).map_err(|err| anyhow!(err.to_string()))
+    UserTerminalCommand::decode(payload).map_err(|err| anyhow!(err.to_string()))
 }
 
-fn agent_shell_info(shell: AvailableShellInfo) -> AgentAvailableShellInfo {
-    AgentAvailableShellInfo {
+fn user_shell_info(shell: AvailableShellInfo) -> UserAvailableShellInfo {
+    UserAvailableShellInfo {
         shell_id: shell.shell_id,
         name: shell.name,
         command: shell.command,
@@ -1131,7 +1132,7 @@ fn agent_shell_info(shell: AvailableShellInfo) -> AgentAvailableShellInfo {
     }
 }
 
-fn public_shell_info(shell: AgentAvailableShellInfo) -> AvailableShellInfo {
+fn public_shell_info(shell: UserAvailableShellInfo) -> AvailableShellInfo {
     AvailableShellInfo {
         shell_id: shell.shell_id,
         name: shell.name,
@@ -1149,12 +1150,12 @@ fn current_user_name() -> String {
     }
 }
 
-fn new_agent_instance_id() -> String {
+fn new_user_process_instance_id() -> String {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_nanos();
-    format!("agent-{}-{now}", std::process::id())
+    format!("user-process-{}-{now}", std::process::id())
 }
 
 fn service_error(error: ServiceError) -> anyhow::Error {
@@ -1171,16 +1172,16 @@ mod tests {
     use std::time::Instant;
 
     #[test]
-    fn agent_pipe_is_profile_and_session_scoped() {
+    fn user_pipe_is_profile_and_session_scoped() {
         assert_eq!(
-            agent_pipe_name("abc123", 7),
-            r"\\.\pipe\rieul-agent-profile-abc123-session-7"
+            user_pipe_name("abc123", 7),
+            r"\\.\pipe\rieul-user-profile-abc123-session-7"
         );
     }
 
     #[test]
     fn shell_info_mapping_preserves_launch_data() {
-        let shell = AgentAvailableShellInfo {
+        let shell = UserAvailableShellInfo {
             shell_id: "bash".to_string(),
             name: "Git Bash".to_string(),
             command: r"C:\Program Files\Git\bin\bash.exe".to_string(),
@@ -1194,7 +1195,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn agent_hosts_terminal_in_the_interactive_session() {
+    async fn user_process_hosts_terminal_in_the_interactive_session() {
         let Ok(current_session) = current_process_session_id() else {
             return;
         };
@@ -1209,11 +1210,11 @@ mod tests {
         let integration_dir = std::env::temp_dir().join(&profile_id);
         let server_profile = profile_id.clone();
         let server =
-            tokio::spawn(async move { run_agent_server(server_profile, integration_dir).await });
+            tokio::spawn(async move { run_user_ipc_server(server_profile, integration_dir).await });
 
         let (spawn_tx, spawn_rx) = mpsc::channel();
         thread::spawn(move || {
-            let backend = WindowsAgentTerminalBackend::new(profile_id);
+            let backend = WindowsUserTerminalBackend::new(profile_id);
             let result = backend.spawn(&CreateTerminalSessionReq {
                 cols: 80,
                 rows: 24,
@@ -1228,8 +1229,8 @@ mod tests {
         });
         let mut hosted = spawn_rx
             .recv_timeout(Duration::from_secs(10))
-            .expect("user-agent terminal startup timed out")
-            .expect("spawn terminal through user-agent IPC");
+            .expect("user process terminal startup timed out")
+            .expect("spawn terminal through user process IPC");
         let deadline = Instant::now() + Duration::from_secs(10);
         let mut output = Vec::new();
         let mut sent_command = false;
@@ -1238,7 +1239,7 @@ mod tests {
             let event = hosted
                 .events
                 .recv_timeout(remaining)
-                .expect("receive user-agent terminal event");
+                .expect("receive user process terminal event");
             match event {
                 HostedTerminalEvent::Output(bytes) => {
                     if bytes.windows(4).any(|window| window == b"\x1b[6n") {
@@ -1250,7 +1251,7 @@ mod tests {
                             hosted
                                 .control
                                 .write_input(b"whoami\r\nexit\r\n")
-                                .expect("write user-agent terminal input");
+                                .expect("write user process terminal input");
                             sent_command = true;
                         }
                     }
@@ -1258,7 +1259,7 @@ mod tests {
                 }
                 HostedTerminalEvent::Exited { .. } => break,
                 HostedTerminalEvent::Closed { message } => {
-                    panic!("user-agent terminal closed unexpectedly: {message}")
+                    panic!("user process terminal closed unexpectedly: {message}")
                 }
             }
         }

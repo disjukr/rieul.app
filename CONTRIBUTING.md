@@ -211,8 +211,8 @@ Passing `-SkipSign` writes `rieul-windows-desktop-0.1.0.unsigned.msix` so it
 cannot accidentally replace the signed installable package.
 
 The MSIX manifest declares `rieul-windows-system.exe` as a delayed-start
-LocalSystem packaged service, `rieul-windows-user.exe` as the user-session data
-agent, and `rieul-windows-gui.exe` as the interactive GUI. Uninstalling the
+LocalSystem packaged service, `rieul-windows-user.exe` as the user-session
+process, and `rieul-windows-gui.exe` as the interactive GUI. Uninstalling the
 package removes the packaged service and app binaries. Daemon data under
 `%ProgramData%\Rieul` is intentionally outside the package and is not removed by
 MSIX uninstall.
@@ -241,7 +241,7 @@ deno task macos:package:desktop:pkg
 
 This writes `dist/macos/rieul-macos-desktop-<version>.pkg`. The package installs
 the same `Rieul.app` under `/Applications` and then runs the app's bundled
-install command to replace and start the system daemon and per-user GUI agent.
+install command to replace and start the system daemon and per-user GUI process.
 Install it without opening Installer.app:
 
 ```sh

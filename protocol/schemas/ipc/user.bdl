@@ -1,7 +1,8 @@
 # standard - rieul-ipc
 # description
-| IPC procs provided by the user-session agent process. These procs are carried
-| over rieul-socket-wire IPC endpoints and are not public client RPC methods.
+| IPC procs provided by the dedicated user-session process. These procs are
+| carried over rieul-socket-wire IPC endpoints and are not public client RPC
+| methods.
 
 import rieul.ipc.common {
   IpcProcError,
@@ -13,60 +14,60 @@ import rieul.rpc.window {
 
 @ id - 5
 @ stream - unary
-@ server - agent
+@ server - user
 @ client - system
 proc SnapshotWindows = void -> SnapshotWindowsRes throws IpcProcError
 
 @ description
-| Returns the identity and capabilities of this user-session agent instance.
+| Returns the identity and capabilities of this user-session process instance.
 | The system process uses the OS transport peer identity as the security source
 | of truth; the fields in this response are for routing consistency,
 | diagnostics, and restart detection.
 @ id - 7
 @ stream - unary
-@ server - agent
+@ server - user
 @ client - system
-proc GetAgentInfo = void -> AgentInfo throws IpcProcError
+proc GetUserProcessInfo = void -> UserProcessInfo throws IpcProcError
 
 @ description
-| Returns shell launch options discovered in the agent user's environment.
+| Returns shell launch options discovered in the user process environment.
 | Commands and paths MUST be resolved using that user's environment and
 | profile, never the system process environment.
 @ id - 8
 @ stream - unary
-@ server - agent
+@ server - user
 @ client - system
-proc SnapshotAgentTerminalShells = void -> SnapshotAgentTerminalShellsRes throws IpcProcError
+proc SnapshotUserTerminalShells = void -> SnapshotUserTerminalShellsRes throws IpcProcError
 
 @ description
-| Hosts one pseudo-terminal in the agent user's security context. The request
-| stream MUST begin with exactly one AgentTerminalCommand.Start. After the
-| agent successfully creates the pseudo-terminal and child process it MUST emit
-| AgentTerminalEvent.Started first. Later request messages may write input,
-| resize the pseudo-terminal, or close it. Output ordering on the response
-| stream is authoritative; the system process assigns public terminal output
-| sequence numbers in that order.
+| Hosts one pseudo-terminal in the user process security context. The request
+| stream MUST begin with exactly one UserTerminalCommand.Start. After the
+| user process successfully creates the pseudo-terminal and child process it
+| MUST emit UserTerminalEvent.Started first. Later request messages may write
+| input, resize the pseudo-terminal, or close it. Output ordering on the
+| response stream is authoritative; the system process assigns public terminal
+| output sequence numbers in that order.
 |
 | The pseudo-terminal lifetime is bound to this IPC stream. Request EOF,
-| transport loss, an invalid command sequence, or agent shutdown MUST terminate
-| the hosted process and release the pseudo-terminal. Process exit is reported
-| once with AgentTerminalEvent.Exited and followed by normal response-stream
-| completion.
+| transport loss, an invalid command sequence, or user process shutdown MUST
+| terminate the hosted process and release the pseudo-terminal. Process exit is
+| reported once with UserTerminalEvent.Exited and followed by normal
+| response-stream completion.
 @ id - 9
 @ stream - bidi
-@ server - agent
+@ server - user
 @ client - system
-proc HostAgentTerminal = AgentTerminalCommand -> AgentTerminalEvent throws IpcProcError
+proc HostUserTerminal = UserTerminalCommand -> UserTerminalEvent throws IpcProcError
 
 struct SnapshotWindowsRes {
   @ id - 1
   windows: WindowDetail[],
 }
 
-struct AgentInfo {
+struct UserProcessInfo {
   @ id - 1
-  @ description - Random identifier fixed for this agent process lifetime.
-  agentInstanceId: string,
+  @ description - Random identifier fixed for this user process lifetime.
+  userProcessInstanceId: string,
 
   @ id - 2
   @ description - Stable daemon profile selected by the IPC endpoint.
@@ -81,17 +82,17 @@ struct AgentInfo {
   userName: string,
 
   @ id - 5
-  @ description - IPC proc ids implemented by this agent instance.
+  @ description - IPC proc ids implemented by this user process instance.
   supportedProcIds: u53[],
 }
 
-struct SnapshotAgentTerminalShellsRes {
+struct SnapshotUserTerminalShellsRes {
   @ id - 1
-  shells: AgentAvailableShellInfo[],
+  shells: UserAvailableShellInfo[],
 }
 
-@ description - Shell launch option resolved in the agent user's environment.
-struct AgentAvailableShellInfo {
+@ description - Shell launch option resolved in the user process environment.
+struct UserAvailableShellInfo {
   @ id - 1
   shellId: string,
 
@@ -108,8 +109,8 @@ struct AgentAvailableShellInfo {
   isDefault: bool,
 }
 
-@ description - Exact command line to host in the agent-owned PTY.
-struct AgentTerminalLaunchSpec {
+@ description - Exact command line to host in the user-process-owned PTY.
+struct UserTerminalLaunchSpec {
   @ id - 1
   command: string,
 
@@ -118,11 +119,12 @@ struct AgentTerminalLaunchSpec {
 }
 
 @ description - Command stream sent by the system process to one hosted PTY.
-union AgentTerminalCommand {
+union UserTerminalCommand {
   @ id - 1
   @ description
-  | First and only start command. The agent resolves the executable, working
-  | directory, environment, and shell integration in its own user context.
+  | First and only start command. The user process resolves the executable,
+  | working directory, environment, and shell integration in its own user
+  | context.
   Start(
     @ id - 1
     cols: u53,
@@ -134,7 +136,7 @@ union AgentTerminalCommand {
     cwd?: string,
 
     @ id - 4
-    launch: AgentTerminalLaunchSpec,
+    launch: UserTerminalLaunchSpec,
   ),
 
   @ id - 2
@@ -159,12 +161,12 @@ union AgentTerminalCommand {
   Close(),
 }
 
-@ description - Event stream emitted by one user-agent-hosted PTY.
-union AgentTerminalEvent {
+@ description - Event stream emitted by one user-process-hosted PTY.
+union UserTerminalEvent {
   @ id - 1
   @ description
   | First response after the PTY and child process have been created. The
-  | optional cwd is the agent's resolved initial working directory.
+  | optional cwd is the user process's resolved initial working directory.
   Started(
     @ id - 1
     cwd?: string,
@@ -195,11 +197,11 @@ union AgentTerminalEvent {
   | system-requested close or a failure detected while the IPC stream is live.
   Closed(
     @ id - 1
-    reason: AgentTerminalCloseReason,
+    reason: UserTerminalCloseReason,
   ),
 }
 
-union AgentTerminalCloseReason {
+union UserTerminalCloseReason {
   @ id - 0
   Failed(
     @ id - 1
@@ -210,5 +212,5 @@ union AgentTerminalCloseReason {
   ClosedBySystem(),
 
   @ id - 2
-  AgentShuttingDown(),
+  UserProcessShuttingDown(),
 }

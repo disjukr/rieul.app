@@ -3,12 +3,12 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use rieul_daemon_core::config::windows_program_data_config_path;
-use rieul_windows_daemon::window_agent::run_window_agent;
+use rieul_windows_daemon::user_process::run_user_process;
 use std::path::PathBuf;
 
 #[derive(Debug, Parser)]
 #[command(name = "rieul-windows-user")]
-#[command(about = "Windows user-session data agent for rieul")]
+#[command(about = "Windows user-session process for rieul")]
 struct Args {
     #[command(subcommand)]
     command: Option<Command>,
@@ -32,7 +32,7 @@ fn main() -> Result<()> {
         .unwrap_or(Command::Run { config: None })
     {
         Command::Run { config } => {
-            run_window_agent(config.unwrap_or_else(windows_program_data_config_path))
+            run_user_process(config.unwrap_or_else(windows_program_data_config_path))
         }
     }
 }
