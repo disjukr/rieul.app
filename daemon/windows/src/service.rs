@@ -22,7 +22,7 @@ use crate::ipc::{UserGuiPairingNotifier, UserSessionWindowService};
 use crate::process_modules::WindowsProcessModulesService;
 use crate::process_resources::WindowsProcessResourcesInUseService;
 use crate::process_sockets::WindowsProcessSocketsInUseService;
-use crate::terminal_ipc::WindowsAgentTerminalBackend;
+use crate::terminal_ipc::WindowsUserTerminalBackend;
 use rieul_daemon_host::server::run_system_server;
 use std::sync::Arc;
 
@@ -253,7 +253,7 @@ fn run_server_until_shutdown(
         let window_service = UserSessionWindowService::from_config_path(&options.config_path);
         let pairing_notifier = UserGuiPairingNotifier::from_config_path(&options.config_path);
         let terminal_backend =
-            WindowsAgentTerminalBackend::new(profile_id_for_config_path(&options.config_path));
+            WindowsUserTerminalBackend::new(profile_id_for_config_path(&options.config_path));
         tokio::select! {
             result = run_system_server(
                 options.listen,

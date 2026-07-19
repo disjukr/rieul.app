@@ -10,7 +10,7 @@ description: |-
   A proc's server role is the local process role that provides the method on an
   IPC endpoint. A proc's client role list is the set of local process roles that
   may call it. Role names are lower-case rieul IPC process roles such as
-  system, gui, agent, and launcher. Multiple client roles are encoded as a
+  system, gui, user, and launcher. Multiple client roles are encoded as a
   comma-separated role list.
 
 stitches:

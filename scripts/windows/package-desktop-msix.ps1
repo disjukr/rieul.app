@@ -228,8 +228,8 @@ function New-AppxManifest {
       Executable="rieul-windows-user.exe"
       EntryPoint="Windows.FullTrustApplication">
       <uap:VisualElements
-        DisplayName="Rieul User Agent"
-        Description="User-session data agent for Rieul"
+        DisplayName="Rieul User Process"
+        Description="User-session process for Rieul"
         BackgroundColor="transparent"
         Square44x44Logo="Assets\Square44x44Logo.png"
         Square150x150Logo="Assets\Square150x150Logo.png" />
@@ -239,9 +239,9 @@ function New-AppxManifest {
           Executable="rieul-windows-user.exe"
           EntryPoint="Windows.FullTrustApplication">
           <desktop:StartupTask
-            TaskId="RieulUserAgent"
+            TaskId="RieulUserProcess"
             Enabled="true"
-            DisplayName="Rieul User Agent" />
+            DisplayName="Rieul User Process" />
         </desktop:Extension>
       </Extensions>
     </Application>

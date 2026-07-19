@@ -1,8 +1,8 @@
 pub use crate::generated::ipc::{
-    ActivateGuiReq, AgentAvailableShellInfo, AgentInfo, AgentTerminalCloseReason,
-    AgentTerminalCommand, AgentTerminalEvent, AgentTerminalLaunchSpec, ConfirmPairingReq,
-    ConfirmPairingRes, IpcProcError, ProcId, RpcRequest, RpcRequestDecodeError, RpcResponse,
-    ShowDaemonInfoReq, ShowPairingCodeReq, SnapshotAgentTerminalShellsRes, SnapshotWindowsRes,
+    ActivateGuiReq, ConfirmPairingReq, ConfirmPairingRes, IpcProcError, ProcId, RpcRequest,
+    RpcRequestDecodeError, RpcResponse, ShowDaemonInfoReq, ShowPairingCodeReq,
+    SnapshotUserTerminalShellsRes, SnapshotWindowsRes, UserAvailableShellInfo, UserProcessInfo,
+    UserTerminalCloseReason, UserTerminalCommand, UserTerminalEvent, UserTerminalLaunchSpec,
 };
 
 pub type IpcCodecError = crate::generated::ipc::CodecError;

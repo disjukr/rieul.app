@@ -118,40 +118,43 @@ mod tests {
     }
 
     #[test]
-    fn generated_agent_terminal_ipc_contract_roundtrips() {
-        let command = ipc::AgentTerminalCommand::Start {
+    fn generated_user_terminal_ipc_contract_roundtrips() {
+        let command = ipc::UserTerminalCommand::Start {
             cols: 120,
             rows: 40,
             cwd: Some(r"C:\Users\alice".to_string()),
-            launch: ipc::AgentTerminalLaunchSpec {
+            launch: ipc::UserTerminalLaunchSpec {
                 command: r"C:\Program Files\Git\bin\bash.exe".to_string(),
                 args: vec!["--login".to_string(), "-i".to_string()],
             },
         };
 
-        assert_eq!(ipc::ProcId::from_u64(7), Some(ipc::ProcId::GetAgentInfo));
+        assert_eq!(
+            ipc::ProcId::from_u64(7),
+            Some(ipc::ProcId::GetUserProcessInfo)
+        );
         assert_eq!(
             ipc::ProcId::from_u64(8),
-            Some(ipc::ProcId::SnapshotAgentTerminalShells)
+            Some(ipc::ProcId::SnapshotUserTerminalShells)
         );
         assert_eq!(
             ipc::ProcId::from_u64(9),
-            Some(ipc::ProcId::HostAgentTerminal)
+            Some(ipc::ProcId::HostUserTerminal)
         );
         assert_eq!(
-            ipc::ProcId::HostAgentTerminal.stream(),
+            ipc::ProcId::HostUserTerminal.stream(),
             ipc::ProcStream::Bidi
         );
         assert_eq!(
-            ipc::AgentTerminalCommand::decode(&command.encode()).unwrap(),
+            ipc::UserTerminalCommand::decode(&command.encode()).unwrap(),
             command
         );
 
-        let event = ipc::AgentTerminalEvent::Output {
+        let event = ipc::UserTerminalEvent::Output {
             bytes: b"hello\r\n".to_vec(),
         };
         assert_eq!(
-            ipc::AgentTerminalEvent::decode(&event.encode()).unwrap(),
+            ipc::UserTerminalEvent::decode(&event.encode()).unwrap(),
             event
         );
     }

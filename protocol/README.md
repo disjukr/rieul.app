@@ -21,7 +21,7 @@ client. The protocol is split into narrow layers so each document has one job.
 - `schemas/socket-wire` defines local IPC/WebSocket fallback socket reqres
   schemas.
 - `schemas/ipc` defines IPC proc contracts carried on IPC endpoints. Proc files
-  are grouped by provider role, such as `gui.bdl` and `agent.bdl`.
+  are grouped by provider role, such as `gui.bdl` and `user.bdl`.
 - `schemas/config` defines local daemon configuration files. These schemas do
   not use RPC-only primitives such as `i53` or `u53`.
 
