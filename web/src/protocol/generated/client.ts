@@ -51,24 +51,57 @@ import {
   getScheduleNextRunsProc,
   removeClientProc,
   killProcessProc,
+  subscribeAgentProvidersProc,
+  createAgentProjectProc,
+  subscribeAgentProjectsProc,
+  listAgentSessionsProc,
+  subscribeAgentSessionCatalogProc,
+  subscribeActiveAgentSessionsProc,
+  createAgentSessionProc,
+  subscribeAgentSessionProc,
+  createAgentTurnProc,
+  cancelAgentTurnProc,
+  respondAgentPermissionProc,
+  setAgentSessionConfigProc,
+  updateAgentSessionProc,
+  closeAgentSessionProc,
+  deleteAgentSessionProc,
+  removeAgentProjectProc,
+  listAgentSessionTurnsProc,
+  readAgentTerminalOutputProc,
 } from "./rpc.ts";
 import type {
+  ActiveAgentSessionsTableEvent,
+  AgentProjectInfo,
+  AgentProjectsTableEvent,
+  AgentProvidersTableEvent,
+  AgentSessionCatalogEvent,
+  AgentSessionEvent,
+  AgentSessionInfo,
+  AgentTerminalOutputEvent,
+  AgentTurnInfo,
   AttachTerminalSessionReq,
   AvailableShellsTableEvent,
   BulkJobMutationRes,
   BulkMutationRes,
   BulkScheduleMutationRes,
+  CancelAgentTurnReq,
   ClearJobsReq,
   ClientsTableEvent,
+  CloseAgentSessionReq,
   CloseTerminalSessionReq,
   CompletePairingReq,
   CompletePairingRes,
+  CreateAgentProjectReq,
+  CreateAgentSessionReq,
+  CreateAgentTurnReq,
   CreateJobReq,
   CreateNodesReq,
   CreateScheduleReq,
   CreateTerminalSessionReq,
   DaemonEnvironment,
   DaemonInfo,
+  DeleteAgentSessionReq,
   DeleteJobsReq,
   DeletePathsReq,
   DeleteSchedulesReq,
@@ -80,25 +113,35 @@ import type {
   JobsTableEvent,
   KillJobReq,
   KillProcessReq,
+  ListAgentSessionsReq,
+  ListAgentSessionsRes,
+  ListAgentSessionTurnsReq,
+  ListAgentSessionTurnsRes,
   ProcessDetailEvent,
   ProcessesTableEvent,
   ProcessModulesTableEvent,
   ProcessResourcesInUseTableEvent,
   ProcessSocketsInUseTableEvent,
   PurgeTrashItemsReq,
+  ReadAgentTerminalOutputReq,
   ReadFileChunk,
   ReadFileReq,
+  RemoveAgentProjectReq,
   RemoveClientReq,
   RenamePathsReq,
   RenewClientCredentialRes,
+  RespondAgentPermissionReq,
   RestoreTrashItemsReq,
   RootsTableEvent,
   RunCommandReq,
   RunCommandRes,
   ScheduleInfo,
   SchedulesTableEvent,
+  SetAgentSessionConfigReq,
   StartPairingReq,
   StartPairingRes,
+  SubscribeAgentSessionCatalogReq,
+  SubscribeAgentSessionReq,
   SubscribeDirectoryReq,
   SubscribeJobOutputReq,
   SubscribeJobsReq,
@@ -114,6 +157,7 @@ import type {
   TerminalSessionInfo,
   TerminalSessionsTableEvent,
   TrashItemsTableEvent,
+  UpdateAgentSessionReq,
   UpdateScheduleReq,
   WindowDetailEvent,
   WindowsTableEvent,
@@ -296,4 +340,76 @@ export function removeClient(transport: WebTransport, request: RemoveClientReq):
 
 export function killProcess(transport: WebTransport, request: KillProcessReq): Promise<undefined> {
   return callUnary(transport, killProcessProc, request);
+}
+
+export function subscribeAgentProviders(transport: WebTransport): AsyncGenerator<AgentProvidersTableEvent> {
+  return callServerStream(transport, subscribeAgentProvidersProc, undefined);
+}
+
+export function createAgentProject(transport: WebTransport, request: CreateAgentProjectReq): Promise<AgentProjectInfo> {
+  return callUnary(transport, createAgentProjectProc, request);
+}
+
+export function subscribeAgentProjects(transport: WebTransport): AsyncGenerator<AgentProjectsTableEvent> {
+  return callServerStream(transport, subscribeAgentProjectsProc, undefined);
+}
+
+export function listAgentSessions(transport: WebTransport, request: ListAgentSessionsReq): Promise<ListAgentSessionsRes> {
+  return callUnary(transport, listAgentSessionsProc, request);
+}
+
+export function subscribeAgentSessionCatalog(transport: WebTransport, request: SubscribeAgentSessionCatalogReq): AsyncGenerator<AgentSessionCatalogEvent> {
+  return callServerStream(transport, subscribeAgentSessionCatalogProc, request);
+}
+
+export function subscribeActiveAgentSessions(transport: WebTransport): AsyncGenerator<ActiveAgentSessionsTableEvent> {
+  return callServerStream(transport, subscribeActiveAgentSessionsProc, undefined);
+}
+
+export function createAgentSession(transport: WebTransport, request: CreateAgentSessionReq): Promise<AgentSessionInfo> {
+  return callUnary(transport, createAgentSessionProc, request);
+}
+
+export function subscribeAgentSession(transport: WebTransport, request: SubscribeAgentSessionReq): AsyncGenerator<AgentSessionEvent> {
+  return callServerStream(transport, subscribeAgentSessionProc, request);
+}
+
+export function createAgentTurn(transport: WebTransport, request: CreateAgentTurnReq): Promise<AgentTurnInfo> {
+  return callUnary(transport, createAgentTurnProc, request);
+}
+
+export function cancelAgentTurn(transport: WebTransport, request: CancelAgentTurnReq): Promise<undefined> {
+  return callUnary(transport, cancelAgentTurnProc, request);
+}
+
+export function respondAgentPermission(transport: WebTransport, request: RespondAgentPermissionReq): Promise<undefined> {
+  return callUnary(transport, respondAgentPermissionProc, request);
+}
+
+export function setAgentSessionConfig(transport: WebTransport, request: SetAgentSessionConfigReq): Promise<undefined> {
+  return callUnary(transport, setAgentSessionConfigProc, request);
+}
+
+export function updateAgentSession(transport: WebTransport, request: UpdateAgentSessionReq): Promise<AgentSessionInfo> {
+  return callUnary(transport, updateAgentSessionProc, request);
+}
+
+export function closeAgentSession(transport: WebTransport, request: CloseAgentSessionReq): Promise<undefined> {
+  return callUnary(transport, closeAgentSessionProc, request);
+}
+
+export function deleteAgentSession(transport: WebTransport, request: DeleteAgentSessionReq): Promise<undefined> {
+  return callUnary(transport, deleteAgentSessionProc, request);
+}
+
+export function removeAgentProject(transport: WebTransport, request: RemoveAgentProjectReq): Promise<undefined> {
+  return callUnary(transport, removeAgentProjectProc, request);
+}
+
+export function listAgentSessionTurns(transport: WebTransport, request: ListAgentSessionTurnsReq): Promise<ListAgentSessionTurnsRes> {
+  return callUnary(transport, listAgentSessionTurnsProc, request);
+}
+
+export function readAgentTerminalOutput(transport: WebTransport, request: ReadAgentTerminalOutputReq): AsyncGenerator<AgentTerminalOutputEvent> {
+  return callServerStream(transport, readAgentTerminalOutputProc, request);
 }

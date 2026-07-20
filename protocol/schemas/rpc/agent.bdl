@@ -1,0 +1,1724 @@
+# standard - rieul-rpc
+# description
+| Agent RPC methods expose daemon-owned AI agent state in a UI-oriented form.
+| The daemon communicates with agent processes through ACP, but this public
+| contract intentionally does not mirror ACP JSON-RPC messages. It persists
+| session state, normalizes agent events, and gives web clients stable models
+| for projects, task workspaces, turns, messages, tool calls, permissions,
+| plans, terminals, usage, and configuration.
+|
+| Persistent session history is cursor-paginated. It is not represented as a
+| permanently subscribed full table because the number of dormant sessions can
+| grow without bound. Catalog and active-session subscriptions stay small, and
+| a client subscribes to the detailed event stream only for sessions it is
+| actively displaying.
+
+@ description
+| Subscribes to configured agent providers. The first event is a Snapshot;
+| later Patch events report availability, authentication, capability, and
+| metadata changes.
+@ id - 45
+@ stream - server
+proc SubscribeAgentProviders = void -> AgentProvidersTableEvent throws AgentRpcError
+
+@ description
+| Registers an existing user-selected directory as a project. Project sessions
+| use this directory directly. Registering an already-known canonical root may
+| return the existing project.
+@ id - 46
+@ stream - unary
+proc CreateAgentProject = CreateAgentProjectReq -> AgentProjectInfo throws AgentRpcError
+
+@ description
+| Subscribes to the bounded catalog of registered projects. The first event is
+| a Snapshot; later Patch events apply membership and metadata changes.
+@ id - 47
+@ stream - server
+proc SubscribeAgentProjects = void -> AgentProjectsTableEvent throws AgentRpcError
+
+@ description
+| Returns one page of persistent agent sessions ordered by updatedAtMs
+| descending, with sessionId as a stable tie-breaker. The opaque cursor binds
+| the continuation to the request filters. Clients must discard it when filters
+| change or when the daemon rejects it as stale or invalid.
+@ id - 48
+@ stream - unary
+proc ListAgentSessions = ListAgentSessionsReq -> ListAgentSessionsRes throws AgentRpcError
+
+@ description
+| Subscribes to cheap invalidation events for the persistent session catalog.
+| This stream never sends every session row. Clients refresh visible pages with
+| ListAgentSessions when a relevant id changes. ResetRequired means cached pages
+| and cursors must be discarded. If afterRevision is absent, the first event is
+| ResetRequired with the current revision.
+@ id - 49
+@ stream - server
+proc SubscribeAgentSessionCatalog = SubscribeAgentSessionCatalogReq -> AgentSessionCatalogEvent throws AgentRpcError
+
+@ description
+| Subscribes only to sessions with a currently attached, starting, or stopping
+| agent runtime. This set is expected to remain small. The first event is a
+| Snapshot; later Patch events apply membership and summary changes.
+@ id - 50
+@ stream - server
+proc SubscribeActiveAgentSessions = void -> ActiveAgentSessionsTableEvent throws AgentRpcError
+
+@ description
+| Creates a persisted session and begins attaching its provider. Project mode
+| uses a registered project directory directly. Task mode provisions a unique
+| daemon-managed working directory that remains persisted when the provider
+| process is detached.
+@ id - 51
+@ stream - unary
+proc CreateAgentSession = CreateAgentSessionReq -> AgentSessionInfo throws AgentRpcError
+
+@ description
+| Subscribes to the normalized live detail model for one session. The first
+| event is always a bounded Snapshot and includes latestSeq, but excludes
+| completed turn history. Later events have strictly increasing seq values.
+| Reconnecting clients replace local live state with the new Snapshot and load
+| completed history separately through ListAgentSessionTurns.
+@ id - 52
+@ stream - server
+proc SubscribeAgentSession = SubscribeAgentSessionReq -> AgentSessionEvent throws AgentRpcError
+
+@ description
+| Accepts a user turn asynchronously. clientRequestId is an idempotency key
+| scoped to the session. The returned turn is normally Queued or Running;
+| progress and completion are observed through SubscribeAgentSession.
+@ id - 53
+@ stream - unary
+proc CreateAgentTurn = CreateAgentTurnReq -> AgentTurnInfo throws AgentRpcError
+
+@ description
+| Requests cancellation of a queued or running turn. Cancelling an already
+| terminal turn is a no-op success.
+@ id - 54
+@ stream - unary
+proc CancelAgentTurn = CancelAgentTurnReq -> void throws AgentRpcError
+
+@ description
+| Answers one pending permission request with an option supplied by the agent,
+| or explicitly cancels the request.
+@ id - 55
+@ stream - unary
+proc RespondAgentPermission = RespondAgentPermissionReq -> void throws AgentRpcError
+
+@ description
+| Changes one provider-defined session configuration option. The option id and
+| accepted value shape come from the current AgentConfigOption rows.
+@ id - 56
+@ stream - unary
+proc SetAgentSessionConfig = SetAgentSessionConfigReq -> void throws AgentRpcError
+
+@ description
+| Updates persisted session metadata. Omitted fields are unchanged. Title uses
+| an explicit Set or Clear operation so clearing is distinguishable from an
+| omitted patch field.
+@ id - 57
+@ stream - unary
+proc UpdateAgentSession = UpdateAgentSessionReq -> AgentSessionInfo throws AgentRpcError
+
+@ description
+| Detaches and stops the agent runtime while retaining the session and its
+| workspace. A later turn may reattach a recoverable session.
+@ id - 58
+@ stream - unary
+proc CloseAgentSession = CloseAgentSessionReq -> void throws AgentRpcError
+
+@ description
+| Hard-deletes persisted session state. For task sessions, taskWorkspacePolicy
+| explicitly controls whether the unique working directory is also removed.
+| Project directories are never removed by this operation.
+@ id - 59
+@ stream - unary
+proc DeleteAgentSession = DeleteAgentSessionReq -> void throws AgentRpcError
+
+@ description
+| Removes a project registration from the project catalog. This operation never
+| deletes the project directory, sessions that used the project, or task
+| workspaces created from it. Existing sessions retain their projectId and cwd
+| as historical references; their recoverability may change if the provider
+| can no longer access that workspace.
+@ id - 60
+@ stream - unary
+proc RemoveAgentProject = RemoveAgentProjectReq -> void throws AgentRpcError
+
+@ description
+| Returns a cursor-paginated page of completed turns for one session. Clients
+| should subscribe first, then pass the live Snapshot's latestSeq as throughSeq
+| so history loading and subsequent live events form one race-free view. Pages
+| are selected newest-first; turns within each response are ordered oldest-first
+| for direct insertion into a conversation timeline.
+@ id - 61
+@ stream - unary
+proc ListAgentSessionTurns = ListAgentSessionTurnsReq -> ListAgentSessionTurnsRes throws AgentRpcError
+
+@ description
+| Streams retained output for one agent terminal through the requested output
+| sequence and then completes. Live output after throughSeq is observed through
+| SubscribeAgentSession. If afterSeq is outside retained history, the stream
+| reports HistoryGap before continuing from the oldest retained chunk.
+@ id - 62
+@ stream - server
+proc ReadAgentTerminalOutput = ReadAgentTerminalOutputReq -> AgentTerminalOutputEvent throws AgentRpcError
+
+struct CreateAgentProjectReq {
+  @ id - 1
+  @ description - Absolute path selected by the user.
+  rootPath: string,
+
+  @ id - 2
+  @ description - Optional user-facing title; the daemon derives one if absent.
+  title?: string,
+}
+
+struct RemoveAgentProjectReq {
+  @ id - 1
+  projectId: string,
+}
+
+struct ListAgentSessionTurnsReq {
+  @ id - 1
+  sessionId: string,
+
+  @ id - 2
+  @ description
+  | AgentSessionLiveSnapshot.latestSeq from the subscription Snapshot that
+  | anchors this history view. Only turns completed at or before this sequence
+  | are eligible.
+  throughSeq: u53,
+
+  @ id - 3
+  @ description - Opaque continuation returned by the preceding page.
+  cursor?: string,
+
+  @ id - 4
+  @ description - Requested turn count. The daemon may enforce a lower maximum.
+  limit: u53,
+}
+
+struct ListAgentSessionTurnsRes {
+  @ id - 1
+  turns: AgentTurnRecord[],
+
+  @ id - 2
+  nextCursor?: string,
+}
+
+struct ReadAgentTerminalOutputReq {
+  @ id - 1
+  sessionId: string,
+
+  @ id - 2
+  terminalId: string,
+
+  @ id - 3
+  @ description
+  | Last output sequence already held by the client. Absent starts at the oldest
+  | retained chunk.
+  afterSeq?: u53,
+
+  @ id - 4
+  @ description
+  | Inclusive last output sequence to return, normally copied from the terminal
+  | summary in a live snapshot or history page.
+  throughSeq: u53,
+}
+
+struct ListAgentSessionsReq {
+  @ id - 1
+  workspace: AgentSessionWorkspaceFilter,
+
+  @ id - 2
+  archived: AgentSessionArchiveFilter,
+
+  @ id - 3
+  @ description - Optional case-insensitive title and message preview search.
+  query?: string,
+
+  @ id - 4
+  @ description - Opaque continuation returned by the preceding page.
+  cursor?: string,
+
+  @ id - 5
+  @ description - Requested page size. The daemon may enforce a lower maximum.
+  limit: u53,
+}
+
+struct ListAgentSessionsRes {
+  @ id - 1
+  rows: AgentSessionSummary[],
+
+  @ id - 2
+  nextCursor?: string,
+
+  @ id - 3
+  @ description - Catalog revision at which this page was read.
+  catalogRevision: u53,
+}
+
+struct SubscribeAgentSessionCatalogReq {
+  @ id - 1
+  @ description
+  | Last catalog revision applied by the client. When it is outside retained
+  | change history, the first event is ResetRequired.
+  afterRevision?: u53,
+}
+
+struct CreateAgentSessionReq {
+  @ id - 1
+  providerId: string,
+
+  @ id - 2
+  workspace: CreateAgentWorkspace,
+
+  @ id - 3
+  title?: string,
+
+  @ id - 4
+  @ description - Idempotency key scoped to the authenticated client.
+  clientRequestId: string,
+}
+
+struct SubscribeAgentSessionReq {
+  @ id - 1
+  sessionId: string,
+}
+
+struct CreateAgentTurnReq {
+  @ id - 1
+  sessionId: string,
+
+  @ id - 2
+  content: AgentContent[],
+
+  @ id - 3
+  @ description - Idempotency key scoped to the session.
+  clientRequestId: string,
+
+  @ id - 4
+  @ description
+  | UI state identifying what the user was observing when the turn was
+  | submitted. The daemon resolves these references and captures authoritative
+  | state instead of trusting client-provided snapshots.
+  view?: AgentViewContextCapture,
+}
+
+struct CancelAgentTurnReq {
+  @ id - 1
+  sessionId: string,
+
+  @ id - 2
+  turnId: string,
+}
+
+struct RespondAgentPermissionReq {
+  @ id - 1
+  sessionId: string,
+
+  @ id - 2
+  permissionRequestId: string,
+
+  @ id - 3
+  decision: AgentPermissionDecision,
+}
+
+struct SetAgentSessionConfigReq {
+  @ id - 1
+  sessionId: string,
+
+  @ id - 2
+  configId: string,
+
+  @ id - 3
+  value: AgentConfigValue,
+}
+
+struct UpdateAgentSessionReq {
+  @ id - 1
+  sessionId: string,
+
+  @ id - 2
+  title?: AgentSessionTitleUpdate,
+
+  @ id - 3
+  archived?: bool,
+}
+
+struct CloseAgentSessionReq {
+  @ id - 1
+  sessionId: string,
+}
+
+struct DeleteAgentSessionReq {
+  @ id - 1
+  sessionId: string,
+
+  @ id - 2
+  taskWorkspacePolicy: AgentTaskWorkspaceDeletePolicy,
+}
+
+@ description - Configured ACP-compatible agent provider.
+struct AgentProviderInfo {
+  @ id - 1
+  providerId: string,
+
+  @ id - 2
+  title: string,
+
+  @ id - 3
+  version?: string,
+
+  @ id - 4
+  availability: AgentProviderAvailability,
+
+  @ id - 5
+  authentication: AgentProviderAuthentication,
+
+  @ id - 6
+  capabilities: AgentProviderCapabilities,
+}
+
+enum AgentProviderAvailability {
+  @ id - 1
+  Available,
+
+  @ id - 2
+  Missing,
+
+  @ id - 3
+  Disabled,
+
+  @ id - 4
+  Unhealthy,
+}
+
+union AgentProviderAuthentication {
+  @ id - 1
+  NotRequired(),
+
+  @ id - 2
+  Authenticated(),
+
+  @ id - 3
+  Required(),
+
+  @ id - 4
+  Failed(
+    @ id - 1
+    message: string,
+  ),
+}
+
+struct AgentProviderCapabilities {
+  @ id - 1
+  loadSession: bool,
+
+  @ id - 2
+  resumeSession: bool,
+
+  @ id - 3
+  imagePrompt: bool,
+
+  @ id - 4
+  audioPrompt: bool,
+
+  @ id - 5
+  embeddedContext: bool,
+
+  @ id - 6
+  mcp: bool,
+}
+
+union AgentProvidersTableEvent {
+  @ id - 1
+  Snapshot(
+    @ id - 1
+    rows: AgentProviderInfo[],
+  ),
+
+  @ id - 2
+  Patch(
+    @ id - 1
+    removes: string[],
+
+    @ id - 2
+    upserts: AgentProviderInfo[],
+  ),
+}
+
+@ description - Registered existing working directory.
+struct AgentProjectInfo {
+  @ id - 1
+  projectId: string,
+
+  @ id - 2
+  title: string,
+
+  @ id - 3
+  rootPath: string,
+
+  @ id - 4
+  availability: AgentProjectAvailability,
+
+  @ id - 5
+  createdAtMs: u53,
+
+  @ id - 6
+  lastOpenedAtMs?: u53,
+}
+
+enum AgentProjectAvailability {
+  @ id - 1
+  Available,
+
+  @ id - 2
+  Missing,
+
+  @ id - 3
+  PermissionDenied,
+}
+
+union AgentProjectsTableEvent {
+  @ id - 1
+  Snapshot(
+    @ id - 1
+    rows: AgentProjectInfo[],
+  ),
+
+  @ id - 2
+  Patch(
+    @ id - 1
+    removes: string[],
+
+    @ id - 2
+    upserts: AgentProjectInfo[],
+  ),
+}
+
+union AgentSessionWorkspaceFilter {
+  @ id - 1
+  Any(),
+
+  @ id - 2
+  Project(
+    @ id - 1
+    @ description - Absent matches every project session.
+    projectId?: string,
+  ),
+
+  @ id - 3
+  Task(
+    @ id - 1
+    @ description - Absent matches task sessions from any source.
+    sourceProjectId?: string,
+  ),
+}
+
+enum AgentSessionArchiveFilter {
+  @ id - 1
+  ActiveOnly,
+
+  @ id - 2
+  ArchivedOnly,
+
+  @ id - 3
+  All,
+}
+
+union CreateAgentWorkspace {
+  @ id - 1
+  Project(
+    @ id - 1
+    projectId: string,
+  ),
+
+  @ id - 2
+  Task(
+    @ id - 1
+    source: AgentTaskWorkspaceSource,
+  ),
+}
+
+union AgentTaskWorkspaceSource {
+  @ id - 1
+  Empty(),
+
+  @ id - 2
+  Project(
+    @ id - 1
+    projectId: string,
+
+    @ id - 2
+    strategy: AgentTaskWorkspaceStrategy,
+  ),
+}
+
+union AgentTaskWorkspaceStrategy {
+  @ id - 1
+  @ description - Creates an isolated git worktree from the requested base.
+  GitWorktree(
+    @ id - 1
+    baseRef?: string,
+  ),
+
+  @ id - 2
+  @ description - Copies the source project into the task directory.
+  Copy(
+    @ id - 1
+    includeUntracked: bool,
+  ),
+}
+
+union AgentWorkspaceBinding {
+  @ id - 1
+  Project(
+    @ id - 1
+    projectId: string,
+  ),
+
+  @ id - 2
+  Task(
+    @ id - 1
+    taskWorkspaceId: string,
+
+    @ id - 2
+    sourceProjectId?: string,
+
+    @ id - 3
+    state: AgentTaskWorkspaceState,
+  ),
+}
+
+enum AgentTaskWorkspaceState {
+  @ id - 1
+  Provisioning,
+
+  @ id - 2
+  Ready,
+
+  @ id - 3
+  Missing,
+
+  @ id - 4
+  CleanupPending,
+}
+
+@ description - Lightweight row returned by session list and active table APIs.
+struct AgentSessionSummary {
+  @ id - 1
+  sessionId: string,
+
+  @ id - 2
+  providerId: string,
+
+  @ id - 3
+  title?: string,
+
+  @ id - 4
+  @ description - Resolved absolute cwd passed to the ACP agent.
+  cwd: string,
+
+  @ id - 5
+  workspace: AgentWorkspaceBinding,
+
+  @ id - 6
+  attachment: AgentAttachmentState,
+
+  @ id - 7
+  turnState: AgentSessionTurnState,
+
+  @ id - 8
+  recoverability: AgentSessionRecoverability,
+
+  @ id - 9
+  archived: bool,
+
+  @ id - 10
+  createdAtMs: u53,
+
+  @ id - 11
+  updatedAtMs: u53,
+
+  @ id - 12
+  lastMessagePreview?: string,
+}
+
+enum AgentAttachmentState {
+  @ id - 1
+  Dormant,
+
+  @ id - 2
+  Starting,
+
+  @ id - 3
+  Attached,
+
+  @ id - 4
+  Stopping,
+
+  @ id - 5
+  Failed,
+}
+
+enum AgentSessionTurnState {
+  @ id - 1
+  Idle,
+
+  @ id - 2
+  Queued,
+
+  @ id - 3
+  Running,
+
+  @ id - 4
+  AwaitingPermission,
+}
+
+enum AgentSessionRecoverability {
+  @ id - 1
+  Resumable,
+
+  @ id - 2
+  Loadable,
+
+  @ id - 3
+  ProcessLocal,
+
+  @ id - 4
+  Unavailable,
+
+  @ id - 5
+  Unknown,
+}
+
+@ description - Detailed persisted and live state for one agent session.
+struct AgentSessionInfo {
+  @ id - 1
+  summary: AgentSessionSummary,
+
+  @ id - 2
+  @ description - Provider-owned ACP session id, if one has been assigned.
+  providerSessionId?: string,
+
+  @ id - 3
+  attachedAtMs?: u53,
+
+  @ id - 4
+  detachedAtMs?: u53,
+
+  @ id - 5
+  failure?: AgentFailure,
+}
+
+struct AgentFailure {
+  @ id - 1
+  message: string,
+
+  @ id - 2
+  code?: string,
+
+  @ id - 3
+  retryable: bool,
+}
+
+union AgentSessionCatalogEvent {
+  @ id - 1
+  Changed(
+    @ id - 1
+    revision: u53,
+
+    @ id - 2
+    sessionIds: string[],
+  ),
+
+  @ id - 2
+  Removed(
+    @ id - 1
+    revision: u53,
+
+    @ id - 2
+    sessionIds: string[],
+  ),
+
+  @ id - 3
+  ResetRequired(
+    @ id - 1
+    revision: u53,
+  ),
+}
+
+union ActiveAgentSessionsTableEvent {
+  @ id - 1
+  Snapshot(
+    @ id - 1
+    rows: AgentSessionSummary[],
+  ),
+
+  @ id - 2
+  Patch(
+    @ id - 1
+    removes: string[],
+
+    @ id - 2
+    upserts: AgentSessionSummary[],
+  ),
+}
+
+@ description
+| Bounded live projection for one selected session. Completed history is
+| intentionally excluded and loaded through ListAgentSessionTurns.
+struct AgentSessionLiveSnapshot {
+  @ id - 1
+  session: AgentSessionInfo,
+
+  @ id - 2
+  @ description
+  | Queued, running, or permission-blocked turn with its current normalized
+  | contents. Absent when the session has no active turn.
+  activeTurn?: AgentTurnRecord,
+
+  @ id - 3
+  usage?: AgentUsage,
+
+  @ id - 4
+  configOptions: AgentConfigOption[],
+
+  @ id - 5
+  @ description
+  | Sequence that anchors this projection. Clients use it as throughSeq for the
+  | first ListAgentSessionTurns request and then apply stream events with larger
+  | seq values.
+  latestSeq: u53,
+}
+
+union AgentSessionEvent {
+  @ id - 1
+  Snapshot(
+    @ id - 1
+    snapshot: AgentSessionLiveSnapshot,
+  ),
+
+  @ id - 2
+  SessionUpsert(
+    @ id - 1
+    seq: u53,
+
+    @ id - 2
+    session: AgentSessionInfo,
+  ),
+
+  @ id - 3
+  TurnUpsert(
+    @ id - 1
+    seq: u53,
+
+    @ id - 2
+    turn: AgentTurnInfo,
+  ),
+
+  @ id - 4
+  MessageUpsert(
+    @ id - 1
+    seq: u53,
+
+    @ id - 2
+    message: AgentMessage,
+  ),
+
+  @ id - 5
+  MessageContentAppend(
+    @ id - 1
+    seq: u53,
+
+    @ id - 2
+    messageId: string,
+
+    @ id - 3
+    content: AgentContent,
+  ),
+
+  @ id - 6
+  ToolCallUpsert(
+    @ id - 1
+    seq: u53,
+
+    @ id - 2
+    toolCall: AgentToolCall,
+  ),
+
+  @ id - 7
+  ToolCallContentAppend(
+    @ id - 1
+    seq: u53,
+
+    @ id - 2
+    toolCallId: string,
+
+    @ id - 3
+    content: AgentToolCallContent,
+  ),
+
+  @ id - 8
+  PermissionUpsert(
+    @ id - 1
+    seq: u53,
+
+    @ id - 2
+    permission: AgentPermissionRequest,
+  ),
+
+  @ id - 9
+  PlanReplace(
+    @ id - 1
+    seq: u53,
+
+    @ id - 2
+    @ description - Absent clears the current plan.
+    plan?: AgentPlan,
+  ),
+
+  @ id - 10
+  TerminalUpsert(
+    @ id - 1
+    seq: u53,
+
+    @ id - 2
+    terminal: AgentTerminalSummary,
+  ),
+
+  @ id - 11
+  TerminalOutputAppend(
+    @ id - 1
+    seq: u53,
+
+    @ id - 2
+    terminalId: string,
+
+    @ id - 3
+    outputSeq: u53,
+
+    @ id - 4
+    text: string,
+  ),
+
+  @ id - 12
+  UsageUpdate(
+    @ id - 1
+    seq: u53,
+
+    @ id - 2
+    usage: AgentUsage,
+  ),
+
+  @ id - 13
+  ConfigOptionsReplace(
+    @ id - 1
+    seq: u53,
+
+    @ id - 2
+    options: AgentConfigOption[],
+  ),
+}
+
+struct AgentTurnInfo {
+  @ id - 1
+  turnId: string,
+
+  @ id - 2
+  sessionId: string,
+
+  @ id - 3
+  state: AgentTurnState,
+
+  @ id - 4
+  createdAtMs: u53,
+
+  @ id - 5
+  startedAtMs?: u53,
+
+  @ id - 6
+  finishedAtMs?: u53,
+
+  @ id - 7
+  @ description
+  | Immutable daemon state captured when this turn was accepted. This is the
+  | context delivered to the ACP agent and retained for replay and inspection.
+  context?: AgentTurnContext,
+}
+
+@ description
+| Consolidated normalized contents for one turn. The live snapshot contains at
+| most the active record; completed records are cursor-paginated.
+struct AgentTurnRecord {
+  @ id - 1
+  turn: AgentTurnInfo,
+
+  @ id - 2
+  messages: AgentMessage[],
+
+  @ id - 3
+  toolCalls: AgentToolCall[],
+
+  @ id - 4
+  permissions: AgentPermissionRequest[],
+
+  @ id - 5
+  plan?: AgentPlan,
+
+  @ id - 6
+  @ description
+  | Terminal metadata only. Output is loaded separately through
+  | ReadAgentTerminalOutput.
+  terminals: AgentTerminalSummary[],
+}
+
+@ description
+| UI-owned description of which daemon entities the user was observing. It
+| contains references only; snapshot contents are produced by the daemon.
+struct AgentViewContextCapture {
+  @ id - 1
+  @ description
+  | Stable UI surface id, such as daemon.process.detail or daemon.jobs.list.
+  surfaceId: string,
+
+  @ id - 2
+  entities: AgentViewEntity[],
+}
+
+struct AgentViewEntity {
+  @ id - 1
+  role: AgentViewEntityRole,
+
+  @ id - 2
+  entity: AgentDaemonEntityRef,
+}
+
+enum AgentViewEntityRole {
+  @ id - 1
+  Primary,
+
+  @ id - 2
+  Selected,
+
+  @ id - 3
+  Visible,
+
+  @ id - 4
+  Related,
+}
+
+@ description - Reference to an entity in daemon-owned state.
+union AgentDaemonEntityRef {
+  @ id - 1
+  FileSystemPath(
+    @ id - 1
+    path: string,
+  ),
+
+  @ id - 2
+  TerminalSession(
+    @ id - 1
+    terminalSessionId: string,
+  ),
+
+  @ id - 3
+  Process(
+    @ id - 1
+    pid: u53,
+  ),
+
+  @ id - 4
+  Window(
+    @ id - 1
+    windowId: string,
+  ),
+
+  @ id - 5
+  Job(
+    @ id - 1
+    jobId: string,
+  ),
+
+  @ id - 6
+  Schedule(
+    @ id - 1
+    scheduleId: string,
+  ),
+
+  @ id - 7
+  Client(
+    @ id - 1
+    clientId: string,
+  ),
+
+  @ id - 8
+  @ description - Extension point for daemon state domains added later.
+  Other(
+    @ id - 1
+    kind: string,
+
+    @ id - 2
+    id: string,
+  ),
+}
+
+@ description
+| Immutable context captured by the daemon for a turn. The daemon converts this
+| into an ACP embedded resource when supported, or a text content fallback.
+struct AgentTurnContext {
+  @ id - 1
+  capturedAtMs: u53,
+
+  @ id - 2
+  daemonInstanceId: string,
+
+  @ id - 3
+  view: AgentViewContextCapture,
+
+  @ id - 4
+  resources: AgentContextResource[],
+
+  @ id - 5
+  @ description
+  | True when visible entities or snapshot data were omitted to stay within the
+  | daemon's context size limits.
+  truncated: bool,
+}
+
+struct AgentContextResource {
+  @ id - 1
+  role: AgentViewEntityRole,
+
+  @ id - 2
+  @ description
+  | Stable resource URI that the agent can query through its session-scoped
+  | Rieul MCP server. The URI is an identifier, not an authorization token.
+  uri: string,
+
+  @ id - 3
+  name: string,
+
+  @ id - 4
+  description?: string,
+
+  @ id - 5
+  @ description - Small daemon-generated snapshot captured for this turn.
+  snapshot?: AgentContextSnapshot,
+}
+
+@ description
+| Versioned textual snapshot. Domain-specific schemas are selected by mimeType
+| so agent RPC types do not duplicate every daemon RPC domain model.
+struct AgentContextSnapshot {
+  @ id - 1
+  @ description
+  | Versioned media type, for example
+  | application/vnd.rieul.process-detail+json;version=1.
+  mimeType: string,
+
+  @ id - 2
+  text: string,
+}
+
+union AgentTurnState {
+  @ id - 1
+  Queued(),
+
+  @ id - 2
+  Running(),
+
+  @ id - 3
+  AwaitingPermission(),
+
+  @ id - 4
+  Completed(
+    @ id - 1
+    stopReason: AgentStopReason,
+  ),
+
+  @ id - 5
+  Cancelled(),
+
+  @ id - 6
+  Failed(
+    @ id - 1
+    failure: AgentFailure,
+  ),
+}
+
+union AgentStopReason {
+  @ id - 1
+  EndTurn(),
+
+  @ id - 2
+  MaxTokens(),
+
+  @ id - 3
+  Refusal(),
+
+  @ id - 4
+  Cancelled(),
+
+  @ id - 5
+  Other(
+    @ id - 1
+    name: string,
+  ),
+}
+
+struct AgentMessage {
+  @ id - 1
+  messageId: string,
+
+  @ id - 2
+  turnId?: string,
+
+  @ id - 3
+  role: AgentMessageRole,
+
+  @ id - 4
+  content: AgentContent[],
+
+  @ id - 5
+  state: AgentMessageState,
+
+  @ id - 6
+  createdAtMs: u53,
+}
+
+union AgentMessageRole {
+  @ id - 1
+  User(),
+
+  @ id - 2
+  Assistant(),
+
+  @ id - 3
+  Thought(),
+
+  @ id - 4
+  System(),
+
+  @ id - 5
+  Other(
+    @ id - 1
+    name: string,
+  ),
+}
+
+enum AgentMessageState {
+  @ id - 1
+  Streaming,
+
+  @ id - 2
+  Complete,
+}
+
+union AgentContent {
+  @ id - 1
+  Text(
+    @ id - 1
+    text: string,
+  ),
+
+  @ id - 2
+  Image(
+    @ id - 1
+    mimeType: string,
+
+    @ id - 2
+    data: bytes,
+  ),
+
+  @ id - 3
+  ResourceLink(
+    @ id - 1
+    uri: string,
+
+    @ id - 2
+    name?: string,
+
+    @ id - 3
+    mimeType?: string,
+  ),
+
+  @ id - 4
+  EmbeddedText(
+    @ id - 1
+    uri: string,
+
+    @ id - 2
+    mimeType?: string,
+
+    @ id - 3
+    text: string,
+  ),
+}
+
+struct AgentToolCall {
+  @ id - 1
+  toolCallId: string,
+
+  @ id - 2
+  turnId: string,
+
+  @ id - 3
+  title: string,
+
+  @ id - 4
+  kind: AgentToolKind,
+
+  @ id - 5
+  status: AgentToolStatus,
+
+  @ id - 6
+  locations: AgentToolLocation[],
+
+  @ id - 7
+  content: AgentToolCallContent[],
+}
+
+union AgentToolKind {
+  @ id - 1
+  Read(),
+
+  @ id - 2
+  Edit(),
+
+  @ id - 3
+  Delete(),
+
+  @ id - 4
+  Move(),
+
+  @ id - 5
+  Search(),
+
+  @ id - 6
+  Execute(),
+
+  @ id - 7
+  Think(),
+
+  @ id - 8
+  Fetch(),
+
+  @ id - 9
+  Other(
+    @ id - 1
+    name: string,
+  ),
+}
+
+union AgentToolStatus {
+  @ id - 1
+  Pending(),
+
+  @ id - 2
+  Running(),
+
+  @ id - 3
+  Completed(),
+
+  @ id - 4
+  Failed(
+    @ id - 1
+    message?: string,
+  ),
+}
+
+struct AgentToolLocation {
+  @ id - 1
+  path: string,
+
+  @ id - 2
+  line?: u53,
+}
+
+union AgentToolCallContent {
+  @ id - 1
+  Content(
+    @ id - 1
+    content: AgentContent,
+  ),
+
+  @ id - 2
+  Diff(
+    @ id - 1
+    change: AgentFileChange,
+  ),
+
+  @ id - 3
+  @ description
+  | References a terminal owned by the daemon. The terminal's canonical state
+  | is carried separately by AgentTerminalSummary and terminal session events.
+  TerminalRef(
+    @ id - 1
+    terminalId: string,
+  ),
+}
+
+struct AgentFileChange {
+  @ id - 1
+  path: string,
+
+  @ id - 2
+  oldPath?: string,
+
+  @ id - 3
+  kind: AgentFileChangeKind,
+
+  @ id - 4
+  @ description - Unified text patch when the change can be represented as text.
+  patch?: string,
+}
+
+enum AgentFileChangeKind {
+  @ id - 1
+  Add,
+
+  @ id - 2
+  Modify,
+
+  @ id - 3
+  Delete,
+
+  @ id - 4
+  Move,
+}
+
+struct AgentPermissionRequest {
+  @ id - 1
+  permissionRequestId: string,
+
+  @ id - 2
+  turnId: string,
+
+  @ id - 3
+  subject: AgentPermissionSubject,
+
+  @ id - 4
+  options: AgentPermissionOption[],
+
+  @ id - 5
+  state: AgentPermissionState,
+
+  @ id - 6
+  createdAtMs: u53,
+}
+
+union AgentPermissionSubject {
+  @ id - 1
+  ToolCall(
+    @ id - 1
+    toolCallId: string,
+  ),
+
+  @ id - 2
+  Action(
+    @ id - 1
+    title: string,
+
+    @ id - 2
+    detail?: string,
+  ),
+}
+
+struct AgentPermissionOption {
+  @ id - 1
+  optionId: string,
+
+  @ id - 2
+  title: string,
+
+  @ id - 3
+  kind: AgentPermissionOptionKind,
+}
+
+union AgentPermissionOptionKind {
+  @ id - 1
+  AllowOnce(),
+
+  @ id - 2
+  AllowAlways(),
+
+  @ id - 3
+  RejectOnce(),
+
+  @ id - 4
+  RejectAlways(),
+
+  @ id - 5
+  Other(
+    @ id - 1
+    name: string,
+  ),
+}
+
+union AgentPermissionState {
+  @ id - 1
+  Pending(),
+
+  @ id - 2
+  Selected(
+    @ id - 1
+    optionId: string,
+  ),
+
+  @ id - 3
+  Cancelled(),
+
+  @ id - 4
+  Expired(),
+}
+
+union AgentPermissionDecision {
+  @ id - 1
+  Select(
+    @ id - 1
+    optionId: string,
+  ),
+
+  @ id - 2
+  Cancel(),
+}
+
+struct AgentPlan {
+  @ id - 1
+  entries: AgentPlanEntry[],
+}
+
+struct AgentPlanEntry {
+  @ id - 1
+  entryId: string,
+
+  @ id - 2
+  content: string,
+
+  @ id - 3
+  priority: AgentPlanPriority,
+
+  @ id - 4
+  status: AgentPlanStatus,
+}
+
+enum AgentPlanPriority {
+  @ id - 1
+  Low,
+
+  @ id - 2
+  Medium,
+
+  @ id - 3
+  High,
+}
+
+enum AgentPlanStatus {
+  @ id - 1
+  Pending,
+
+  @ id - 2
+  InProgress,
+
+  @ id - 3
+  Completed,
+}
+
+@ description
+| Agent terminal metadata without retained output contents. A terminal with no
+| output has oldestOutputSeq and latestOutputSeq set to 0; otherwise its first
+| output chunk has sequence 1. Environment variables are intentionally not
+| exposed because they may contain secrets.
+struct AgentTerminalSummary {
+  @ id - 1
+  terminalId: string,
+
+  @ id - 2
+  command: string,
+
+  @ id - 3
+  args: string[],
+
+  @ id - 4
+  cwd?: string,
+
+  @ id - 5
+  @ description - Whether earlier output was dropped by its retention limit.
+  truncated: bool,
+
+  @ id - 6
+  @ description - Oldest retained output sequence, or 0 when there is no output.
+  oldestOutputSeq: u53,
+
+  @ id - 7
+  latestOutputSeq: u53,
+
+  @ id - 8
+  exit?: AgentTerminalExit,
+}
+
+union AgentTerminalOutputEvent {
+  @ id - 1
+  OutputChunk(
+    @ id - 1
+    outputSeq: u53,
+
+    @ id - 2
+    text: string,
+  ),
+
+  @ id - 2
+  HistoryGap(
+    @ id - 1
+    requestedAfterSeq: u53,
+
+    @ id - 2
+    oldestAvailableSeq: u53,
+  ),
+}
+
+struct AgentTerminalExit {
+  @ id - 1
+  exitCode?: i53,
+
+  @ id - 2
+  signal?: string,
+}
+
+struct AgentUsage {
+  @ id - 1
+  inputTokens?: u53,
+
+  @ id - 2
+  outputTokens?: u53,
+
+  @ id - 3
+  cachedInputTokens?: u53,
+
+  @ id - 4
+  contextWindowTokens?: u53,
+}
+
+struct AgentConfigOption {
+  @ id - 1
+  configId: string,
+
+  @ id - 2
+  title: string,
+
+  @ id - 3
+  description?: string,
+
+  @ id - 4
+  input: AgentConfigInput,
+}
+
+union AgentConfigInput {
+  @ id - 1
+  Select(
+    @ id - 1
+    currentValue: string,
+
+    @ id - 2
+    options: AgentConfigSelectOption[],
+  ),
+
+  @ id - 2
+  Boolean(
+    @ id - 1
+    currentValue: bool,
+  ),
+
+  @ id - 3
+  Text(
+    @ id - 1
+    currentValue?: string,
+
+    @ id - 2
+    placeholder?: string,
+  ),
+}
+
+struct AgentConfigSelectOption {
+  @ id - 1
+  value: string,
+
+  @ id - 2
+  title: string,
+
+  @ id - 3
+  description?: string,
+}
+
+union AgentConfigValue {
+  @ id - 1
+  String(
+    @ id - 1
+    value: string,
+  ),
+
+  @ id - 2
+  Boolean(
+    @ id - 1
+    value: bool,
+  ),
+}
+
+union AgentSessionTitleUpdate {
+  @ id - 1
+  Set(
+    @ id - 1
+    value: string,
+  ),
+
+  @ id - 2
+  Clear(),
+}
+
+enum AgentTaskWorkspaceDeletePolicy {
+  @ id - 1
+  Keep,
+
+  @ id - 2
+  Delete,
+}
+
+union AgentRpcError {
+  @ id - 0
+  Failed(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 1
+  NotFound(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 2
+  InvalidArgument(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 3
+  Conflict(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 4
+  Unavailable(
+    @ id - 1
+    message: string,
+  ),
+
+  @ id - 5
+  PermissionDenied(
+    @ id - 1
+    message: string,
+  ),
+}
