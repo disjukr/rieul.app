@@ -133,6 +133,26 @@ Protocol proc id registry:
 | 40 | `SubscribeSchedules`             |
 | 41 | `DeleteSchedules`                |
 | 42 | `GetScheduleNextRuns`            |
+| 43 | `RemoveClient`                   |
+| 44 | `KillProcess`                    |
+| 45 | `SubscribeAgentProviders`        |
+| 46 | `CreateAgentProject`             |
+| 47 | `SubscribeAgentProjects`         |
+| 48 | `ListAgentSessions`              |
+| 49 | `SubscribeAgentSessionCatalog`   |
+| 50 | `SubscribeActiveAgentSessions`   |
+| 51 | `CreateAgentSession`             |
+| 52 | `SubscribeAgentSession`          |
+| 53 | `CreateAgentTurn`                |
+| 54 | `CancelAgentTurn`                |
+| 55 | `RespondAgentPermission`         |
+| 56 | `SetAgentSessionConfig`          |
+| 57 | `UpdateAgentSession`             |
+| 58 | `CloseAgentSession`              |
+| 59 | `DeleteAgentSession`             |
+| 60 | `RemoveAgentProject`             |
+| 61 | `ListAgentSessionTurns`          |
+| 62 | `ReadAgentTerminalOutput`        |
 
 `GetDaemonInfo` returns daemon metadata: supported proc ids, daemon version, a
 human-readable OS name for the daemon host, daemon instance lifecycle fields,

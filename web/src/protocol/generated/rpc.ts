@@ -47,6 +47,24 @@ export enum ProcId {
   GetScheduleNextRuns = 42,
   RemoveClient = 43,
   KillProcess = 44,
+  SubscribeAgentProviders = 45,
+  CreateAgentProject = 46,
+  SubscribeAgentProjects = 47,
+  ListAgentSessions = 48,
+  SubscribeAgentSessionCatalog = 49,
+  SubscribeActiveAgentSessions = 50,
+  CreateAgentSession = 51,
+  SubscribeAgentSession = 52,
+  CreateAgentTurn = 53,
+  CancelAgentTurn = 54,
+  RespondAgentPermission = 55,
+  SetAgentSessionConfig = 56,
+  UpdateAgentSession = 57,
+  CloseAgentSession = 58,
+  DeleteAgentSession = 59,
+  RemoveAgentProject = 60,
+  ListAgentSessionTurns = 61,
+  ReadAgentTerminalOutput = 62,
 }
 
 export interface SubscribeWindowDetailReq {
@@ -1088,6 +1106,587 @@ export type GetScheduleNextRunsError =
   | { type: "invalidRruleSet"; message: string }
 ;
 
+export interface CreateAgentProjectReq {
+  rootPath: string;
+  title?: string;
+}
+
+export interface RemoveAgentProjectReq {
+  projectId: string;
+}
+
+export interface ListAgentSessionTurnsReq {
+  sessionId: string;
+  throughSeq: number;
+  cursor?: string;
+  limit: number;
+}
+
+export interface ListAgentSessionTurnsRes {
+  turns: AgentTurnRecord[];
+  nextCursor?: string;
+}
+
+export interface ReadAgentTerminalOutputReq {
+  sessionId: string;
+  terminalId: string;
+  afterSeq?: number;
+  throughSeq: number;
+}
+
+export interface ListAgentSessionsReq {
+  workspace: AgentSessionWorkspaceFilter;
+  archived: AgentSessionArchiveFilter;
+  query?: string;
+  cursor?: string;
+  limit: number;
+}
+
+export interface ListAgentSessionsRes {
+  rows: AgentSessionSummary[];
+  nextCursor?: string;
+  catalogRevision: number;
+}
+
+export interface SubscribeAgentSessionCatalogReq {
+  afterRevision?: number;
+}
+
+export interface CreateAgentSessionReq {
+  providerId: string;
+  workspace: CreateAgentWorkspace;
+  title?: string;
+  clientRequestId: string;
+}
+
+export interface SubscribeAgentSessionReq {
+  sessionId: string;
+}
+
+export interface CreateAgentTurnReq {
+  sessionId: string;
+  content: AgentContent[];
+  clientRequestId: string;
+  view?: AgentViewContextCapture;
+}
+
+export interface CancelAgentTurnReq {
+  sessionId: string;
+  turnId: string;
+}
+
+export interface RespondAgentPermissionReq {
+  sessionId: string;
+  permissionRequestId: string;
+  decision: AgentPermissionDecision;
+}
+
+export interface SetAgentSessionConfigReq {
+  sessionId: string;
+  configId: string;
+  value: AgentConfigValue;
+}
+
+export interface UpdateAgentSessionReq {
+  sessionId: string;
+  title?: AgentSessionTitleUpdate;
+  archived?: boolean;
+}
+
+export interface CloseAgentSessionReq {
+  sessionId: string;
+}
+
+export interface DeleteAgentSessionReq {
+  sessionId: string;
+  taskWorkspacePolicy: AgentTaskWorkspaceDeletePolicy;
+}
+
+export interface AgentProviderInfo {
+  providerId: string;
+  title: string;
+  version?: string;
+  availability: AgentProviderAvailability;
+  authentication: AgentProviderAuthentication;
+  capabilities: AgentProviderCapabilities;
+}
+
+export enum AgentProviderAvailability {
+  Available = 1,
+  Missing = 2,
+  Disabled = 3,
+  Unhealthy = 4,
+}
+
+export type AgentProviderAuthentication =
+  | { type: "notRequired" }
+  | { type: "authenticated" }
+  | { type: "required" }
+  | { type: "failed"; message: string }
+;
+
+export interface AgentProviderCapabilities {
+  loadSession: boolean;
+  resumeSession: boolean;
+  imagePrompt: boolean;
+  audioPrompt: boolean;
+  embeddedContext: boolean;
+  mcp: boolean;
+}
+
+export type AgentProvidersTableEvent =
+  | { type: "snapshot"; rows: AgentProviderInfo[] }
+  | { type: "patch"; removes: string[]; upserts: AgentProviderInfo[] }
+;
+
+export interface AgentProjectInfo {
+  projectId: string;
+  title: string;
+  rootPath: string;
+  availability: AgentProjectAvailability;
+  createdAtMs: number;
+  lastOpenedAtMs?: number;
+}
+
+export enum AgentProjectAvailability {
+  Available = 1,
+  Missing = 2,
+  PermissionDenied = 3,
+}
+
+export type AgentProjectsTableEvent =
+  | { type: "snapshot"; rows: AgentProjectInfo[] }
+  | { type: "patch"; removes: string[]; upserts: AgentProjectInfo[] }
+;
+
+export type AgentSessionWorkspaceFilter =
+  | { type: "any" }
+  | { type: "project"; projectId?: string }
+  | { type: "task"; sourceProjectId?: string }
+;
+
+export enum AgentSessionArchiveFilter {
+  ActiveOnly = 1,
+  ArchivedOnly = 2,
+  All = 3,
+}
+
+export type CreateAgentWorkspace =
+  | { type: "project"; projectId: string }
+  | { type: "task"; source: AgentTaskWorkspaceSource }
+;
+
+export type AgentTaskWorkspaceSource =
+  | { type: "empty" }
+  | { type: "project"; projectId: string; strategy: AgentTaskWorkspaceStrategy }
+;
+
+export type AgentTaskWorkspaceStrategy =
+  | { type: "gitWorktree"; baseRef?: string }
+  | { type: "copy"; includeUntracked: boolean }
+;
+
+export type AgentWorkspaceBinding =
+  | { type: "project"; projectId: string }
+  | { type: "task"; taskWorkspaceId: string; sourceProjectId?: string; state: AgentTaskWorkspaceState }
+;
+
+export enum AgentTaskWorkspaceState {
+  Provisioning = 1,
+  Ready = 2,
+  Missing = 3,
+  CleanupPending = 4,
+}
+
+export interface AgentSessionSummary {
+  sessionId: string;
+  providerId: string;
+  title?: string;
+  cwd: string;
+  workspace: AgentWorkspaceBinding;
+  attachment: AgentAttachmentState;
+  turnState: AgentSessionTurnState;
+  recoverability: AgentSessionRecoverability;
+  archived: boolean;
+  createdAtMs: number;
+  updatedAtMs: number;
+  lastMessagePreview?: string;
+}
+
+export enum AgentAttachmentState {
+  Dormant = 1,
+  Starting = 2,
+  Attached = 3,
+  Stopping = 4,
+  Failed = 5,
+}
+
+export enum AgentSessionTurnState {
+  Idle = 1,
+  Queued = 2,
+  Running = 3,
+  AwaitingPermission = 4,
+}
+
+export enum AgentSessionRecoverability {
+  Resumable = 1,
+  Loadable = 2,
+  ProcessLocal = 3,
+  Unavailable = 4,
+  Unknown = 5,
+}
+
+export interface AgentSessionInfo {
+  summary: AgentSessionSummary;
+  providerSessionId?: string;
+  attachedAtMs?: number;
+  detachedAtMs?: number;
+  failure?: AgentFailure;
+}
+
+export interface AgentFailure {
+  message: string;
+  code?: string;
+  retryable: boolean;
+}
+
+export type AgentSessionCatalogEvent =
+  | { type: "changed"; revision: number; sessionIds: string[] }
+  | { type: "removed"; revision: number; sessionIds: string[] }
+  | { type: "resetRequired"; revision: number }
+;
+
+export type ActiveAgentSessionsTableEvent =
+  | { type: "snapshot"; rows: AgentSessionSummary[] }
+  | { type: "patch"; removes: string[]; upserts: AgentSessionSummary[] }
+;
+
+export interface AgentSessionLiveSnapshot {
+  session: AgentSessionInfo;
+  activeTurn?: AgentTurnRecord;
+  usage?: AgentUsage;
+  configOptions: AgentConfigOption[];
+  latestSeq: number;
+}
+
+export type AgentSessionEvent =
+  | { type: "snapshot"; snapshot: AgentSessionLiveSnapshot }
+  | { type: "sessionUpsert"; seq: number; session: AgentSessionInfo }
+  | { type: "turnUpsert"; seq: number; turn: AgentTurnInfo }
+  | { type: "messageUpsert"; seq: number; message: AgentMessage }
+  | { type: "messageContentAppend"; seq: number; messageId: string; content: AgentContent }
+  | { type: "toolCallUpsert"; seq: number; toolCall: AgentToolCall }
+  | { type: "toolCallContentAppend"; seq: number; toolCallId: string; content: AgentToolCallContent }
+  | { type: "permissionUpsert"; seq: number; permission: AgentPermissionRequest }
+  | { type: "planReplace"; seq: number; plan?: AgentPlan }
+  | { type: "terminalUpsert"; seq: number; terminal: AgentTerminalSummary }
+  | { type: "terminalOutputAppend"; seq: number; terminalId: string; outputSeq: number; text: string }
+  | { type: "usageUpdate"; seq: number; usage: AgentUsage }
+  | { type: "configOptionsReplace"; seq: number; options: AgentConfigOption[] }
+;
+
+export interface AgentTurnInfo {
+  turnId: string;
+  sessionId: string;
+  state: AgentTurnState;
+  createdAtMs: number;
+  startedAtMs?: number;
+  finishedAtMs?: number;
+  context?: AgentTurnContext;
+}
+
+export interface AgentTurnRecord {
+  turn: AgentTurnInfo;
+  messages: AgentMessage[];
+  toolCalls: AgentToolCall[];
+  permissions: AgentPermissionRequest[];
+  plan?: AgentPlan;
+  terminals: AgentTerminalSummary[];
+}
+
+export interface AgentViewContextCapture {
+  surfaceId: string;
+  entities: AgentViewEntity[];
+}
+
+export interface AgentViewEntity {
+  role: AgentViewEntityRole;
+  entity: AgentDaemonEntityRef;
+}
+
+export enum AgentViewEntityRole {
+  Primary = 1,
+  Selected = 2,
+  Visible = 3,
+  Related = 4,
+}
+
+export type AgentDaemonEntityRef =
+  | { type: "fileSystemPath"; path: string }
+  | { type: "terminalSession"; terminalSessionId: string }
+  | { type: "process"; pid: number }
+  | { type: "window"; windowId: string }
+  | { type: "job"; jobId: string }
+  | { type: "schedule"; scheduleId: string }
+  | { type: "client"; clientId: string }
+  | { type: "other"; kind: string; id: string }
+;
+
+export interface AgentTurnContext {
+  capturedAtMs: number;
+  daemonInstanceId: string;
+  view: AgentViewContextCapture;
+  resources: AgentContextResource[];
+  truncated: boolean;
+}
+
+export interface AgentContextResource {
+  role: AgentViewEntityRole;
+  uri: string;
+  name: string;
+  description?: string;
+  snapshot?: AgentContextSnapshot;
+}
+
+export interface AgentContextSnapshot {
+  mimeType: string;
+  text: string;
+}
+
+export type AgentTurnState =
+  | { type: "queued" }
+  | { type: "running" }
+  | { type: "awaitingPermission" }
+  | { type: "completed"; stopReason: AgentStopReason }
+  | { type: "cancelled" }
+  | { type: "failed"; failure: AgentFailure }
+;
+
+export type AgentStopReason =
+  | { type: "endTurn" }
+  | { type: "maxTokens" }
+  | { type: "refusal" }
+  | { type: "cancelled" }
+  | { type: "other"; name: string }
+;
+
+export interface AgentMessage {
+  messageId: string;
+  turnId?: string;
+  role: AgentMessageRole;
+  content: AgentContent[];
+  state: AgentMessageState;
+  createdAtMs: number;
+}
+
+export type AgentMessageRole =
+  | { type: "user" }
+  | { type: "assistant" }
+  | { type: "thought" }
+  | { type: "system" }
+  | { type: "other"; name: string }
+;
+
+export enum AgentMessageState {
+  Streaming = 1,
+  Complete = 2,
+}
+
+export type AgentContent =
+  | { type: "text"; text: string }
+  | { type: "image"; mimeType: string; data: Uint8Array }
+  | { type: "resourceLink"; uri: string; name?: string; mimeType?: string }
+  | { type: "embeddedText"; uri: string; mimeType?: string; text: string }
+;
+
+export interface AgentToolCall {
+  toolCallId: string;
+  turnId: string;
+  title: string;
+  kind: AgentToolKind;
+  status: AgentToolStatus;
+  locations: AgentToolLocation[];
+  content: AgentToolCallContent[];
+}
+
+export type AgentToolKind =
+  | { type: "read" }
+  | { type: "edit" }
+  | { type: "delete" }
+  | { type: "move" }
+  | { type: "search" }
+  | { type: "execute" }
+  | { type: "think" }
+  | { type: "fetch" }
+  | { type: "other"; name: string }
+;
+
+export type AgentToolStatus =
+  | { type: "pending" }
+  | { type: "running" }
+  | { type: "completed" }
+  | { type: "failed"; message?: string }
+;
+
+export interface AgentToolLocation {
+  path: string;
+  line?: number;
+}
+
+export type AgentToolCallContent =
+  | { type: "content"; content: AgentContent }
+  | { type: "diff"; change: AgentFileChange }
+  | { type: "terminalRef"; terminalId: string }
+;
+
+export interface AgentFileChange {
+  path: string;
+  oldPath?: string;
+  kind: AgentFileChangeKind;
+  patch?: string;
+}
+
+export enum AgentFileChangeKind {
+  Add = 1,
+  Modify = 2,
+  Delete = 3,
+  Move = 4,
+}
+
+export interface AgentPermissionRequest {
+  permissionRequestId: string;
+  turnId: string;
+  subject: AgentPermissionSubject;
+  options: AgentPermissionOption[];
+  state: AgentPermissionState;
+  createdAtMs: number;
+}
+
+export type AgentPermissionSubject =
+  | { type: "toolCall"; toolCallId: string }
+  | { type: "action"; title: string; detail?: string }
+;
+
+export interface AgentPermissionOption {
+  optionId: string;
+  title: string;
+  kind: AgentPermissionOptionKind;
+}
+
+export type AgentPermissionOptionKind =
+  | { type: "allowOnce" }
+  | { type: "allowAlways" }
+  | { type: "rejectOnce" }
+  | { type: "rejectAlways" }
+  | { type: "other"; name: string }
+;
+
+export type AgentPermissionState =
+  | { type: "pending" }
+  | { type: "selected"; optionId: string }
+  | { type: "cancelled" }
+  | { type: "expired" }
+;
+
+export type AgentPermissionDecision =
+  | { type: "select"; optionId: string }
+  | { type: "cancel" }
+;
+
+export interface AgentPlan {
+  entries: AgentPlanEntry[];
+}
+
+export interface AgentPlanEntry {
+  entryId: string;
+  content: string;
+  priority: AgentPlanPriority;
+  status: AgentPlanStatus;
+}
+
+export enum AgentPlanPriority {
+  Low = 1,
+  Medium = 2,
+  High = 3,
+}
+
+export enum AgentPlanStatus {
+  Pending = 1,
+  InProgress = 2,
+  Completed = 3,
+}
+
+export interface AgentTerminalSummary {
+  terminalId: string;
+  command: string;
+  args: string[];
+  cwd?: string;
+  truncated: boolean;
+  oldestOutputSeq: number;
+  latestOutputSeq: number;
+  exit?: AgentTerminalExit;
+}
+
+export type AgentTerminalOutputEvent =
+  | { type: "outputChunk"; outputSeq: number; text: string }
+  | { type: "historyGap"; requestedAfterSeq: number; oldestAvailableSeq: number }
+;
+
+export interface AgentTerminalExit {
+  exitCode?: number;
+  signal?: string;
+}
+
+export interface AgentUsage {
+  inputTokens?: number;
+  outputTokens?: number;
+  cachedInputTokens?: number;
+  contextWindowTokens?: number;
+}
+
+export interface AgentConfigOption {
+  configId: string;
+  title: string;
+  description?: string;
+  input: AgentConfigInput;
+}
+
+export type AgentConfigInput =
+  | { type: "select"; currentValue: string; options: AgentConfigSelectOption[] }
+  | { type: "boolean"; currentValue: boolean }
+  | { type: "text"; currentValue?: string; placeholder?: string }
+;
+
+export interface AgentConfigSelectOption {
+  value: string;
+  title: string;
+  description?: string;
+}
+
+export type AgentConfigValue =
+  | { type: "string"; value: string }
+  | { type: "boolean"; value: boolean }
+;
+
+export type AgentSessionTitleUpdate =
+  | { type: "set"; value: string }
+  | { type: "clear" }
+;
+
+export enum AgentTaskWorkspaceDeletePolicy {
+  Keep = 1,
+  Delete = 2,
+}
+
+export type AgentRpcError =
+  | { type: "failed"; message: string }
+  | { type: "notFound"; message: string }
+  | { type: "invalidArgument"; message: string }
+  | { type: "conflict"; message: string }
+  | { type: "unavailable"; message: string }
+  | { type: "permissionDenied"; message: string }
+;
+
 export interface ProcCodec<Request, Response, ErrorPayload> {
   id: ProcId;
   name: string;
@@ -1628,6 +2227,222 @@ export const killProcessProc: ProcCodec<KillProcessReq, undefined, KillProcessEr
   decodeError: decodeKillProcessErrorValue,
 };
 
+export const subscribeAgentProvidersProc: ProcCodec<undefined, AgentProvidersTableEvent, AgentRpcError> = {
+  id: ProcId.SubscribeAgentProviders,
+  name: "SubscribeAgentProviders",
+  stream: "server",
+  requestType: "void",
+  responseType: "AgentProvidersTableEvent",
+  errorType: "AgentRpcError",
+  encodeRequest: encodeVoidValue,
+  decodeResponse: decodeAgentProvidersTableEventValue,
+  decodeError: decodeAgentRpcErrorValue,
+};
+
+export const createAgentProjectProc: ProcCodec<CreateAgentProjectReq, AgentProjectInfo, AgentRpcError> = {
+  id: ProcId.CreateAgentProject,
+  name: "CreateAgentProject",
+  stream: "unary",
+  requestType: "CreateAgentProjectReq",
+  responseType: "AgentProjectInfo",
+  errorType: "AgentRpcError",
+  encodeRequest: encodeCreateAgentProjectReqValue,
+  decodeResponse: decodeAgentProjectInfoValue,
+  decodeError: decodeAgentRpcErrorValue,
+};
+
+export const subscribeAgentProjectsProc: ProcCodec<undefined, AgentProjectsTableEvent, AgentRpcError> = {
+  id: ProcId.SubscribeAgentProjects,
+  name: "SubscribeAgentProjects",
+  stream: "server",
+  requestType: "void",
+  responseType: "AgentProjectsTableEvent",
+  errorType: "AgentRpcError",
+  encodeRequest: encodeVoidValue,
+  decodeResponse: decodeAgentProjectsTableEventValue,
+  decodeError: decodeAgentRpcErrorValue,
+};
+
+export const listAgentSessionsProc: ProcCodec<ListAgentSessionsReq, ListAgentSessionsRes, AgentRpcError> = {
+  id: ProcId.ListAgentSessions,
+  name: "ListAgentSessions",
+  stream: "unary",
+  requestType: "ListAgentSessionsReq",
+  responseType: "ListAgentSessionsRes",
+  errorType: "AgentRpcError",
+  encodeRequest: encodeListAgentSessionsReqValue,
+  decodeResponse: decodeListAgentSessionsResValue,
+  decodeError: decodeAgentRpcErrorValue,
+};
+
+export const subscribeAgentSessionCatalogProc: ProcCodec<SubscribeAgentSessionCatalogReq, AgentSessionCatalogEvent, AgentRpcError> = {
+  id: ProcId.SubscribeAgentSessionCatalog,
+  name: "SubscribeAgentSessionCatalog",
+  stream: "server",
+  requestType: "SubscribeAgentSessionCatalogReq",
+  responseType: "AgentSessionCatalogEvent",
+  errorType: "AgentRpcError",
+  encodeRequest: encodeSubscribeAgentSessionCatalogReqValue,
+  decodeResponse: decodeAgentSessionCatalogEventValue,
+  decodeError: decodeAgentRpcErrorValue,
+};
+
+export const subscribeActiveAgentSessionsProc: ProcCodec<undefined, ActiveAgentSessionsTableEvent, AgentRpcError> = {
+  id: ProcId.SubscribeActiveAgentSessions,
+  name: "SubscribeActiveAgentSessions",
+  stream: "server",
+  requestType: "void",
+  responseType: "ActiveAgentSessionsTableEvent",
+  errorType: "AgentRpcError",
+  encodeRequest: encodeVoidValue,
+  decodeResponse: decodeActiveAgentSessionsTableEventValue,
+  decodeError: decodeAgentRpcErrorValue,
+};
+
+export const createAgentSessionProc: ProcCodec<CreateAgentSessionReq, AgentSessionInfo, AgentRpcError> = {
+  id: ProcId.CreateAgentSession,
+  name: "CreateAgentSession",
+  stream: "unary",
+  requestType: "CreateAgentSessionReq",
+  responseType: "AgentSessionInfo",
+  errorType: "AgentRpcError",
+  encodeRequest: encodeCreateAgentSessionReqValue,
+  decodeResponse: decodeAgentSessionInfoValue,
+  decodeError: decodeAgentRpcErrorValue,
+};
+
+export const subscribeAgentSessionProc: ProcCodec<SubscribeAgentSessionReq, AgentSessionEvent, AgentRpcError> = {
+  id: ProcId.SubscribeAgentSession,
+  name: "SubscribeAgentSession",
+  stream: "server",
+  requestType: "SubscribeAgentSessionReq",
+  responseType: "AgentSessionEvent",
+  errorType: "AgentRpcError",
+  encodeRequest: encodeSubscribeAgentSessionReqValue,
+  decodeResponse: decodeAgentSessionEventValue,
+  decodeError: decodeAgentRpcErrorValue,
+};
+
+export const createAgentTurnProc: ProcCodec<CreateAgentTurnReq, AgentTurnInfo, AgentRpcError> = {
+  id: ProcId.CreateAgentTurn,
+  name: "CreateAgentTurn",
+  stream: "unary",
+  requestType: "CreateAgentTurnReq",
+  responseType: "AgentTurnInfo",
+  errorType: "AgentRpcError",
+  encodeRequest: encodeCreateAgentTurnReqValue,
+  decodeResponse: decodeAgentTurnInfoValue,
+  decodeError: decodeAgentRpcErrorValue,
+};
+
+export const cancelAgentTurnProc: ProcCodec<CancelAgentTurnReq, undefined, AgentRpcError> = {
+  id: ProcId.CancelAgentTurn,
+  name: "CancelAgentTurn",
+  stream: "unary",
+  requestType: "CancelAgentTurnReq",
+  responseType: "void",
+  errorType: "AgentRpcError",
+  encodeRequest: encodeCancelAgentTurnReqValue,
+  decodeResponse: decodeVoidValue,
+  decodeError: decodeAgentRpcErrorValue,
+};
+
+export const respondAgentPermissionProc: ProcCodec<RespondAgentPermissionReq, undefined, AgentRpcError> = {
+  id: ProcId.RespondAgentPermission,
+  name: "RespondAgentPermission",
+  stream: "unary",
+  requestType: "RespondAgentPermissionReq",
+  responseType: "void",
+  errorType: "AgentRpcError",
+  encodeRequest: encodeRespondAgentPermissionReqValue,
+  decodeResponse: decodeVoidValue,
+  decodeError: decodeAgentRpcErrorValue,
+};
+
+export const setAgentSessionConfigProc: ProcCodec<SetAgentSessionConfigReq, undefined, AgentRpcError> = {
+  id: ProcId.SetAgentSessionConfig,
+  name: "SetAgentSessionConfig",
+  stream: "unary",
+  requestType: "SetAgentSessionConfigReq",
+  responseType: "void",
+  errorType: "AgentRpcError",
+  encodeRequest: encodeSetAgentSessionConfigReqValue,
+  decodeResponse: decodeVoidValue,
+  decodeError: decodeAgentRpcErrorValue,
+};
+
+export const updateAgentSessionProc: ProcCodec<UpdateAgentSessionReq, AgentSessionInfo, AgentRpcError> = {
+  id: ProcId.UpdateAgentSession,
+  name: "UpdateAgentSession",
+  stream: "unary",
+  requestType: "UpdateAgentSessionReq",
+  responseType: "AgentSessionInfo",
+  errorType: "AgentRpcError",
+  encodeRequest: encodeUpdateAgentSessionReqValue,
+  decodeResponse: decodeAgentSessionInfoValue,
+  decodeError: decodeAgentRpcErrorValue,
+};
+
+export const closeAgentSessionProc: ProcCodec<CloseAgentSessionReq, undefined, AgentRpcError> = {
+  id: ProcId.CloseAgentSession,
+  name: "CloseAgentSession",
+  stream: "unary",
+  requestType: "CloseAgentSessionReq",
+  responseType: "void",
+  errorType: "AgentRpcError",
+  encodeRequest: encodeCloseAgentSessionReqValue,
+  decodeResponse: decodeVoidValue,
+  decodeError: decodeAgentRpcErrorValue,
+};
+
+export const deleteAgentSessionProc: ProcCodec<DeleteAgentSessionReq, undefined, AgentRpcError> = {
+  id: ProcId.DeleteAgentSession,
+  name: "DeleteAgentSession",
+  stream: "unary",
+  requestType: "DeleteAgentSessionReq",
+  responseType: "void",
+  errorType: "AgentRpcError",
+  encodeRequest: encodeDeleteAgentSessionReqValue,
+  decodeResponse: decodeVoidValue,
+  decodeError: decodeAgentRpcErrorValue,
+};
+
+export const removeAgentProjectProc: ProcCodec<RemoveAgentProjectReq, undefined, AgentRpcError> = {
+  id: ProcId.RemoveAgentProject,
+  name: "RemoveAgentProject",
+  stream: "unary",
+  requestType: "RemoveAgentProjectReq",
+  responseType: "void",
+  errorType: "AgentRpcError",
+  encodeRequest: encodeRemoveAgentProjectReqValue,
+  decodeResponse: decodeVoidValue,
+  decodeError: decodeAgentRpcErrorValue,
+};
+
+export const listAgentSessionTurnsProc: ProcCodec<ListAgentSessionTurnsReq, ListAgentSessionTurnsRes, AgentRpcError> = {
+  id: ProcId.ListAgentSessionTurns,
+  name: "ListAgentSessionTurns",
+  stream: "unary",
+  requestType: "ListAgentSessionTurnsReq",
+  responseType: "ListAgentSessionTurnsRes",
+  errorType: "AgentRpcError",
+  encodeRequest: encodeListAgentSessionTurnsReqValue,
+  decodeResponse: decodeListAgentSessionTurnsResValue,
+  decodeError: decodeAgentRpcErrorValue,
+};
+
+export const readAgentTerminalOutputProc: ProcCodec<ReadAgentTerminalOutputReq, AgentTerminalOutputEvent, AgentRpcError> = {
+  id: ProcId.ReadAgentTerminalOutput,
+  name: "ReadAgentTerminalOutput",
+  stream: "server",
+  requestType: "ReadAgentTerminalOutputReq",
+  responseType: "AgentTerminalOutputEvent",
+  errorType: "AgentRpcError",
+  encodeRequest: encodeReadAgentTerminalOutputReqValue,
+  decodeResponse: decodeAgentTerminalOutputEventValue,
+  decodeError: decodeAgentRpcErrorValue,
+};
+
 export const procs = {
   [ProcId.GetDaemonInfo]: getDaemonInfoProc,
   [ProcId.StartPairing]: startPairingProc,
@@ -1673,6 +2488,24 @@ export const procs = {
   [ProcId.GetScheduleNextRuns]: getScheduleNextRunsProc,
   [ProcId.RemoveClient]: removeClientProc,
   [ProcId.KillProcess]: killProcessProc,
+  [ProcId.SubscribeAgentProviders]: subscribeAgentProvidersProc,
+  [ProcId.CreateAgentProject]: createAgentProjectProc,
+  [ProcId.SubscribeAgentProjects]: subscribeAgentProjectsProc,
+  [ProcId.ListAgentSessions]: listAgentSessionsProc,
+  [ProcId.SubscribeAgentSessionCatalog]: subscribeAgentSessionCatalogProc,
+  [ProcId.SubscribeActiveAgentSessions]: subscribeActiveAgentSessionsProc,
+  [ProcId.CreateAgentSession]: createAgentSessionProc,
+  [ProcId.SubscribeAgentSession]: subscribeAgentSessionProc,
+  [ProcId.CreateAgentTurn]: createAgentTurnProc,
+  [ProcId.CancelAgentTurn]: cancelAgentTurnProc,
+  [ProcId.RespondAgentPermission]: respondAgentPermissionProc,
+  [ProcId.SetAgentSessionConfig]: setAgentSessionConfigProc,
+  [ProcId.UpdateAgentSession]: updateAgentSessionProc,
+  [ProcId.CloseAgentSession]: closeAgentSessionProc,
+  [ProcId.DeleteAgentSession]: deleteAgentSessionProc,
+  [ProcId.RemoveAgentProject]: removeAgentProjectProc,
+  [ProcId.ListAgentSessionTurns]: listAgentSessionTurnsProc,
+  [ProcId.ReadAgentTerminalOutput]: readAgentTerminalOutputProc,
 } as const;
 
 export function encodeSubscribeWindowDetailReqValue(value: SubscribeWindowDetailReq): CborValue {
@@ -6560,6 +7393,2384 @@ export function decodeGetScheduleNextRunsErrorValue(value: CborValue): GetSchedu
   throw new Error(`unknown GetScheduleNextRunsError variant ${variantId}`);
 }
 
+export function encodeCreateAgentProjectReqValue(value: CreateAgentProjectReq): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, text(required(value.rootPath, "CreateAgentProjectReq.rootPath")));
+  if (value.title !== undefined) fields.set(2, text(value.title));
+  return fields;
+}
+
+export function decodeCreateAgentProjectReqValue(value: CborValue): CreateAgentProjectReq {
+  const fields = expectMap(value);
+  return {
+    rootPath: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+    title: optionalField(fields.get(2), (value) => textValue(value)),
+  };
+}
+
+export function encodeRemoveAgentProjectReqValue(value: RemoveAgentProjectReq): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, text(required(value.projectId, "RemoveAgentProjectReq.projectId")));
+  return fields;
+}
+
+export function decodeRemoveAgentProjectReqValue(value: CborValue): RemoveAgentProjectReq {
+  const fields = expectMap(value);
+  return {
+    projectId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+  };
+}
+
+export function encodeListAgentSessionTurnsReqValue(value: ListAgentSessionTurnsReq): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, text(required(value.sessionId, "ListAgentSessionTurnsReq.sessionId")));
+  fields.set(2, u53(required(value.throughSeq, "ListAgentSessionTurnsReq.throughSeq")));
+  if (value.cursor !== undefined) fields.set(3, text(value.cursor));
+  fields.set(4, u53(required(value.limit, "ListAgentSessionTurnsReq.limit")));
+  return fields;
+}
+
+export function decodeListAgentSessionTurnsReqValue(value: CborValue): ListAgentSessionTurnsReq {
+  const fields = expectMap(value);
+  return {
+    sessionId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+    throughSeq: fieldOrDefault(fields.get(2), (value) => integer(value), () => 0),
+    cursor: optionalField(fields.get(3), (value) => textValue(value)),
+    limit: fieldOrDefault(fields.get(4), (value) => integer(value), () => 0),
+  };
+}
+
+export function encodeListAgentSessionTurnsResValue(value: ListAgentSessionTurnsRes): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, required(value.turns, "ListAgentSessionTurnsRes.turns").map((item) => encodeAgentTurnRecordValue(item)));
+  if (value.nextCursor !== undefined) fields.set(2, text(value.nextCursor));
+  return fields;
+}
+
+export function decodeListAgentSessionTurnsResValue(value: CborValue): ListAgentSessionTurnsRes {
+  const fields = expectMap(value);
+  return {
+    turns: fieldOrDefault(fields.get(1), (value) => array(value).map((item) => decodeAgentTurnRecordValue(item)), () => []),
+    nextCursor: optionalField(fields.get(2), (value) => textValue(value)),
+  };
+}
+
+export function encodeReadAgentTerminalOutputReqValue(value: ReadAgentTerminalOutputReq): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, text(required(value.sessionId, "ReadAgentTerminalOutputReq.sessionId")));
+  fields.set(2, text(required(value.terminalId, "ReadAgentTerminalOutputReq.terminalId")));
+  if (value.afterSeq !== undefined) fields.set(3, u53(value.afterSeq));
+  fields.set(4, u53(required(value.throughSeq, "ReadAgentTerminalOutputReq.throughSeq")));
+  return fields;
+}
+
+export function decodeReadAgentTerminalOutputReqValue(value: CborValue): ReadAgentTerminalOutputReq {
+  const fields = expectMap(value);
+  return {
+    sessionId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+    terminalId: fieldOrDefault(fields.get(2), (value) => textValue(value), () => ""),
+    afterSeq: optionalField(fields.get(3), (value) => integer(value)),
+    throughSeq: fieldOrDefault(fields.get(4), (value) => integer(value), () => 0),
+  };
+}
+
+export function encodeListAgentSessionsReqValue(value: ListAgentSessionsReq): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, encodeAgentSessionWorkspaceFilterValue(required(value.workspace, "ListAgentSessionsReq.workspace")));
+  fields.set(2, encodeAgentSessionArchiveFilterValue(required(value.archived, "ListAgentSessionsReq.archived")));
+  if (value.query !== undefined) fields.set(3, text(value.query));
+  if (value.cursor !== undefined) fields.set(4, text(value.cursor));
+  fields.set(5, u53(required(value.limit, "ListAgentSessionsReq.limit")));
+  return fields;
+}
+
+export function decodeListAgentSessionsReqValue(value: CborValue): ListAgentSessionsReq {
+  const fields = expectMap(value);
+  return {
+    workspace: fieldOrDefault(fields.get(1), (value) => decodeAgentSessionWorkspaceFilterValue(value), () => defaultAgentSessionWorkspaceFilter()),
+    archived: fieldOrDefault(fields.get(2), (value) => decodeAgentSessionArchiveFilterValue(value), () => AgentSessionArchiveFilter.ActiveOnly),
+    query: optionalField(fields.get(3), (value) => textValue(value)),
+    cursor: optionalField(fields.get(4), (value) => textValue(value)),
+    limit: fieldOrDefault(fields.get(5), (value) => integer(value), () => 0),
+  };
+}
+
+export function encodeListAgentSessionsResValue(value: ListAgentSessionsRes): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, required(value.rows, "ListAgentSessionsRes.rows").map((item) => encodeAgentSessionSummaryValue(item)));
+  if (value.nextCursor !== undefined) fields.set(2, text(value.nextCursor));
+  fields.set(3, u53(required(value.catalogRevision, "ListAgentSessionsRes.catalogRevision")));
+  return fields;
+}
+
+export function decodeListAgentSessionsResValue(value: CborValue): ListAgentSessionsRes {
+  const fields = expectMap(value);
+  return {
+    rows: fieldOrDefault(fields.get(1), (value) => array(value).map((item) => decodeAgentSessionSummaryValue(item)), () => []),
+    nextCursor: optionalField(fields.get(2), (value) => textValue(value)),
+    catalogRevision: fieldOrDefault(fields.get(3), (value) => integer(value), () => 0),
+  };
+}
+
+export function encodeSubscribeAgentSessionCatalogReqValue(value: SubscribeAgentSessionCatalogReq): CborValue {
+  const fields = new Map<number, CborValue>();
+  if (value.afterRevision !== undefined) fields.set(1, u53(value.afterRevision));
+  return fields;
+}
+
+export function decodeSubscribeAgentSessionCatalogReqValue(value: CborValue): SubscribeAgentSessionCatalogReq {
+  const fields = expectMap(value);
+  return {
+    afterRevision: optionalField(fields.get(1), (value) => integer(value)),
+  };
+}
+
+export function encodeCreateAgentSessionReqValue(value: CreateAgentSessionReq): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, text(required(value.providerId, "CreateAgentSessionReq.providerId")));
+  fields.set(2, encodeCreateAgentWorkspaceValue(required(value.workspace, "CreateAgentSessionReq.workspace")));
+  if (value.title !== undefined) fields.set(3, text(value.title));
+  fields.set(4, text(required(value.clientRequestId, "CreateAgentSessionReq.clientRequestId")));
+  return fields;
+}
+
+export function decodeCreateAgentSessionReqValue(value: CborValue): CreateAgentSessionReq {
+  const fields = expectMap(value);
+  return {
+    providerId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+    workspace: fieldOrDefault(fields.get(2), (value) => decodeCreateAgentWorkspaceValue(value), () => defaultCreateAgentWorkspace()),
+    title: optionalField(fields.get(3), (value) => textValue(value)),
+    clientRequestId: fieldOrDefault(fields.get(4), (value) => textValue(value), () => ""),
+  };
+}
+
+export function encodeSubscribeAgentSessionReqValue(value: SubscribeAgentSessionReq): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, text(required(value.sessionId, "SubscribeAgentSessionReq.sessionId")));
+  return fields;
+}
+
+export function decodeSubscribeAgentSessionReqValue(value: CborValue): SubscribeAgentSessionReq {
+  const fields = expectMap(value);
+  return {
+    sessionId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+  };
+}
+
+export function encodeCreateAgentTurnReqValue(value: CreateAgentTurnReq): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, text(required(value.sessionId, "CreateAgentTurnReq.sessionId")));
+  fields.set(2, required(value.content, "CreateAgentTurnReq.content").map((item) => encodeAgentContentValue(item)));
+  fields.set(3, text(required(value.clientRequestId, "CreateAgentTurnReq.clientRequestId")));
+  if (value.view !== undefined) fields.set(4, encodeAgentViewContextCaptureValue(value.view));
+  return fields;
+}
+
+export function decodeCreateAgentTurnReqValue(value: CborValue): CreateAgentTurnReq {
+  const fields = expectMap(value);
+  return {
+    sessionId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+    content: fieldOrDefault(fields.get(2), (value) => array(value).map((item) => decodeAgentContentValue(item)), () => []),
+    clientRequestId: fieldOrDefault(fields.get(3), (value) => textValue(value), () => ""),
+    view: optionalField(fields.get(4), (value) => decodeAgentViewContextCaptureValue(value)),
+  };
+}
+
+export function encodeCancelAgentTurnReqValue(value: CancelAgentTurnReq): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, text(required(value.sessionId, "CancelAgentTurnReq.sessionId")));
+  fields.set(2, text(required(value.turnId, "CancelAgentTurnReq.turnId")));
+  return fields;
+}
+
+export function decodeCancelAgentTurnReqValue(value: CborValue): CancelAgentTurnReq {
+  const fields = expectMap(value);
+  return {
+    sessionId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+    turnId: fieldOrDefault(fields.get(2), (value) => textValue(value), () => ""),
+  };
+}
+
+export function encodeRespondAgentPermissionReqValue(value: RespondAgentPermissionReq): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, text(required(value.sessionId, "RespondAgentPermissionReq.sessionId")));
+  fields.set(2, text(required(value.permissionRequestId, "RespondAgentPermissionReq.permissionRequestId")));
+  fields.set(3, encodeAgentPermissionDecisionValue(required(value.decision, "RespondAgentPermissionReq.decision")));
+  return fields;
+}
+
+export function decodeRespondAgentPermissionReqValue(value: CborValue): RespondAgentPermissionReq {
+  const fields = expectMap(value);
+  return {
+    sessionId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+    permissionRequestId: fieldOrDefault(fields.get(2), (value) => textValue(value), () => ""),
+    decision: fieldOrDefault(fields.get(3), (value) => decodeAgentPermissionDecisionValue(value), () => defaultAgentPermissionDecision()),
+  };
+}
+
+export function encodeSetAgentSessionConfigReqValue(value: SetAgentSessionConfigReq): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, text(required(value.sessionId, "SetAgentSessionConfigReq.sessionId")));
+  fields.set(2, text(required(value.configId, "SetAgentSessionConfigReq.configId")));
+  fields.set(3, encodeAgentConfigValueValue(required(value.value, "SetAgentSessionConfigReq.value")));
+  return fields;
+}
+
+export function decodeSetAgentSessionConfigReqValue(value: CborValue): SetAgentSessionConfigReq {
+  const fields = expectMap(value);
+  return {
+    sessionId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+    configId: fieldOrDefault(fields.get(2), (value) => textValue(value), () => ""),
+    value: fieldOrDefault(fields.get(3), (value) => decodeAgentConfigValueValue(value), () => defaultAgentConfigValue()),
+  };
+}
+
+export function encodeUpdateAgentSessionReqValue(value: UpdateAgentSessionReq): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, text(required(value.sessionId, "UpdateAgentSessionReq.sessionId")));
+  if (value.title !== undefined) fields.set(2, encodeAgentSessionTitleUpdateValue(value.title));
+  if (value.archived !== undefined) fields.set(3, bool(value.archived));
+  return fields;
+}
+
+export function decodeUpdateAgentSessionReqValue(value: CborValue): UpdateAgentSessionReq {
+  const fields = expectMap(value);
+  return {
+    sessionId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+    title: optionalField(fields.get(2), (value) => decodeAgentSessionTitleUpdateValue(value)),
+    archived: optionalField(fields.get(3), (value) => boolValue(value)),
+  };
+}
+
+export function encodeCloseAgentSessionReqValue(value: CloseAgentSessionReq): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, text(required(value.sessionId, "CloseAgentSessionReq.sessionId")));
+  return fields;
+}
+
+export function decodeCloseAgentSessionReqValue(value: CborValue): CloseAgentSessionReq {
+  const fields = expectMap(value);
+  return {
+    sessionId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+  };
+}
+
+export function encodeDeleteAgentSessionReqValue(value: DeleteAgentSessionReq): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, text(required(value.sessionId, "DeleteAgentSessionReq.sessionId")));
+  fields.set(2, encodeAgentTaskWorkspaceDeletePolicyValue(required(value.taskWorkspacePolicy, "DeleteAgentSessionReq.taskWorkspacePolicy")));
+  return fields;
+}
+
+export function decodeDeleteAgentSessionReqValue(value: CborValue): DeleteAgentSessionReq {
+  const fields = expectMap(value);
+  return {
+    sessionId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+    taskWorkspacePolicy: fieldOrDefault(fields.get(2), (value) => decodeAgentTaskWorkspaceDeletePolicyValue(value), () => AgentTaskWorkspaceDeletePolicy.Keep),
+  };
+}
+
+export function encodeAgentProviderInfoValue(value: AgentProviderInfo): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, text(required(value.providerId, "AgentProviderInfo.providerId")));
+  fields.set(2, text(required(value.title, "AgentProviderInfo.title")));
+  if (value.version !== undefined) fields.set(3, text(value.version));
+  fields.set(4, encodeAgentProviderAvailabilityValue(required(value.availability, "AgentProviderInfo.availability")));
+  fields.set(5, encodeAgentProviderAuthenticationValue(required(value.authentication, "AgentProviderInfo.authentication")));
+  fields.set(6, encodeAgentProviderCapabilitiesValue(required(value.capabilities, "AgentProviderInfo.capabilities")));
+  return fields;
+}
+
+export function decodeAgentProviderInfoValue(value: CborValue): AgentProviderInfo {
+  const fields = expectMap(value);
+  return {
+    providerId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+    title: fieldOrDefault(fields.get(2), (value) => textValue(value), () => ""),
+    version: optionalField(fields.get(3), (value) => textValue(value)),
+    availability: fieldOrDefault(fields.get(4), (value) => decodeAgentProviderAvailabilityValue(value), () => AgentProviderAvailability.Available),
+    authentication: fieldOrDefault(fields.get(5), (value) => decodeAgentProviderAuthenticationValue(value), () => defaultAgentProviderAuthentication()),
+    capabilities: fieldOrDefault(fields.get(6), (value) => decodeAgentProviderCapabilitiesValue(value), () => defaultAgentProviderCapabilities()),
+  };
+}
+
+export function encodeAgentProviderAvailabilityValue(value: AgentProviderAvailability): CborValue {
+  return integer(value);
+}
+
+export function decodeAgentProviderAvailabilityValue(value: CborValue): AgentProviderAvailability {
+  const id = integer(value);
+  if (![1, 2, 3, 4].includes(id)) throw new Error(`unknown AgentProviderAvailability variant ${id}`);
+  return id as AgentProviderAvailability;
+}
+
+export function encodeAgentProviderAuthenticationValue(value: AgentProviderAuthentication): CborValue {
+  switch (value.type) {
+    case "notRequired": {
+      const fields = new Map<number, CborValue>();
+      return [1, fields];
+    }
+    case "authenticated": {
+      const fields = new Map<number, CborValue>();
+      return [2, fields];
+    }
+    case "required": {
+      const fields = new Map<number, CborValue>();
+      return [3, fields];
+    }
+    case "failed": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.message, "AgentProviderAuthentication.Failed.message")));
+      return [4, fields];
+    }
+  }
+}
+
+export function decodeAgentProviderAuthenticationValue(value: CborValue): AgentProviderAuthentication {
+  const [variantId, fields] = expectUnion(value);
+  switch (variantId) {
+    case 1:
+      return {
+        type: "notRequired",
+      };
+    case 2:
+      return {
+        type: "authenticated",
+      };
+    case 3:
+      return {
+        type: "required",
+      };
+    case 4:
+      return {
+        type: "failed",
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+  }
+  throw new Error(`unknown AgentProviderAuthentication variant ${variantId}`);
+}
+
+export function encodeAgentProviderCapabilitiesValue(value: AgentProviderCapabilities): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, bool(required(value.loadSession, "AgentProviderCapabilities.loadSession")));
+  fields.set(2, bool(required(value.resumeSession, "AgentProviderCapabilities.resumeSession")));
+  fields.set(3, bool(required(value.imagePrompt, "AgentProviderCapabilities.imagePrompt")));
+  fields.set(4, bool(required(value.audioPrompt, "AgentProviderCapabilities.audioPrompt")));
+  fields.set(5, bool(required(value.embeddedContext, "AgentProviderCapabilities.embeddedContext")));
+  fields.set(6, bool(required(value.mcp, "AgentProviderCapabilities.mcp")));
+  return fields;
+}
+
+export function decodeAgentProviderCapabilitiesValue(value: CborValue): AgentProviderCapabilities {
+  const fields = expectMap(value);
+  return {
+    loadSession: fieldOrDefault(fields.get(1), (value) => boolValue(value), () => false),
+    resumeSession: fieldOrDefault(fields.get(2), (value) => boolValue(value), () => false),
+    imagePrompt: fieldOrDefault(fields.get(3), (value) => boolValue(value), () => false),
+    audioPrompt: fieldOrDefault(fields.get(4), (value) => boolValue(value), () => false),
+    embeddedContext: fieldOrDefault(fields.get(5), (value) => boolValue(value), () => false),
+    mcp: fieldOrDefault(fields.get(6), (value) => boolValue(value), () => false),
+  };
+}
+
+export function encodeAgentProvidersTableEventValue(value: AgentProvidersTableEvent): CborValue {
+  switch (value.type) {
+    case "snapshot": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, required(value.rows, "AgentProvidersTableEvent.Snapshot.rows").map((item) => encodeAgentProviderInfoValue(item)));
+      return [1, fields];
+    }
+    case "patch": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, required(value.removes, "AgentProvidersTableEvent.Patch.removes").map((item) => text(item)));
+      fields.set(2, required(value.upserts, "AgentProvidersTableEvent.Patch.upserts").map((item) => encodeAgentProviderInfoValue(item)));
+      return [2, fields];
+    }
+  }
+}
+
+export function decodeAgentProvidersTableEventValue(value: CborValue): AgentProvidersTableEvent {
+  const [variantId, fields] = expectUnion(value);
+  switch (variantId) {
+    case 1:
+      return {
+        type: "snapshot",
+        rows: fieldOrDefault(fields.get(1), (value) => array(value).map((item) => decodeAgentProviderInfoValue(item)), () => []),
+      };
+    case 2:
+      return {
+        type: "patch",
+        removes: fieldOrDefault(fields.get(1), (value) => array(value).map((item) => textValue(item)), () => []),
+        upserts: fieldOrDefault(fields.get(2), (value) => array(value).map((item) => decodeAgentProviderInfoValue(item)), () => []),
+      };
+  }
+  throw new Error(`unknown AgentProvidersTableEvent variant ${variantId}`);
+}
+
+export function encodeAgentProjectInfoValue(value: AgentProjectInfo): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, text(required(value.projectId, "AgentProjectInfo.projectId")));
+  fields.set(2, text(required(value.title, "AgentProjectInfo.title")));
+  fields.set(3, text(required(value.rootPath, "AgentProjectInfo.rootPath")));
+  fields.set(4, encodeAgentProjectAvailabilityValue(required(value.availability, "AgentProjectInfo.availability")));
+  fields.set(5, u53(required(value.createdAtMs, "AgentProjectInfo.createdAtMs")));
+  if (value.lastOpenedAtMs !== undefined) fields.set(6, u53(value.lastOpenedAtMs));
+  return fields;
+}
+
+export function decodeAgentProjectInfoValue(value: CborValue): AgentProjectInfo {
+  const fields = expectMap(value);
+  return {
+    projectId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+    title: fieldOrDefault(fields.get(2), (value) => textValue(value), () => ""),
+    rootPath: fieldOrDefault(fields.get(3), (value) => textValue(value), () => ""),
+    availability: fieldOrDefault(fields.get(4), (value) => decodeAgentProjectAvailabilityValue(value), () => AgentProjectAvailability.Available),
+    createdAtMs: fieldOrDefault(fields.get(5), (value) => integer(value), () => 0),
+    lastOpenedAtMs: optionalField(fields.get(6), (value) => integer(value)),
+  };
+}
+
+export function encodeAgentProjectAvailabilityValue(value: AgentProjectAvailability): CborValue {
+  return integer(value);
+}
+
+export function decodeAgentProjectAvailabilityValue(value: CborValue): AgentProjectAvailability {
+  const id = integer(value);
+  if (![1, 2, 3].includes(id)) throw new Error(`unknown AgentProjectAvailability variant ${id}`);
+  return id as AgentProjectAvailability;
+}
+
+export function encodeAgentProjectsTableEventValue(value: AgentProjectsTableEvent): CborValue {
+  switch (value.type) {
+    case "snapshot": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, required(value.rows, "AgentProjectsTableEvent.Snapshot.rows").map((item) => encodeAgentProjectInfoValue(item)));
+      return [1, fields];
+    }
+    case "patch": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, required(value.removes, "AgentProjectsTableEvent.Patch.removes").map((item) => text(item)));
+      fields.set(2, required(value.upserts, "AgentProjectsTableEvent.Patch.upserts").map((item) => encodeAgentProjectInfoValue(item)));
+      return [2, fields];
+    }
+  }
+}
+
+export function decodeAgentProjectsTableEventValue(value: CborValue): AgentProjectsTableEvent {
+  const [variantId, fields] = expectUnion(value);
+  switch (variantId) {
+    case 1:
+      return {
+        type: "snapshot",
+        rows: fieldOrDefault(fields.get(1), (value) => array(value).map((item) => decodeAgentProjectInfoValue(item)), () => []),
+      };
+    case 2:
+      return {
+        type: "patch",
+        removes: fieldOrDefault(fields.get(1), (value) => array(value).map((item) => textValue(item)), () => []),
+        upserts: fieldOrDefault(fields.get(2), (value) => array(value).map((item) => decodeAgentProjectInfoValue(item)), () => []),
+      };
+  }
+  throw new Error(`unknown AgentProjectsTableEvent variant ${variantId}`);
+}
+
+export function encodeAgentSessionWorkspaceFilterValue(value: AgentSessionWorkspaceFilter): CborValue {
+  switch (value.type) {
+    case "any": {
+      const fields = new Map<number, CborValue>();
+      return [1, fields];
+    }
+    case "project": {
+      const fields = new Map<number, CborValue>();
+      if (value.projectId !== undefined) fields.set(1, text(value.projectId));
+      return [2, fields];
+    }
+    case "task": {
+      const fields = new Map<number, CborValue>();
+      if (value.sourceProjectId !== undefined) fields.set(1, text(value.sourceProjectId));
+      return [3, fields];
+    }
+  }
+}
+
+export function decodeAgentSessionWorkspaceFilterValue(value: CborValue): AgentSessionWorkspaceFilter {
+  const [variantId, fields] = expectUnion(value);
+  switch (variantId) {
+    case 1:
+      return {
+        type: "any",
+      };
+    case 2:
+      return {
+        type: "project",
+        projectId: optionalField(fields.get(1), (value) => textValue(value)),
+      };
+    case 3:
+      return {
+        type: "task",
+        sourceProjectId: optionalField(fields.get(1), (value) => textValue(value)),
+      };
+  }
+  throw new Error(`unknown AgentSessionWorkspaceFilter variant ${variantId}`);
+}
+
+export function encodeAgentSessionArchiveFilterValue(value: AgentSessionArchiveFilter): CborValue {
+  return integer(value);
+}
+
+export function decodeAgentSessionArchiveFilterValue(value: CborValue): AgentSessionArchiveFilter {
+  const id = integer(value);
+  if (![1, 2, 3].includes(id)) throw new Error(`unknown AgentSessionArchiveFilter variant ${id}`);
+  return id as AgentSessionArchiveFilter;
+}
+
+export function encodeCreateAgentWorkspaceValue(value: CreateAgentWorkspace): CborValue {
+  switch (value.type) {
+    case "project": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.projectId, "CreateAgentWorkspace.Project.projectId")));
+      return [1, fields];
+    }
+    case "task": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, encodeAgentTaskWorkspaceSourceValue(required(value.source, "CreateAgentWorkspace.Task.source")));
+      return [2, fields];
+    }
+  }
+}
+
+export function decodeCreateAgentWorkspaceValue(value: CborValue): CreateAgentWorkspace {
+  const [variantId, fields] = expectUnion(value);
+  switch (variantId) {
+    case 1:
+      return {
+        type: "project",
+        projectId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+    case 2:
+      return {
+        type: "task",
+        source: fieldOrDefault(fields.get(1), (value) => decodeAgentTaskWorkspaceSourceValue(value), () => defaultAgentTaskWorkspaceSource()),
+      };
+  }
+  throw new Error(`unknown CreateAgentWorkspace variant ${variantId}`);
+}
+
+export function encodeAgentTaskWorkspaceSourceValue(value: AgentTaskWorkspaceSource): CborValue {
+  switch (value.type) {
+    case "empty": {
+      const fields = new Map<number, CborValue>();
+      return [1, fields];
+    }
+    case "project": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.projectId, "AgentTaskWorkspaceSource.Project.projectId")));
+      fields.set(2, encodeAgentTaskWorkspaceStrategyValue(required(value.strategy, "AgentTaskWorkspaceSource.Project.strategy")));
+      return [2, fields];
+    }
+  }
+}
+
+export function decodeAgentTaskWorkspaceSourceValue(value: CborValue): AgentTaskWorkspaceSource {
+  const [variantId, fields] = expectUnion(value);
+  switch (variantId) {
+    case 1:
+      return {
+        type: "empty",
+      };
+    case 2:
+      return {
+        type: "project",
+        projectId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+        strategy: fieldOrDefault(fields.get(2), (value) => decodeAgentTaskWorkspaceStrategyValue(value), () => defaultAgentTaskWorkspaceStrategy()),
+      };
+  }
+  throw new Error(`unknown AgentTaskWorkspaceSource variant ${variantId}`);
+}
+
+export function encodeAgentTaskWorkspaceStrategyValue(value: AgentTaskWorkspaceStrategy): CborValue {
+  switch (value.type) {
+    case "gitWorktree": {
+      const fields = new Map<number, CborValue>();
+      if (value.baseRef !== undefined) fields.set(1, text(value.baseRef));
+      return [1, fields];
+    }
+    case "copy": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, bool(required(value.includeUntracked, "AgentTaskWorkspaceStrategy.Copy.includeUntracked")));
+      return [2, fields];
+    }
+  }
+}
+
+export function decodeAgentTaskWorkspaceStrategyValue(value: CborValue): AgentTaskWorkspaceStrategy {
+  const [variantId, fields] = expectUnion(value);
+  switch (variantId) {
+    case 1:
+      return {
+        type: "gitWorktree",
+        baseRef: optionalField(fields.get(1), (value) => textValue(value)),
+      };
+    case 2:
+      return {
+        type: "copy",
+        includeUntracked: fieldOrDefault(fields.get(1), (value) => boolValue(value), () => false),
+      };
+  }
+  throw new Error(`unknown AgentTaskWorkspaceStrategy variant ${variantId}`);
+}
+
+export function encodeAgentWorkspaceBindingValue(value: AgentWorkspaceBinding): CborValue {
+  switch (value.type) {
+    case "project": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.projectId, "AgentWorkspaceBinding.Project.projectId")));
+      return [1, fields];
+    }
+    case "task": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.taskWorkspaceId, "AgentWorkspaceBinding.Task.taskWorkspaceId")));
+      if (value.sourceProjectId !== undefined) fields.set(2, text(value.sourceProjectId));
+      fields.set(3, encodeAgentTaskWorkspaceStateValue(required(value.state, "AgentWorkspaceBinding.Task.state")));
+      return [2, fields];
+    }
+  }
+}
+
+export function decodeAgentWorkspaceBindingValue(value: CborValue): AgentWorkspaceBinding {
+  const [variantId, fields] = expectUnion(value);
+  switch (variantId) {
+    case 1:
+      return {
+        type: "project",
+        projectId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+    case 2:
+      return {
+        type: "task",
+        taskWorkspaceId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+        sourceProjectId: optionalField(fields.get(2), (value) => textValue(value)),
+        state: fieldOrDefault(fields.get(3), (value) => decodeAgentTaskWorkspaceStateValue(value), () => AgentTaskWorkspaceState.Provisioning),
+      };
+  }
+  throw new Error(`unknown AgentWorkspaceBinding variant ${variantId}`);
+}
+
+export function encodeAgentTaskWorkspaceStateValue(value: AgentTaskWorkspaceState): CborValue {
+  return integer(value);
+}
+
+export function decodeAgentTaskWorkspaceStateValue(value: CborValue): AgentTaskWorkspaceState {
+  const id = integer(value);
+  if (![1, 2, 3, 4].includes(id)) throw new Error(`unknown AgentTaskWorkspaceState variant ${id}`);
+  return id as AgentTaskWorkspaceState;
+}
+
+export function encodeAgentSessionSummaryValue(value: AgentSessionSummary): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, text(required(value.sessionId, "AgentSessionSummary.sessionId")));
+  fields.set(2, text(required(value.providerId, "AgentSessionSummary.providerId")));
+  if (value.title !== undefined) fields.set(3, text(value.title));
+  fields.set(4, text(required(value.cwd, "AgentSessionSummary.cwd")));
+  fields.set(5, encodeAgentWorkspaceBindingValue(required(value.workspace, "AgentSessionSummary.workspace")));
+  fields.set(6, encodeAgentAttachmentStateValue(required(value.attachment, "AgentSessionSummary.attachment")));
+  fields.set(7, encodeAgentSessionTurnStateValue(required(value.turnState, "AgentSessionSummary.turnState")));
+  fields.set(8, encodeAgentSessionRecoverabilityValue(required(value.recoverability, "AgentSessionSummary.recoverability")));
+  fields.set(9, bool(required(value.archived, "AgentSessionSummary.archived")));
+  fields.set(10, u53(required(value.createdAtMs, "AgentSessionSummary.createdAtMs")));
+  fields.set(11, u53(required(value.updatedAtMs, "AgentSessionSummary.updatedAtMs")));
+  if (value.lastMessagePreview !== undefined) fields.set(12, text(value.lastMessagePreview));
+  return fields;
+}
+
+export function decodeAgentSessionSummaryValue(value: CborValue): AgentSessionSummary {
+  const fields = expectMap(value);
+  return {
+    sessionId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+    providerId: fieldOrDefault(fields.get(2), (value) => textValue(value), () => ""),
+    title: optionalField(fields.get(3), (value) => textValue(value)),
+    cwd: fieldOrDefault(fields.get(4), (value) => textValue(value), () => ""),
+    workspace: fieldOrDefault(fields.get(5), (value) => decodeAgentWorkspaceBindingValue(value), () => defaultAgentWorkspaceBinding()),
+    attachment: fieldOrDefault(fields.get(6), (value) => decodeAgentAttachmentStateValue(value), () => AgentAttachmentState.Dormant),
+    turnState: fieldOrDefault(fields.get(7), (value) => decodeAgentSessionTurnStateValue(value), () => AgentSessionTurnState.Idle),
+    recoverability: fieldOrDefault(fields.get(8), (value) => decodeAgentSessionRecoverabilityValue(value), () => AgentSessionRecoverability.Resumable),
+    archived: fieldOrDefault(fields.get(9), (value) => boolValue(value), () => false),
+    createdAtMs: fieldOrDefault(fields.get(10), (value) => integer(value), () => 0),
+    updatedAtMs: fieldOrDefault(fields.get(11), (value) => integer(value), () => 0),
+    lastMessagePreview: optionalField(fields.get(12), (value) => textValue(value)),
+  };
+}
+
+export function encodeAgentAttachmentStateValue(value: AgentAttachmentState): CborValue {
+  return integer(value);
+}
+
+export function decodeAgentAttachmentStateValue(value: CborValue): AgentAttachmentState {
+  const id = integer(value);
+  if (![1, 2, 3, 4, 5].includes(id)) throw new Error(`unknown AgentAttachmentState variant ${id}`);
+  return id as AgentAttachmentState;
+}
+
+export function encodeAgentSessionTurnStateValue(value: AgentSessionTurnState): CborValue {
+  return integer(value);
+}
+
+export function decodeAgentSessionTurnStateValue(value: CborValue): AgentSessionTurnState {
+  const id = integer(value);
+  if (![1, 2, 3, 4].includes(id)) throw new Error(`unknown AgentSessionTurnState variant ${id}`);
+  return id as AgentSessionTurnState;
+}
+
+export function encodeAgentSessionRecoverabilityValue(value: AgentSessionRecoverability): CborValue {
+  return integer(value);
+}
+
+export function decodeAgentSessionRecoverabilityValue(value: CborValue): AgentSessionRecoverability {
+  const id = integer(value);
+  if (![1, 2, 3, 4, 5].includes(id)) throw new Error(`unknown AgentSessionRecoverability variant ${id}`);
+  return id as AgentSessionRecoverability;
+}
+
+export function encodeAgentSessionInfoValue(value: AgentSessionInfo): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, encodeAgentSessionSummaryValue(required(value.summary, "AgentSessionInfo.summary")));
+  if (value.providerSessionId !== undefined) fields.set(2, text(value.providerSessionId));
+  if (value.attachedAtMs !== undefined) fields.set(3, u53(value.attachedAtMs));
+  if (value.detachedAtMs !== undefined) fields.set(4, u53(value.detachedAtMs));
+  if (value.failure !== undefined) fields.set(5, encodeAgentFailureValue(value.failure));
+  return fields;
+}
+
+export function decodeAgentSessionInfoValue(value: CborValue): AgentSessionInfo {
+  const fields = expectMap(value);
+  return {
+    summary: fieldOrDefault(fields.get(1), (value) => decodeAgentSessionSummaryValue(value), () => defaultAgentSessionSummary()),
+    providerSessionId: optionalField(fields.get(2), (value) => textValue(value)),
+    attachedAtMs: optionalField(fields.get(3), (value) => integer(value)),
+    detachedAtMs: optionalField(fields.get(4), (value) => integer(value)),
+    failure: optionalField(fields.get(5), (value) => decodeAgentFailureValue(value)),
+  };
+}
+
+export function encodeAgentFailureValue(value: AgentFailure): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, text(required(value.message, "AgentFailure.message")));
+  if (value.code !== undefined) fields.set(2, text(value.code));
+  fields.set(3, bool(required(value.retryable, "AgentFailure.retryable")));
+  return fields;
+}
+
+export function decodeAgentFailureValue(value: CborValue): AgentFailure {
+  const fields = expectMap(value);
+  return {
+    message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+    code: optionalField(fields.get(2), (value) => textValue(value)),
+    retryable: fieldOrDefault(fields.get(3), (value) => boolValue(value), () => false),
+  };
+}
+
+export function encodeAgentSessionCatalogEventValue(value: AgentSessionCatalogEvent): CborValue {
+  switch (value.type) {
+    case "changed": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, u53(required(value.revision, "AgentSessionCatalogEvent.Changed.revision")));
+      fields.set(2, required(value.sessionIds, "AgentSessionCatalogEvent.Changed.sessionIds").map((item) => text(item)));
+      return [1, fields];
+    }
+    case "removed": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, u53(required(value.revision, "AgentSessionCatalogEvent.Removed.revision")));
+      fields.set(2, required(value.sessionIds, "AgentSessionCatalogEvent.Removed.sessionIds").map((item) => text(item)));
+      return [2, fields];
+    }
+    case "resetRequired": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, u53(required(value.revision, "AgentSessionCatalogEvent.ResetRequired.revision")));
+      return [3, fields];
+    }
+  }
+}
+
+export function decodeAgentSessionCatalogEventValue(value: CborValue): AgentSessionCatalogEvent {
+  const [variantId, fields] = expectUnion(value);
+  switch (variantId) {
+    case 1:
+      return {
+        type: "changed",
+        revision: fieldOrDefault(fields.get(1), (value) => integer(value), () => 0),
+        sessionIds: fieldOrDefault(fields.get(2), (value) => array(value).map((item) => textValue(item)), () => []),
+      };
+    case 2:
+      return {
+        type: "removed",
+        revision: fieldOrDefault(fields.get(1), (value) => integer(value), () => 0),
+        sessionIds: fieldOrDefault(fields.get(2), (value) => array(value).map((item) => textValue(item)), () => []),
+      };
+    case 3:
+      return {
+        type: "resetRequired",
+        revision: fieldOrDefault(fields.get(1), (value) => integer(value), () => 0),
+      };
+  }
+  throw new Error(`unknown AgentSessionCatalogEvent variant ${variantId}`);
+}
+
+export function encodeActiveAgentSessionsTableEventValue(value: ActiveAgentSessionsTableEvent): CborValue {
+  switch (value.type) {
+    case "snapshot": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, required(value.rows, "ActiveAgentSessionsTableEvent.Snapshot.rows").map((item) => encodeAgentSessionSummaryValue(item)));
+      return [1, fields];
+    }
+    case "patch": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, required(value.removes, "ActiveAgentSessionsTableEvent.Patch.removes").map((item) => text(item)));
+      fields.set(2, required(value.upserts, "ActiveAgentSessionsTableEvent.Patch.upserts").map((item) => encodeAgentSessionSummaryValue(item)));
+      return [2, fields];
+    }
+  }
+}
+
+export function decodeActiveAgentSessionsTableEventValue(value: CborValue): ActiveAgentSessionsTableEvent {
+  const [variantId, fields] = expectUnion(value);
+  switch (variantId) {
+    case 1:
+      return {
+        type: "snapshot",
+        rows: fieldOrDefault(fields.get(1), (value) => array(value).map((item) => decodeAgentSessionSummaryValue(item)), () => []),
+      };
+    case 2:
+      return {
+        type: "patch",
+        removes: fieldOrDefault(fields.get(1), (value) => array(value).map((item) => textValue(item)), () => []),
+        upserts: fieldOrDefault(fields.get(2), (value) => array(value).map((item) => decodeAgentSessionSummaryValue(item)), () => []),
+      };
+  }
+  throw new Error(`unknown ActiveAgentSessionsTableEvent variant ${variantId}`);
+}
+
+export function encodeAgentSessionLiveSnapshotValue(value: AgentSessionLiveSnapshot): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, encodeAgentSessionInfoValue(required(value.session, "AgentSessionLiveSnapshot.session")));
+  if (value.activeTurn !== undefined) fields.set(2, encodeAgentTurnRecordValue(value.activeTurn));
+  if (value.usage !== undefined) fields.set(3, encodeAgentUsageValue(value.usage));
+  fields.set(4, required(value.configOptions, "AgentSessionLiveSnapshot.configOptions").map((item) => encodeAgentConfigOptionValue(item)));
+  fields.set(5, u53(required(value.latestSeq, "AgentSessionLiveSnapshot.latestSeq")));
+  return fields;
+}
+
+export function decodeAgentSessionLiveSnapshotValue(value: CborValue): AgentSessionLiveSnapshot {
+  const fields = expectMap(value);
+  return {
+    session: fieldOrDefault(fields.get(1), (value) => decodeAgentSessionInfoValue(value), () => defaultAgentSessionInfo()),
+    activeTurn: optionalField(fields.get(2), (value) => decodeAgentTurnRecordValue(value)),
+    usage: optionalField(fields.get(3), (value) => decodeAgentUsageValue(value)),
+    configOptions: fieldOrDefault(fields.get(4), (value) => array(value).map((item) => decodeAgentConfigOptionValue(item)), () => []),
+    latestSeq: fieldOrDefault(fields.get(5), (value) => integer(value), () => 0),
+  };
+}
+
+export function encodeAgentSessionEventValue(value: AgentSessionEvent): CborValue {
+  switch (value.type) {
+    case "snapshot": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, encodeAgentSessionLiveSnapshotValue(required(value.snapshot, "AgentSessionEvent.Snapshot.snapshot")));
+      return [1, fields];
+    }
+    case "sessionUpsert": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, u53(required(value.seq, "AgentSessionEvent.SessionUpsert.seq")));
+      fields.set(2, encodeAgentSessionInfoValue(required(value.session, "AgentSessionEvent.SessionUpsert.session")));
+      return [2, fields];
+    }
+    case "turnUpsert": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, u53(required(value.seq, "AgentSessionEvent.TurnUpsert.seq")));
+      fields.set(2, encodeAgentTurnInfoValue(required(value.turn, "AgentSessionEvent.TurnUpsert.turn")));
+      return [3, fields];
+    }
+    case "messageUpsert": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, u53(required(value.seq, "AgentSessionEvent.MessageUpsert.seq")));
+      fields.set(2, encodeAgentMessageValue(required(value.message, "AgentSessionEvent.MessageUpsert.message")));
+      return [4, fields];
+    }
+    case "messageContentAppend": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, u53(required(value.seq, "AgentSessionEvent.MessageContentAppend.seq")));
+      fields.set(2, text(required(value.messageId, "AgentSessionEvent.MessageContentAppend.messageId")));
+      fields.set(3, encodeAgentContentValue(required(value.content, "AgentSessionEvent.MessageContentAppend.content")));
+      return [5, fields];
+    }
+    case "toolCallUpsert": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, u53(required(value.seq, "AgentSessionEvent.ToolCallUpsert.seq")));
+      fields.set(2, encodeAgentToolCallValue(required(value.toolCall, "AgentSessionEvent.ToolCallUpsert.toolCall")));
+      return [6, fields];
+    }
+    case "toolCallContentAppend": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, u53(required(value.seq, "AgentSessionEvent.ToolCallContentAppend.seq")));
+      fields.set(2, text(required(value.toolCallId, "AgentSessionEvent.ToolCallContentAppend.toolCallId")));
+      fields.set(3, encodeAgentToolCallContentValue(required(value.content, "AgentSessionEvent.ToolCallContentAppend.content")));
+      return [7, fields];
+    }
+    case "permissionUpsert": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, u53(required(value.seq, "AgentSessionEvent.PermissionUpsert.seq")));
+      fields.set(2, encodeAgentPermissionRequestValue(required(value.permission, "AgentSessionEvent.PermissionUpsert.permission")));
+      return [8, fields];
+    }
+    case "planReplace": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, u53(required(value.seq, "AgentSessionEvent.PlanReplace.seq")));
+      if (value.plan !== undefined) fields.set(2, encodeAgentPlanValue(value.plan));
+      return [9, fields];
+    }
+    case "terminalUpsert": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, u53(required(value.seq, "AgentSessionEvent.TerminalUpsert.seq")));
+      fields.set(2, encodeAgentTerminalSummaryValue(required(value.terminal, "AgentSessionEvent.TerminalUpsert.terminal")));
+      return [10, fields];
+    }
+    case "terminalOutputAppend": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, u53(required(value.seq, "AgentSessionEvent.TerminalOutputAppend.seq")));
+      fields.set(2, text(required(value.terminalId, "AgentSessionEvent.TerminalOutputAppend.terminalId")));
+      fields.set(3, u53(required(value.outputSeq, "AgentSessionEvent.TerminalOutputAppend.outputSeq")));
+      fields.set(4, text(required(value.text, "AgentSessionEvent.TerminalOutputAppend.text")));
+      return [11, fields];
+    }
+    case "usageUpdate": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, u53(required(value.seq, "AgentSessionEvent.UsageUpdate.seq")));
+      fields.set(2, encodeAgentUsageValue(required(value.usage, "AgentSessionEvent.UsageUpdate.usage")));
+      return [12, fields];
+    }
+    case "configOptionsReplace": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, u53(required(value.seq, "AgentSessionEvent.ConfigOptionsReplace.seq")));
+      fields.set(2, required(value.options, "AgentSessionEvent.ConfigOptionsReplace.options").map((item) => encodeAgentConfigOptionValue(item)));
+      return [13, fields];
+    }
+  }
+}
+
+export function decodeAgentSessionEventValue(value: CborValue): AgentSessionEvent {
+  const [variantId, fields] = expectUnion(value);
+  switch (variantId) {
+    case 1:
+      return {
+        type: "snapshot",
+        snapshot: fieldOrDefault(fields.get(1), (value) => decodeAgentSessionLiveSnapshotValue(value), () => defaultAgentSessionLiveSnapshot()),
+      };
+    case 2:
+      return {
+        type: "sessionUpsert",
+        seq: fieldOrDefault(fields.get(1), (value) => integer(value), () => 0),
+        session: fieldOrDefault(fields.get(2), (value) => decodeAgentSessionInfoValue(value), () => defaultAgentSessionInfo()),
+      };
+    case 3:
+      return {
+        type: "turnUpsert",
+        seq: fieldOrDefault(fields.get(1), (value) => integer(value), () => 0),
+        turn: fieldOrDefault(fields.get(2), (value) => decodeAgentTurnInfoValue(value), () => defaultAgentTurnInfo()),
+      };
+    case 4:
+      return {
+        type: "messageUpsert",
+        seq: fieldOrDefault(fields.get(1), (value) => integer(value), () => 0),
+        message: fieldOrDefault(fields.get(2), (value) => decodeAgentMessageValue(value), () => defaultAgentMessage()),
+      };
+    case 5:
+      return {
+        type: "messageContentAppend",
+        seq: fieldOrDefault(fields.get(1), (value) => integer(value), () => 0),
+        messageId: fieldOrDefault(fields.get(2), (value) => textValue(value), () => ""),
+        content: fieldOrDefault(fields.get(3), (value) => decodeAgentContentValue(value), () => defaultAgentContent()),
+      };
+    case 6:
+      return {
+        type: "toolCallUpsert",
+        seq: fieldOrDefault(fields.get(1), (value) => integer(value), () => 0),
+        toolCall: fieldOrDefault(fields.get(2), (value) => decodeAgentToolCallValue(value), () => defaultAgentToolCall()),
+      };
+    case 7:
+      return {
+        type: "toolCallContentAppend",
+        seq: fieldOrDefault(fields.get(1), (value) => integer(value), () => 0),
+        toolCallId: fieldOrDefault(fields.get(2), (value) => textValue(value), () => ""),
+        content: fieldOrDefault(fields.get(3), (value) => decodeAgentToolCallContentValue(value), () => defaultAgentToolCallContent()),
+      };
+    case 8:
+      return {
+        type: "permissionUpsert",
+        seq: fieldOrDefault(fields.get(1), (value) => integer(value), () => 0),
+        permission: fieldOrDefault(fields.get(2), (value) => decodeAgentPermissionRequestValue(value), () => defaultAgentPermissionRequest()),
+      };
+    case 9:
+      return {
+        type: "planReplace",
+        seq: fieldOrDefault(fields.get(1), (value) => integer(value), () => 0),
+        plan: optionalField(fields.get(2), (value) => decodeAgentPlanValue(value)),
+      };
+    case 10:
+      return {
+        type: "terminalUpsert",
+        seq: fieldOrDefault(fields.get(1), (value) => integer(value), () => 0),
+        terminal: fieldOrDefault(fields.get(2), (value) => decodeAgentTerminalSummaryValue(value), () => defaultAgentTerminalSummary()),
+      };
+    case 11:
+      return {
+        type: "terminalOutputAppend",
+        seq: fieldOrDefault(fields.get(1), (value) => integer(value), () => 0),
+        terminalId: fieldOrDefault(fields.get(2), (value) => textValue(value), () => ""),
+        outputSeq: fieldOrDefault(fields.get(3), (value) => integer(value), () => 0),
+        text: fieldOrDefault(fields.get(4), (value) => textValue(value), () => ""),
+      };
+    case 12:
+      return {
+        type: "usageUpdate",
+        seq: fieldOrDefault(fields.get(1), (value) => integer(value), () => 0),
+        usage: fieldOrDefault(fields.get(2), (value) => decodeAgentUsageValue(value), () => defaultAgentUsage()),
+      };
+    case 13:
+      return {
+        type: "configOptionsReplace",
+        seq: fieldOrDefault(fields.get(1), (value) => integer(value), () => 0),
+        options: fieldOrDefault(fields.get(2), (value) => array(value).map((item) => decodeAgentConfigOptionValue(item)), () => []),
+      };
+  }
+  throw new Error(`unknown AgentSessionEvent variant ${variantId}`);
+}
+
+export function encodeAgentTurnInfoValue(value: AgentTurnInfo): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, text(required(value.turnId, "AgentTurnInfo.turnId")));
+  fields.set(2, text(required(value.sessionId, "AgentTurnInfo.sessionId")));
+  fields.set(3, encodeAgentTurnStateValue(required(value.state, "AgentTurnInfo.state")));
+  fields.set(4, u53(required(value.createdAtMs, "AgentTurnInfo.createdAtMs")));
+  if (value.startedAtMs !== undefined) fields.set(5, u53(value.startedAtMs));
+  if (value.finishedAtMs !== undefined) fields.set(6, u53(value.finishedAtMs));
+  if (value.context !== undefined) fields.set(7, encodeAgentTurnContextValue(value.context));
+  return fields;
+}
+
+export function decodeAgentTurnInfoValue(value: CborValue): AgentTurnInfo {
+  const fields = expectMap(value);
+  return {
+    turnId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+    sessionId: fieldOrDefault(fields.get(2), (value) => textValue(value), () => ""),
+    state: fieldOrDefault(fields.get(3), (value) => decodeAgentTurnStateValue(value), () => defaultAgentTurnState()),
+    createdAtMs: fieldOrDefault(fields.get(4), (value) => integer(value), () => 0),
+    startedAtMs: optionalField(fields.get(5), (value) => integer(value)),
+    finishedAtMs: optionalField(fields.get(6), (value) => integer(value)),
+    context: optionalField(fields.get(7), (value) => decodeAgentTurnContextValue(value)),
+  };
+}
+
+export function encodeAgentTurnRecordValue(value: AgentTurnRecord): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, encodeAgentTurnInfoValue(required(value.turn, "AgentTurnRecord.turn")));
+  fields.set(2, required(value.messages, "AgentTurnRecord.messages").map((item) => encodeAgentMessageValue(item)));
+  fields.set(3, required(value.toolCalls, "AgentTurnRecord.toolCalls").map((item) => encodeAgentToolCallValue(item)));
+  fields.set(4, required(value.permissions, "AgentTurnRecord.permissions").map((item) => encodeAgentPermissionRequestValue(item)));
+  if (value.plan !== undefined) fields.set(5, encodeAgentPlanValue(value.plan));
+  fields.set(6, required(value.terminals, "AgentTurnRecord.terminals").map((item) => encodeAgentTerminalSummaryValue(item)));
+  return fields;
+}
+
+export function decodeAgentTurnRecordValue(value: CborValue): AgentTurnRecord {
+  const fields = expectMap(value);
+  return {
+    turn: fieldOrDefault(fields.get(1), (value) => decodeAgentTurnInfoValue(value), () => defaultAgentTurnInfo()),
+    messages: fieldOrDefault(fields.get(2), (value) => array(value).map((item) => decodeAgentMessageValue(item)), () => []),
+    toolCalls: fieldOrDefault(fields.get(3), (value) => array(value).map((item) => decodeAgentToolCallValue(item)), () => []),
+    permissions: fieldOrDefault(fields.get(4), (value) => array(value).map((item) => decodeAgentPermissionRequestValue(item)), () => []),
+    plan: optionalField(fields.get(5), (value) => decodeAgentPlanValue(value)),
+    terminals: fieldOrDefault(fields.get(6), (value) => array(value).map((item) => decodeAgentTerminalSummaryValue(item)), () => []),
+  };
+}
+
+export function encodeAgentViewContextCaptureValue(value: AgentViewContextCapture): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, text(required(value.surfaceId, "AgentViewContextCapture.surfaceId")));
+  fields.set(2, required(value.entities, "AgentViewContextCapture.entities").map((item) => encodeAgentViewEntityValue(item)));
+  return fields;
+}
+
+export function decodeAgentViewContextCaptureValue(value: CborValue): AgentViewContextCapture {
+  const fields = expectMap(value);
+  return {
+    surfaceId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+    entities: fieldOrDefault(fields.get(2), (value) => array(value).map((item) => decodeAgentViewEntityValue(item)), () => []),
+  };
+}
+
+export function encodeAgentViewEntityValue(value: AgentViewEntity): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, encodeAgentViewEntityRoleValue(required(value.role, "AgentViewEntity.role")));
+  fields.set(2, encodeAgentDaemonEntityRefValue(required(value.entity, "AgentViewEntity.entity")));
+  return fields;
+}
+
+export function decodeAgentViewEntityValue(value: CborValue): AgentViewEntity {
+  const fields = expectMap(value);
+  return {
+    role: fieldOrDefault(fields.get(1), (value) => decodeAgentViewEntityRoleValue(value), () => AgentViewEntityRole.Primary),
+    entity: fieldOrDefault(fields.get(2), (value) => decodeAgentDaemonEntityRefValue(value), () => defaultAgentDaemonEntityRef()),
+  };
+}
+
+export function encodeAgentViewEntityRoleValue(value: AgentViewEntityRole): CborValue {
+  return integer(value);
+}
+
+export function decodeAgentViewEntityRoleValue(value: CborValue): AgentViewEntityRole {
+  const id = integer(value);
+  if (![1, 2, 3, 4].includes(id)) throw new Error(`unknown AgentViewEntityRole variant ${id}`);
+  return id as AgentViewEntityRole;
+}
+
+export function encodeAgentDaemonEntityRefValue(value: AgentDaemonEntityRef): CborValue {
+  switch (value.type) {
+    case "fileSystemPath": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.path, "AgentDaemonEntityRef.FileSystemPath.path")));
+      return [1, fields];
+    }
+    case "terminalSession": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.terminalSessionId, "AgentDaemonEntityRef.TerminalSession.terminalSessionId")));
+      return [2, fields];
+    }
+    case "process": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, u53(required(value.pid, "AgentDaemonEntityRef.Process.pid")));
+      return [3, fields];
+    }
+    case "window": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.windowId, "AgentDaemonEntityRef.Window.windowId")));
+      return [4, fields];
+    }
+    case "job": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.jobId, "AgentDaemonEntityRef.Job.jobId")));
+      return [5, fields];
+    }
+    case "schedule": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.scheduleId, "AgentDaemonEntityRef.Schedule.scheduleId")));
+      return [6, fields];
+    }
+    case "client": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.clientId, "AgentDaemonEntityRef.Client.clientId")));
+      return [7, fields];
+    }
+    case "other": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.kind, "AgentDaemonEntityRef.Other.kind")));
+      fields.set(2, text(required(value.id, "AgentDaemonEntityRef.Other.id")));
+      return [8, fields];
+    }
+  }
+}
+
+export function decodeAgentDaemonEntityRefValue(value: CborValue): AgentDaemonEntityRef {
+  const [variantId, fields] = expectUnion(value);
+  switch (variantId) {
+    case 1:
+      return {
+        type: "fileSystemPath",
+        path: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+    case 2:
+      return {
+        type: "terminalSession",
+        terminalSessionId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+    case 3:
+      return {
+        type: "process",
+        pid: fieldOrDefault(fields.get(1), (value) => integer(value), () => 0),
+      };
+    case 4:
+      return {
+        type: "window",
+        windowId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+    case 5:
+      return {
+        type: "job",
+        jobId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+    case 6:
+      return {
+        type: "schedule",
+        scheduleId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+    case 7:
+      return {
+        type: "client",
+        clientId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+    case 8:
+      return {
+        type: "other",
+        kind: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+        id: fieldOrDefault(fields.get(2), (value) => textValue(value), () => ""),
+      };
+  }
+  throw new Error(`unknown AgentDaemonEntityRef variant ${variantId}`);
+}
+
+export function encodeAgentTurnContextValue(value: AgentTurnContext): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, u53(required(value.capturedAtMs, "AgentTurnContext.capturedAtMs")));
+  fields.set(2, text(required(value.daemonInstanceId, "AgentTurnContext.daemonInstanceId")));
+  fields.set(3, encodeAgentViewContextCaptureValue(required(value.view, "AgentTurnContext.view")));
+  fields.set(4, required(value.resources, "AgentTurnContext.resources").map((item) => encodeAgentContextResourceValue(item)));
+  fields.set(5, bool(required(value.truncated, "AgentTurnContext.truncated")));
+  return fields;
+}
+
+export function decodeAgentTurnContextValue(value: CborValue): AgentTurnContext {
+  const fields = expectMap(value);
+  return {
+    capturedAtMs: fieldOrDefault(fields.get(1), (value) => integer(value), () => 0),
+    daemonInstanceId: fieldOrDefault(fields.get(2), (value) => textValue(value), () => ""),
+    view: fieldOrDefault(fields.get(3), (value) => decodeAgentViewContextCaptureValue(value), () => defaultAgentViewContextCapture()),
+    resources: fieldOrDefault(fields.get(4), (value) => array(value).map((item) => decodeAgentContextResourceValue(item)), () => []),
+    truncated: fieldOrDefault(fields.get(5), (value) => boolValue(value), () => false),
+  };
+}
+
+export function encodeAgentContextResourceValue(value: AgentContextResource): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, encodeAgentViewEntityRoleValue(required(value.role, "AgentContextResource.role")));
+  fields.set(2, text(required(value.uri, "AgentContextResource.uri")));
+  fields.set(3, text(required(value.name, "AgentContextResource.name")));
+  if (value.description !== undefined) fields.set(4, text(value.description));
+  if (value.snapshot !== undefined) fields.set(5, encodeAgentContextSnapshotValue(value.snapshot));
+  return fields;
+}
+
+export function decodeAgentContextResourceValue(value: CborValue): AgentContextResource {
+  const fields = expectMap(value);
+  return {
+    role: fieldOrDefault(fields.get(1), (value) => decodeAgentViewEntityRoleValue(value), () => AgentViewEntityRole.Primary),
+    uri: fieldOrDefault(fields.get(2), (value) => textValue(value), () => ""),
+    name: fieldOrDefault(fields.get(3), (value) => textValue(value), () => ""),
+    description: optionalField(fields.get(4), (value) => textValue(value)),
+    snapshot: optionalField(fields.get(5), (value) => decodeAgentContextSnapshotValue(value)),
+  };
+}
+
+export function encodeAgentContextSnapshotValue(value: AgentContextSnapshot): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, text(required(value.mimeType, "AgentContextSnapshot.mimeType")));
+  fields.set(2, text(required(value.text, "AgentContextSnapshot.text")));
+  return fields;
+}
+
+export function decodeAgentContextSnapshotValue(value: CborValue): AgentContextSnapshot {
+  const fields = expectMap(value);
+  return {
+    mimeType: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+    text: fieldOrDefault(fields.get(2), (value) => textValue(value), () => ""),
+  };
+}
+
+export function encodeAgentTurnStateValue(value: AgentTurnState): CborValue {
+  switch (value.type) {
+    case "queued": {
+      const fields = new Map<number, CborValue>();
+      return [1, fields];
+    }
+    case "running": {
+      const fields = new Map<number, CborValue>();
+      return [2, fields];
+    }
+    case "awaitingPermission": {
+      const fields = new Map<number, CborValue>();
+      return [3, fields];
+    }
+    case "completed": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, encodeAgentStopReasonValue(required(value.stopReason, "AgentTurnState.Completed.stopReason")));
+      return [4, fields];
+    }
+    case "cancelled": {
+      const fields = new Map<number, CborValue>();
+      return [5, fields];
+    }
+    case "failed": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, encodeAgentFailureValue(required(value.failure, "AgentTurnState.Failed.failure")));
+      return [6, fields];
+    }
+  }
+}
+
+export function decodeAgentTurnStateValue(value: CborValue): AgentTurnState {
+  const [variantId, fields] = expectUnion(value);
+  switch (variantId) {
+    case 1:
+      return {
+        type: "queued",
+      };
+    case 2:
+      return {
+        type: "running",
+      };
+    case 3:
+      return {
+        type: "awaitingPermission",
+      };
+    case 4:
+      return {
+        type: "completed",
+        stopReason: fieldOrDefault(fields.get(1), (value) => decodeAgentStopReasonValue(value), () => defaultAgentStopReason()),
+      };
+    case 5:
+      return {
+        type: "cancelled",
+      };
+    case 6:
+      return {
+        type: "failed",
+        failure: fieldOrDefault(fields.get(1), (value) => decodeAgentFailureValue(value), () => defaultAgentFailure()),
+      };
+  }
+  throw new Error(`unknown AgentTurnState variant ${variantId}`);
+}
+
+export function encodeAgentStopReasonValue(value: AgentStopReason): CborValue {
+  switch (value.type) {
+    case "endTurn": {
+      const fields = new Map<number, CborValue>();
+      return [1, fields];
+    }
+    case "maxTokens": {
+      const fields = new Map<number, CborValue>();
+      return [2, fields];
+    }
+    case "refusal": {
+      const fields = new Map<number, CborValue>();
+      return [3, fields];
+    }
+    case "cancelled": {
+      const fields = new Map<number, CborValue>();
+      return [4, fields];
+    }
+    case "other": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.name, "AgentStopReason.Other.name")));
+      return [5, fields];
+    }
+  }
+}
+
+export function decodeAgentStopReasonValue(value: CborValue): AgentStopReason {
+  const [variantId, fields] = expectUnion(value);
+  switch (variantId) {
+    case 1:
+      return {
+        type: "endTurn",
+      };
+    case 2:
+      return {
+        type: "maxTokens",
+      };
+    case 3:
+      return {
+        type: "refusal",
+      };
+    case 4:
+      return {
+        type: "cancelled",
+      };
+    case 5:
+      return {
+        type: "other",
+        name: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+  }
+  throw new Error(`unknown AgentStopReason variant ${variantId}`);
+}
+
+export function encodeAgentMessageValue(value: AgentMessage): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, text(required(value.messageId, "AgentMessage.messageId")));
+  if (value.turnId !== undefined) fields.set(2, text(value.turnId));
+  fields.set(3, encodeAgentMessageRoleValue(required(value.role, "AgentMessage.role")));
+  fields.set(4, required(value.content, "AgentMessage.content").map((item) => encodeAgentContentValue(item)));
+  fields.set(5, encodeAgentMessageStateValue(required(value.state, "AgentMessage.state")));
+  fields.set(6, u53(required(value.createdAtMs, "AgentMessage.createdAtMs")));
+  return fields;
+}
+
+export function decodeAgentMessageValue(value: CborValue): AgentMessage {
+  const fields = expectMap(value);
+  return {
+    messageId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+    turnId: optionalField(fields.get(2), (value) => textValue(value)),
+    role: fieldOrDefault(fields.get(3), (value) => decodeAgentMessageRoleValue(value), () => defaultAgentMessageRole()),
+    content: fieldOrDefault(fields.get(4), (value) => array(value).map((item) => decodeAgentContentValue(item)), () => []),
+    state: fieldOrDefault(fields.get(5), (value) => decodeAgentMessageStateValue(value), () => AgentMessageState.Streaming),
+    createdAtMs: fieldOrDefault(fields.get(6), (value) => integer(value), () => 0),
+  };
+}
+
+export function encodeAgentMessageRoleValue(value: AgentMessageRole): CborValue {
+  switch (value.type) {
+    case "user": {
+      const fields = new Map<number, CborValue>();
+      return [1, fields];
+    }
+    case "assistant": {
+      const fields = new Map<number, CborValue>();
+      return [2, fields];
+    }
+    case "thought": {
+      const fields = new Map<number, CborValue>();
+      return [3, fields];
+    }
+    case "system": {
+      const fields = new Map<number, CborValue>();
+      return [4, fields];
+    }
+    case "other": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.name, "AgentMessageRole.Other.name")));
+      return [5, fields];
+    }
+  }
+}
+
+export function decodeAgentMessageRoleValue(value: CborValue): AgentMessageRole {
+  const [variantId, fields] = expectUnion(value);
+  switch (variantId) {
+    case 1:
+      return {
+        type: "user",
+      };
+    case 2:
+      return {
+        type: "assistant",
+      };
+    case 3:
+      return {
+        type: "thought",
+      };
+    case 4:
+      return {
+        type: "system",
+      };
+    case 5:
+      return {
+        type: "other",
+        name: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+  }
+  throw new Error(`unknown AgentMessageRole variant ${variantId}`);
+}
+
+export function encodeAgentMessageStateValue(value: AgentMessageState): CborValue {
+  return integer(value);
+}
+
+export function decodeAgentMessageStateValue(value: CborValue): AgentMessageState {
+  const id = integer(value);
+  if (![1, 2].includes(id)) throw new Error(`unknown AgentMessageState variant ${id}`);
+  return id as AgentMessageState;
+}
+
+export function encodeAgentContentValue(value: AgentContent): CborValue {
+  switch (value.type) {
+    case "text": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.text, "AgentContent.Text.text")));
+      return [1, fields];
+    }
+    case "image": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.mimeType, "AgentContent.Image.mimeType")));
+      fields.set(2, bytes(required(value.data, "AgentContent.Image.data")));
+      return [2, fields];
+    }
+    case "resourceLink": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.uri, "AgentContent.ResourceLink.uri")));
+      if (value.name !== undefined) fields.set(2, text(value.name));
+      if (value.mimeType !== undefined) fields.set(3, text(value.mimeType));
+      return [3, fields];
+    }
+    case "embeddedText": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.uri, "AgentContent.EmbeddedText.uri")));
+      if (value.mimeType !== undefined) fields.set(2, text(value.mimeType));
+      fields.set(3, text(required(value.text, "AgentContent.EmbeddedText.text")));
+      return [4, fields];
+    }
+  }
+}
+
+export function decodeAgentContentValue(value: CborValue): AgentContent {
+  const [variantId, fields] = expectUnion(value);
+  switch (variantId) {
+    case 1:
+      return {
+        type: "text",
+        text: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+    case 2:
+      return {
+        type: "image",
+        mimeType: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+        data: fieldOrDefault(fields.get(2), (value) => bytesValue(value), () => new Uint8Array()),
+      };
+    case 3:
+      return {
+        type: "resourceLink",
+        uri: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+        name: optionalField(fields.get(2), (value) => textValue(value)),
+        mimeType: optionalField(fields.get(3), (value) => textValue(value)),
+      };
+    case 4:
+      return {
+        type: "embeddedText",
+        uri: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+        mimeType: optionalField(fields.get(2), (value) => textValue(value)),
+        text: fieldOrDefault(fields.get(3), (value) => textValue(value), () => ""),
+      };
+  }
+  throw new Error(`unknown AgentContent variant ${variantId}`);
+}
+
+export function encodeAgentToolCallValue(value: AgentToolCall): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, text(required(value.toolCallId, "AgentToolCall.toolCallId")));
+  fields.set(2, text(required(value.turnId, "AgentToolCall.turnId")));
+  fields.set(3, text(required(value.title, "AgentToolCall.title")));
+  fields.set(4, encodeAgentToolKindValue(required(value.kind, "AgentToolCall.kind")));
+  fields.set(5, encodeAgentToolStatusValue(required(value.status, "AgentToolCall.status")));
+  fields.set(6, required(value.locations, "AgentToolCall.locations").map((item) => encodeAgentToolLocationValue(item)));
+  fields.set(7, required(value.content, "AgentToolCall.content").map((item) => encodeAgentToolCallContentValue(item)));
+  return fields;
+}
+
+export function decodeAgentToolCallValue(value: CborValue): AgentToolCall {
+  const fields = expectMap(value);
+  return {
+    toolCallId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+    turnId: fieldOrDefault(fields.get(2), (value) => textValue(value), () => ""),
+    title: fieldOrDefault(fields.get(3), (value) => textValue(value), () => ""),
+    kind: fieldOrDefault(fields.get(4), (value) => decodeAgentToolKindValue(value), () => defaultAgentToolKind()),
+    status: fieldOrDefault(fields.get(5), (value) => decodeAgentToolStatusValue(value), () => defaultAgentToolStatus()),
+    locations: fieldOrDefault(fields.get(6), (value) => array(value).map((item) => decodeAgentToolLocationValue(item)), () => []),
+    content: fieldOrDefault(fields.get(7), (value) => array(value).map((item) => decodeAgentToolCallContentValue(item)), () => []),
+  };
+}
+
+export function encodeAgentToolKindValue(value: AgentToolKind): CborValue {
+  switch (value.type) {
+    case "read": {
+      const fields = new Map<number, CborValue>();
+      return [1, fields];
+    }
+    case "edit": {
+      const fields = new Map<number, CborValue>();
+      return [2, fields];
+    }
+    case "delete": {
+      const fields = new Map<number, CborValue>();
+      return [3, fields];
+    }
+    case "move": {
+      const fields = new Map<number, CborValue>();
+      return [4, fields];
+    }
+    case "search": {
+      const fields = new Map<number, CborValue>();
+      return [5, fields];
+    }
+    case "execute": {
+      const fields = new Map<number, CborValue>();
+      return [6, fields];
+    }
+    case "think": {
+      const fields = new Map<number, CborValue>();
+      return [7, fields];
+    }
+    case "fetch": {
+      const fields = new Map<number, CborValue>();
+      return [8, fields];
+    }
+    case "other": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.name, "AgentToolKind.Other.name")));
+      return [9, fields];
+    }
+  }
+}
+
+export function decodeAgentToolKindValue(value: CborValue): AgentToolKind {
+  const [variantId, fields] = expectUnion(value);
+  switch (variantId) {
+    case 1:
+      return {
+        type: "read",
+      };
+    case 2:
+      return {
+        type: "edit",
+      };
+    case 3:
+      return {
+        type: "delete",
+      };
+    case 4:
+      return {
+        type: "move",
+      };
+    case 5:
+      return {
+        type: "search",
+      };
+    case 6:
+      return {
+        type: "execute",
+      };
+    case 7:
+      return {
+        type: "think",
+      };
+    case 8:
+      return {
+        type: "fetch",
+      };
+    case 9:
+      return {
+        type: "other",
+        name: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+  }
+  throw new Error(`unknown AgentToolKind variant ${variantId}`);
+}
+
+export function encodeAgentToolStatusValue(value: AgentToolStatus): CborValue {
+  switch (value.type) {
+    case "pending": {
+      const fields = new Map<number, CborValue>();
+      return [1, fields];
+    }
+    case "running": {
+      const fields = new Map<number, CborValue>();
+      return [2, fields];
+    }
+    case "completed": {
+      const fields = new Map<number, CborValue>();
+      return [3, fields];
+    }
+    case "failed": {
+      const fields = new Map<number, CborValue>();
+      if (value.message !== undefined) fields.set(1, text(value.message));
+      return [4, fields];
+    }
+  }
+}
+
+export function decodeAgentToolStatusValue(value: CborValue): AgentToolStatus {
+  const [variantId, fields] = expectUnion(value);
+  switch (variantId) {
+    case 1:
+      return {
+        type: "pending",
+      };
+    case 2:
+      return {
+        type: "running",
+      };
+    case 3:
+      return {
+        type: "completed",
+      };
+    case 4:
+      return {
+        type: "failed",
+        message: optionalField(fields.get(1), (value) => textValue(value)),
+      };
+  }
+  throw new Error(`unknown AgentToolStatus variant ${variantId}`);
+}
+
+export function encodeAgentToolLocationValue(value: AgentToolLocation): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, text(required(value.path, "AgentToolLocation.path")));
+  if (value.line !== undefined) fields.set(2, u53(value.line));
+  return fields;
+}
+
+export function decodeAgentToolLocationValue(value: CborValue): AgentToolLocation {
+  const fields = expectMap(value);
+  return {
+    path: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+    line: optionalField(fields.get(2), (value) => integer(value)),
+  };
+}
+
+export function encodeAgentToolCallContentValue(value: AgentToolCallContent): CborValue {
+  switch (value.type) {
+    case "content": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, encodeAgentContentValue(required(value.content, "AgentToolCallContent.Content.content")));
+      return [1, fields];
+    }
+    case "diff": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, encodeAgentFileChangeValue(required(value.change, "AgentToolCallContent.Diff.change")));
+      return [2, fields];
+    }
+    case "terminalRef": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.terminalId, "AgentToolCallContent.TerminalRef.terminalId")));
+      return [3, fields];
+    }
+  }
+}
+
+export function decodeAgentToolCallContentValue(value: CborValue): AgentToolCallContent {
+  const [variantId, fields] = expectUnion(value);
+  switch (variantId) {
+    case 1:
+      return {
+        type: "content",
+        content: fieldOrDefault(fields.get(1), (value) => decodeAgentContentValue(value), () => defaultAgentContent()),
+      };
+    case 2:
+      return {
+        type: "diff",
+        change: fieldOrDefault(fields.get(1), (value) => decodeAgentFileChangeValue(value), () => defaultAgentFileChange()),
+      };
+    case 3:
+      return {
+        type: "terminalRef",
+        terminalId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+  }
+  throw new Error(`unknown AgentToolCallContent variant ${variantId}`);
+}
+
+export function encodeAgentFileChangeValue(value: AgentFileChange): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, text(required(value.path, "AgentFileChange.path")));
+  if (value.oldPath !== undefined) fields.set(2, text(value.oldPath));
+  fields.set(3, encodeAgentFileChangeKindValue(required(value.kind, "AgentFileChange.kind")));
+  if (value.patch !== undefined) fields.set(4, text(value.patch));
+  return fields;
+}
+
+export function decodeAgentFileChangeValue(value: CborValue): AgentFileChange {
+  const fields = expectMap(value);
+  return {
+    path: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+    oldPath: optionalField(fields.get(2), (value) => textValue(value)),
+    kind: fieldOrDefault(fields.get(3), (value) => decodeAgentFileChangeKindValue(value), () => AgentFileChangeKind.Add),
+    patch: optionalField(fields.get(4), (value) => textValue(value)),
+  };
+}
+
+export function encodeAgentFileChangeKindValue(value: AgentFileChangeKind): CborValue {
+  return integer(value);
+}
+
+export function decodeAgentFileChangeKindValue(value: CborValue): AgentFileChangeKind {
+  const id = integer(value);
+  if (![1, 2, 3, 4].includes(id)) throw new Error(`unknown AgentFileChangeKind variant ${id}`);
+  return id as AgentFileChangeKind;
+}
+
+export function encodeAgentPermissionRequestValue(value: AgentPermissionRequest): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, text(required(value.permissionRequestId, "AgentPermissionRequest.permissionRequestId")));
+  fields.set(2, text(required(value.turnId, "AgentPermissionRequest.turnId")));
+  fields.set(3, encodeAgentPermissionSubjectValue(required(value.subject, "AgentPermissionRequest.subject")));
+  fields.set(4, required(value.options, "AgentPermissionRequest.options").map((item) => encodeAgentPermissionOptionValue(item)));
+  fields.set(5, encodeAgentPermissionStateValue(required(value.state, "AgentPermissionRequest.state")));
+  fields.set(6, u53(required(value.createdAtMs, "AgentPermissionRequest.createdAtMs")));
+  return fields;
+}
+
+export function decodeAgentPermissionRequestValue(value: CborValue): AgentPermissionRequest {
+  const fields = expectMap(value);
+  return {
+    permissionRequestId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+    turnId: fieldOrDefault(fields.get(2), (value) => textValue(value), () => ""),
+    subject: fieldOrDefault(fields.get(3), (value) => decodeAgentPermissionSubjectValue(value), () => defaultAgentPermissionSubject()),
+    options: fieldOrDefault(fields.get(4), (value) => array(value).map((item) => decodeAgentPermissionOptionValue(item)), () => []),
+    state: fieldOrDefault(fields.get(5), (value) => decodeAgentPermissionStateValue(value), () => defaultAgentPermissionState()),
+    createdAtMs: fieldOrDefault(fields.get(6), (value) => integer(value), () => 0),
+  };
+}
+
+export function encodeAgentPermissionSubjectValue(value: AgentPermissionSubject): CborValue {
+  switch (value.type) {
+    case "toolCall": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.toolCallId, "AgentPermissionSubject.ToolCall.toolCallId")));
+      return [1, fields];
+    }
+    case "action": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.title, "AgentPermissionSubject.Action.title")));
+      if (value.detail !== undefined) fields.set(2, text(value.detail));
+      return [2, fields];
+    }
+  }
+}
+
+export function decodeAgentPermissionSubjectValue(value: CborValue): AgentPermissionSubject {
+  const [variantId, fields] = expectUnion(value);
+  switch (variantId) {
+    case 1:
+      return {
+        type: "toolCall",
+        toolCallId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+    case 2:
+      return {
+        type: "action",
+        title: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+        detail: optionalField(fields.get(2), (value) => textValue(value)),
+      };
+  }
+  throw new Error(`unknown AgentPermissionSubject variant ${variantId}`);
+}
+
+export function encodeAgentPermissionOptionValue(value: AgentPermissionOption): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, text(required(value.optionId, "AgentPermissionOption.optionId")));
+  fields.set(2, text(required(value.title, "AgentPermissionOption.title")));
+  fields.set(3, encodeAgentPermissionOptionKindValue(required(value.kind, "AgentPermissionOption.kind")));
+  return fields;
+}
+
+export function decodeAgentPermissionOptionValue(value: CborValue): AgentPermissionOption {
+  const fields = expectMap(value);
+  return {
+    optionId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+    title: fieldOrDefault(fields.get(2), (value) => textValue(value), () => ""),
+    kind: fieldOrDefault(fields.get(3), (value) => decodeAgentPermissionOptionKindValue(value), () => defaultAgentPermissionOptionKind()),
+  };
+}
+
+export function encodeAgentPermissionOptionKindValue(value: AgentPermissionOptionKind): CborValue {
+  switch (value.type) {
+    case "allowOnce": {
+      const fields = new Map<number, CborValue>();
+      return [1, fields];
+    }
+    case "allowAlways": {
+      const fields = new Map<number, CborValue>();
+      return [2, fields];
+    }
+    case "rejectOnce": {
+      const fields = new Map<number, CborValue>();
+      return [3, fields];
+    }
+    case "rejectAlways": {
+      const fields = new Map<number, CborValue>();
+      return [4, fields];
+    }
+    case "other": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.name, "AgentPermissionOptionKind.Other.name")));
+      return [5, fields];
+    }
+  }
+}
+
+export function decodeAgentPermissionOptionKindValue(value: CborValue): AgentPermissionOptionKind {
+  const [variantId, fields] = expectUnion(value);
+  switch (variantId) {
+    case 1:
+      return {
+        type: "allowOnce",
+      };
+    case 2:
+      return {
+        type: "allowAlways",
+      };
+    case 3:
+      return {
+        type: "rejectOnce",
+      };
+    case 4:
+      return {
+        type: "rejectAlways",
+      };
+    case 5:
+      return {
+        type: "other",
+        name: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+  }
+  throw new Error(`unknown AgentPermissionOptionKind variant ${variantId}`);
+}
+
+export function encodeAgentPermissionStateValue(value: AgentPermissionState): CborValue {
+  switch (value.type) {
+    case "pending": {
+      const fields = new Map<number, CborValue>();
+      return [1, fields];
+    }
+    case "selected": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.optionId, "AgentPermissionState.Selected.optionId")));
+      return [2, fields];
+    }
+    case "cancelled": {
+      const fields = new Map<number, CborValue>();
+      return [3, fields];
+    }
+    case "expired": {
+      const fields = new Map<number, CborValue>();
+      return [4, fields];
+    }
+  }
+}
+
+export function decodeAgentPermissionStateValue(value: CborValue): AgentPermissionState {
+  const [variantId, fields] = expectUnion(value);
+  switch (variantId) {
+    case 1:
+      return {
+        type: "pending",
+      };
+    case 2:
+      return {
+        type: "selected",
+        optionId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+    case 3:
+      return {
+        type: "cancelled",
+      };
+    case 4:
+      return {
+        type: "expired",
+      };
+  }
+  throw new Error(`unknown AgentPermissionState variant ${variantId}`);
+}
+
+export function encodeAgentPermissionDecisionValue(value: AgentPermissionDecision): CborValue {
+  switch (value.type) {
+    case "select": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.optionId, "AgentPermissionDecision.Select.optionId")));
+      return [1, fields];
+    }
+    case "cancel": {
+      const fields = new Map<number, CborValue>();
+      return [2, fields];
+    }
+  }
+}
+
+export function decodeAgentPermissionDecisionValue(value: CborValue): AgentPermissionDecision {
+  const [variantId, fields] = expectUnion(value);
+  switch (variantId) {
+    case 1:
+      return {
+        type: "select",
+        optionId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+    case 2:
+      return {
+        type: "cancel",
+      };
+  }
+  throw new Error(`unknown AgentPermissionDecision variant ${variantId}`);
+}
+
+export function encodeAgentPlanValue(value: AgentPlan): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, required(value.entries, "AgentPlan.entries").map((item) => encodeAgentPlanEntryValue(item)));
+  return fields;
+}
+
+export function decodeAgentPlanValue(value: CborValue): AgentPlan {
+  const fields = expectMap(value);
+  return {
+    entries: fieldOrDefault(fields.get(1), (value) => array(value).map((item) => decodeAgentPlanEntryValue(item)), () => []),
+  };
+}
+
+export function encodeAgentPlanEntryValue(value: AgentPlanEntry): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, text(required(value.entryId, "AgentPlanEntry.entryId")));
+  fields.set(2, text(required(value.content, "AgentPlanEntry.content")));
+  fields.set(3, encodeAgentPlanPriorityValue(required(value.priority, "AgentPlanEntry.priority")));
+  fields.set(4, encodeAgentPlanStatusValue(required(value.status, "AgentPlanEntry.status")));
+  return fields;
+}
+
+export function decodeAgentPlanEntryValue(value: CborValue): AgentPlanEntry {
+  const fields = expectMap(value);
+  return {
+    entryId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+    content: fieldOrDefault(fields.get(2), (value) => textValue(value), () => ""),
+    priority: fieldOrDefault(fields.get(3), (value) => decodeAgentPlanPriorityValue(value), () => AgentPlanPriority.Low),
+    status: fieldOrDefault(fields.get(4), (value) => decodeAgentPlanStatusValue(value), () => AgentPlanStatus.Pending),
+  };
+}
+
+export function encodeAgentPlanPriorityValue(value: AgentPlanPriority): CborValue {
+  return integer(value);
+}
+
+export function decodeAgentPlanPriorityValue(value: CborValue): AgentPlanPriority {
+  const id = integer(value);
+  if (![1, 2, 3].includes(id)) throw new Error(`unknown AgentPlanPriority variant ${id}`);
+  return id as AgentPlanPriority;
+}
+
+export function encodeAgentPlanStatusValue(value: AgentPlanStatus): CborValue {
+  return integer(value);
+}
+
+export function decodeAgentPlanStatusValue(value: CborValue): AgentPlanStatus {
+  const id = integer(value);
+  if (![1, 2, 3].includes(id)) throw new Error(`unknown AgentPlanStatus variant ${id}`);
+  return id as AgentPlanStatus;
+}
+
+export function encodeAgentTerminalSummaryValue(value: AgentTerminalSummary): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, text(required(value.terminalId, "AgentTerminalSummary.terminalId")));
+  fields.set(2, text(required(value.command, "AgentTerminalSummary.command")));
+  fields.set(3, required(value.args, "AgentTerminalSummary.args").map((item) => text(item)));
+  if (value.cwd !== undefined) fields.set(4, text(value.cwd));
+  fields.set(5, bool(required(value.truncated, "AgentTerminalSummary.truncated")));
+  fields.set(6, u53(required(value.oldestOutputSeq, "AgentTerminalSummary.oldestOutputSeq")));
+  fields.set(7, u53(required(value.latestOutputSeq, "AgentTerminalSummary.latestOutputSeq")));
+  if (value.exit !== undefined) fields.set(8, encodeAgentTerminalExitValue(value.exit));
+  return fields;
+}
+
+export function decodeAgentTerminalSummaryValue(value: CborValue): AgentTerminalSummary {
+  const fields = expectMap(value);
+  return {
+    terminalId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+    command: fieldOrDefault(fields.get(2), (value) => textValue(value), () => ""),
+    args: fieldOrDefault(fields.get(3), (value) => array(value).map((item) => textValue(item)), () => []),
+    cwd: optionalField(fields.get(4), (value) => textValue(value)),
+    truncated: fieldOrDefault(fields.get(5), (value) => boolValue(value), () => false),
+    oldestOutputSeq: fieldOrDefault(fields.get(6), (value) => integer(value), () => 0),
+    latestOutputSeq: fieldOrDefault(fields.get(7), (value) => integer(value), () => 0),
+    exit: optionalField(fields.get(8), (value) => decodeAgentTerminalExitValue(value)),
+  };
+}
+
+export function encodeAgentTerminalOutputEventValue(value: AgentTerminalOutputEvent): CborValue {
+  switch (value.type) {
+    case "outputChunk": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, u53(required(value.outputSeq, "AgentTerminalOutputEvent.OutputChunk.outputSeq")));
+      fields.set(2, text(required(value.text, "AgentTerminalOutputEvent.OutputChunk.text")));
+      return [1, fields];
+    }
+    case "historyGap": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, u53(required(value.requestedAfterSeq, "AgentTerminalOutputEvent.HistoryGap.requestedAfterSeq")));
+      fields.set(2, u53(required(value.oldestAvailableSeq, "AgentTerminalOutputEvent.HistoryGap.oldestAvailableSeq")));
+      return [2, fields];
+    }
+  }
+}
+
+export function decodeAgentTerminalOutputEventValue(value: CborValue): AgentTerminalOutputEvent {
+  const [variantId, fields] = expectUnion(value);
+  switch (variantId) {
+    case 1:
+      return {
+        type: "outputChunk",
+        outputSeq: fieldOrDefault(fields.get(1), (value) => integer(value), () => 0),
+        text: fieldOrDefault(fields.get(2), (value) => textValue(value), () => ""),
+      };
+    case 2:
+      return {
+        type: "historyGap",
+        requestedAfterSeq: fieldOrDefault(fields.get(1), (value) => integer(value), () => 0),
+        oldestAvailableSeq: fieldOrDefault(fields.get(2), (value) => integer(value), () => 0),
+      };
+  }
+  throw new Error(`unknown AgentTerminalOutputEvent variant ${variantId}`);
+}
+
+export function encodeAgentTerminalExitValue(value: AgentTerminalExit): CborValue {
+  const fields = new Map<number, CborValue>();
+  if (value.exitCode !== undefined) fields.set(1, i53(value.exitCode));
+  if (value.signal !== undefined) fields.set(2, text(value.signal));
+  return fields;
+}
+
+export function decodeAgentTerminalExitValue(value: CborValue): AgentTerminalExit {
+  const fields = expectMap(value);
+  return {
+    exitCode: optionalField(fields.get(1), (value) => integer(value)),
+    signal: optionalField(fields.get(2), (value) => textValue(value)),
+  };
+}
+
+export function encodeAgentUsageValue(value: AgentUsage): CborValue {
+  const fields = new Map<number, CborValue>();
+  if (value.inputTokens !== undefined) fields.set(1, u53(value.inputTokens));
+  if (value.outputTokens !== undefined) fields.set(2, u53(value.outputTokens));
+  if (value.cachedInputTokens !== undefined) fields.set(3, u53(value.cachedInputTokens));
+  if (value.contextWindowTokens !== undefined) fields.set(4, u53(value.contextWindowTokens));
+  return fields;
+}
+
+export function decodeAgentUsageValue(value: CborValue): AgentUsage {
+  const fields = expectMap(value);
+  return {
+    inputTokens: optionalField(fields.get(1), (value) => integer(value)),
+    outputTokens: optionalField(fields.get(2), (value) => integer(value)),
+    cachedInputTokens: optionalField(fields.get(3), (value) => integer(value)),
+    contextWindowTokens: optionalField(fields.get(4), (value) => integer(value)),
+  };
+}
+
+export function encodeAgentConfigOptionValue(value: AgentConfigOption): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, text(required(value.configId, "AgentConfigOption.configId")));
+  fields.set(2, text(required(value.title, "AgentConfigOption.title")));
+  if (value.description !== undefined) fields.set(3, text(value.description));
+  fields.set(4, encodeAgentConfigInputValue(required(value.input, "AgentConfigOption.input")));
+  return fields;
+}
+
+export function decodeAgentConfigOptionValue(value: CborValue): AgentConfigOption {
+  const fields = expectMap(value);
+  return {
+    configId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+    title: fieldOrDefault(fields.get(2), (value) => textValue(value), () => ""),
+    description: optionalField(fields.get(3), (value) => textValue(value)),
+    input: fieldOrDefault(fields.get(4), (value) => decodeAgentConfigInputValue(value), () => defaultAgentConfigInput()),
+  };
+}
+
+export function encodeAgentConfigInputValue(value: AgentConfigInput): CborValue {
+  switch (value.type) {
+    case "select": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.currentValue, "AgentConfigInput.Select.currentValue")));
+      fields.set(2, required(value.options, "AgentConfigInput.Select.options").map((item) => encodeAgentConfigSelectOptionValue(item)));
+      return [1, fields];
+    }
+    case "boolean": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, bool(required(value.currentValue, "AgentConfigInput.Boolean.currentValue")));
+      return [2, fields];
+    }
+    case "text": {
+      const fields = new Map<number, CborValue>();
+      if (value.currentValue !== undefined) fields.set(1, text(value.currentValue));
+      if (value.placeholder !== undefined) fields.set(2, text(value.placeholder));
+      return [3, fields];
+    }
+  }
+}
+
+export function decodeAgentConfigInputValue(value: CborValue): AgentConfigInput {
+  const [variantId, fields] = expectUnion(value);
+  switch (variantId) {
+    case 1:
+      return {
+        type: "select",
+        currentValue: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+        options: fieldOrDefault(fields.get(2), (value) => array(value).map((item) => decodeAgentConfigSelectOptionValue(item)), () => []),
+      };
+    case 2:
+      return {
+        type: "boolean",
+        currentValue: fieldOrDefault(fields.get(1), (value) => boolValue(value), () => false),
+      };
+    case 3:
+      return {
+        type: "text",
+        currentValue: optionalField(fields.get(1), (value) => textValue(value)),
+        placeholder: optionalField(fields.get(2), (value) => textValue(value)),
+      };
+  }
+  throw new Error(`unknown AgentConfigInput variant ${variantId}`);
+}
+
+export function encodeAgentConfigSelectOptionValue(value: AgentConfigSelectOption): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, text(required(value.value, "AgentConfigSelectOption.value")));
+  fields.set(2, text(required(value.title, "AgentConfigSelectOption.title")));
+  if (value.description !== undefined) fields.set(3, text(value.description));
+  return fields;
+}
+
+export function decodeAgentConfigSelectOptionValue(value: CborValue): AgentConfigSelectOption {
+  const fields = expectMap(value);
+  return {
+    value: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+    title: fieldOrDefault(fields.get(2), (value) => textValue(value), () => ""),
+    description: optionalField(fields.get(3), (value) => textValue(value)),
+  };
+}
+
+export function encodeAgentConfigValueValue(value: AgentConfigValue): CborValue {
+  switch (value.type) {
+    case "string": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.value, "AgentConfigValue.String.value")));
+      return [1, fields];
+    }
+    case "boolean": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, bool(required(value.value, "AgentConfigValue.Boolean.value")));
+      return [2, fields];
+    }
+  }
+}
+
+export function decodeAgentConfigValueValue(value: CborValue): AgentConfigValue {
+  const [variantId, fields] = expectUnion(value);
+  switch (variantId) {
+    case 1:
+      return {
+        type: "string",
+        value: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+    case 2:
+      return {
+        type: "boolean",
+        value: fieldOrDefault(fields.get(1), (value) => boolValue(value), () => false),
+      };
+  }
+  throw new Error(`unknown AgentConfigValue variant ${variantId}`);
+}
+
+export function encodeAgentSessionTitleUpdateValue(value: AgentSessionTitleUpdate): CborValue {
+  switch (value.type) {
+    case "set": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.value, "AgentSessionTitleUpdate.Set.value")));
+      return [1, fields];
+    }
+    case "clear": {
+      const fields = new Map<number, CborValue>();
+      return [2, fields];
+    }
+  }
+}
+
+export function decodeAgentSessionTitleUpdateValue(value: CborValue): AgentSessionTitleUpdate {
+  const [variantId, fields] = expectUnion(value);
+  switch (variantId) {
+    case 1:
+      return {
+        type: "set",
+        value: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+    case 2:
+      return {
+        type: "clear",
+      };
+  }
+  throw new Error(`unknown AgentSessionTitleUpdate variant ${variantId}`);
+}
+
+export function encodeAgentTaskWorkspaceDeletePolicyValue(value: AgentTaskWorkspaceDeletePolicy): CborValue {
+  return integer(value);
+}
+
+export function decodeAgentTaskWorkspaceDeletePolicyValue(value: CborValue): AgentTaskWorkspaceDeletePolicy {
+  const id = integer(value);
+  if (![1, 2].includes(id)) throw new Error(`unknown AgentTaskWorkspaceDeletePolicy variant ${id}`);
+  return id as AgentTaskWorkspaceDeletePolicy;
+}
+
+export function encodeAgentRpcErrorValue(value: AgentRpcError): CborValue {
+  switch (value.type) {
+    case "failed": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.message, "AgentRpcError.Failed.message")));
+      return [0, fields];
+    }
+    case "notFound": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.message, "AgentRpcError.NotFound.message")));
+      return [1, fields];
+    }
+    case "invalidArgument": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.message, "AgentRpcError.InvalidArgument.message")));
+      return [2, fields];
+    }
+    case "conflict": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.message, "AgentRpcError.Conflict.message")));
+      return [3, fields];
+    }
+    case "unavailable": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.message, "AgentRpcError.Unavailable.message")));
+      return [4, fields];
+    }
+    case "permissionDenied": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.message, "AgentRpcError.PermissionDenied.message")));
+      return [5, fields];
+    }
+  }
+}
+
+export function decodeAgentRpcErrorValue(value: CborValue): AgentRpcError {
+  const [variantId, fields] = expectUnion(value);
+  switch (variantId) {
+    case 0:
+      return {
+        type: "failed",
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+    case 1:
+      return {
+        type: "notFound",
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+    case 2:
+      return {
+        type: "invalidArgument",
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+    case 3:
+      return {
+        type: "conflict",
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+    case 4:
+      return {
+        type: "unavailable",
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+    case 5:
+      return {
+        type: "permissionDenied",
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+  }
+  throw new Error(`unknown AgentRpcError variant ${variantId}`);
+}
+
 function defaultSubscribeWindowDetailReq(): SubscribeWindowDetailReq {
   return {
     windowId: "",
@@ -7669,6 +10880,542 @@ function defaultScheduleMutationError(): ScheduleMutationError {
 }
 
 function defaultGetScheduleNextRunsError(): GetScheduleNextRunsError {
+  return {
+    type: "failed",
+    message: "",
+  };
+}
+
+function defaultCreateAgentProjectReq(): CreateAgentProjectReq {
+  return {
+    rootPath: "",
+  };
+}
+
+function defaultRemoveAgentProjectReq(): RemoveAgentProjectReq {
+  return {
+    projectId: "",
+  };
+}
+
+function defaultListAgentSessionTurnsReq(): ListAgentSessionTurnsReq {
+  return {
+    sessionId: "",
+    throughSeq: 0,
+    limit: 0,
+  };
+}
+
+function defaultListAgentSessionTurnsRes(): ListAgentSessionTurnsRes {
+  return {
+    turns: [],
+  };
+}
+
+function defaultReadAgentTerminalOutputReq(): ReadAgentTerminalOutputReq {
+  return {
+    sessionId: "",
+    terminalId: "",
+    throughSeq: 0,
+  };
+}
+
+function defaultListAgentSessionsReq(): ListAgentSessionsReq {
+  return {
+    workspace: defaultAgentSessionWorkspaceFilter(),
+    archived: AgentSessionArchiveFilter.ActiveOnly,
+    limit: 0,
+  };
+}
+
+function defaultListAgentSessionsRes(): ListAgentSessionsRes {
+  return {
+    rows: [],
+    catalogRevision: 0,
+  };
+}
+
+function defaultSubscribeAgentSessionCatalogReq(): SubscribeAgentSessionCatalogReq {
+  return {
+  };
+}
+
+function defaultCreateAgentSessionReq(): CreateAgentSessionReq {
+  return {
+    providerId: "",
+    workspace: defaultCreateAgentWorkspace(),
+    clientRequestId: "",
+  };
+}
+
+function defaultSubscribeAgentSessionReq(): SubscribeAgentSessionReq {
+  return {
+    sessionId: "",
+  };
+}
+
+function defaultCreateAgentTurnReq(): CreateAgentTurnReq {
+  return {
+    sessionId: "",
+    content: [],
+    clientRequestId: "",
+  };
+}
+
+function defaultCancelAgentTurnReq(): CancelAgentTurnReq {
+  return {
+    sessionId: "",
+    turnId: "",
+  };
+}
+
+function defaultRespondAgentPermissionReq(): RespondAgentPermissionReq {
+  return {
+    sessionId: "",
+    permissionRequestId: "",
+    decision: defaultAgentPermissionDecision(),
+  };
+}
+
+function defaultSetAgentSessionConfigReq(): SetAgentSessionConfigReq {
+  return {
+    sessionId: "",
+    configId: "",
+    value: defaultAgentConfigValue(),
+  };
+}
+
+function defaultUpdateAgentSessionReq(): UpdateAgentSessionReq {
+  return {
+    sessionId: "",
+  };
+}
+
+function defaultCloseAgentSessionReq(): CloseAgentSessionReq {
+  return {
+    sessionId: "",
+  };
+}
+
+function defaultDeleteAgentSessionReq(): DeleteAgentSessionReq {
+  return {
+    sessionId: "",
+    taskWorkspacePolicy: AgentTaskWorkspaceDeletePolicy.Keep,
+  };
+}
+
+function defaultAgentProviderInfo(): AgentProviderInfo {
+  return {
+    providerId: "",
+    title: "",
+    availability: AgentProviderAvailability.Available,
+    authentication: defaultAgentProviderAuthentication(),
+    capabilities: defaultAgentProviderCapabilities(),
+  };
+}
+
+function defaultAgentProviderAuthentication(): AgentProviderAuthentication {
+  return {
+    type: "notRequired",
+  };
+}
+
+function defaultAgentProviderCapabilities(): AgentProviderCapabilities {
+  return {
+    loadSession: false,
+    resumeSession: false,
+    imagePrompt: false,
+    audioPrompt: false,
+    embeddedContext: false,
+    mcp: false,
+  };
+}
+
+function defaultAgentProvidersTableEvent(): AgentProvidersTableEvent {
+  return {
+    type: "snapshot",
+    rows: [],
+  };
+}
+
+function defaultAgentProjectInfo(): AgentProjectInfo {
+  return {
+    projectId: "",
+    title: "",
+    rootPath: "",
+    availability: AgentProjectAvailability.Available,
+    createdAtMs: 0,
+  };
+}
+
+function defaultAgentProjectsTableEvent(): AgentProjectsTableEvent {
+  return {
+    type: "snapshot",
+    rows: [],
+  };
+}
+
+function defaultAgentSessionWorkspaceFilter(): AgentSessionWorkspaceFilter {
+  return {
+    type: "any",
+  };
+}
+
+function defaultCreateAgentWorkspace(): CreateAgentWorkspace {
+  return {
+    type: "project",
+    projectId: "",
+  };
+}
+
+function defaultAgentTaskWorkspaceSource(): AgentTaskWorkspaceSource {
+  return {
+    type: "empty",
+  };
+}
+
+function defaultAgentTaskWorkspaceStrategy(): AgentTaskWorkspaceStrategy {
+  return {
+    type: "gitWorktree",
+  };
+}
+
+function defaultAgentWorkspaceBinding(): AgentWorkspaceBinding {
+  return {
+    type: "project",
+    projectId: "",
+  };
+}
+
+function defaultAgentSessionSummary(): AgentSessionSummary {
+  return {
+    sessionId: "",
+    providerId: "",
+    cwd: "",
+    workspace: defaultAgentWorkspaceBinding(),
+    attachment: AgentAttachmentState.Dormant,
+    turnState: AgentSessionTurnState.Idle,
+    recoverability: AgentSessionRecoverability.Resumable,
+    archived: false,
+    createdAtMs: 0,
+    updatedAtMs: 0,
+  };
+}
+
+function defaultAgentSessionInfo(): AgentSessionInfo {
+  return {
+    summary: defaultAgentSessionSummary(),
+  };
+}
+
+function defaultAgentFailure(): AgentFailure {
+  return {
+    message: "",
+    retryable: false,
+  };
+}
+
+function defaultAgentSessionCatalogEvent(): AgentSessionCatalogEvent {
+  return {
+    type: "changed",
+    revision: 0,
+    sessionIds: [],
+  };
+}
+
+function defaultActiveAgentSessionsTableEvent(): ActiveAgentSessionsTableEvent {
+  return {
+    type: "snapshot",
+    rows: [],
+  };
+}
+
+function defaultAgentSessionLiveSnapshot(): AgentSessionLiveSnapshot {
+  return {
+    session: defaultAgentSessionInfo(),
+    configOptions: [],
+    latestSeq: 0,
+  };
+}
+
+function defaultAgentSessionEvent(): AgentSessionEvent {
+  return {
+    type: "snapshot",
+    snapshot: defaultAgentSessionLiveSnapshot(),
+  };
+}
+
+function defaultAgentTurnInfo(): AgentTurnInfo {
+  return {
+    turnId: "",
+    sessionId: "",
+    state: defaultAgentTurnState(),
+    createdAtMs: 0,
+  };
+}
+
+function defaultAgentTurnRecord(): AgentTurnRecord {
+  return {
+    turn: defaultAgentTurnInfo(),
+    messages: [],
+    toolCalls: [],
+    permissions: [],
+    terminals: [],
+  };
+}
+
+function defaultAgentViewContextCapture(): AgentViewContextCapture {
+  return {
+    surfaceId: "",
+    entities: [],
+  };
+}
+
+function defaultAgentViewEntity(): AgentViewEntity {
+  return {
+    role: AgentViewEntityRole.Primary,
+    entity: defaultAgentDaemonEntityRef(),
+  };
+}
+
+function defaultAgentDaemonEntityRef(): AgentDaemonEntityRef {
+  return {
+    type: "fileSystemPath",
+    path: "",
+  };
+}
+
+function defaultAgentTurnContext(): AgentTurnContext {
+  return {
+    capturedAtMs: 0,
+    daemonInstanceId: "",
+    view: defaultAgentViewContextCapture(),
+    resources: [],
+    truncated: false,
+  };
+}
+
+function defaultAgentContextResource(): AgentContextResource {
+  return {
+    role: AgentViewEntityRole.Primary,
+    uri: "",
+    name: "",
+  };
+}
+
+function defaultAgentContextSnapshot(): AgentContextSnapshot {
+  return {
+    mimeType: "",
+    text: "",
+  };
+}
+
+function defaultAgentTurnState(): AgentTurnState {
+  return {
+    type: "queued",
+  };
+}
+
+function defaultAgentStopReason(): AgentStopReason {
+  return {
+    type: "endTurn",
+  };
+}
+
+function defaultAgentMessage(): AgentMessage {
+  return {
+    messageId: "",
+    role: defaultAgentMessageRole(),
+    content: [],
+    state: AgentMessageState.Streaming,
+    createdAtMs: 0,
+  };
+}
+
+function defaultAgentMessageRole(): AgentMessageRole {
+  return {
+    type: "user",
+  };
+}
+
+function defaultAgentContent(): AgentContent {
+  return {
+    type: "text",
+    text: "",
+  };
+}
+
+function defaultAgentToolCall(): AgentToolCall {
+  return {
+    toolCallId: "",
+    turnId: "",
+    title: "",
+    kind: defaultAgentToolKind(),
+    status: defaultAgentToolStatus(),
+    locations: [],
+    content: [],
+  };
+}
+
+function defaultAgentToolKind(): AgentToolKind {
+  return {
+    type: "read",
+  };
+}
+
+function defaultAgentToolStatus(): AgentToolStatus {
+  return {
+    type: "pending",
+  };
+}
+
+function defaultAgentToolLocation(): AgentToolLocation {
+  return {
+    path: "",
+  };
+}
+
+function defaultAgentToolCallContent(): AgentToolCallContent {
+  return {
+    type: "content",
+    content: defaultAgentContent(),
+  };
+}
+
+function defaultAgentFileChange(): AgentFileChange {
+  return {
+    path: "",
+    kind: AgentFileChangeKind.Add,
+  };
+}
+
+function defaultAgentPermissionRequest(): AgentPermissionRequest {
+  return {
+    permissionRequestId: "",
+    turnId: "",
+    subject: defaultAgentPermissionSubject(),
+    options: [],
+    state: defaultAgentPermissionState(),
+    createdAtMs: 0,
+  };
+}
+
+function defaultAgentPermissionSubject(): AgentPermissionSubject {
+  return {
+    type: "toolCall",
+    toolCallId: "",
+  };
+}
+
+function defaultAgentPermissionOption(): AgentPermissionOption {
+  return {
+    optionId: "",
+    title: "",
+    kind: defaultAgentPermissionOptionKind(),
+  };
+}
+
+function defaultAgentPermissionOptionKind(): AgentPermissionOptionKind {
+  return {
+    type: "allowOnce",
+  };
+}
+
+function defaultAgentPermissionState(): AgentPermissionState {
+  return {
+    type: "pending",
+  };
+}
+
+function defaultAgentPermissionDecision(): AgentPermissionDecision {
+  return {
+    type: "select",
+    optionId: "",
+  };
+}
+
+function defaultAgentPlan(): AgentPlan {
+  return {
+    entries: [],
+  };
+}
+
+function defaultAgentPlanEntry(): AgentPlanEntry {
+  return {
+    entryId: "",
+    content: "",
+    priority: AgentPlanPriority.Low,
+    status: AgentPlanStatus.Pending,
+  };
+}
+
+function defaultAgentTerminalSummary(): AgentTerminalSummary {
+  return {
+    terminalId: "",
+    command: "",
+    args: [],
+    truncated: false,
+    oldestOutputSeq: 0,
+    latestOutputSeq: 0,
+  };
+}
+
+function defaultAgentTerminalOutputEvent(): AgentTerminalOutputEvent {
+  return {
+    type: "outputChunk",
+    outputSeq: 0,
+    text: "",
+  };
+}
+
+function defaultAgentTerminalExit(): AgentTerminalExit {
+  return {
+  };
+}
+
+function defaultAgentUsage(): AgentUsage {
+  return {
+  };
+}
+
+function defaultAgentConfigOption(): AgentConfigOption {
+  return {
+    configId: "",
+    title: "",
+    input: defaultAgentConfigInput(),
+  };
+}
+
+function defaultAgentConfigInput(): AgentConfigInput {
+  return {
+    type: "select",
+    currentValue: "",
+    options: [],
+  };
+}
+
+function defaultAgentConfigSelectOption(): AgentConfigSelectOption {
+  return {
+    value: "",
+    title: "",
+  };
+}
+
+function defaultAgentConfigValue(): AgentConfigValue {
+  return {
+    type: "string",
+    value: "",
+  };
+}
+
+function defaultAgentSessionTitleUpdate(): AgentSessionTitleUpdate {
+  return {
+    type: "set",
+    value: "",
+  };
+}
+
+function defaultAgentRpcError(): AgentRpcError {
   return {
     type: "failed",
     message: "",
