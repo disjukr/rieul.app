@@ -3,6 +3,7 @@
 ## Layout
 
 - `daemon/core`: shared Rust protocol, config, pairing, and service traits.
+- `daemon/db-schema`: ordered SQLite migrations for daemon state persistence.
 - `daemon/host`: shared daemon runtime for WebTransport, RPC, auth, filesystem
   subscriptions, and TLS.
 - `daemon/windows`: Windows-specific system/user daemon binaries.

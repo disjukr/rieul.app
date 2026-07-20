@@ -4,4 +4,5 @@ pub mod server;
 pub mod state_db;
 pub mod terminal;
 
+mod db_schema;
 mod shell_integration;
