@@ -415,6 +415,31 @@ mod tests {
         assert!(table_exists(&db.connection, "command_jobs"));
         assert!(table_exists(&db.connection, "command_job_output_state"));
         assert!(table_exists(&db.connection, "command_job_output_chunks"));
+        assert!(table_exists(&db.connection, "agent_projects"));
+        assert!(table_exists(&db.connection, "agent_task_workspaces"));
+        assert!(table_exists(&db.connection, "agent_sessions"));
+        assert!(table_exists(&db.connection, "agent_session_catalog_state"));
+        assert!(table_exists(
+            &db.connection,
+            "agent_session_catalog_changes"
+        ));
+        assert!(table_exists(&db.connection, "agent_session_turns"));
+        assert!(table_exists(&db.connection, "agent_turn_contexts"));
+        assert!(table_exists(&db.connection, "agent_turn_context_entities"));
+        assert!(table_exists(&db.connection, "agent_turn_context_resources"));
+        assert!(table_exists(&db.connection, "agent_messages"));
+        assert!(table_exists(&db.connection, "agent_message_contents"));
+        assert!(table_exists(&db.connection, "agent_tool_calls"));
+        assert!(table_exists(&db.connection, "agent_tool_call_locations"));
+        assert!(table_exists(&db.connection, "agent_tool_call_contents"));
+        assert!(table_exists(&db.connection, "agent_permission_requests"));
+        assert!(table_exists(&db.connection, "agent_permission_options"));
+        assert!(table_exists(&db.connection, "agent_turn_plans"));
+        assert!(table_exists(&db.connection, "agent_plan_entries"));
+        assert!(table_exists(&db.connection, "agent_session_config_values"));
+        assert!(table_exists(&db.connection, "agent_terminals"));
+        assert!(table_exists(&db.connection, "agent_terminal_args"));
+        assert!(table_exists(&db.connection, "agent_terminal_output_chunks"));
     }
 
     #[test]
@@ -457,6 +482,197 @@ mod tests {
         };
 
         assert!(err.to_string().contains("newer than supported"));
+    }
+
+    #[test]
+    fn migrates_existing_v1_database_to_agent_schema() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("daemon-state.sqlite3");
+        {
+            let connection = Connection::open(&path).unwrap();
+            connection.execute_batch(MIGRATIONS[0].sql).unwrap();
+            connection.pragma_update(None, "user_version", 1).unwrap();
+        }
+
+        let db = DaemonStateDb::open(&path).unwrap();
+
+        assert_eq!(db.schema_version().unwrap(), SCHEMA_VERSION);
+        assert!(table_exists(&db.connection, "agent_sessions"));
+        assert!(table_exists(&db.connection, "agent_session_turns"));
+    }
+
+    #[test]
+    fn removing_agent_project_preserves_session_reference() {
+        let db = DaemonStateDb::open_in_memory_for_tests().unwrap();
+        db.connection
+            .execute(
+                "INSERT INTO agent_projects (
+                    project_id, title, root_path, created_at_ms
+                ) VALUES (?1, ?2, ?3, ?4)",
+                ("project-1", "Project", "/project", 1_i64),
+            )
+            .unwrap();
+        db.connection
+            .execute(
+                "INSERT INTO agent_sessions (
+                    session_id, provider_id, workspace_kind, project_id, cwd,
+                    archived, created_at_ms, updated_at_ms
+                ) VALUES (?1, ?2, 'project', ?3, ?4, 0, ?5, ?5)",
+                ("session-1", "agent-1", "project-1", "/project", 1_i64),
+            )
+            .unwrap();
+
+        db.connection
+            .execute(
+                "DELETE FROM agent_projects WHERE project_id = ?1",
+                ["project-1"],
+            )
+            .unwrap();
+
+        let project_id = db
+            .connection
+            .query_row(
+                "SELECT project_id FROM agent_sessions WHERE session_id = ?1",
+                ["session-1"],
+                |row| row.get::<_, String>(0),
+            )
+            .unwrap();
+        assert_eq!(project_id, "project-1");
+    }
+
+    #[test]
+    fn normalized_agent_state_cascades_with_session() {
+        let db = DaemonStateDb::open_in_memory_for_tests().unwrap();
+        db.connection
+            .execute_batch(
+                r#"
+                INSERT INTO agent_sessions (
+                  session_id, provider_id, workspace_kind, project_id, cwd,
+                  archived, created_at_ms, updated_at_ms
+                ) VALUES ('session-1', 'agent-1', 'project', 'project-1', '/project', 0, 1, 1);
+
+                INSERT INTO agent_session_turns (
+                  turn_id, session_id, client_request_id, state_kind,
+                  completed_seq, stop_reason_kind, created_at_ms,
+                  finished_at_ms, updated_at_ms
+                ) VALUES (
+                  'turn-1', 'session-1', 'request-1', 'completed',
+                  1, 'end_turn', 1, 2, 2
+                );
+
+                INSERT INTO agent_turn_contexts (
+                  turn_id, captured_at_ms, daemon_instance_id, surface_id, truncated
+                ) VALUES ('turn-1', 1, 'daemon-1', 'daemon.process.detail', 0);
+
+                INSERT INTO agent_turn_context_entities (
+                  turn_id, entity_index, role_kind, entity_kind, filesystem_path
+                ) VALUES ('turn-1', 0, 'primary', 'filesystem_path', '/project');
+
+                INSERT INTO agent_turn_context_resources (
+                  turn_id, resource_index, role_kind, uri, name,
+                  snapshot_mime_type, snapshot_json
+                ) VALUES (
+                  'turn-1', 0, 'primary', 'rieul://process/1', 'Process 1',
+                  'application/json', '{"pid":1}'
+                );
+
+                INSERT INTO agent_messages (
+                  session_id, message_id, turn_id, role_kind, state_kind, created_at_ms
+                ) VALUES ('session-1', 'message-1', 'turn-1', 'assistant', 'complete', 1);
+
+                INSERT INTO agent_message_contents (
+                  session_id, message_id, content_index, content_kind, text_value
+                ) VALUES ('session-1', 'message-1', 0, 'text', 'done');
+
+                INSERT INTO agent_tool_calls (
+                  session_id, tool_call_id, turn_id, title, kind, status_kind
+                ) VALUES ('session-1', 'tool-1', 'turn-1', 'Read file', 'read', 'completed');
+
+                INSERT INTO agent_tool_call_locations (
+                  session_id, tool_call_id, location_index, path, line
+                ) VALUES ('session-1', 'tool-1', 0, '/project/file.txt', 1);
+
+                INSERT INTO agent_tool_call_contents (
+                  session_id, tool_call_id, content_index, content_type,
+                  diff_path, diff_kind, diff_patch
+                ) VALUES (
+                  'session-1', 'tool-1', 0, 'diff',
+                  '/project/file.txt', 'modify', '@@ -1 +1 @@'
+                );
+
+                INSERT INTO agent_permission_requests (
+                  session_id, permission_request_id, turn_id, subject_kind,
+                  action_title, state_kind, selected_option_id, created_at_ms
+                ) VALUES (
+                  'session-1', 'permission-1', 'turn-1', 'action',
+                  'Continue', 'selected', 'allow', 1
+                );
+
+                INSERT INTO agent_permission_options (
+                  session_id, permission_request_id, option_index,
+                  option_id, title, kind
+                ) VALUES (
+                  'session-1', 'permission-1', 0, 'allow', 'Allow', 'allow_once'
+                );
+
+                INSERT INTO agent_turn_plans (session_id, turn_id)
+                VALUES ('session-1', 'turn-1');
+
+                INSERT INTO agent_plan_entries (
+                  session_id, turn_id, entry_id, entry_index,
+                  content, priority_kind, status_kind
+                ) VALUES (
+                  'session-1', 'turn-1', 'entry-1', 0,
+                  'Inspect state', 'medium', 'completed'
+                );
+
+                INSERT INTO agent_session_config_values (
+                  session_id, config_id, value_kind, boolean_value, updated_at_ms
+                ) VALUES ('session-1', 'thinking', 'boolean', 1, 1);
+
+                INSERT INTO agent_terminals (
+                  session_id, terminal_id, turn_id, command, truncated,
+                  oldest_output_seq, latest_output_seq, retained_bytes,
+                  exited, exit_code
+                ) VALUES (
+                  'session-1', 'terminal-1', 'turn-1', 'echo', 0,
+                  1, 1, 3, 1, 0
+                );
+
+                INSERT INTO agent_terminal_args (
+                  session_id, terminal_id, arg_index, value
+                ) VALUES ('session-1', 'terminal-1', 0, 'hi');
+
+                INSERT INTO agent_terminal_output_chunks (
+                  session_id, terminal_id, seq, text, created_at_ms
+                ) VALUES ('session-1', 'terminal-1', 1, 'hi\n', 1);
+
+                DELETE FROM agent_sessions WHERE session_id = 'session-1';
+                "#,
+            )
+            .unwrap();
+
+        for table in [
+            "agent_session_turns",
+            "agent_turn_contexts",
+            "agent_turn_context_entities",
+            "agent_turn_context_resources",
+            "agent_messages",
+            "agent_message_contents",
+            "agent_tool_calls",
+            "agent_tool_call_locations",
+            "agent_tool_call_contents",
+            "agent_permission_requests",
+            "agent_permission_options",
+            "agent_turn_plans",
+            "agent_plan_entries",
+            "agent_session_config_values",
+            "agent_terminals",
+            "agent_terminal_args",
+            "agent_terminal_output_chunks",
+        ] {
+            assert_eq!(table_row_count(&db.connection, table), 0, "{table}");
+        }
     }
 
     #[test]
@@ -592,6 +808,14 @@ mod tests {
             .query_map((job_id, stream), |row| row.get::<_, i64>(0))
             .unwrap()
             .collect::<rusqlite::Result<Vec<_>>>()
+            .unwrap()
+    }
+
+    fn table_row_count(connection: &Connection, table_name: &str) -> i64 {
+        connection
+            .query_row(&format!("SELECT COUNT(*) FROM {table_name}"), [], |row| {
+                row.get(0)
+            })
             .unwrap()
     }
 

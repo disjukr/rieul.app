@@ -15,10 +15,31 @@ struct SystemConfig {
   | Explicit TLS certificate files.
   | If omitted for a `.ts.net` domain, the daemon uses `tailscale cert`.
   tls?: TlsConfig,
+
+  @ description
+  | ACP-compatible agent processes keyed by the provider id exposed through
+  | the agent RPC API. If omitted, no agent providers are configured.
+  agentServers?: AgentServerConfig[string],
 }
 
 @ description - PEM certificate and key file paths used by the WebTransport TLS listener.
 struct TlsConfig {
   certFile: string,
   keyFile: string,
+}
+
+@ description
+| Launch configuration for an ACP-compatible agent process. The daemon starts
+| the command and communicates with it over ACP stdio.
+struct AgentServerConfig {
+  @ description - Executable name or path.
+  command: string,
+
+  @ description - Command-line arguments passed to the executable.
+  args?: string[],
+
+  @ description
+  | Additional environment variables passed to the agent process. These values
+  | override variables inherited from the daemon environment.
+  env?: string[string],
 }
