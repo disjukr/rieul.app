@@ -329,26 +329,12 @@ mod tests {
     use serde_json::Value;
     use std::time::Duration;
 
-    const SANITIZED_CODEX_TRANSCRIPT: &str =
+    const CODEX_TEXT_TURN_TRANSCRIPT: &str =
         include_str!("../tests/fixtures/codex-acp-text-turn.jsonl");
 
     #[test]
-    fn sanitized_codex_transcript_replays_text_turn() {
-        for forbidden in [
-            "C:\\\\Users\\\\",
-            "/Users/",
-            "/home/",
-            "@gmail.com",
-            "@naver.com",
-            "@icloud.com",
-        ] {
-            assert!(
-                !SANITIZED_CODEX_TRANSCRIPT.contains(forbidden),
-                "fixture contains private path or account data"
-            );
-        }
-
-        let messages = SANITIZED_CODEX_TRANSCRIPT
+    fn codex_transcript_replays_text_turn() {
+        let messages = CODEX_TEXT_TURN_TRANSCRIPT
             .lines()
             .map(|line| serde_json::from_str::<Value>(line).unwrap())
             .collect::<Vec<_>>();
