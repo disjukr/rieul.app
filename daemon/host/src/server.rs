@@ -11,12 +11,16 @@ use std::time::Duration;
 use anyhow::{bail, Context, Result};
 use notify::{Event, RecursiveMode, Watcher};
 use rieul_daemon_core::config::{
-    client_credentials_path, daemon_state_database_path, daemon_status_path,
-    load_client_credentials_or_default, load_or_default, load_or_generated_default, save,
-    save_client_credentials, ClientCredentialRecord, ClientCredentials, SystemConfig,
+    client_credentials_path, daemon_agent_workspaces_path, daemon_state_database_path,
+    daemon_status_path, load_client_credentials_or_default, load_or_default,
+    load_or_generated_default, save, save_client_credentials, ClientCredentialRecord,
+    ClientCredentials, SystemConfig,
 };
 use rieul_daemon_core::generated::rpc::{
-    WriteFileReq as GeneratedWriteFileReq, WriteTerminalInputReq as GeneratedWriteTerminalInputReq,
+    AgentProjectsTableEvent, AgentProvidersTableEvent, AgentSessionEvent, CreateAgentProjectReq,
+    CreateAgentSessionReq, CreateAgentTurnReq, ListAgentSessionsReq, RemoveAgentProjectReq,
+    SubscribeAgentSessionReq, WriteFileReq as GeneratedWriteFileReq,
+    WriteTerminalInputReq as GeneratedWriteTerminalInputReq,
 };
 use rieul_daemon_core::pairing::{
     create_pairing_code, issue_client_secret, reissue_client_secret, renew_client_credential,
@@ -64,6 +68,9 @@ use tokio::sync::{watch, Mutex};
 use tracing::{info, warn};
 use web_transport_quinn::proto::ConnectResponse;
 
+use crate::agent::{
+    projects_patch, provider_rows, providers_patch, AgentError, AgentErrorKind, AgentManager,
+};
 use crate::cert::{
     configured_certificate_paths, prepare_server_certificate, uses_scheduled_certificate_refresh,
 };
@@ -104,6 +111,7 @@ type SharedPairingNotifier = Arc<dyn PairingNotifier>;
 type SharedTerminalManager = Arc<TerminalManager>;
 type SharedTerminalBackend = Arc<dyn TerminalBackend>;
 type SharedCommandManager = Arc<CommandManager>;
+type SharedAgentManager = Arc<AgentManager>;
 type SharedTrashEvents = watch::Sender<u64>;
 type SharedSendStream = Arc<Mutex<web_transport_quinn::SendStream>>;
 
@@ -239,6 +247,10 @@ async fn run_system_server_once(
     let credentials_path = client_credentials_path(&config_path);
     let state_db_path = daemon_state_database_path(&config_path);
     let commands = Arc::new(CommandManager::open(DaemonStateDb::open(&state_db_path)?)?);
+    let agents = Arc::new(AgentManager::open(
+        DaemonStateDb::open(&state_db_path)?,
+        daemon_agent_workspaces_path(&config_path),
+    )?);
     info!(
         state_db = %state_db_path.display(),
         "daemon state database ready"
@@ -288,6 +300,7 @@ async fn run_system_server_once(
         let rpc_handlers = rpc_handlers.clone();
         let terminals = terminals.clone();
         let commands = commands.clone();
+        let agents = agents.clone();
         let trash_events = trash_events.clone();
         let pairing_notifier = pairing_notifier.clone();
         tokio::spawn(async move {
@@ -307,6 +320,7 @@ async fn run_system_server_once(
                 rpc_handlers,
                 terminals,
                 commands,
+                agents,
                 trash_events,
                 pairing_notifier,
             )
@@ -839,6 +853,7 @@ async fn handle_request(
     rpc_handlers: SharedHostRpcHandlers,
     terminals: SharedTerminalManager,
     commands: SharedCommandManager,
+    agents: SharedAgentManager,
     trash_events: SharedTrashEvents,
     pairing_notifier: Option<SharedPairingNotifier>,
 ) -> Result<()> {
@@ -862,6 +877,7 @@ async fn handle_request(
                 rpc_handlers,
                 terminals,
                 commands,
+                agents,
                 trash_events,
                 pairing_notifier,
             )
@@ -890,6 +906,7 @@ async fn run_rpc_session(
     rpc_handlers: SharedHostRpcHandlers,
     terminals: SharedTerminalManager,
     commands: SharedCommandManager,
+    agents: SharedAgentManager,
     trash_events: SharedTrashEvents,
     pairing_notifier: Option<SharedPairingNotifier>,
 ) -> Result<()> {
@@ -916,6 +933,7 @@ async fn run_rpc_session(
                 let rpc_handlers = rpc_handlers.clone();
                 let terminals = terminals.clone();
                 let commands = commands.clone();
+                let agents = agents.clone();
                 let trash_events = trash_events.clone();
                 let pairing_notifier = pairing_notifier.clone();
                 let stream_session = session.clone();
@@ -940,6 +958,7 @@ async fn run_rpc_session(
                             rpc_handlers,
                             terminals,
                             commands,
+                            agents,
                             trash_events,
                             pairing_notifier,
                         )
@@ -1025,7 +1044,15 @@ fn build_rpc_handlers(
         .update_schedule(HostRpcHandler::update_schedule_rpc)
         .subscribe_schedules(HostRpcHandler::subscribe_schedules_rpc)
         .delete_schedules(HostRpcHandler::delete_schedules_rpc)
-        .get_schedule_next_runs(HostRpcHandler::get_schedule_next_runs_rpc);
+        .get_schedule_next_runs(HostRpcHandler::get_schedule_next_runs_rpc)
+        .subscribe_agent_providers(HostRpcHandler::subscribe_agent_providers_rpc)
+        .create_agent_project(HostRpcHandler::create_agent_project_rpc)
+        .subscribe_agent_projects(HostRpcHandler::subscribe_agent_projects_rpc)
+        .list_agent_sessions(HostRpcHandler::list_agent_sessions_rpc)
+        .create_agent_session(HostRpcHandler::create_agent_session_rpc)
+        .subscribe_agent_session(HostRpcHandler::subscribe_agent_session_rpc)
+        .create_agent_turn(HostRpcHandler::create_agent_turn_rpc)
+        .remove_agent_project(HostRpcHandler::remove_agent_project_rpc);
 
     if process_resources_in_use.is_some() {
         handlers = handlers.subscribe_process_resources_in_use(
@@ -1188,6 +1215,7 @@ async fn handle_reqres_messages_with_events(
         rpc_handlers,
         terminals,
         commands,
+        agents: test_agents(),
         trash_events,
         pairing_notifier,
     };
@@ -1213,6 +1241,7 @@ async fn handle_reqres_stream(
     rpc_handlers: SharedHostRpcHandlers,
     terminals: SharedTerminalManager,
     commands: SharedCommandManager,
+    agents: SharedAgentManager,
     trash_events: SharedTrashEvents,
     pairing_notifier: Option<SharedPairingNotifier>,
 ) -> Result<()> {
@@ -1233,6 +1262,7 @@ async fn handle_reqres_stream(
         rpc_handlers,
         terminals,
         commands,
+        agents,
         trash_events,
         pairing_notifier,
     };
@@ -1345,6 +1375,7 @@ struct HostRpcContext {
     rpc_handlers: SharedHostRpcHandlers,
     terminals: SharedTerminalManager,
     commands: SharedCommandManager,
+    agents: SharedAgentManager,
     trash_events: SharedTrashEvents,
     pairing_notifier: Option<SharedPairingNotifier>,
 }
@@ -1568,6 +1599,7 @@ struct HostRpcHandler {
     rpc_handlers: SharedHostRpcHandlers,
     terminals: SharedTerminalManager,
     commands: SharedCommandManager,
+    agents: SharedAgentManager,
     trash_events: SharedTrashEvents,
     pairing_notifier: Option<SharedPairingNotifier>,
     send: Option<SharedSendStream>,
@@ -1613,6 +1645,7 @@ impl HostRpcHandler {
             rpc_handlers: context.rpc_handlers,
             terminals: context.terminals,
             commands: context.commands,
+            agents: context.agents,
             trash_events: context.trash_events,
             pairing_notifier: context.pairing_notifier,
             send,
@@ -1889,6 +1922,28 @@ impl HostRpcHandler {
         stream_schedules_subscription(&mut send, commands, request).await
     }
 
+    async fn subscribe_agent_providers(&mut self, _: ()) -> Result<()> {
+        let config_path = self.config_path.clone();
+        let config_state = self.config_state.clone();
+        let send = self.response_stream();
+        let mut send = send.lock().await;
+        stream_agent_providers_subscription(&mut send, config_path, config_state).await
+    }
+
+    async fn subscribe_agent_projects(&mut self, _: ()) -> Result<()> {
+        let agents = self.agents.clone();
+        let send = self.response_stream();
+        let mut send = send.lock().await;
+        stream_agent_projects_subscription(&mut send, agents).await
+    }
+
+    async fn subscribe_agent_session(&mut self, request: SubscribeAgentSessionReq) -> Result<()> {
+        let agents = self.agents.clone();
+        let send = self.response_stream();
+        let mut send = send.lock().await;
+        stream_agent_session_subscription(&mut send, agents, request).await
+    }
+
     fn subscribe_roots_rpc<'a>(&'a mut self, request: ()) -> RpcHandlerFuture<'a, Result<()>> {
         Box::pin(self.subscribe_roots(request))
     }
@@ -1998,6 +2053,27 @@ impl HostRpcHandler {
         request: SubscribeSchedulesReq,
     ) -> RpcHandlerFuture<'a, Result<()>> {
         Box::pin(self.subscribe_schedules(request))
+    }
+
+    fn subscribe_agent_providers_rpc<'a>(
+        &'a mut self,
+        request: (),
+    ) -> RpcHandlerFuture<'a, Result<()>> {
+        Box::pin(self.subscribe_agent_providers(request))
+    }
+
+    fn subscribe_agent_projects_rpc<'a>(
+        &'a mut self,
+        request: (),
+    ) -> RpcHandlerFuture<'a, Result<()>> {
+        Box::pin(self.subscribe_agent_projects(request))
+    }
+
+    fn subscribe_agent_session_rpc<'a>(
+        &'a mut self,
+        request: SubscribeAgentSessionReq,
+    ) -> RpcHandlerFuture<'a, Result<()>> {
+        Box::pin(self.subscribe_agent_session(request))
     }
 }
 
@@ -2374,6 +2450,130 @@ async fn stream_schedules_subscription(
             ),
         )
         .await?;
+    }
+}
+
+async fn stream_agent_providers_subscription(
+    send: &mut web_transport_quinn::SendStream,
+    config_path: PathBuf,
+    config_state: SharedSystemConfig,
+) -> Result<()> {
+    let mut rows = provider_rows(&config_state.lock().await.clone());
+    write_reqres_message(
+        send,
+        stream_start_payload_message(
+            AgentProvidersTableEvent::Snapshot { rows: rows.clone() }.encode(),
+        ),
+    )
+    .await?;
+
+    loop {
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        let config = match load_or_default(&config_path) {
+            Ok(config) => config,
+            Err(error) => {
+                warn!(?error, config = %config_path.display(), "failed to reload agent providers");
+                continue;
+            }
+        };
+        let next_rows = provider_rows(&config);
+        if let Some(event) = providers_patch(&rows, &next_rows) {
+            write_reqres_message(send, stream_chunk_payload_message(event.encode())).await?;
+            rows = next_rows;
+        }
+    }
+}
+
+async fn stream_agent_projects_subscription(
+    send: &mut web_transport_quinn::SendStream,
+    agents: SharedAgentManager,
+) -> Result<()> {
+    let proc_id = ProcId::SubscribeAgentProjects.as_u64();
+    let mut receiver = agents.subscribe_project_events();
+    let mut rows = match agents.projects_snapshot() {
+        Ok(rows) => rows,
+        Err(error) => {
+            write_reqres_message(send, stream_agent_error_message(proc_id, error)).await?;
+            return Ok(());
+        }
+    };
+    write_reqres_message(
+        send,
+        stream_start_payload_message(
+            AgentProjectsTableEvent::Snapshot { rows: rows.clone() }.encode(),
+        ),
+    )
+    .await?;
+
+    loop {
+        if receiver.changed().await.is_err() {
+            return Ok(());
+        }
+        let next_rows = match agents.projects_snapshot() {
+            Ok(rows) => rows,
+            Err(error) => {
+                write_reqres_message(send, stream_agent_error_message(proc_id, error)).await?;
+                return Ok(());
+            }
+        };
+        if let Some(event) = projects_patch(&rows, &next_rows) {
+            write_reqres_message(send, stream_chunk_payload_message(event.encode())).await?;
+            rows = next_rows;
+        }
+    }
+}
+
+async fn stream_agent_session_subscription(
+    send: &mut web_transport_quinn::SendStream,
+    agents: SharedAgentManager,
+    request: SubscribeAgentSessionReq,
+) -> Result<()> {
+    let proc_id = ProcId::SubscribeAgentSession.as_u64();
+    let subscription = match agents.subscribe_session(&request.session_id) {
+        Ok(subscription) => subscription,
+        Err(error) => {
+            write_reqres_message(send, stream_agent_error_message(proc_id, error)).await?;
+            return Ok(());
+        }
+    };
+    write_reqres_message(
+        send,
+        stream_start_payload_message(
+            AgentSessionEvent::Snapshot {
+                snapshot: subscription.snapshot,
+            }
+            .encode(),
+        ),
+    )
+    .await?;
+
+    let Some(mut events) = subscription.events else {
+        std::future::pending::<()>().await;
+        unreachable!("a dormant agent session subscription remains open")
+    };
+    loop {
+        match events.recv().await {
+            Ok(event) => {
+                write_reqres_message(send, stream_chunk_payload_message(event.encode())).await?;
+            }
+            Err(tokio::sync::broadcast::error::RecvError::Closed) => return Ok(()),
+            Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
+                write_reqres_message(
+                    send,
+                    stream_agent_error_message(
+                        proc_id,
+                        AgentError {
+                            kind: AgentErrorKind::Failed,
+                            message: format!(
+                                "agent session subscription fell behind by {skipped} events"
+                            ),
+                        },
+                    ),
+                )
+                .await?;
+                return Ok(());
+            }
+        }
     }
 }
 
@@ -3661,6 +3861,7 @@ async fn handle_rpc_messages_with_events(
         rpc_handlers,
         terminals,
         commands,
+        agents: test_agents(),
         trash_events,
         pairing_notifier,
     };
@@ -4174,6 +4375,93 @@ impl HostRpcHandler {
         }
     }
 
+    async fn create_agent_project(
+        &mut self,
+        request: CreateAgentProjectReq,
+    ) -> Result<UnaryRpcOutcome> {
+        let proc_id = ProcId::CreateAgentProject.as_u64();
+        match self.agents.create_project(request) {
+            Ok(project) => Ok(RpcResponse::CreateAgentProject(project).into()),
+            Err(error) => Ok(UnaryRpcOutcome::Message(agent_error_message(
+                proc_id, error,
+            ))),
+        }
+    }
+
+    async fn list_agent_sessions(
+        &mut self,
+        request: ListAgentSessionsReq,
+    ) -> Result<UnaryRpcOutcome> {
+        let proc_id = ProcId::ListAgentSessions.as_u64();
+        match self.agents.list_sessions(request) {
+            Ok(response) => Ok(RpcResponse::ListAgentSessions(response).into()),
+            Err(error) => Ok(UnaryRpcOutcome::Message(agent_error_message(
+                proc_id, error,
+            ))),
+        }
+    }
+
+    async fn create_agent_session(
+        &mut self,
+        request: CreateAgentSessionReq,
+    ) -> Result<UnaryRpcOutcome> {
+        let proc_id = ProcId::CreateAgentSession.as_u64();
+        let config = match load_runtime_config(&self.config_path, &self.config_state).await {
+            Ok(config) => config,
+            Err(error) => {
+                return Ok(UnaryRpcOutcome::Message(agent_error_message(
+                    proc_id,
+                    AgentError {
+                        kind: AgentErrorKind::Failed,
+                        message: format!("load agent configuration: {error:#}"),
+                    },
+                )));
+            }
+        };
+        let Some(provider) = config.agent_servers.get(&request.provider_id).cloned() else {
+            return Ok(UnaryRpcOutcome::Message(agent_error_message(
+                proc_id,
+                AgentError {
+                    kind: AgentErrorKind::InvalidArgument,
+                    message: "providerId is not configured in agentServers".to_string(),
+                },
+            )));
+        };
+        match self
+            .agents
+            .create_and_attach_session(request, provider)
+            .await
+        {
+            Ok(session) => Ok(RpcResponse::CreateAgentSession(session).into()),
+            Err(error) => Ok(UnaryRpcOutcome::Message(agent_error_message(
+                proc_id, error,
+            ))),
+        }
+    }
+
+    async fn create_agent_turn(&mut self, request: CreateAgentTurnReq) -> Result<UnaryRpcOutcome> {
+        let proc_id = ProcId::CreateAgentTurn.as_u64();
+        match self.agents.create_turn(request) {
+            Ok(turn) => Ok(RpcResponse::CreateAgentTurn(turn).into()),
+            Err(error) => Ok(UnaryRpcOutcome::Message(agent_error_message(
+                proc_id, error,
+            ))),
+        }
+    }
+
+    async fn remove_agent_project(
+        &mut self,
+        request: RemoveAgentProjectReq,
+    ) -> Result<UnaryRpcOutcome> {
+        let proc_id = ProcId::RemoveAgentProject.as_u64();
+        match self.agents.remove_project(&request.project_id) {
+            Ok(()) => Ok(RpcResponse::RemoveAgentProject.into()),
+            Err(error) => Ok(UnaryRpcOutcome::Message(agent_error_message(
+                proc_id, error,
+            ))),
+        }
+    }
+
     fn get_daemon_info_rpc<'a>(
         &'a mut self,
         request: (),
@@ -4340,6 +4628,41 @@ impl HostRpcHandler {
         request: GetScheduleNextRunsReq,
     ) -> RpcHandlerFuture<'a, Result<UnaryRpcOutcome>> {
         Box::pin(self.get_schedule_next_runs(request))
+    }
+
+    fn create_agent_project_rpc<'a>(
+        &'a mut self,
+        request: CreateAgentProjectReq,
+    ) -> RpcHandlerFuture<'a, Result<UnaryRpcOutcome>> {
+        Box::pin(self.create_agent_project(request))
+    }
+
+    fn list_agent_sessions_rpc<'a>(
+        &'a mut self,
+        request: ListAgentSessionsReq,
+    ) -> RpcHandlerFuture<'a, Result<UnaryRpcOutcome>> {
+        Box::pin(self.list_agent_sessions(request))
+    }
+
+    fn create_agent_session_rpc<'a>(
+        &'a mut self,
+        request: CreateAgentSessionReq,
+    ) -> RpcHandlerFuture<'a, Result<UnaryRpcOutcome>> {
+        Box::pin(self.create_agent_session(request))
+    }
+
+    fn create_agent_turn_rpc<'a>(
+        &'a mut self,
+        request: CreateAgentTurnReq,
+    ) -> RpcHandlerFuture<'a, Result<UnaryRpcOutcome>> {
+        Box::pin(self.create_agent_turn(request))
+    }
+
+    fn remove_agent_project_rpc<'a>(
+        &'a mut self,
+        request: RemoveAgentProjectReq,
+    ) -> RpcHandlerFuture<'a, Result<UnaryRpcOutcome>> {
+        Box::pin(self.remove_agent_project(request))
     }
 }
 
@@ -4525,6 +4848,17 @@ fn test_commands() -> SharedCommandManager {
     Arc::new(CommandManager::open(DaemonStateDb::open_in_memory_for_tests().unwrap()).unwrap())
 }
 
+#[cfg(test)]
+fn test_agents() -> SharedAgentManager {
+    Arc::new(
+        AgentManager::open(
+            DaemonStateDb::open_in_memory_for_tests().unwrap(),
+            std::env::temp_dir().join("Rieul-test-agent-workspaces"),
+        )
+        .unwrap(),
+    )
+}
+
 fn client_info_from_record(record: &ClientCredentialRecord) -> ClientInfo {
     ClientInfo {
         client_id: record.client_id.clone(),
@@ -4685,6 +5019,25 @@ fn command_error_message(proc_id: u64, err: CommandError) -> ReqResMessage {
 
 fn stream_command_error_message(proc_id: u64, err: CommandError) -> ReqResMessage {
     stream_error_message(proc_id, command_error_code(err.kind), &err.message)
+}
+
+fn agent_error_message(proc_id: u64, error: AgentError) -> ReqResMessage {
+    error_message(proc_id, agent_error_code(error.kind), &error.message)
+}
+
+fn stream_agent_error_message(proc_id: u64, error: AgentError) -> ReqResMessage {
+    stream_error_message(proc_id, agent_error_code(error.kind), &error.message)
+}
+
+fn agent_error_code(kind: AgentErrorKind) -> &'static str {
+    match kind {
+        AgentErrorKind::Failed => "failed",
+        AgentErrorKind::NotFound => "not_found",
+        AgentErrorKind::InvalidArgument => "invalid_argument",
+        AgentErrorKind::Conflict => "conflict",
+        AgentErrorKind::Unavailable => "unavailable",
+        AgentErrorKind::PermissionDenied => "permission_denied",
+    }
 }
 
 fn command_error_code(kind: CommandErrorKind) -> &'static str {
@@ -4960,6 +5313,62 @@ mod tests {
                 .map(|proc| proc.as_u64())
                 .collect::<Vec<_>>()
         );
+    }
+
+    #[tokio::test]
+    async fn create_agent_session_reports_unavailable_agent_process() {
+        let dir = tempfile::tempdir().unwrap();
+        let config_path = dir.path().join("rieul.yaml");
+        let credentials_path = client_credentials_path(&config_path);
+        let config = SystemConfig {
+            agent_servers: BTreeMap::from([(
+                "test-agent".to_string(),
+                rieul_daemon_core::config::AgentServerConfig {
+                    command: "test-agent".to_string(),
+                    args: Vec::new(),
+                    env: BTreeMap::new(),
+                },
+            )]),
+            ..SystemConfig::default()
+        };
+        save(&config_path, &config).unwrap();
+        let request = CreateAgentSessionReq {
+            provider_id: "test-agent".to_string(),
+            workspace: rieul_daemon_core::generated::rpc::CreateAgentWorkspace::Task {
+                source: rieul_daemon_core::generated::rpc::AgentTaskWorkspaceSource::Empty,
+            },
+            title: Some("Test session".to_string()),
+            creation_request_id: "globally-unique-request".to_string(),
+        };
+
+        let responses = handle_rpc_messages(
+            vec![request_message(
+                ProcId::CreateAgentSession,
+                Some(request.encode()),
+            )],
+            &config_path,
+            &credentials_path,
+            Arc::new(Mutex::new(config)),
+            Arc::new(Mutex::new(ClientCredentials::default())),
+            test_pairing_challenge(),
+            Arc::new(Mutex::new(RpcSessionState {
+                session_id: 1,
+                authenticated_client_id: Some("arbitrary-client".to_string()),
+            })),
+            test_files(),
+            test_terminals(),
+            None,
+        )
+        .await
+        .unwrap();
+
+        assert!(matches!(
+            responses.as_slice(),
+            [ReqResMessage::ResponseUnaryError {
+                error_kind: RpcErrorKind::Method,
+                ..
+            }]
+        ));
     }
 
     #[tokio::test]

@@ -277,8 +277,10 @@ struct CreateAgentSessionReq {
   title?: string,
 
   @ id - 4
-  @ description - Idempotency key scoped to the authenticated client.
-  clientRequestId: string,
+  @ description
+  | Daemon-wide idempotency key for session creation. Clients should generate a
+  | globally unique value and reuse it only when retrying the same request.
+  creationRequestId: string,
 }
 
 struct SubscribeAgentSessionReq {

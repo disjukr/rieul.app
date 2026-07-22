@@ -62,6 +62,7 @@ CREATE TABLE agent_sessions (
   archived INTEGER NOT NULL CHECK (archived IN (0, 1)),
   latest_seq INTEGER NOT NULL DEFAULT 0 CHECK (latest_seq >= 0),
   last_message_preview TEXT,
+  creation_request_id TEXT NOT NULL,
   created_at_ms INTEGER NOT NULL,
   updated_at_ms INTEGER NOT NULL,
   UNIQUE (provider_id, provider_session_id),
@@ -77,6 +78,9 @@ CREATE INDEX agent_sessions_catalog_idx
 
 CREATE INDEX agent_sessions_project_idx
   ON agent_sessions(workspace_kind, project_id, archived, updated_at_ms DESC, session_id DESC);
+
+CREATE UNIQUE INDEX agent_sessions_creation_request_idx
+  ON agent_sessions(creation_request_id);
 
 CREATE TABLE agent_session_catalog_state (
   singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
