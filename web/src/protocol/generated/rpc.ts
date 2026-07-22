@@ -1156,7 +1156,7 @@ export interface CreateAgentSessionReq {
   providerId: string;
   workspace: CreateAgentWorkspace;
   title?: string;
-  clientRequestId: string;
+  creationRequestId: string;
 }
 
 export interface SubscribeAgentSessionReq {
@@ -7530,7 +7530,7 @@ export function encodeCreateAgentSessionReqValue(value: CreateAgentSessionReq): 
   fields.set(1, text(required(value.providerId, "CreateAgentSessionReq.providerId")));
   fields.set(2, encodeCreateAgentWorkspaceValue(required(value.workspace, "CreateAgentSessionReq.workspace")));
   if (value.title !== undefined) fields.set(3, text(value.title));
-  fields.set(4, text(required(value.clientRequestId, "CreateAgentSessionReq.clientRequestId")));
+  fields.set(4, text(required(value.creationRequestId, "CreateAgentSessionReq.creationRequestId")));
   return fields;
 }
 
@@ -7540,7 +7540,7 @@ export function decodeCreateAgentSessionReqValue(value: CborValue): CreateAgentS
     providerId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
     workspace: fieldOrDefault(fields.get(2), (value) => decodeCreateAgentWorkspaceValue(value), () => defaultCreateAgentWorkspace()),
     title: optionalField(fields.get(3), (value) => textValue(value)),
-    clientRequestId: fieldOrDefault(fields.get(4), (value) => textValue(value), () => ""),
+    creationRequestId: fieldOrDefault(fields.get(4), (value) => textValue(value), () => ""),
   };
 }
 
@@ -10944,7 +10944,7 @@ function defaultCreateAgentSessionReq(): CreateAgentSessionReq {
   return {
     providerId: "",
     workspace: defaultCreateAgentWorkspace(),
-    clientRequestId: "",
+    creationRequestId: "",
   };
 }
 

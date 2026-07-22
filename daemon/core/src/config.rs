@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -29,6 +30,8 @@ pub struct SystemConfig {
     pub domain: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tls: Option<TlsConfig>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub agent_servers: BTreeMap<String, AgentServerConfig>,
 }
 
 impl Default for SystemConfig {
@@ -37,8 +40,19 @@ impl Default for SystemConfig {
             listen_addr: default_listen_addr(),
             domain: None,
             tls: None,
+            agent_servers: BTreeMap::new(),
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentServerConfig {
+    pub command: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub args: Vec<String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub env: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -156,6 +170,10 @@ pub fn daemon_status_path(config_path: impl AsRef<Path>) -> PathBuf {
 
 pub fn daemon_state_database_path(config_path: impl AsRef<Path>) -> PathBuf {
     config_path.as_ref().with_file_name("daemon-state.sqlite3")
+}
+
+pub fn daemon_agent_workspaces_path(config_path: impl AsRef<Path>) -> PathBuf {
+    config_path.as_ref().with_file_name("agent-workspaces")
 }
 
 pub fn profile_id_for_config_path(config_path: impl AsRef<Path>) -> String {
@@ -322,6 +340,14 @@ mod tests {
                 cert_file: r"C:\rieul\cert.pem".to_string(),
                 key_file: r"C:\rieul\key.pem".to_string(),
             }),
+            agent_servers: BTreeMap::from([(
+                "codex".to_string(),
+                AgentServerConfig {
+                    command: "codex".to_string(),
+                    args: vec!["acp".to_string()],
+                    env: BTreeMap::from([("RUST_LOG".to_string(), "info".to_string())]),
+                },
+            )]),
         };
         save(&path, &config).unwrap();
         assert_eq!(load_or_default(&path).unwrap(), config);
@@ -335,7 +361,29 @@ mod tests {
         assert!(yaml.contains("listenAddr:"));
         assert!(!yaml.contains("domain:"));
         assert!(!yaml.contains("tls:"));
+        assert!(!yaml.contains("agentServers:"));
         assert_eq!(serde_yaml::from_str::<SystemConfig>(&yaml).unwrap(), config);
+    }
+
+    #[test]
+    fn parses_agent_servers_without_type_field() {
+        let config: SystemConfig = serde_yaml::from_str(
+            r#"
+listenAddr: 0.0.0.0:9012
+agentServers:
+  codex:
+    command: codex
+    args: [acp]
+    env:
+      RUST_LOG: info
+"#,
+        )
+        .unwrap();
+
+        let codex = &config.agent_servers["codex"];
+        assert_eq!(codex.command, "codex");
+        assert_eq!(codex.args, ["acp"]);
+        assert_eq!(codex.env["RUST_LOG"], "info");
     }
 
     #[test]
@@ -355,6 +403,7 @@ mod tests {
                 listen_addr: default_listen_addr(),
                 domain: None,
                 tls: None,
+                agent_servers: BTreeMap::new(),
             }
         );
     }
@@ -393,6 +442,20 @@ mod tests {
             PathBuf::from("config-root")
                 .join("Rieul")
                 .join("daemon-state.sqlite3")
+        );
+    }
+
+    #[test]
+    fn agent_workspaces_path_lives_next_to_config() {
+        let config_path = PathBuf::from("config-root")
+            .join("Rieul")
+            .join("rieul.yaml");
+
+        assert_eq!(
+            daemon_agent_workspaces_path(&config_path),
+            PathBuf::from("config-root")
+                .join("Rieul")
+                .join("agent-workspaces")
         );
     }
 
