@@ -125,14 +125,21 @@ export function PairingView(props: {
               borderColor: "#ffffff61",
             }}
           >
-            <text
-              testId="route-title"
-              style={{ ...text, fontSize: 18, lineHeight: 27, fontWeight: 800 }}
-            >
-              {route.kind === "confirmPairing"
-                ? "Select the code shown on your client."
-                : "Pairing code"}
-            </text>
+            <div style={{ ...row, height: 27 }}>
+              <text
+                testId="route-title"
+                style={{
+                  ...text,
+                  fontSize: 18,
+                  lineHeight: 27,
+                  fontWeight: 800,
+                }}
+              >
+                {route.kind === "confirmPairing"
+                  ? "Select the code shown on your client."
+                  : "Pairing code"}
+              </text>
+            </div>
             <Show when={route.kind === "pairingCode"}>
               <text
                 testId="expiry"
@@ -268,7 +275,12 @@ export function PairingView(props: {
               <div style={{ ...row, gap: 6 }}>
                 <svg
                   source={icon("alert")}
-                  style={{ width: 14, height: 14, flexShrink: 0 }}
+                  style={{
+                    width: 14,
+                    height: 14,
+                    flexShrink: 0,
+                    color: "#b42318",
+                  }}
                 />
                 <text
                   testId="incorrect"
@@ -359,7 +371,7 @@ export function PairingView(props: {
                 </Show>
                 <svg
                   source={icon("clipboard")}
-                  style={{ width: 17, height: 17 }}
+                  style={{ width: 17, height: 17, color: "#20242d" }}
                 />
               </div>
               <div style={{ ...row, gap: 5.04 }}>
@@ -490,7 +502,14 @@ export function PairingView(props: {
             onClick={p.action}
             style={{ ...button, width: 34, height: 34, flexShrink: 0 }}
           >
-            <svg source={icon(p.image)} style={{ width: 15, height: 15 }} />
+            <svg
+              source={icon(p.image)}
+              style={{
+                width: 15,
+                height: 15,
+                color: p.image === "check" ? "#4f8cff" : "#20242d",
+              }}
+            />
           </Button>
         </div>
       </div>

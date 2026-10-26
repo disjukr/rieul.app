@@ -51,6 +51,12 @@ Git. Actual Mac CUA comparison is pending manual screen unlock and the separate
 visual review; source matching and app-generated CI captures are not OS-input
 or pixel-perfect proof. The restored revision requires its own all-platform CI.
 
+Offscreen native captures subsequently verified the info QR (after asynchronous
+decode), pairing-code and confirmation layouts. Explicit SVG native colors
+restore visible icons. A 27px title row fixes a GPUiX text-paint offset seen in
+the pairing-code capture despite correct element bounds. These captures remain
+outside Git and do not replace the pending actual Mac CUA comparison.
+
 The first restored CI (`3009fef`, run40353325740) caught an early native image
 upload from the Solid ref callback before GPUiX assigned the element ID. Upload
 now waits for the root's synchronous creation flush and skips disposed views.
