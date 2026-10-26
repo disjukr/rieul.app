@@ -59,6 +59,15 @@ jobs:
         env:
           RIEUL_GUI_EXECUTABLE: ${{ github.workspace }}/target/release/Rieul-desktop.app/Contents/MacOS/rieul-gui
         run: node scripts/macos-native-qa.mjs
+      - name: Build installer wrapper and validate signed PKG payload without installation
+        run: |
+          cargo build -p rieul-macos-daemon --release --bin rieul-macos-system --bin rieul-macos-launcher --locked
+          bash scripts/macos/package-desktop-pkg.sh --skip-build --gui-app "$PWD/target/release/Rieul-desktop.app" --app-sign - --out-dir "$PWD/dist/candidate"
+          pkgutil --expand-full dist/candidate/rieul-macos-desktop-0.1.0.pkg "$RUNNER_TEMP/rieul-expanded"
+          GUI=$(find "$RUNNER_TEMP/rieul-expanded" -path '*/Rieul.app/Contents/MacOS/rieul-gui' -type f -print -quit)
+          test -n "$GUI"
+          "$GUI" --verify-bundle
+          codesign --verify --deep --strict "${GUI%/Contents/MacOS/rieul-gui}"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -67,7 +76,7 @@ jobs:
           retention-days: 3
   windows:
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -87,3 +96,25 @@ jobs:
       - name: Build and verify embedded runtimes and native payload
         run: node pairing/scripts/package.mjs
       - run: node pairing/scripts/bundle-qa.mjs --bundle target/release/rieul-windows-gui
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Build unsigned installers and inspect payloads without installing
+        shell: pwsh
+        run: |
+          pnpm install --frozen-lockfile
+          cargo build -p rieul-windows-daemon --release --bin rieul-windows-system --bin rieul-windows-user --locked
+          if ($LASTEXITCODE) { throw 'Daemon build failed' }
+          dotnet tool restore
+          dotnet tool run wix -- eula accept wix7
+          $gui = Join-Path $PWD 'target/release/rieul-windows-gui'
+          ./scripts/windows/package-desktop-msi.ps1 -SkipBuild -GuiBundle $gui -Version 0.1.0
+          ./scripts/windows/package-desktop-msix.ps1 -SkipBuild -SkipSign -GuiBundle $gui -Version 0.1.0
+          dotnet tool run wix -- msi decompile dist/windows/rieul-windows-desktop-0.1.0.msi -x tmp/msi-unpacked -o tmp/msi-unpacked.wxs
+          ./scripts/windows/verify-msi-payload.ps1 -Source dist/windows/rieul-windows-desktop-0.1.0-msi/Package.wxs -Extracted tmp/msi-unpacked -GuiBundle $gui
+          $makeappx = Get-ChildItem (Join-Path ${env:ProgramFiles(x86)} 'Windows Kits/10/bin') -Filter makeappx.exe -Recurse | Where-Object FullName -Match '\\x64\\' | Sort-Object FullName -Descending | Select-Object -First 1
+          & $makeappx.FullName unpack /p dist/windows/rieul-windows-desktop-0.1.0.unsigned.msix /d tmp/msix-unpacked
+          if ($LASTEXITCODE) { throw 'MSIX unpack failed' }
+          & ./tmp/msix-unpacked/gui/rieul-windows-gui.exe --verify-bundle
+          if ($LASTEXITCODE) { throw 'MSIX GUI verification failed' }

@@ -8,6 +8,7 @@ PACKAGE_IDENTIFIER="app.rieul.desktop"
 APP_SIGN_IDENTITY=""
 INSTALLER_SIGN_IDENTITY=""
 SKIP_BUILD=0
+GUI_APP_OVERRIDE=""
 
 usage() {
   cat <<'EOF'
@@ -49,6 +50,10 @@ while [[ $# -gt 0 ]]; do
     --skip-build)
       SKIP_BUILD=1
       shift
+      ;;
+    --gui-app)
+      GUI_APP_OVERRIDE="${2:?missing value for --gui-app}"
+      shift 2
       ;;
     -h | --help)
       usage
@@ -105,6 +110,9 @@ app_build_args=(
 )
 if [[ "$SKIP_BUILD" == "1" ]]; then
   app_build_args+=(--skip-build)
+fi
+if [[ -n "$GUI_APP_OVERRIDE" ]]; then
+  app_build_args+=(--gui-app "$GUI_APP_OVERRIDE")
 fi
 if [[ -n "$APP_SIGN_IDENTITY" ]]; then
   app_build_args+=(--sign "$APP_SIGN_IDENTITY")

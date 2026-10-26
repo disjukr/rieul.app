@@ -38,3 +38,12 @@ No main push of this continuation has occurred yet. Prior opt-in main remains in
 - Local MSIX invocation was denied before script execution by PowerShell AuthorizationManager (UnauthorizedAccess). No execution-policy change or retry. CI packaging verification remains to be added.
 - Official Node 24.13.0 BUILDING.md requires macOS >=13.5, incompatible with existing advertised 13.0. Embedded runtime changed to official SHA-pinned Node22.22.0 (official support >=11.0); build tooling remains Node24. Added actual Mach-O deployment target CI assertion <=13.0. New runtime bundle checks not yet passed.
 - Default CEF/Deno paths remain preserved; complete removal/main switch not yet completed. No new main push. Current edits are runtime compatibility and candidate packaging source only.
+
+## Additional verified work
+
+- Node22.22.0 bundled Windows build tmp/complete-bundle-3 verified. Full fixture native QA passed: pairing/artifacts/qa-1793006311278/evidence.json (3 replacement/accept/cancel cycles, close/reopen, malformed pending survival, disconnect, duplicate activation, native Quit command). A prior QA helper run failed because its own Bun path was absent; corrected by specifying the bundled Bun absolute path. Failed result is not counted.
+- Bundle3 integrity/traversal/forced launcher cleanup passed; runtime upgrade file locks released after 63ms.
+- SHA256 comparison verified all 3,752 extracted MSI GUI payload files against bundle2. No MSI execution.
+- Typecheck passed; controller 9 tests/468 assertions and Node IPC5 + Mach-O parser1 tests passed. Rust launcher2 tests passed.
+- CI40297980044: Windows passed. ARM64 failed in new OS-floor checker because the checker misread LC_BUILD_VERSION linker tool version1167.5 as OS floor; fixed parser and added regression excluding linker/SDK/dylib versions. Intel official build remains running as of this checkpoint. No unsupported OS floor is assumed yet.
+- Added candidate Mac PKG/signing/extracted-payload CI, Windows unsigned MSI/MSIX payload CI and per-instance Mac notification identifiers. These source additions are not yet CI-verified. Existing CEF/Deno defaults remain intact.

@@ -8,7 +8,7 @@
   },
   "scripts": {
     "dev": "node src/host.ts",
-    "test": "bun test tests/controller.test.ts && node --test tests/ipc.test.ts",
+    "test": "bun test tests/controller.test.ts && node --test tests/ipc.test.ts tests/macos-target.test.mjs",
     "check": "tsc --noEmit",
     "build": "bun scripts/build.ts",
     "qa:native": "node scripts/native-qa.mjs"

@@ -7,6 +7,7 @@ APP_NAME="Rieul"
 SIGN_IDENTITY=""
 SKIP_BUILD=0
 SKIP_DMG=0
+GUI_APP_OVERRIDE=""
 
 usage() {
   cat <<'EOF'
@@ -19,6 +20,7 @@ Options:
   --sign IDENTITY       Code signing identity for codesign.
   --skip-build          Reuse target/release daemon binaries and Deno Desktop app.
   --skip-dmg            Build only the .app bundle.
+  --gui-app PATH        Use an already built candidate app (requires --skip-build).
   -h, --help            Show this help.
 EOF
 }
@@ -105,6 +107,10 @@ while [[ $# -gt 0 ]]; do
       SKIP_DMG=1
       shift
       ;;
+    --gui-app)
+      GUI_APP_OVERRIDE="${2:?missing value for --gui-app}"
+      shift 2
+      ;;
     -h | --help)
       usage
       exit 0
@@ -179,6 +185,10 @@ RELEASE_DIR="$REPO_ROOT/target/release"
 SYSTEM_EXE="$RELEASE_DIR/rieul-macos-system"
 LAUNCHER_EXE="$RELEASE_DIR/rieul-macos-launcher"
 GUI_APP="$RELEASE_DIR/Rieul-desktop.app"
+if [[ -n "$GUI_APP_OVERRIDE" ]]; then
+  [[ "$SKIP_BUILD" == "1" ]] || { echo '--gui-app requires --skip-build' >&2; exit 2; }
+  GUI_APP="$GUI_APP_OVERRIDE"
+fi
 if [[ ! -x "$SYSTEM_EXE" ]]; then
   echo "Missing release binary: $SYSTEM_EXE" >&2
   exit 1
@@ -191,7 +201,12 @@ if [[ ! -d "$GUI_APP" ]]; then
   echo "Missing Deno Desktop app: $GUI_APP" >&2
   exit 1
 fi
-if [[ "$SKIP_BUILD" == "1" && -n "$SIGN_IDENTITY" && "$SIGN_IDENTITY" != "-" ]]; then
+NATIVE_BUNDLE=0
+if [[ -f "$GUI_APP/Contents/Resources/pairing/bundle.json" ]]; then
+  NATIVE_BUNDLE=1
+  "$GUI_APP/Contents/MacOS/rieul-gui" --verify-bundle
+fi
+if [[ "$NATIVE_BUNDLE" == "0" && "$SKIP_BUILD" == "1" && -n "$SIGN_IDENTITY" && "$SIGN_IDENTITY" != "-" ]]; then
   signing_details="$(codesign -dvv "$GUI_APP" 2>&1)"
   if [[ "$signing_details" != *"Authority=$SIGN_IDENTITY"* ]]; then
     echo "The reused Deno Desktop app was not signed by $SIGN_IDENTITY." >&2
@@ -510,6 +525,16 @@ if [[ -n "$SIGN_IDENTITY" ]]; then
   deno_codesign_args+=(--entitlements "$DENO_ENTITLEMENTS")
 fi
 
+if [[ "$NATIVE_BUNDLE" == "1" ]]; then
+  # Every runtime/addon/bridge is signed independently before the enclosing app.
+  while IFS= read -r -d '' native_file; do
+    if /usr/bin/file -b "$native_file" | grep -q 'Mach-O'; then
+      codesign "${deno_codesign_args[@]}" "$native_file"
+    fi
+  done < <(find "$APP_PATH/Contents/Resources/pairing" -type f -print0)
+  # Signing modifies Mach-O bytes, so regenerate hashes before outer signing.
+  node "$REPO_ROOT/pairing/scripts/refresh-manifest.mjs" "$APP_PATH/Contents/Resources/pairing"
+else
 # Deno signs the CEF framework itself, but its nested dylibs may retain ad-hoc
 # signatures. Notarization validates each Mach-O file independently, so sign
 # the libraries first and then refresh the enclosing framework signature.
@@ -530,6 +555,7 @@ while IFS= read -r -d '' helper_app; do
     --preserve-metadata=identifier \
     "$helper_app"
 done < <(find "$APP_PATH/Contents/Frameworks" -maxdepth 1 -type d -name '*.app' -print0)
+fi
 
 codesign "${deno_codesign_args[@]}" \
   --preserve-metadata=identifier \
@@ -539,6 +565,10 @@ codesign "${codesign_args[@]}" \
 codesign "${codesign_args[@]}" \
   "$APP_PATH/Contents/MacOS/rieul-macos-launcher"
 codesign "${codesign_args[@]}" "$APP_PATH"
+if [[ "$NATIVE_BUNDLE" == "1" ]]; then
+  "$APP_PATH/Contents/MacOS/rieul-gui" --verify-bundle
+  codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+fi
 
 if [[ "$SKIP_DMG" == "1" ]]; then
   echo "Wrote app: $APP_PATH"

@@ -49,10 +49,15 @@ fn gui_executable_path() -> Result<PathBuf> {
     }
 
     let launcher = std::env::current_exe().context("resolve launcher executable path")?;
-    let executable = launcher
+    let directory = launcher
         .parent()
-        .ok_or_else(|| anyhow!("launcher executable has no parent directory"))?
-        .join("laufey");
+        .ok_or_else(|| anyhow!("launcher executable has no parent directory"))?;
+    let native = directory.join("rieul-gui");
+    let executable = if native.is_file() {
+        native
+    } else {
+        directory.join("laufey")
+    };
     if executable.is_file() {
         Ok(executable)
     } else {
