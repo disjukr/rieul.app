@@ -38,6 +38,8 @@ jobs:
         run: |
           bun run check
           bun run test
+      - name: Verify development process ownership without starting services
+        run: bash scripts/macos/test-dev-process-scope.sh
       - name: Compile and exercise AppKit bridge
         run: |
           sh pairing/scripts/build-bridge-macos.sh
@@ -94,6 +96,9 @@ jobs:
           bun run check
           bun run test
       - run: cargo test -p rieul-gui-launcher --locked
+      - name: Verify development process ownership predicates without starting services
+        shell: pwsh
+        run: ./scripts/windows/test-dev-process-scope.ps1
       - name: Build and verify embedded runtimes and native payload
         run: node pairing/scripts/package.mjs
       - run: node pairing/scripts/bundle-qa.mjs --bundle target/release/rieul-windows-gui

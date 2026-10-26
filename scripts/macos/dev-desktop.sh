@@ -22,34 +22,13 @@ GUI_ERR_LOG="$LOG_DIR/macos-gui.err.log"
 WEB_OUT_LOG="$LOG_DIR/macos-web.out.log"
 WEB_ERR_LOG="$LOG_DIR/macos-web.err.log"
 SYSTEM_EXE="$REPO_ROOT/target/debug/rieul-macos-system"
+GUI_EXE="$REPO_ROOT/target/release/Rieul-desktop.app/Contents/MacOS/rieul-gui"
 
 mkdir -p "$TMP_DIR" "$LOG_DIR"
 
-if ! command -v deno >/dev/null 2>&1; then
-  echo "deno is required to run the Deno Desktop GUI daemon" >&2
-  exit 1
+if ! command -v node >/dev/null 2>&1; then
+  echo "Node.js build tooling is required" >&2; exit 1
 fi
-
-stop_pid_file() {
-  local label="$1"
-  local pid_file="$2"
-  local use_sudo="${3:-0}"
-  if [[ ! -f "$pid_file" ]]; then
-    return
-  fi
-  local pid
-  pid="$(head -n 1 "$pid_file" || true)"
-  rm -f "$pid_file"
-  if [[ -z "$pid" ]] || ! kill -0 "$pid" 2>/dev/null; then
-    return
-  fi
-  echo "Stopping previous $label pid=$pid"
-  if [[ "$use_sudo" == "1" ]]; then
-    sudo kill "$pid" 2>/dev/null || true
-  else
-    kill "$pid" 2>/dev/null || true
-  fi
-}
 
 show_log_tail() {
   local label="$1"
@@ -64,9 +43,7 @@ show_log_tail() {
 }
 
 cleanup() {
-  stop_pid_file "system daemon" "$SYSTEM_PID_FILE" 1
-  stop_pid_file "GUI daemon" "$GUI_PID_FILE"
-  stop_pid_file "web dev server" "$WEB_PID_FILE"
+  "$SCRIPT_DIR/kill-desktop.sh"
 }
 
 trap cleanup EXIT INT TERM
@@ -75,12 +52,15 @@ trap cleanup EXIT INT TERM
 
 if [[ "$SKIP_BUILD" != "1" ]]; then
   cargo build -p rieul-macos-daemon --bin rieul-macos-system
+  (cd "$REPO_ROOT" && node pairing/scripts/package.mjs --replace)
 fi
 
 if [[ ! -x "$SYSTEM_EXE" ]]; then
   echo "Missing $SYSTEM_EXE. Run without SKIP_BUILD=1 first." >&2
   exit 1
 fi
+
+[[ -x "$GUI_EXE" ]] || { echo "Missing $GUI_EXE. Build first." >&2; exit 1; }
 
 sudo -v
 
@@ -118,13 +98,8 @@ if [[ "$WEB_READY" != "1" ]]; then
   exit 1
 fi
 
-echo "Starting rieul macOS Deno Desktop GUI daemon"
-(
-  cd "$REPO_ROOT/web"
-  exec deno desktop --config ./deno.desktop.json --backend cef --hmr -A --include ./desktop/tray.png ./desktop/main.ts -- \
-    --config "$CONFIG_PATH" \
-    --dev-url "$WEB_URL/daemon-main.html"
-) >"$GUI_OUT_LOG" 2>"$GUI_ERR_LOG" &
+echo "Starting rieul macOS GPUiX pairing utility"
+"$GUI_EXE" --config "$CONFIG_PATH" --show >"$GUI_OUT_LOG" 2>"$GUI_ERR_LOG" &
 GUI_PID="$!"
 echo "$GUI_PID" >"$GUI_PID_FILE"
 

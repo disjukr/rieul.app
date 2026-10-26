@@ -55,3 +55,11 @@ No main push of this continuation has occurred yet. Prior opt-in main remains in
 - Runtime-only fresh extraction validated Node22.22.0/Bun1.3.9 architecture/version and bundled license notices. Bun notice copied unchanged from official bun-v1.3.9/LICENSE.md, SHA2567068a9711ef8196d654e143447ed7976b3678ce21145b9da16e1f786528f15bb; Node notice comes from checksum-verified official archive.
 - Mac notification identifier now per instance; bridge retains original window delegate until disposal and ignores authorization callbacks from disposed generations. Source review only until subsequent macOS CI.
 - Follow-up CI40299931391 (66af754) is pending behind the still-running official Intel source build40297980044. No installed app, service, autostart, security setting, or real pairing modified. No main integration/default switch yet.
+
+## Development launcher migration (fixture-tested, no daemon started)
+
+Windows dev/kill now use the verified native bundle EXE and absolute config argument; removed global Deno cache/module process scanning. Both predicates require the same checkout executable and whole config-path argument, including the same-prefix/different-profile regression. Ten fake CIM cases passed without start/stop calls.
+
+macOS dev uses the native bundle's inner GUI entry point. Kill/cleanup validates this checkout's executable/host and whole profile arguments, rechecks command identity before signals, and removes broad port-based matching. Eight pure shell fixtures including Korean/spaced paths and wrong profile/port passed via Git Bash. All affected shell/PowerShell files parse. Actual macOS dev service start/stop is deliberately not executed.
+
+These changes are staged implementation for review; main still has the previous defaults and old CEF source remains available. Installer candidates and Intel/OS-floor/signed-payload CI must still pass before final default/removal integration.

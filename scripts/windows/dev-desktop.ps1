@@ -25,14 +25,9 @@ $SystemExe = Join-Path $RepoRoot "target\debug\rieul-windows-system.exe"
 $UserExe = Join-Path $RepoRoot "target\debug\rieul-windows-user.exe"
 $WebPort = 5179
 $WebUrl = "http://127.0.0.1:$WebPort"
-$GuiRuntimeName = "rieul-windows-gui.dll"
-$DenoDesktopCacheRoot = [System.IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA "deno\desktop"))
 $NodeExe = (Get-Command node.exe -ErrorAction Stop).Source
 $ViteScript = Join-Path $RepoRoot "web\node_modules\vite\bin\vite.js"
-$DenoExe = (Get-Command deno -ErrorAction SilentlyContinue).Source
-if (-not $DenoExe) {
-  throw "deno is required to run the Deno Desktop GUI daemon"
-}
+$GuiExe = Join-Path $RepoRoot "target\release\rieul-windows-gui\rieul-windows-gui.exe"
 
 New-Item -ItemType Directory -Force -Path $TmpDir | Out-Null
 New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
@@ -85,17 +80,16 @@ function Test-DevDaemonProcess {
     return $false
   }
 
-  $isDenoDesktop = (Split-Path -Path $expectedPath -Leaf) -ieq "deno.exe" -and
-    $Process.CommandLine -match '(^|\s)desktop($|\s)'
-  $isDenoDesktopBundle = (Split-Path -Path $expectedPath -Leaf) -like "rieul-windows-gui*.exe"
+  $isGuiBundle = (Split-Path -Path $expectedPath -Leaf) -ieq "rieul-windows-gui.exe"
   $isNodeVite = (Split-Path -Path $expectedPath -Leaf) -ieq "node.exe" -and
     $Process.CommandLine.IndexOf($ViteScript, [System.StringComparison]::OrdinalIgnoreCase) -ge 0
-  if (-not $isNodeVite -and -not $isDenoDesktop -and -not $isDenoDesktopBundle -and $Process.CommandLine -notmatch '(^|\s)run($|\s)') {
+  if (-not $isNodeVite -and -not $isGuiBundle -and $Process.CommandLine -notmatch '(^|\s)run($|\s)') {
     return $false
   }
 
-  if ($RequiredCommandLinePart -and $Process.CommandLine.IndexOf($RequiredCommandLinePart, [System.StringComparison]::OrdinalIgnoreCase) -lt 0) {
-    return $false
+  if ($RequiredCommandLinePart) {
+    $argument = '(?i)(?:^|[\s"])' + [regex]::Escape($RequiredCommandLinePart) + '(?=$|[\s"])'
+    if (-not [regex]::IsMatch($Process.CommandLine, $argument, [Text.RegularExpressions.RegexOptions]::CultureInvariant)) { return $false }
   }
 
   if ($RequiredListeningPort -gt 0) {
@@ -149,53 +143,6 @@ function Stop-PreviousDaemon {
     }
 }
 
-function Get-GuiDesktopHostProcesses {
-  Get-Process -ErrorAction SilentlyContinue | ForEach-Object {
-    $process = $_
-    try {
-      $loadsGuiRuntime = $process.Modules | Where-Object {
-        $_.ModuleName -ieq $GuiRuntimeName -and
-        $_.FileName.StartsWith(
-          $DenoDesktopCacheRoot + [System.IO.Path]::DirectorySeparatorChar,
-          [System.StringComparison]::OrdinalIgnoreCase
-        )
-      } | Select-Object -First 1
-      if ($loadsGuiRuntime) {
-        $process
-      }
-    } catch {
-      # Some protected system processes do not expose their loaded modules.
-    }
-  }
-}
-
-function Stop-PreviousGuiDesktopHosts {
-  @(Get-GuiDesktopHostProcesses) | ForEach-Object {
-    Stop-ProcessTree -ProcessId $_.Id -Label "previous GUI desktop host"
-  }
-}
-
-function Wait-GuiDesktopHost {
-  param(
-    [System.Diagnostics.Process]$Launcher,
-    [int]$TimeoutSeconds = 30
-  )
-
-  $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
-  while ((Get-Date) -lt $deadline) {
-    $hostProcess = @(Get-GuiDesktopHostProcesses) | Select-Object -First 1
-    if ($hostProcess) {
-      return $hostProcess
-    }
-    if ($Launcher.HasExited) {
-      throw "GUI desktop launcher exited with code $($Launcher.ExitCode) before its host started"
-    }
-    Start-Sleep -Milliseconds 100
-  }
-
-  throw "GUI desktop host did not start within $TimeoutSeconds seconds"
-}
-
 Stop-PreviousDaemon `
   -Label "system daemon" `
   -ExecutablePath $SystemExe `
@@ -204,13 +151,13 @@ Stop-PreviousDaemon `
 Stop-PreviousDaemon `
   -Label "user daemon" `
   -ExecutablePath $UserExe `
-  -PidFile $UserPidFile
+  -PidFile $UserPidFile `
+  -RequiredCommandLinePart $ConfigPath
 Stop-PreviousDaemon `
   -Label "gui daemon" `
-  -ExecutablePath $DenoExe `
+  -ExecutablePath $GuiExe `
   -PidFile $GuiPidFile `
   -RequiredCommandLinePart $ConfigPath
-Stop-PreviousGuiDesktopHosts
 Stop-PreviousDaemon `
   -Label "web dev server" `
   -ExecutablePath $NodeExe `
@@ -221,7 +168,10 @@ Stop-PreviousDaemon `
 if (-not $SkipBuild) {
   Push-Location $RepoRoot
   try {
-    cargo build -p rieul-windows-daemon -p rieul-windows-close-guard
+    cargo build -p rieul-windows-daemon
+    if ($LASTEXITCODE) { throw "Daemon build failed" }
+    & $NodeExe pairing/scripts/package.mjs --replace
+    if ($LASTEXITCODE) { throw "Native GUI bundle build failed" }
   } finally {
     Pop-Location
   }
@@ -233,12 +183,7 @@ if (-not (Test-Path $SystemExe)) {
 if (-not (Test-Path $UserExe)) {
   throw "Missing $UserExe. Run without -SkipBuild first."
 }
-Push-Location (Join-Path $RepoRoot "web")
-try {
-  pnpm desktop:icons
-} finally {
-  Pop-Location
-}
+if (-not (Test-Path -LiteralPath $GuiExe)) { throw "Missing $GuiExe. Run without -SkipBuild first." }
 
 $children = @()
 $childLogs = @{}
@@ -332,7 +277,7 @@ try {
   Write-Host "Starting rieul Windows system daemon on $Listen"
   $system = Start-Process `
     -FilePath $SystemExe `
-    -ArgumentList @("run", "--listen", $Listen, "--config", $ConfigPath) `
+    -ArgumentList @("run", "--listen", $Listen, "--config", "`"$ConfigPath`"") `
     -WorkingDirectory $RepoRoot `
     -PassThru `
     -RedirectStandardOutput $SystemOutLog `
@@ -350,7 +295,7 @@ try {
   Write-Host "Starting rieul Windows user daemon"
   $user = Start-Process `
     -FilePath $UserExe `
-    -ArgumentList @("run", "--config", $ConfigPath) `
+    -ArgumentList @("run", "--config", "`"$ConfigPath`"") `
     -WorkingDirectory $RepoRoot `
     -PassThru `
     -RedirectStandardOutput $UserOutLog `
@@ -392,35 +337,14 @@ try {
   Wait-HttpReady -Url $WebUrl -Label "web dev server"
 
   Write-Host "Starting rieul Windows GUI daemon"
-  $guiLauncher = Start-Process `
-    -FilePath $DenoExe `
-    -ArgumentList @(
-      "desktop",
-      "--config",
-      ".\deno.desktop.json",
-      "--hmr",
-      "-A",
-      "--include",
-      ".\desktop\icon.ico",
-      ".\desktop\main.ts",
-      "--",
-      "--config",
-      $ConfigPath,
-      "--dev-url",
-      "$WebUrl/daemon-main.html"
-    ) `
-    -WorkingDirectory (Join-Path $RepoRoot "web") `
+  $gui = Start-Process `
+    -FilePath $GuiExe `
+    -ArgumentList @("--config", "`"$ConfigPath`"", "--show") `
+    -WorkingDirectory $RepoRoot `
     -PassThru `
     -RedirectStandardOutput $GuiOutLog `
     -RedirectStandardError $GuiErrLog `
     -WindowStyle Hidden
-  try {
-    $gui = Wait-GuiDesktopHost -Launcher $guiLauncher
-  } catch {
-    Show-LogTail "gui daemon stdout" $GuiOutLog
-    Show-LogTail "gui daemon stderr" $GuiErrLog
-    throw
-  }
   $children += $gui
   Set-Content -LiteralPath $GuiPidFile -Value $gui.Id -Encoding ASCII
   $childPidFiles[$gui.Id] = $GuiPidFile

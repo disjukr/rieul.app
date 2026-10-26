@@ -1,91 +1,62 @@
 #!/usr/bin/env bash
 set -euo pipefail
-
-LISTEN="${LISTEN:-0.0.0.0:9012}"
-
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 TMP_DIR="$REPO_ROOT/tmp/dev"
 CONFIG_PATH="$TMP_DIR/rieul.yaml"
 SYSTEM_EXE="$REPO_ROOT/target/debug/rieul-macos-system"
-PORT="${LISTEN##*:}"
+GUI_APP="$REPO_ROOT/target/release/Rieul-desktop.app"
+GUI_EXE="$GUI_APP/Contents/MacOS/rieul-gui"
+GUI_ROOT="$GUI_APP/Contents/Resources/pairing"
+VITE_SCRIPT="$REPO_ROOT/web/node_modules/vite/bin/vite.js"
+WEB_PORT="${WEB_PORT:-5179}"
 
-kill_pid() {
-  local label="$1"
-  local pid="$2"
-  local use_sudo="$3"
-
-  if [[ -z "$pid" ]] || ! kill -0 "$pid" 2>/dev/null; then
-    return
-  fi
-
-  echo "Stopping $label pid=$pid"
-  if [[ "$use_sudo" == "1" ]]; then
-    sudo kill "$pid" 2>/dev/null || true
+has_argument() {
+  local command="$1" expected="$2"
+  case " $command " in
+    *" $expected "*|*" \"$expected\" "*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+classify_dev_command() {
+  local command="$1"
+  if has_argument "$command" "$SYSTEM_EXE" && has_argument "$command" "$CONFIG_PATH"; then
+    printf system
+  elif has_argument "$command" "$CONFIG_PATH" && {
+    has_argument "$command" "$GUI_EXE" || {
+      has_argument "$command" "$GUI_ROOT/runtime/node" && has_argument "$command" "$GUI_ROOT/app/dist/host.js"
+    }
+  }; then
+    printf gui
+  elif has_argument "$command" "$VITE_SCRIPT" && has_argument "$command" "$WEB_PORT"; then
+    printf web
   else
-    kill "$pid" 2>/dev/null || true
+    return 1
   fi
-
-  for _ in {1..20}; do
-    if ! kill -0 "$pid" 2>/dev/null; then
-      return
-    fi
+}
+stop_dev_pid() {
+  local pid="$1" kind="$2" expected="$3" current
+  [[ "$pid" =~ ^[0-9]+$ && "$pid" -gt 1 ]] || return 0
+  current="$(ps -p "$pid" -o command= 2>/dev/null || true)"
+  [[ "$current" == "$expected" ]] || return 0
+  echo "Stopping this checkout's $kind development process pid=$pid"
+  if [[ "$kind" == system ]]; then sudo /bin/kill "$pid" 2>/dev/null || true
+  else /bin/kill "$pid" 2>/dev/null || true; fi
+  for _ in {1..30}; do
+    current="$(ps -p "$pid" -o command= 2>/dev/null || true)"
+    [[ "$current" == "$expected" ]] || return 0
     sleep 0.1
   done
-
-  echo "Force stopping $label pid=$pid"
-  if [[ "$use_sudo" == "1" ]]; then
-    sudo kill -9 "$pid" 2>/dev/null || true
-  else
-    kill -9 "$pid" 2>/dev/null || true
-  fi
+  if [[ "$kind" == system ]]; then sudo /bin/kill -9 "$pid" 2>/dev/null || true
+  else /bin/kill -9 "$pid" 2>/dev/null || true; fi
 }
-
-stop_pid_file() {
-  local label="$1"
-  local pid_file="$2"
-  local use_sudo="$3"
-
-  if [[ ! -f "$pid_file" ]]; then
-    return
-  fi
-  local pid
-  pid="$(head -n 1 "$pid_file" || true)"
-  rm -f "$pid_file"
-  kill_pid "$label" "$pid" "$use_sudo"
+main() {
+  local pid command kind
+  while read -r pid command; do
+    kind="$(classify_dev_command "$command")" || continue
+    stop_dev_pid "$pid" "$kind" "$command"
+  done < <(ps -axo pid=,command=)
+  rm -f "$TMP_DIR/macos-system.pid" "$TMP_DIR/macos-gui.pid" "$TMP_DIR/macos-web.pid"
 }
-
-stop_pgrep_matches() {
-  local label="$1"
-  local pattern="$2"
-  local use_sudo="$3"
-
-  if ! command -v pgrep >/dev/null 2>&1; then
-    return
-  fi
-  while IFS= read -r pid; do
-    kill_pid "$label" "$pid" "$use_sudo"
-  done < <(pgrep -f "$pattern" 2>/dev/null || true)
-}
-
-stop_system_port_matches() {
-  if ! command -v lsof >/dev/null 2>&1; then
-    return
-  fi
-  while IFS= read -r pid; do
-    kill_pid "system daemon" "$pid" 1
-  done < <(
-    sudo lsof -nP -iUDP:"$PORT" 2>/dev/null |
-      awk 'NR > 1 && $1 ~ /^rieul-macos/ { print $2 }' |
-      sort -u
-  )
-}
-
-stop_pid_file "system daemon" "$TMP_DIR/macos-system.pid" 1
-stop_pid_file "GUI daemon" "$TMP_DIR/macos-gui.pid" 0
-stop_pid_file "web dev server" "$TMP_DIR/macos-web.pid" 0
-
-stop_pgrep_matches "system daemon" "$SYSTEM_EXE.*run.*--config $CONFIG_PATH" 1
-stop_pgrep_matches "GUI daemon" "deno desktop.*desktop/main.ts.*--config $CONFIG_PATH" 0
-stop_pgrep_matches "web dev server" "node.*$REPO_ROOT/web/node_modules/vite/bin/vite.js.*--port 5179" 0
-stop_system_port_matches
+# Sourcing exposes pure predicates for fixture tests and never stops processes.
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then main; fi
