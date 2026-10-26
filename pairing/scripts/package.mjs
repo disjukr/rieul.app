@@ -1,11 +1,22 @@
-import { cp, mkdir, readFile, writeFile, stat, chmod } from "node:fs/promises";
+import {
+  cp,
+  mkdir,
+  readFile,
+  writeFile,
+  stat,
+  chmod,
+  mkdtemp,
+  rename,
+  realpath,
+  lstat,
+} from "node:fs/promises";
 import path from "node:path";
 import { prepareRuntimes, execute, root, sha256 } from "./runtimes.mjs";
 const windows = process.platform === "win32";
 if (!windows && process.platform !== "darwin")
   throw new Error("Desktop packaging supports Windows/macOS");
 const arg = process.argv.indexOf("--out");
-const output = path.resolve(
+const destination = path.resolve(
   arg < 0
     ? path.join(
         root,
@@ -14,18 +25,41 @@ const output = path.resolve(
       )
     : process.argv[arg + 1],
 );
+const exists = await stat(destination).then(
+  () => true,
+  (error) => {
+    if (error.code !== "ENOENT") throw error;
+    return false;
+  },
+);
+if (exists && !process.argv.includes("--replace"))
+  throw new Error(
+    `Bundle already exists; use --replace to preserve it as a backup: ${destination}`,
+  );
+const relativeOutput = path.relative(path.resolve(root, ".."), destination);
 if (
-  await stat(output).then(
-    () => true,
-    (error) => {
-      if (error.code !== "ENOENT") throw error;
-      return false;
-    },
+  exists &&
+  !["target", "tmp"].some((prefix) =>
+    relativeOutput.startsWith(prefix + path.sep),
   )
 )
   throw new Error(
-    `Bundle already exists; choose a fresh output directory: ${output}`,
+    "Replacement is restricted to this checkout's target/ or tmp/ outputs",
   );
+if (exists) {
+  const resolved = path.relative(
+    await realpath(path.resolve(root, "..")),
+    await realpath(destination),
+  );
+  if (
+    (await lstat(destination)).isSymbolicLink() ||
+    !["target", "tmp"].some((prefix) => resolved.startsWith(prefix + path.sep))
+  )
+    throw new Error(
+      "Output replacement cannot cross a link or leave this checkout's disposable build directories",
+    );
+}
+const output = exists ? await mkdtemp(destination + ".building-") : destination;
 const bundle = windows
   ? output
   : path.join(output, "Contents/Resources/pairing");
@@ -150,10 +184,27 @@ if (!windows) {
   );
 }
 await execute(executable, ["--verify-bundle"], { windowsHide: true });
+let previous;
+if (exists) {
+  previous = destination + `.previous-${Date.now()}`;
+  if (
+    path.dirname(previous) !== path.dirname(destination) ||
+    !path.isAbsolute(destination)
+  )
+    throw new Error("Invalid output publication paths");
+  await rename(destination, previous);
+  try {
+    await rename(output, destination);
+  } catch (error) {
+    await rename(previous, destination);
+    throw error;
+  }
+}
 console.log(
   JSON.stringify({
-    output,
-    executable,
+    output: destination,
+    executable: path.join(destination, path.relative(output, executable)),
+    previous,
     platform: process.platform,
     arch: process.arch,
     runtimesBundled: true,

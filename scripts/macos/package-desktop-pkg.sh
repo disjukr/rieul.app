@@ -21,6 +21,7 @@ Options:
   --app-sign IDENTITY           Developer ID Application identity for the app bundle.
   --installer-sign IDENTITY     Developer ID Installer identity for the PKG.
   --skip-build                  Reuse target/release daemon binaries and Deno Desktop app.
+  --gui-app PATH                Candidate native app (requires --skip-build).
   -h, --help                    Show this help.
 EOF
 }

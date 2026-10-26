@@ -8,7 +8,7 @@ permissions:
   contents: read
 concurrency:
   group: native-pairing-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 jobs:
   macos:
     strategy:
@@ -68,6 +68,7 @@ jobs:
           test -n "$GUI"
           "$GUI" --verify-bundle
           codesign --verify --deep --strict "${GUI%/Contents/MacOS/rieul-gui}"
+          (cd pairing && RIEUL_GUI_EXECUTABLE="$GUI" node scripts/macos-native-qa.mjs)
       - uses: actions/upload-artifact@v4
         if: always()
         with:
