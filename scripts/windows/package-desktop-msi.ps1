@@ -4,6 +4,7 @@ param(
   [string]$Version,
   [string]$OutDir,
   [string]$Manufacturer = "JongChan Choi",
+  [string]$GuiBundle,
   [switch]$SkipBuild
 )
 
@@ -64,6 +65,15 @@ function Assert-GuiBundle {
 
   if (-not (Test-Path -LiteralPath $Path -PathType Container)) {
     throw "Missing GUI bundle: $Path"
+  }
+
+  if (Test-Path -LiteralPath (Join-Path $Path 'bundle.json')) {
+    foreach ($relativePath in @('rieul-windows-gui.exe','runtime/node.exe','runtime/bun.exe','app/dist/host.js','app/dist/main.js','app/native/bin/rieul_pairing_windows.dll')) {
+      if (-not (Test-Path -LiteralPath (Join-Path $Path $relativePath) -PathType Leaf)) { throw "GUI payload missing $relativePath" }
+    }
+    & (Join-Path $Path 'rieul-windows-gui.exe') --verify-bundle | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'GUI payload integrity failed' }
+    return
   }
 
   $requiredPaths = @(
@@ -433,7 +443,7 @@ $MsiPath = Join-Path $OutDir "$PackageBaseName.msi"
 $ReleaseDir = Join-Path $RepoRoot "target\release"
 $SystemExe = Join-Path $ReleaseDir "rieul-windows-system.exe"
 $UserExe = Join-Path $ReleaseDir "rieul-windows-user.exe"
-$GuiBundle = Join-Path $ReleaseDir "rieul-windows-gui"
+if (-not $GuiBundle) { $GuiBundle = Join-Path $ReleaseDir "rieul-windows-gui" }
 $Icon = Join-Path $RepoRoot "web\desktop\icon.ico"
 
 if (-not $SkipBuild) {

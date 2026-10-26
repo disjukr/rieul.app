@@ -10,7 +10,7 @@ git -C "$source_dir" submodule update --init --depth 1 zed
 cd "$source_dir"
 bun install --frozen-lockfile
 cd packages/native
-bun run build:release
+MACOSX_DEPLOYMENT_TARGET=13.0 bun run build
 test -f gpuix-native.darwin-x64.node
 printf 'RIEUL_NATIVE_ADDON=%s\n' "$source_dir/packages/native/gpuix-native.darwin-x64.node"
 if [ -n "${GITHUB_ENV:-}" ]; then

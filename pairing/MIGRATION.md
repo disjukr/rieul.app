@@ -29,3 +29,12 @@ The available CUA tool explicitly disables native computer APIs; refreshed inven
 Auto-review rejected moving `web/desktop/icon.ico`, `web/desktop/tray.png`, `web/src/desktop-bindings.d.ts` before replacement verification because that could break the protected old path. The whole command was rejected before execution. Safer copy-only staging was accepted; originals remain untouched. Default-switch/removal will be revisited only with the new replacement verification evidence and the user's current explicit full-migration authorization. No rejected move has been retried.
 
 No main push of this continuation has occurred yet. Prior opt-in main remains intact.
+
+## Recovery checkpoint 2026-10-26 (actual results)
+
+- Branch b9766254c477f7b9e89ef4d285d2f7046fbb1f31 CI 40295640095: Windows success; macOS ARM64 success including bundled GPUiX/AppKit repeated lifecycle; Intel official source compile, bridge fixture, bundle and integrity checks success, final screenshot failed because production build excluded test-support. Corrected to upstream published build feature set; next run pending.
+- Windows unsigned MSI generated (87,525,886 bytes) and decompiled without installation: dist/windows-gpuix-probe/rieul-windows-desktop-0.1.0.msi; tmp/msi-unpacked/File contains 3,754 extracted files. No service/installer execution.
+- Bundled Windows forced launcher termination/integrity/traversal QA passed; runtime image write locks released after 61ms bounded poll. This is not an installed upgrade test.
+- Local MSIX invocation was denied before script execution by PowerShell AuthorizationManager (UnauthorizedAccess). No execution-policy change or retry. CI packaging verification remains to be added.
+- Official Node 24.13.0 BUILDING.md requires macOS >=13.5, incompatible with existing advertised 13.0. Embedded runtime changed to official SHA-pinned Node22.22.0 (official support >=11.0); build tooling remains Node24. Added actual Mach-O deployment target CI assertion <=13.0. New runtime bundle checks not yet passed.
+- Default CEF/Deno paths remain preserved; complete removal/main switch not yet completed. No new main push. Current edits are runtime compatibility and candidate packaging source only.

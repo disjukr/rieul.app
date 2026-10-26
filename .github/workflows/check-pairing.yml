@@ -50,6 +50,8 @@ jobs:
           fi
       - name: Build self contained app with pinned runtimes
         run: node pairing/scripts/package.mjs
+      - name: Check actual macOS 13.0 deployment targets
+        run: node pairing/scripts/check-macos-target.mjs target/release/Rieul-desktop.app
       - name: Verify payload integrity failure boundaries
         run: node pairing/scripts/bundle-qa.mjs --bundle target/release/Rieul-desktop.app
       - name: Verify launcher and GPUiX/AppKit lifecycle in isolated fixture

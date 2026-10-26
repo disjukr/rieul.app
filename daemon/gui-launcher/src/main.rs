@@ -30,7 +30,7 @@ fn verify(root: &Path) -> Result<Manifest, Box<dyn std::error::Error>> {
     };
     if manifest.platform != platform
         || manifest.arch != arch
-        || manifest.node_version != "24.13.0"
+        || manifest.node_version != "22.22.0"
         || manifest.bun_version != "1.3.9"
     {
         return Err("bundle runtime/platform mismatch".into());
