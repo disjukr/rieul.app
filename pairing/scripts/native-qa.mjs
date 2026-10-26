@@ -122,7 +122,7 @@ try {
     encodeCbor(
       new Map([
         [1, "https://fixture.invalid:19019"],
-        [2, "FIXTURE-123456"],
+        [2, "123456"],
         [3, 60],
       ]),
     ),
@@ -134,6 +134,14 @@ try {
   for (let i = 0; i < 3; ++i) {
     const a = confirm("42");
     await app.getByTestId("candidate-42").waitFor();
+    if (i === 0) {
+      for (const procId of [1, 2]) {
+        const response = await request(procId, encodeCbor(new Map())).result;
+        assert.equal(decodeCborSequencePrefix(response)[0].value, 4);
+        await app.getByTestId("candidate-42").waitFor();
+      }
+      evidence.emptyMapsPreservePending = true;
+    }
     const b = confirm("73");
     assert.equal(accepted(await a.result), false);
     await app.getByTestId("candidate-73").waitFor();

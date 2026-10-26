@@ -1,14 +1,13 @@
 import { createSolidPlugin } from "@gpuix/solid/bun-plugin";
 import { mkdir, copyFile, readFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 const root = new URL("..", import.meta.url);
 for (const [entry, target] of [
   ["src/host.ts", "node"],
   ["src/main.tsx", "bun"],
 ] as const) {
   const result = await Bun.build({
-    entrypoints: [
-      new URL(entry, root).pathname.replace(/^\/(?=[A-Za-z]:)/, ""),
-    ],
+    entrypoints: [fileURLToPath(new URL(entry, root))],
     target,
     outdir: "dist",
     packages: "external",

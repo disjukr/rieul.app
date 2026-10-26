@@ -5,6 +5,7 @@ import type {
   DaemonMainSnapshot,
 } from "../../web/src/desktop-bindings.d.ts";
 import * as ipc from "../../web/src/protocol/socket-ipc.ts";
+import { validateGuiPayload } from "./validation.ts";
 
 export interface Shell {
   show(): void;
@@ -102,6 +103,7 @@ export class PairingController {
   ): Promise<Uint8Array | undefined> {
     this.ensureAlive();
     const payload = request.payload ?? new Uint8Array();
+    validateGuiPayload(request.procId, payload);
     switch (request.procId) {
       case ipc.IPC_PROC_SHOW_PAIRING_CODE: {
         const model = ipc.decodeShowPairingCodeReq(payload);

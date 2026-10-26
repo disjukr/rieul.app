@@ -21,7 +21,7 @@ Windows x64, Intel Arc Direct3D 11.1. Bun 실제 버전 1.3.9, Node 26.11.1 및 
 | 범위                 | 결과                                                                                                                                                                                                                   |
 | -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 새 패키지 TypeScript | `tsc --noEmit` 통과                                                                                                                                                                                                    |
-| 순수 요청/상태       | Bun 테스트 6개 통과: 교체, 이전 화면 클릭 차단, 취소/close/dispose, 알림 실패와 오래된 fallback, 네 바인딩/라우트, 후보 생성, 프로필 식별, malformed 요청의 상태 불변성                                                |
+| 순수 요청/상태       | Bun 테스트 9개 통과: 교체, 이전 화면 클릭 차단, 취소/close/dispose, 알림 실패와 오래된 fallback, 네 바인딩/라우트, 후보 생성, 프로필 식별, malformed 요청의 상태 불변성                                                |
 | 실제 Node IPC        | 테스트 5개 통과: 분할 요청, 반닫기 응답, 중복 활성화, 연결 해제, 파이프 정리, 서로 다른 두 프로필의 활성화/확인 격리, 잘못된/다른 stream/잘린 활성화 응답 거부, 중복 dispose, 5초 미완성 연결 timeout과 장기 확인 유지 |
 | 새 소스 lint         | 저장소 ESLint 규칙으로 pairing/src, tests, scripts 검사 통과. 규칙 완화/disable 없이 explicit any 제거                                                                                                                 |
 | Windows native       | source, 컴파일 번들, 자체 production 의존성을 가진 독립 stage에서 통과                                                                                                                                                 |
@@ -40,21 +40,21 @@ Windows x64, Intel Arc Direct3D 11.1. Bun 실제 버전 1.3.9, Node 26.11.1 및 
 
 ## 최종 산출물
 
-독립 실행 디렉터리: `pairing/stage/review-final/`
+독립 실행 디렉터리: `pairing/stage/publish-final/`
 
-최종 증거: [artifacts/qa-1792997981994/evidence.json](./artifacts/qa-1792997981994/evidence.json)
+최종 증거: [artifacts/qa-1792999236828/evidence.json](./artifacts/qa-1792999236828/evidence.json)
 
-- [daemon info / QR](./artifacts/qa-1792997981994/daemon-info.png)
-- [pairing code](./artifacts/qa-1792997981994/pairing-code.png)
-- [confirmation](./artifacts/qa-1792997981994/confirmation.png)
-- [native stderr](./artifacts/qa-1792997981994/stderr.log)
+- [daemon info / QR](./artifacts/qa-1792999236828/daemon-info.png)
+- [pairing code](./artifacts/qa-1792999236828/pairing-code.png)
+- [confirmation](./artifacts/qa-1792999236828/confirmation.png)
+- [native stderr](./artifacts/qa-1792999236828/stderr.log)
 
 `stage/`, `artifacts/`, DLL 및 node_modules는 생성물로 git에서 제외한다. 초기 수동 smoke의 fixture host도 종료했으며 최종 검사에서 이 작업 경로의 Bun UI 프로세스가 남지 않았다.
 
 이 환경의 명시적 런처 예시:
 
 ```powershell
-./pairing/stage/review-final/launch.ps1 `
+./pairing/stage/publish-final/launch.ps1 `
   -Config ./tmp/pairing-fixture/rieul.yaml `
   -Node C:/Users/user/AppData/Local/mise/installs/node/24.13.0/node.exe `
   -Bun C:/Users/user/AppData/Local/mise/installs/bun/1.3.6/bin/bun.exe `
@@ -71,9 +71,13 @@ Windows x64, Intel Arc Direct3D 11.1. Bun 실제 버전 1.3.9, Node 26.11.1 및 
 - native balloon 호출 성공과 JS 실패 fallback은 확인했다. OS가 알림을 실제로 표시하는지/사용자 클릭을 전달하는지는 미검증이다.
 - 설정 열기는 네 바인딩/host 전달 및 `ShellExecuteW` 구현을 포함하지만 기본 연결 앱을 실제 띄우는 end-to-end 검증은 하지 않았다. Clipboard도 구현했으나 기존 사용자 clipboard를 건드리는 native QA는 하지 않았다.
 - CEF native 재빌드, 기존 MSI/PKG 생성 및 설치는 실행하지 않았다. 기존 파일/기본 경로는 변경하지 않았고, 새 독립 stage/런처만 smoke했다.
-- 기본 전환, CEF 삭제, push, 서비스 등록, autostart/실제 장치 접근 권한 변경은 하지 않았다. 남은 native parity 검토 후 별도 결정해야 한다.
+- 기본 전환, CEF 삭제, 서비스 등록, autostart/실제 장치 접근 권한 변경은 하지 않았다. 후속 parent 승인에 따라 opt-in 소스만 main에 fast-forward push하고 원격 SHA/CI를 확인하는 범위가 허용되었다. 남은 native parity 검토 후 별도 결정해야 한다.
 
 ## 최종 코드/권한 경계 리뷰
+
+후속 독립 리뷰가 발견한 두 결함을 추가 수정했다. 공유 디코더의 빈 문자열/0 기본값을 호출하기 전에 `validation.ts`가 필수 필드의 존재와 타입을 모두 확인한다. 빈/부분 맵, 각 필드의 다른 CBOR 타입, 코드의 정확한 ASCII 길이(행말 개행 포함), HTTPS URL 및 u53 위반은 기존 pending resolver와 generation을 건드리지 않는다. 정상 unknown 숫자 필드, 빈 client label, 선행 0, 만료 0 및 u53 최대값, info의 명시적 빈 문자열 fallback은 허용한다. 현재 daemon의 실제 6자리/2자리 코드 계약과 `rieul-cbor`의 unknown-field 호환성을 기준으로 검토했다. 순수 상태 테스트 9개에서 468 assertions를 통과했고 native fixture에서도 빈 맵 요청 두 종류가 method error를 반환하며 이전 확인 화면을 보존함을 확인했다.
+
+`scripts/build.ts`의 URL pathname 직접 사용도 `fileURLToPath`로 바꿨다. `scripts/build-path-qa.mjs`는 `tmp/build 공백 경로 aHw83X`에 필요한 소스/에셋을 복사하고 이 작업의 node_modules를 junction으로 연결해 실제 빌드를 실행했다. Node/Bun 두 번들과 아이콘이 생성되어 공백·한글 checkout 경로 검증을 통과했다. 이 fixture와 build 출력은 git에 포함되지 않는다.
 
 자체 2차 소스 리뷰에서 malformed pairing-code payload를 decode하기 전에 기존 확인을 취소하던 순서를 발견해 수정했다. 잘못된 요청은 기존 pending route/generation/resolver를 변경하지 않는 테스트를 추가했다. 활성화는 이제 64 KiB 이하의 완전한 CBOR 응답, 정상 response/end kind와 stream ID 1을 확인한다. 임의 바이트·truncation·다른 stream은 활성화 성공으로 인정하지 않는다. 미완성 요청에는 5초 timeout을 두지만 완전한 사용자 확인 요청에는 timeout을 해제한다. IPC dispose도 idempotent하다.
 
@@ -83,4 +87,4 @@ Windows 창 탐색과 fixture command 대상은 PID로 한정했고 Rust close g
 
 현재 CUA 도구의 native computer API는 비활성화되어 있고 callable node_repl/Sky 도구도 없다. 따라서 실제 tray popup 선택·보이는 OS notification·연결된 외부 editor의 화면 확인은 지원되는 UI 표면으로 수행할 수 없었다. 직접 `WM_COMMAND`/native automation 결과를 OS 사용자 선택의 증거로 세지 않는다. 외부 editor를 보이지 않게 실행해 성공으로 간주하지도 않았다.
 
-변경은 `pairing/`에만 있다. 기존 CEF, root workspace/default scripts, MSI/PKG 및 서비스/autorun 파일은 byte-for-byte 그대로다. DLL/.node/stage/fixtures/인증서가 git에 들어가지 않는 것을 확인했다. 따라서 **opt-in 소스 커밋의 main 통합은 가능**하나 새 macOS 소스는 미검증이고 전체 native parity는 완료되지 않았다. 기본 전환은 불가하며 push는 parent 리뷰까지 보류한다. 이 기록은 자체 2차 리뷰 결과로, 별도 독립 리뷰어 승인을 대신하지 않는다.
+변경은 `pairing/`에만 있다. 기존 CEF, root workspace/default scripts, MSI/PKG 및 서비스/autorun 파일은 byte-for-byte 그대로다. DLL/.node/stage/fixtures/인증서가 git에 들어가지 않는 것을 확인했다. 따라서 **opt-in 소스 커밋의 main 통합은 가능**하나 새 macOS 소스는 미검증이고 전체 native parity는 완료되지 않았다. 기본 전환은 불가하며 push는 후속 독립 리뷰 수정과 pass gate를 통과한 opt-in 소스에 한해서만 후속 승인 범위로 진행한다. 이 기록은 자체 2차 리뷰 결과로, 별도 독립 리뷰어 승인을 대신하지 않는다.

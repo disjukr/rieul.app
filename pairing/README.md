@@ -6,6 +6,7 @@
 
 - `src/host.ts`: Node의 `node:net`으로 기존 프로필별 GUI named pipe를 소유하고 요청 상태를 관리한다. GPU 창을 만들기 전에 기존 인스턴스를 활성화한다.
 - `src/controller.ts`: 네 라우트, 네 바인딩과 snapshot 상태. 교체, 창 닫기, 연결 해제, 종료 시 보류된 확인을 거절한다. 이전 화면의 클릭은 세대 검사로 새 요청에 적용되지 않는다.
+- `src/validation.ts`: 공유 디코더가 누락 필드를 기본값으로 바꾸기 전에 필수 필드 존재/타입과 코드·URL·u53 의미를 검증한다. 잘못된 요청은 기존 확인을 취소하거나 교체하지 않는다. 알 수 없는 숫자 필드는 forward compatibility를 위해 무시한다.
 - `src/main.tsx`, `src/view.tsx`: Bun에서 출시된 `@gpuix/solid`와 `@gpuix/native` **각각 정확히 0.11.0**을 사용한다. QR, 만료 시간, 네 후보 코드와 잘못된 코드 거절, daemon 정보/설정 열기를 표시한다.
 - `native/windows.rs`: 기존 Rieul 자체 close guard를 재사용하는 작은 DLL. PID로 이 프로세스의 GPU 창을 찾아 `WM_CLOSE`를 숨김으로 바꾸고 숨김/재표시를 제공한다. GPUI/GPUiX 소스 패치는 없다.
 - `src/windows-tray.ts`, `src/win-ffi.ts`: 기존 Rieul Windows 트레이 구현을 Bun FFI로 이식했다. 트레이 활성화, daemon info, Quit, balloon과 실패 시 창 표시 fallback을 유지한다.
@@ -43,6 +44,7 @@ Set-Content ../tmp/pairing-review/rieul.yaml 'listenAddr: 127.0.0.1:19019'
 ```powershell
 $env:RIEUL_PAIRING_BUN = '<bun.exe>'
 node scripts/native-qa.mjs
+node scripts/build-path-qa.mjs
 ./scripts/stage.ps1 -Bun <bun.exe> -OutDir <새-디렉터리>
 ```
 
