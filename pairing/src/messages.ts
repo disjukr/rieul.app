@@ -1,4 +1,4 @@
-import type { DaemonMainSnapshot } from "../../web/src/desktop-bindings.d.ts";
+import type { DaemonMainSnapshot } from "./bindings.ts";
 export type UiAction =
   | "close"
   | "activate"

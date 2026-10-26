@@ -1,9 +1,10 @@
-// Source adapter only: intentionally not selected by host.ts until macOS QA.
 import { dlopen } from "bun:ffi";
 import { fileURLToPath } from "node:url";
 import type { NativeShell, ShellCallbacks } from "./platform.ts";
 
-export function createMacosShell(callbacks: ShellCallbacks): NativeShell {
+export async function createMacosShell(
+  callbacks: ShellCallbacks,
+): Promise<NativeShell> {
   if (process.platform !== "darwin")
     throw new Error("AppKit bridge requires macOS");
   const native = dlopen(
@@ -16,11 +17,17 @@ export function createMacosShell(callbacks: ShellCallbacks): NativeShell {
       rieul_macos_show: { args: ["i32"], returns: "i32" },
       rieul_macos_visible: { args: [], returns: "i32" },
       rieul_macos_destroy: { args: [], returns: "i32" },
+      rieul_macos_close: { args: [], returns: "i32" },
+      rieul_macos_notify: { args: ["ptr", "ptr"], returns: "u32" },
+      rieul_macos_notification_result: { args: ["u32"], returns: "i32" },
     },
   );
-  const result = native.symbols.rieul_macos_init(null);
+  let result = native.symbols.rieul_macos_init(null);
+  for (let attempt = 0; result === 0 && attempt < 100; attempt++) {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    result = native.symbols.rieul_macos_init(null);
+  }
   if (result !== 1) {
-    native.close();
     throw new Error(
       `AppKit bridge initialization failed (${result}); requires an existing GPUiX window on the AppKit main thread`,
     );
@@ -34,6 +41,10 @@ export function createMacosShell(callbacks: ShellCallbacks): NativeShell {
     if (events & 8) callbacks.onQuit();
   }, 25);
   return {
+    requestClose() {
+      if (!native.symbols.rieul_macos_close())
+        throw new Error("AppKit close requires main thread");
+    },
     show() {
       if (!native.symbols.rieul_macos_show(1))
         throw new Error("AppKit show requires main thread");
@@ -45,9 +56,19 @@ export function createMacosShell(callbacks: ShellCallbacks): NativeShell {
     visible() {
       return !!native.symbols.rieul_macos_visible();
     },
-    async notify() {
+    async notify(title, body) {
+      const token = native.symbols.rieul_macos_notify(
+        Buffer.from(`${title}\0`),
+        Buffer.from(`${body}\0`),
+      );
+      if (!token) return false;
+      for (let attempt = 0; !disposed && attempt < 80; attempt++) {
+        const result = native.symbols.rieul_macos_notification_result(token);
+        if (result !== 0) return result === 1;
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
       return false;
-    }, // Visible-window fallback; requests no notification permission.
+    }, // Never requests permission; unapproved/unavailable notifications use the window fallback.
     destroy() {
       if (disposed) return;
       // Never unload a library whose delegate remains installed.
@@ -55,7 +76,8 @@ export function createMacosShell(callbacks: ShellCallbacks): NativeShell {
         throw new Error("AppKit disposal requires main thread");
       disposed = true;
       clearInterval(timer);
-      native.close();
+      // Objective-C classes and asynchronous UN blocks keep code pointers. The
+      // process owns this tiny library until exit; only UI resources are disposed.
     },
   };
 }

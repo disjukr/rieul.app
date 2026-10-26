@@ -1995,6 +1995,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "rieul-gui-launcher"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sha2",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "rieul-macos-daemon"
 version = "0.1.0"
 dependencies = [

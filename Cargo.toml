@@ -5,6 +5,7 @@ members = [
   "daemon/macos",
   "daemon/windows",
   "daemon/windows-close-guard",
+  "daemon/gui-launcher",
 ]
 resolver = "2"
 

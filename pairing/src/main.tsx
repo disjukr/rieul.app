@@ -1,11 +1,12 @@
-import { spawn } from "node:child_process";
-import { dlopen } from "bun:ffi";
 import { createRoot, GpuixRenderer } from "@gpuix/solid";
 import { createRendererState } from "@gpuix/native/host";
 import { startFrameLoop, enableAutomation } from "@gpuix/native/runtime";
 import { createWindowsShell } from "./windows.ts";
+import { createMacosShell } from "./macos.ts";
+import { openSystemPath, copyText } from "./os-operations.ts";
+import type { NativeShell, ShellCallbacks } from "./platform.ts";
 import { PairingView, type ViewController } from "./view.tsx";
-import type { DaemonMainSnapshot } from "../../web/src/desktop-bindings.d.ts";
+import type { DaemonMainSnapshot } from "./bindings.ts";
 import type { HostToUi, UiToHost, UiAction } from "./messages.ts";
 
 if (!process.send)
@@ -48,7 +49,7 @@ const controller: ViewController = {
   resolvePairingConfirmation: (accepted, version) =>
     action("resolvePairingConfirmation", [accepted], version),
   close: () => {
-    void action("close");
+    lifecycle.shell?.requestClose();
   },
 };
 const renderer = new GpuixRenderer((error, event) => {
@@ -63,41 +64,55 @@ renderer.init({
   focus: false,
   resizable: false,
 });
-const windows = await createWindowsShell(
-  () => {
+const lifecycle: {
+  shell?: NativeShell;
+  root?: ReturnType<typeof createRoot>;
+  loop?: ReturnType<typeof startFrameLoop>;
+  disposed: boolean;
+} = { disposed: false };
+lifecycle.loop = startFrameLoop(renderer, { onTerminated: () => dispose() });
+const callbacks: ShellCallbacks = {
+  onClose: () => {
     void action("close");
   },
-  () => {
+  onOpen: () => {
     void action("activate");
   },
-  () => {
+  onDaemonInfo: () => {
     void action("showDaemonInfo");
   },
-  () => {
+  onQuit: () => {
     void action("quit");
   },
-);
-const root = createRoot(renderer);
-const loop = startFrameLoop(renderer, { onTerminated: () => dispose() });
-let disposed = false;
+};
+process.on("disconnect", dispose);
+lifecycle.shell =
+  process.platform === "darwin"
+    ? await createMacosShell(callbacks)
+    : await createWindowsShell(
+        callbacks.onClose,
+        callbacks.onOpen,
+        callbacks.onDaemonInfo,
+        callbacks.onQuit,
+      );
+lifecycle.root = createRoot(renderer);
 function dispose() {
-  if (disposed) return;
-  disposed = true;
-  loop.stop();
-  root.unmount();
-  windows.destroy();
+  if (lifecycle.disposed) return;
+  lifecycle.disposed = true;
+  lifecycle.loop?.stop();
+  lifecycle.root?.unmount();
+  lifecycle.shell?.destroy();
   for (const item of pending.values()) item.reject(new Error("UI disposed"));
   pending.clear();
   listeners.clear();
   process.exit(0);
 }
-process.on("disconnect", dispose);
 process.on("message", async (message: HostToUi) => {
   switch (message.type) {
     case "initial":
       snapshot = message.snapshot;
       generation = message.generation;
-      root.render(() => (
+      lifecycle.root!.render(() => (
         <PairingView
           controller={controller}
           initial={message.snapshot}
@@ -107,9 +122,9 @@ process.on("message", async (message: HostToUi) => {
       renderer.setWindowTitle(message.title);
       if (message.visible) {
         renderer.activateWindow();
-        windows.show();
+        lifecycle.shell!.show();
       }
-      root.flush();
+      lifecycle.root!.flush();
       if (process.env.RIEUL_PAIRING_AUTOMATION === "1")
         enableAutomation(renderer);
       break;
@@ -123,10 +138,10 @@ process.on("message", async (message: HostToUi) => {
       break;
     case "show":
       renderer.activateWindow();
-      windows.show();
+      lifecycle.shell!.show();
       break;
     case "hide":
-      windows.hide();
+      lifecycle.shell!.hide();
       break;
     case "title":
       renderer.setWindowTitle(message.value);
@@ -146,28 +161,12 @@ process.on("message", async (message: HostToUi) => {
       try {
         let value: unknown;
         if (message.method === "notify")
-          value = await windows.notify(message.args[0], message.args[1]);
+          value = await lifecycle.shell!.notify(
+            message.args[0],
+            message.args[1],
+          );
         else if (message.method === "openConfig") {
-          const library = dlopen("shell32.dll", {
-            ShellExecuteW: {
-              args: ["ptr", "ptr", "ptr", "ptr", "ptr", "i32"],
-              returns: "i64",
-            },
-          });
-          try {
-            const result = library.symbols.ShellExecuteW(
-              null,
-              Buffer.from("open\0", "utf16le"),
-              Buffer.from(`${message.args[0]}\0`, "utf16le"),
-              null,
-              null,
-              1,
-            );
-            if (result <= 32n)
-              throw new Error(`Open config failed (${result})`);
-          } finally {
-            library.close();
-          }
+          await openSystemPath(message.args[0]);
         } else throw new Error("Unknown shell call");
         send({ type: "result", id: message.id, value });
       } catch (error) {
@@ -184,22 +183,5 @@ Reflect.set(globalThis, "bindings", {
 });
 Reflect.set(globalThis, "rieulDesktopEvents", snapshotEvents);
 send({ type: "ready" });
-async function copyText(text: string) {
-  await new Promise<void>((resolve, reject) => {
-    const child = spawn(
-      "powershell.exe",
-      [
-        "-NoProfile",
-        "-NonInteractive",
-        "-Command",
-        "Set-Clipboard -Value ([Console]::In.ReadToEnd())",
-      ],
-      { windowsHide: true, stdio: ["pipe", "ignore", "pipe"] },
-    );
-    child.once("error", reject);
-    child.once("exit", (code) =>
-      code === 0 ? resolve() : reject(new Error(`Clipboard failed (${code})`)),
-    );
-    child.stdin.end(text);
-  });
-}
+if (process.env.RIEUL_PAIRING_AUTOMATION === "1")
+  console.error(`rieul-ui-ready:${process.pid}`);

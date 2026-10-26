@@ -2,7 +2,7 @@ import { createSignal, For, onCleanup, Show } from "solid-js";
 import { Button, useGpuixRequired, type HostElement } from "@gpuix/solid";
 import QRCode from "qrcode";
 import type { PairingController } from "./controller.ts";
-import type { DaemonMainSnapshot } from "../../web/src/desktop-bindings.d.ts";
+import type { DaemonMainSnapshot } from "./bindings.ts";
 
 export type ViewController = Pick<
   PairingController,

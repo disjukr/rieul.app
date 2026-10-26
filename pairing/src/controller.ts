@@ -3,7 +3,7 @@ import type {
   DaemonInfoModel,
   DaemonMainRoute,
   DaemonMainSnapshot,
-} from "../../web/src/desktop-bindings.d.ts";
+} from "./bindings.ts";
 import * as ipc from "../../web/src/protocol/socket-ipc.ts";
 import { validateGuiPayload } from "./validation.ts";
 

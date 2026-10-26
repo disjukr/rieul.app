@@ -1,6 +1,15 @@
 import path from "node:path";
 import { realpath, readFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
+export function defaultConfigPath() {
+  if (process.platform === "darwin")
+    return "/Library/Application Support/rieul/rieul.yaml";
+  return path.join(
+    process.env.ProgramData ?? "C:\\ProgramData",
+    "Rieul",
+    "rieul.yaml",
+  );
+}
 
 export async function profile(config: string) {
   const absolute = path.resolve(config);

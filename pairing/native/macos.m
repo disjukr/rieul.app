@@ -1,6 +1,7 @@
-// Rieul-owned AppKit bridge source. Not enabled until built and QA'd on macOS.
+// Rieul-owned AppKit bridge. No system permissions or service changes.
 // No GPUI/Zed source is copied. All entry points require the AppKit main thread.
 #import <Cocoa/Cocoa.h>
+#import <UserNotifications/UserNotifications.h>
 #include <stdatomic.h>
 #include <stdint.h>
 
@@ -11,6 +12,22 @@ static NSStatusItem *status;
 static NSMenu *menu;
 static NSApplicationActivationPolicy previousPolicy;
 static BOOL changedPolicy;
+static atomic_int notificationAuthorization;
+static atomic_uint notificationToken;
+static atomic_int notificationResult;
+static UNUserNotificationCenter *notificationCenter;
+static __weak id<UNUserNotificationCenterDelegate> originalNotificationDelegate;
+@interface RieulNotificationTarget : NSObject <UNUserNotificationCenterDelegate>
+@end
+@implementation RieulNotificationTarget
+- (void)userNotificationCenter:(UNUserNotificationCenter *)center willPresentNotification:(UNNotification *)notification withCompletionHandler:(void (^)(UNNotificationPresentationOptions))completion {
+  completion(UNNotificationPresentationOptionBanner | UNNotificationPresentationOptionSound);
+}
+- (void)userNotificationCenter:(UNUserNotificationCenter *)center didReceiveNotificationResponse:(UNNotificationResponse *)response withCompletionHandler:(void (^)(void))completion {
+  atomic_fetch_or(&events, RieulOpen); completion();
+}
+@end
+static RieulNotificationTarget *notificationTarget;
 
 @interface RieulWindowDelegate : NSObject <NSWindowDelegate>
 @property(nonatomic, weak) id original;
@@ -90,6 +107,17 @@ int32_t rieul_macos_init(const char *iconPath) {
     changedPolicy = [NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
     [window orderOut:nil];
     atomic_store(&events, 0);
+    // Query an existing authorization only. Never request a new permission.
+    if (NSBundle.mainBundle.bundleIdentifier && [NSBundle.mainBundle.bundleURL.pathExtension isEqualToString:@"app"]) {
+      notificationCenter = UNUserNotificationCenter.currentNotificationCenter;
+      originalNotificationDelegate = notificationCenter.delegate;
+      notificationTarget = [RieulNotificationTarget new];
+      notificationCenter.delegate = notificationTarget;
+      [notificationCenter getNotificationSettingsWithCompletionHandler:^(UNNotificationSettings *settings) {
+        BOOL allowed = settings.authorizationStatus == UNAuthorizationStatusAuthorized || settings.authorizationStatus == UNAuthorizationStatusProvisional;
+        atomic_store(&notificationAuthorization, allowed ? 1 : -1);
+      }];
+    }
     return 1;
   }
 }
@@ -103,11 +131,35 @@ int32_t rieul_macos_show(int32_t visible) {
 int32_t rieul_macos_visible(void) {
   return [NSThread isMainThread] && window && window.visible;
 }
+int32_t rieul_macos_close(void) {
+  if (![NSThread isMainThread] || !window) return 0;
+  [window performClose:nil]; return 1;
+}
+uint32_t rieul_macos_notify(const char *title, const char *body) {
+  if (![NSThread isMainThread] || !notificationCenter || atomic_load(&notificationAuthorization) != 1) return 0;
+  uint32_t token = atomic_fetch_add(&notificationToken, 1) + 1;
+  atomic_store(&notificationResult, 0);
+  UNMutableNotificationContent *content = [UNMutableNotificationContent new];
+  content.title = [NSString stringWithUTF8String:title]; content.body = [NSString stringWithUTF8String:body];
+  UNNotificationRequest *request = [UNNotificationRequest requestWithIdentifier:@"rieul-pairing" content:content trigger:nil];
+  [notificationCenter addNotificationRequest:request withCompletionHandler:^(NSError *error) {
+    if (atomic_load(&notificationToken) == token) atomic_store(&notificationResult, error ? -1 : 1);
+  }];
+  return token;
+}
+int32_t rieul_macos_notification_result(uint32_t token) {
+  if (token != atomic_load(&notificationToken)) return -2;
+  return atomic_load(&notificationResult);
+}
 int32_t rieul_macos_destroy(void) {
   @autoreleasepool {
     if (![NSThread isMainThread]) return 0;
     if (window.delegate == delegate) window.delegate = delegate.original;
     if (status) [NSStatusBar.systemStatusBar removeStatusItem:status];
+    if (notificationCenter.delegate == notificationTarget) notificationCenter.delegate = originalNotificationDelegate;
+    [notificationCenter removeDeliveredNotificationsWithIdentifiers:@[@"rieul-pairing"]];
+    [notificationCenter removePendingNotificationRequestsWithIdentifiers:@[@"rieul-pairing"]];
+    notificationCenter = nil; notificationTarget = nil; atomic_store(&notificationAuthorization, 0);
     if (changedPolicy) [NSApp setActivationPolicy:previousPolicy];
     status = nil; menu = nil; target = nil; delegate = nil; window = nil;
     changedPolicy = NO; atomic_store(&events, 0);

@@ -23,13 +23,33 @@ await writeFile(
   "listenAddr: 127.0.0.1:19019\ndomain: fixture.invalid\n",
 );
 const host = process.env.RIEUL_PAIRING_HOST ?? "src/host.ts";
-const child = spawn(process.execPath, [host, "--config", config, "--show"], {
+const executable = process.env.RIEUL_GUI_EXECUTABLE;
+const launchArgs = executable
+  ? ["--config", config, "--show"]
+  : [host, "--config", config, "--show"];
+const isolated = process.env.RIEUL_PAIRING_EMPTY_PATH === "1";
+const home = `${dir}/empty-home`;
+await mkdir(home, { recursive: true });
+const childEnv = {
+  ...process.env,
+  RIEUL_PAIRING_BUN: bun,
+  RIEUL_PAIRING_AUTOMATION: "1",
+};
+if (isolated)
+  Object.assign(childEnv, {
+    PATH:
+      process.platform === "win32"
+        ? `${process.env.SystemRoot}/System32`
+        : "/usr/bin:/bin",
+    HOME: home,
+    USERPROFILE: home,
+    APPDATA: home,
+    LOCALAPPDATA: home,
+    BUN_INSTALL_CACHE_DIR: `${home}/bun-cache`,
+  });
+const child = spawn(executable ?? process.execPath, launchArgs, {
   cwd: process.cwd(),
-  env: {
-    ...process.env,
-    RIEUL_PAIRING_BUN: bun,
-    RIEUL_PAIRING_AUTOMATION: "1",
-  },
+  env: childEnv,
   stdio: ["pipe", "pipe", "pipe"],
   windowsHide: true,
 });
@@ -96,7 +116,7 @@ try {
       [
         "-NoProfile",
         "-Command",
-        `Get-CimInstance Win32_Process -Filter 'ParentProcessId = ${child.pid}' | Where-Object { $_.Name -eq 'bun.exe' } | Select-Object -ExpandProperty ProcessId`,
+        `$parents=@(${child.pid}); for ($depth=0; $depth -lt 3; $depth++) { $next=@(); foreach ($parent in $parents) { Get-CimInstance Win32_Process -Filter "ParentProcessId = $parent" | ForEach-Object { if ($_.Name -eq 'bun.exe') { $_.ProcessId } else { $next+=$_.ProcessId } } }; $parents=$next }`,
       ],
       { encoding: "utf8", windowsHide: true },
     ).trim(),
@@ -109,6 +129,8 @@ try {
       }),
     );
   evidence.uiPid = uiPid;
+  evidence.bundledLauncher = !!executable;
+  evidence.emptyPathAndCache = isolated;
   assert.equal(probe("visible").visible, true);
   probe("close");
   await new Promise((r) => setTimeout(r, 100));
@@ -171,11 +193,15 @@ try {
   await request(4, wire.encodeActivateGuiReq("reopen after disconnect")).result;
   await app.getByTestId("daemon-url").waitFor();
   evidence.disconnect = true;
-  const duplicate = spawn(process.execPath, [host, "--config", config], {
-    env: { ...process.env, RIEUL_PAIRING_BUN: bun },
-    windowsHide: true,
-    stdio: "ignore",
-  });
+  const duplicate = spawn(
+    executable ?? process.execPath,
+    executable ? ["--config", config] : [host, "--config", config],
+    {
+      env: { ...process.env, RIEUL_PAIRING_BUN: bun },
+      windowsHide: true,
+      stdio: "ignore",
+    },
+  );
   assert.equal(
     await new Promise((resolve) => duplicate.on("exit", resolve)),
     0,

@@ -1,0 +1,77 @@
+name: Check native pairing bundle
+on:
+  push:
+    branches: [main, codex/runtime-migration]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, macos-15-intel]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.13.0
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.9
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install exact desktop dependencies
+        working-directory: pairing
+        run: bun install --frozen-lockfile
+      - name: Build unchanged upstream Intel native addon
+        if: matrix.os == 'macos-15-intel'
+        run: |
+          sh pairing/scripts/build-native-macos-intel.sh
+          echo "RIEUL_NATIVE_ADDON=$PWD/target/gpuix-0.11-intel/packages/native/gpuix-native.darwin-x64.node" >> "$GITHUB_ENV"
+      - name: Types and request/IPC regressions
+        working-directory: pairing
+        run: |
+          bun run check
+          bun run test
+      - name: Compile and exercise AppKit bridge
+        run: |
+          sh pairing/scripts/build-bridge-macos.sh
+          clang -fobjc-arc -std=c11 -framework Cocoa -framework UserNotifications pairing/tests/macos-bridge.m -o pairing/native/bin/bridge-fixture
+          pairing/native/bin/bridge-fixture
+      - name: Build self contained app with pinned runtimes
+        run: node pairing/scripts/package.mjs
+      - name: Verify launcher and GPUiX/AppKit lifecycle in isolated fixture
+        working-directory: pairing
+        env:
+          RIEUL_GUI_EXECUTABLE: ${{ github.workspace }}/target/release/Rieul-desktop.app/Contents/MacOS/rieul-gui
+        run: node scripts/macos-native-qa.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pairing-${{ matrix.os }}-evidence
+          path: pairing/artifacts/
+          retention-days: 3
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.13.0
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.9
+      - uses: dtolnay/rust-toolchain@stable
+      - working-directory: pairing
+        run: bun install --frozen-lockfile
+      - working-directory: pairing
+        run: |
+          bun run check
+          bun run test
+      - run: cargo test -p rieul-gui-launcher --locked
+      - name: Build and verify embedded runtimes and native payload
+        run: node pairing/scripts/package.mjs

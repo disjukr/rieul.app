@@ -17,8 +17,12 @@ for (const [entry, target] of [
     throw new AggregateError(result.logs, `Failed to build ${entry}`);
 }
 await mkdir("dist/assets", { recursive: true });
-await copyFile("../web/desktop/icon.ico", "dist/assets/icon.ico");
-await readFile("native/bin/rieul_pairing_windows.dll");
+await copyFile("assets/icon.ico", "dist/assets/icon.ico");
+await readFile(
+  process.platform === "win32"
+    ? "native/bin/rieul_pairing_windows.dll"
+    : "native/bin/librieul_pairing_macos.dylib",
+);
 const ui = await readFile("dist/main.js", "utf8");
 if (ui.includes("jsxDEV(") || ui.includes("react/jsx"))
   throw new Error("Solid universal transform was not applied");

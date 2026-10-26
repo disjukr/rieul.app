@@ -15,6 +15,7 @@ for (const name of [
   "tsconfig.json",
   "bunfig.toml",
   "native/bin/rieul_pairing_windows.dll",
+  "assets",
 ])
   await cp(path.join(root, name), path.join(pairing, name), {
     recursive: true,

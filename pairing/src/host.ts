@@ -1,26 +1,16 @@
 import { spawn } from "node:child_process";
-import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { PairingController, type Shell } from "./controller.ts";
-import { profile, endpoint, daemonInfo } from "./profile.ts";
+import { profile, endpoint, daemonInfo, defaultConfigPath } from "./profile.ts";
 import { activateExisting, startIpc } from "./ipc.ts";
 import type { HostToUi, UiToHost } from "./messages.ts";
 
-if (process.platform !== "win32")
-  throw new Error(
-    "GPUiX pairing macOS shell is unverified; use the existing CEF launcher",
-  );
+if (!["win32", "darwin"].includes(process.platform))
+  throw new Error("Desktop requires Windows or macOS");
 const index = process.argv.indexOf("--config");
 const config = index >= 0 ? process.argv[index + 1] : undefined;
 if (index >= 0 && !config) throw new Error("--config requires a path");
-const identity = await profile(
-  config ??
-    path.join(
-      process.env.ProgramData ?? "C:\\ProgramData",
-      "Rieul",
-      "rieul.yaml",
-    ),
-);
+const identity = await profile(config ?? defaultConfigPath());
 const address = endpoint(identity.profileId);
 if (await activateExisting(address)) process.exit(0);
 let ready = false,
@@ -99,7 +89,13 @@ controller.subscribe((snapshot) => {
     send({ type: "snapshot", snapshot, generation: controller.generation });
 });
 const ui = spawn(
-  process.env.RIEUL_PAIRING_BUN ?? "bun",
+  process.env.RIEUL_PAIRING_BUN ??
+    fileURLToPath(
+      new URL(
+        `../../runtime/bun${process.platform === "win32" ? ".exe" : ""}`,
+        import.meta.url,
+      ),
+    ),
   [
     fileURLToPath(
       new URL(

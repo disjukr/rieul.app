@@ -18,6 +18,7 @@ export async function createWindowsShell(
       rieul_pairing_window: { args: ["u32"], returns: "ptr" },
       rieul_pairing_visible: { args: ["ptr"], returns: "i32" },
       rieul_pairing_show: { args: ["ptr", "i32"], returns: "void" },
+      rieul_pairing_close: { args: ["ptr"], returns: "void" },
       rieul_install_close_guard: { args: ["ptr"], returns: "i32" },
       rieul_take_close_requests: { args: [], returns: "u32" },
       rieul_uninstall_close_guard: { args: [], returns: "void" },
@@ -44,7 +45,7 @@ export async function createWindowsShell(
         new URL(
           import.meta.url.endsWith(".js")
             ? "./assets/icon.ico"
-            : "../../web/desktop/icon.ico",
+            : "../assets/icon.ico",
           import.meta.url,
         ),
       ),
@@ -62,6 +63,9 @@ export async function createWindowsShell(
   }, 25);
   let destroyed = false;
   return {
+    requestClose() {
+      native.symbols.rieul_pairing_close(window);
+    },
     show() {
       native.symbols.rieul_pairing_show(window, 1);
     },

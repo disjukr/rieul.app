@@ -3,6 +3,7 @@ export interface NativeShell {
   show(): void;
   hide(): void;
   visible(): boolean;
+  requestClose(): void;
   /** false requests the controller's visible-window fallback; never grants OS permission. */
   notify(title: string, body: string): Promise<boolean>;
   destroy(): void;
