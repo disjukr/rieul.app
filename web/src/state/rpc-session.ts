@@ -20,7 +20,7 @@ import {
   decodeDatagramMessage,
   encodeDatagramMessage,
 } from "../protocol/wire.ts";
-import { MachineBaseUrlScope } from "./machine.tsx";
+import { MachineBaseUrlScope } from "./machine-scopes.ts";
 import { machineBunja, machineStoreBunja } from "./machine-store.ts";
 import type { Machine } from "./machines.ts";
 import type { ConnectionState } from "./types.ts";

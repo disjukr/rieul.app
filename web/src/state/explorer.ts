@@ -15,12 +15,12 @@ import {
   type RootsSubscriptionCloseReason,
   type RootsTableEvent,
 } from "../protocol/generated/rpc.ts";
-import { MachineIdScope } from "./machine.tsx";
+import { MachineIdScope } from "./machine-scopes.ts";
 import { machineBunja, machineStoreBunja } from "./machine-store.ts";
 import { Machine } from "./machines.ts";
 import { rpcSessionBunja } from "./rpc-session.ts";
 import { StreamState } from "./types.ts";
-import { WorkbenchTabIdScope } from "./workbench-context.ts";
+import { WorkbenchTabIdScope } from "./workbench-scopes.ts";
 
 export const trashLocationPath = "rieul://trash";
 

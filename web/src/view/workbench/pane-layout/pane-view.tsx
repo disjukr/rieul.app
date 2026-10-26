@@ -1,3 +1,4 @@
+import { WorkbenchTabIdContext } from "../../../state/workbench-context.ts";
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useDroppable } from "@dnd-kit/core";
 import { useAtomValue } from "jotai";
@@ -28,7 +29,6 @@ import {
   workbenchBunja,
   workbenchPaneBunja,
   type WorkbenchTab,
-  WorkbenchTabIdContext,
 } from "../../../state/workbench.ts";
 import { WorkbenchToolContent } from "../tool/index.tsx";
 import {

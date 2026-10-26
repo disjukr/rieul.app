@@ -6,18 +6,14 @@ import { JotaiStoreScope } from "unsaturated/store";
 import type { TerminalLaunchSpec } from "../protocol/generated/rpc.ts";
 import { copyExplorerNavigationState } from "./explorer.ts";
 import { copyFileViewerState } from "./file-viewer.ts";
-import { MachineIdScope } from "./machine.tsx";
+import { MachineIdScope } from "./machine-scopes.ts";
 import {
-  WorkbenchPaneIdContext,
   WorkbenchPaneIdScope,
-  WorkbenchTabIdContext,
   WorkbenchTabIdScope,
-} from "./workbench-context.ts";
+} from "./workbench-scopes.ts";
 
 export {
-  WorkbenchPaneIdContext,
   WorkbenchPaneIdScope,
-  WorkbenchTabIdContext,
   WorkbenchTabIdScope,
 };
 

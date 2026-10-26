@@ -4,7 +4,7 @@ import { atom, createStore } from "jotai";
 import { JotaiStoreScope } from "unsaturated/store";
 import { createAgentsBunja } from "../src/state/agents-model.ts";
 import { machineBunja, machineStoreBunja } from "../src/state/machine-store.ts";
-import { MachineIdScope } from "../src/state/machine.tsx";
+import { MachineIdScope } from "../src/state/machine-scopes.ts";
 import { MachineStorageScope } from "../src/state/machine-storage.ts";
 import type {
   AgentProjectInfo,

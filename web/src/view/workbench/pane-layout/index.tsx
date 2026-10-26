@@ -1,3 +1,4 @@
+import { WorkbenchPaneIdContext } from "../../../state/workbench-context.ts";
 import { useEffect, useState } from "react";
 import {
   type CollisionDetection,
@@ -26,7 +27,6 @@ import {
 import {
   type TabDropPosition,
   workbenchBunja,
-  WorkbenchPaneIdContext,
 } from "../../../state/workbench.ts";
 import { PaneDivider } from "./pane-divider.tsx";
 import { WorkbenchPaneView } from "./pane-view.tsx";

@@ -11,7 +11,7 @@ import {
 import { fileViewerSelectedImplStorageKey } from "../../../../../../state/file-viewer.ts";
 import { machineBunja } from "../../../../../../state/machine-store.ts";
 import { rpcSessionBunja } from "../../../../../../state/rpc-session.ts";
-import { WorkbenchTabIdScope } from "../../../../../../state/workbench.ts";
+import { WorkbenchTabIdScope } from "../../../../../../state/workbench-scopes.ts";
 import { type FileViewerImplId, isFileViewerImpl } from "./impl/index.ts";
 import { detectFileViewerImpl } from "./impl-detector/index.ts";
 
