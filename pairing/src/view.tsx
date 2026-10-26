@@ -65,6 +65,7 @@ export function PairingView(props: {
     onCleanup(() => clearInterval(timer));
     const [resolved, setResolved] = createSignal(false);
     const [incorrect, setIncorrect] = createSignal(false);
+    const [cancelled, setCancelled] = createSignal(false);
     const select = (candidate: string) => {
       if (route.kind !== "confirmPairing" || resolved()) return;
       const accepted = candidate === route.model.confirmationCode;
@@ -73,8 +74,8 @@ export function PairingView(props: {
           accepted,
           p.state.generation,
         );
-        setResolved(true);
         setIncorrect(!accepted);
+        setResolved(true);
       });
     };
     return (
@@ -127,9 +128,14 @@ export function PairingView(props: {
                 client.
               </text>
             </Show>
-            <Show when={resolved() && !incorrect()}>
+            <Show when={resolved() && !incorrect() && !cancelled()}>
               <text testId="accepted" style={text}>
-                Confirmation sent.
+                Approval sent.
+              </text>
+            </Show>
+            <Show when={resolved() && cancelled()}>
+              <text testId="cancelled" style={text}>
+                Pairing cancelled.
               </text>
             </Show>
             <Button
@@ -141,6 +147,7 @@ export function PairingView(props: {
                     false,
                     p.state.generation,
                   );
+                  setCancelled(true);
                   setResolved(true);
                 })
               }

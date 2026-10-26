@@ -122,3 +122,9 @@ The final document-only successor must also pass same-SHA CI before safe fast-fo
 ## Headless DMG cleanup follow-up
 
 Final document SHA727bc8c CI40324223492 passed Windows and ARM64 completely. Intel passed default PKG, signed extracted native UI and all profile/lifecycle checks, then failed detaching its own DMG image after Finder's disk lookup returned -1728. No main integration occurred. CI now skips only interactive Finder cosmetic layout (normal user builds retain it); mounted payload, signature and complete DMG verification remain mandatory. Detach diagnostics are no longer suppressed, so any remaining failure has its actual OS error recorded. The implementation thread is not issuing CUA input; native OS UI audit is assigned to the separate audit thread to prevent contention.
+
+## Actual Windows UI audit and P3 response
+
+Separate task-6 CUA audit on isolated fake IPC verified visible QR/fixture URL, correct-code true, incorrect-code mismatch/false, Cancel false, X hide/same-profile reopen, pending Alt+F4 false, associated-editor fixture YAML opening and exact URL clipboard paste. Evidence: task-6/ui-evidence/observations.json and events.json (outside Git). No actual daemon/account/install was modified; audit windows, fixture and editor tabs were cleaned up. Actual tray popup/Quit and OS notification/click remain unverified because CUA did not expose taskbar/notification-area windows; no workaround was used.
+
+P3: Cancel correctly rejected but showed generic approval-like completion text. Added a separate cancellation state/message (Pairing cancelled.) and explicit Approval sent. feedback, plus Windows/Mac native UI regression assertions for the two distinct outcomes and no acceptance feedback after Cancel. Wire acceptance/rejection behavior is unchanged. The implementation thread performs no CUA input; successor CI verifies this correction before main integration.

@@ -55,4 +55,4 @@ Windows fixture QA는 `RIEUL_GUI_EXECUTABLE`, `RIEUL_PAIRING_BUN`에 해당 번�
 
 QA는 가짜 `.invalid` 상대, 별도 설정과 CBOR 요청만 사용한다. 실제 장치 페어링, 자격 증명, 서비스 등록, 자동시작 설치는 수행하지 않는다. 네이티브 자동화는 `RIEUL_PAIRING_AUTOMATION=1`일 때만 켠다.
 
-실제 OS 트레이 팝업 선택, 알림이 화면에 보이는지, 연결된 편집기 화면은 지원되는 네이티브 컴퓨터 제어 도구가 없어 미검증이다. 직접 메뉴 핸들러 호출을 이 검증으로 계산하지 않는다. 설치·업그레이드·제거 및 Developer ID/notarization도 단순 압축 해제 검사와 구분한다. 최신 결과는 [VERIFICATION.md](./VERIFICATION.md), 진행/승인 제한은 [MIGRATION.md](./MIGRATION.md)에 기록한다.
+별도 Windows CUA 감사에서 테스트 프로필의 승인·거절·취소, X/Alt+F4 숨김·재열기, 설정 편집기 열기와 정확한 URL 붙여넣기를 실제 입력으로 확인했다. 실제 OS 트레이 팝업/Quit와 알림 표시·클릭은 작업표시줄·알림 영역이 도구에 노출되지 않아 미검증이다. 내부 메뉴 핸들러 호출은 이 항목들의 증명이 아니다. 설치·업그레이드·제거 및 Developer ID/notarization은 단순 패키지 생성 검사와 구분한다. 최신 결과는 [VERIFICATION.md](./VERIFICATION.md), 진행/실패 이력은 [MIGRATION.md](./MIGRATION.md)에 기록한다.

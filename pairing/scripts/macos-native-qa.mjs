@@ -96,6 +96,21 @@ try {
     await app.getByTestId("candidate-73").waitFor();
     await app.getByTestId("candidate-73").click();
     assert.equal(accepted(await second), true);
+    await app.getByTestId("accepted").waitFor();
+    assert.equal(
+      await app.getByTestId("accepted").textContent(),
+      "Approval sent.",
+    );
+    const cancelled = confirm("28");
+    await app.getByTestId("candidate-28").waitFor();
+    await app.getByTestId("cancel").click();
+    assert.equal(accepted(await cancelled), false);
+    await app.getByTestId("cancelled").waitFor();
+    assert.equal(
+      await app.getByTestId("cancelled").textContent(),
+      "Pairing cancelled.",
+    );
+    assert.equal(await app.getByTestId("accepted").count(), 0);
     const close = confirm("19");
     await app.getByTestId("candidate-19").waitFor();
     await app.getByTestId("hide").click();
@@ -104,6 +119,7 @@ try {
     await app.getByTestId("daemon-url").waitFor();
   }
   evidence.repeatCloseReplaceReopen = 3;
+  evidence.distinctApprovalAndCancellationFeedback = true;
   const duplicate = spawn(
     executable ?? process.execPath,
     [...(executable ? [] : ["src/host.ts"]), "--config", config],

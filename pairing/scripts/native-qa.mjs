@@ -183,12 +183,23 @@ try {
     await app.getByTestId("candidate-73").click();
     assert.equal(accepted(await b.result), true);
     await app.getByTestId("accepted").waitFor();
+    assert.equal(
+      await app.getByTestId("accepted").textContent(),
+      "Approval sent.",
+    );
     const c = confirm("28");
     await app.getByTestId("candidate-28").waitFor();
     await app.getByTestId("cancel").click();
     assert.equal(accepted(await c.result), false);
+    await app.getByTestId("cancelled").waitFor();
+    assert.equal(
+      await app.getByTestId("cancelled").textContent(),
+      "Pairing cancelled.",
+    );
+    assert.equal(await app.getByTestId("accepted").count(), 0);
   }
   evidence.repeatReplacementAcceptCancel = 3;
+  evidence.distinctApprovalAndCancellationFeedback = true;
   const c = confirm("64");
   await app.getByTestId("candidate-64").waitFor();
   await app.screenshot({ path: `${dir}/confirmation.png` });

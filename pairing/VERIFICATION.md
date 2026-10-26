@@ -18,9 +18,15 @@ Two simultaneous native profile processes also passed the Windows and both Mac n
 
 Local web type checks, Node tests and Vite production build passed after retirement. Four browser regression tests passed using already-installed official Chromium1243 with an isolated profile and the correct web configuration. The pinned Chromium1194 download was initially unavailable; the normal web CI installs its pinned browser. Root ESLint has 198 errors in files byte-identical to the existing main baseline; pairing ESLint and changed-file formatting passed.
 
+## Actual Windows OS UI audit
+
+A separate Computer Use audit operated the isolated fake-IPC profile on source727bc8c, recorded in task-6/ui-evidence/observations.json and events.json outside this repository. Actual OS input verified the QR/fixture URL window, correct code returning true, incorrect code showing mismatch and returning false, Cancel returning false, titlebar X hiding/same-profile activation reopening, and pending Alt+F4 returning false. Open config visibly opened only the fixture YAML in the associated editor. Copy URL pasted the exact fixture URL into a fresh scratch tab; previous clipboard contents were not read or retained. Test windows/processes/editor tabs were cleaned up; no actual daemon/account/install was changed.
+
+The audit found P3 feedback ambiguity: Cancel rejected correctly but displayed the same completion text as approval. The view now distinguishes "Pairing cancelled." from "Approval sent." Windows and both Mac native QA scripts assert the distinct messages and absence of approval feedback after Cancel across three repeated flows. This label correction is subject to its successor CI; it is not claimed as a repeated OS-input audit.
+
 ## Limits
 
-- Native fixture clicks, bridge commands and app-generated captures do not prove actual OS tray popup selection, notification appearance, associated editor display or clipboard behavior. Native computer UI access is disabled in the available tooling.
+- Actual tray popup selection/Quit and visible OS notification/click remain unverified: documented CUA inventory did not expose taskbar/notification-area windows. No workaround was used. Mac OS-visible interaction remains unverified; its native fixtures and app-generated captures are distinct from OS-input proof. Windows editor/clipboard and close/reopen behavior were verified in the audit described above.
 - No actual MSI/MSIX/PKG install, upgrade, uninstall, service/LaunchAgent registration or autostart changes were performed. Archive extraction and owned-process/lock tests are distinct from installation lifecycle tests.
 - No Developer ID signing, notarization or Gatekeeper assessment. macOS 13 itself was not run; deployment targets were checked and native execution used macOS 15 CI.
 - Windows cross-user/integrity named-pipe ACL behavior was not tested. Existing profile identity and OS default ACL policy are preserved.
