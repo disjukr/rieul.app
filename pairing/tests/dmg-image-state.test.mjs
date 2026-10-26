@@ -51,6 +51,33 @@ test("canonical owned image and exact attached device remain attached", async ()
     );
   });
 });
+test("unrelated APFS images may have multiple whole devices without becoming detach targets", async () => {
+  await fixture(async ({ own, other }) => {
+    const unrelated = {
+      image: other,
+      entities: [
+        { "dev-entry": "/dev/disk3" },
+        { "dev-entry": "/dev/disk4" },
+        { "dev-entry": "/dev/disk4s1" },
+      ],
+    };
+    const owned = {
+      image: own,
+      entities: [
+        { "dev-entry": "/dev/disk7s1" },
+        { "dev-entry": "/dev/disk7" },
+      ],
+    };
+    assert.equal(ownImageAttached(own, "/dev/disk7", [unrelated, owned]), true);
+    assert.equal(ownImageAttached(own, "/dev/disk7", [unrelated]), false);
+    assert.throws(() =>
+      ownImageAttached(own, "/dev/disk7", [{ ...unrelated, image: own }]),
+    );
+    assert.throws(() =>
+      ownImageAttached(own, "/dev/disk7", [{ image: own, entities: null }]),
+    );
+  });
+});
 test("authoritative absence permits completion without touching a reused device", async () => {
   await fixture(async ({ own, other }) => {
     assert.equal(ownImageAttached(own, "/dev/disk7", []), false);

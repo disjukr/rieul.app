@@ -41,7 +41,9 @@ export function ownImageAttached(
     )
       throw new Error("Invalid disk image inventory");
     if (canonical(entry.image) !== expected) continue;
-    if (entry.device !== device)
+    const actualDevice =
+      "entities" in entry ? wholeImageDevice(entry.entities) : entry.device;
+    if (actualDevice !== device)
       throw new Error("Owned image device changed; refusing detachment");
     return true;
   }
@@ -55,6 +57,20 @@ if (
   try {
     if (process.argv[2] === "--device-json") {
       console.log(wholeImageDevice(JSON.parse(readFileSync(0, "utf8"))));
+    } else if (process.argv[2] === "--inventory-json") {
+      const inventory = JSON.parse(readFileSync(0, "utf8"));
+      if (!Array.isArray(inventory)) throw new Error("Invalid image inventory");
+      const images = inventory.map((entry) => ({
+        image: entry?.["image-path"],
+        entities: entry?.["system-entities"],
+      }));
+      process.exitCode = ownImageAttached(
+        process.argv[3],
+        process.argv[4],
+        images,
+      )
+        ? 0
+        : 1;
     } else {
       const [image, device, ...pairs] = process.argv.slice(2);
       if (pairs.length % 2) throw new Error("Incomplete image inventory");

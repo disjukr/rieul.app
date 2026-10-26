@@ -515,17 +515,11 @@ whole_image_device() {
   printf '%s' "$entities" | node "$REPO_ROOT/pairing/scripts/dmg-image-state.mjs" --device-json
 }
 dmg_image_attached() {
-  local info="$STAGING_DIR/dmg-state.plist" index=0 image device
-  set -- "$RW_DMG_PATH" "$dmg_device"
+  local info="$STAGING_DIR/dmg-state.plist" images
   hdiutil info -plist >"$info" || return 2
   [[ "$(/usr/bin/plutil -type images "$info")" == array ]] || return 2
-  while /usr/libexec/PlistBuddy -c "Print :images:$index" "$info" >/dev/null 2>&1; do
-    image="$(/usr/libexec/PlistBuddy -c "Print :images:$index:image-path" "$info")" || return 2
-    device="$(whole_image_device "$info" "images.$index.system-entities")" || return 2
-    set -- "$@" "$image" "$device"
-    index=$((index + 1))
-  done
-  node "$REPO_ROOT/pairing/scripts/dmg-image-state.mjs" "$@"
+  images="$(/usr/bin/plutil -extract images json -o - "$info")" || return 2
+  printf '%s' "$images" | node "$REPO_ROOT/pairing/scripts/dmg-image-state.mjs" --inventory-json "$RW_DMG_PATH" "$dmg_device"
 }
 detach_build_image() {
   local attempt state
