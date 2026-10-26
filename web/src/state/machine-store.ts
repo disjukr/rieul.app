@@ -3,13 +3,15 @@ import { atom } from "jotai";
 import { JotaiStoreScope } from "unsaturated/store";
 import { loadMachines, Machine, saveMachines } from "./machines.ts";
 import { MachineIdScope } from "./machine.tsx";
+import { type MachineStorage, MachineStorageScope } from "./machine-storage.ts";
 
-const initialMachines = loadMachines();
 const SELECTED_MACHINE_STORAGE_KEY = "rieul.selected-machine-id.v1";
-const initialSelectedId = loadSelectedMachineId(initialMachines);
 
 export const machineStoreBunja = bunja(() => {
   const store = bunja.use(JotaiStoreScope);
+  const storage = bunja.use(MachineStorageScope);
+  const initialMachines = loadMachines(storage);
+  const initialSelectedId = loadSelectedMachineId(initialMachines, storage);
 
   const machinesAtom = atom<Machine[]>(initialMachines);
   const selectedIdAtom = atom<string | undefined>(initialSelectedId);
@@ -99,12 +101,12 @@ export const machineStoreBunja = bunja(() => {
 
   bunja.effect(() =>
     store.sub(machinesAtom, () => {
-      saveMachines(store.get(machinesAtom));
+      saveMachines(store.get(machinesAtom), storage);
     })
   );
   bunja.effect(() =>
     store.sub(selectedIdAtom, () => {
-      saveSelectedMachineId(store.get(selectedIdAtom));
+      saveSelectedMachineId(store.get(selectedIdAtom), storage);
     })
   );
 
@@ -150,17 +152,23 @@ function getMachine(
   return machines.find((machine) => machine.id === machineId);
 }
 
-function loadSelectedMachineId(machines: Machine[]): string | undefined {
-  const stored = localStorage.getItem(SELECTED_MACHINE_STORAGE_KEY);
+function loadSelectedMachineId(
+  machines: Machine[],
+  storage: MachineStorage,
+): string | undefined {
+  const stored = storage.getItem(SELECTED_MACHINE_STORAGE_KEY);
   if (stored && getMachine(machines, stored)) return stored;
   return machines[0]?.id;
 }
 
-function saveSelectedMachineId(machineId?: string) {
+function saveSelectedMachineId(
+  machineId: string | undefined,
+  storage: MachineStorage,
+) {
   if (machineId) {
-    localStorage.setItem(SELECTED_MACHINE_STORAGE_KEY, machineId);
+    storage.setItem(SELECTED_MACHINE_STORAGE_KEY, machineId);
   } else {
-    localStorage.removeItem(SELECTED_MACHINE_STORAGE_KEY);
+    storage.removeItem(SELECTED_MACHINE_STORAGE_KEY);
   }
 }
 

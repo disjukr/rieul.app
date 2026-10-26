@@ -1,3 +1,5 @@
+import type { MachineStorage } from "./machine-storage.ts";
+
 export interface Machine {
   id: string;
   name: string;
@@ -24,8 +26,10 @@ export type MachineIconName = typeof machineIconNames[number];
 const STORAGE_KEY = "rieul.machines.v1";
 const DEFAULT_MACHINE_PORT = "9012";
 
-export function loadMachines(): Machine[] {
-  const raw = localStorage.getItem(STORAGE_KEY);
+export function loadMachines(
+  storage: MachineStorage = globalThis.localStorage,
+): Machine[] {
+  const raw = storage.getItem(STORAGE_KEY);
   if (!raw) return [];
   try {
     const parsed = JSON.parse(raw);
@@ -38,8 +42,11 @@ export function loadMachines(): Machine[] {
   }
 }
 
-export function saveMachines(machines: Machine[]) {
-  localStorage.setItem(
+export function saveMachines(
+  machines: Machine[],
+  storage: MachineStorage = globalThis.localStorage,
+) {
+  storage.setItem(
     STORAGE_KEY,
     JSON.stringify(machines.map(normalizeStoredMachine)),
   );
