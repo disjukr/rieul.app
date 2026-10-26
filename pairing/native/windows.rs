@@ -1,4 +1,4 @@
-// Rieul's own close guard, reused without modifying the CEF build.
+// Rieul's own close guard, shared with the pairing bridge.
 #[path = "../../daemon/windows-close-guard/src/lib.rs"]
 mod close_guard;
 use std::ffi::c_void;

@@ -1,3 +1,11 @@
+# Current checkpoint: final retirement
+
+This is a chronological log; older pending/blocked entries below are superseded by this checkpoint. Commit 45ad7c49003e1b7e8bd608089f856128040a980c and CI https://github.com/disjukr/rieul.app/actions/runs/40314216502 passed Windows and both Mac architectures, including full DMG verification. The prior fallback/asset retirement approval blocks were resolved after new all-platform verification evidence; the fallback and 13 legacy files are now removed in the final working tree. No permission block remains.
+
+Final cleanup removes the old Vite entry/types/dependency and all active runtime references, adds bounded own-image DMG detach recovery, and adds simultaneous native profile QA. Final same-SHA CI and parent independent review precede main integration. See VERIFICATION.md for actual evidence and explicit remaining limits. Root lint reports 198 existing errors only in unchanged files; no pairing lint errors. Local browser verification initially stopped before tests because the pinned browser binary was missing; isolated download/retest is in progress.
+
+---
+
 # Runtime migration progress
 
 Continuation from main `2b938439e2aae31b368cb6bbdfdeec07e35d3102`, isolated task-5 checkout, branch `codex/runtime-migration`.

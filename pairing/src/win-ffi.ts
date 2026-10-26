@@ -1,4 +1,4 @@
-// Narrow adapter for Rieul's existing Windows tray implementation. No global Deno shim.
+// Narrow Bun FFI adapter for Rieul's Windows tray implementation.
 import { dlopen, JSCallback, ptr, type Pointer as BunPointer } from "bun:ffi";
 export type Pointer = BunPointer | null;
 type Spec = { parameters: readonly string[]; result: string };

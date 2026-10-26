@@ -4,7 +4,6 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
-    "dev:daemon-main": "vite --host 127.0.0.1 --port 5179 --strictPort",
     "desktop:icons": "tsx src/tools/generate-desktop-icons.ts",
     "build": "vite build",
     "check": "tsc -b && tsc -p tsconfig.tools.json",
@@ -32,17 +31,16 @@
     "pdfjs-dist": "5.7.284",
     "react": "19.2.6",
     "react-dom": "19.2.6",
-    "qrcode.react": "4.2.0",
     "unsaturated": "0.0.0"
   },
   "devDependencies": {
+    "@resvg/resvg-js": "2.6.2",
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",
     "@vitejs/plugin-react": "4.7.0",
     "rollup-plugin-visualizer": "6.0.11",
     "typescript": "5.9.3",
     "unocss": "66.7.0",
-    "vite": "6.4.2",
-    "@resvg/resvg-js": "2.6.2"
+    "vite": "6.4.2"
   }
 }

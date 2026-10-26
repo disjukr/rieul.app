@@ -54,12 +54,13 @@ const child = spawn(executable ?? process.execPath, launchArgs, {
   stdio: ["pipe", "pipe", "pipe"],
   windowsHide: true,
 });
+const ownedChildren = new Set([child]);
 child.stderr.on("data", (b) => {
   appendFileSync(`${dir}/stderr.log`, b);
   process.stderr.write(b);
 });
 const deadline = setTimeout(() => {
-  child.kill();
+  for (const owned of ownedChildren) owned.kill();
   throw new Error("Native QA timed out");
 }, 60000);
 const app = await connectStdio({
@@ -70,8 +71,8 @@ const app = await connectStdio({
   },
 });
 const address = endpoint((await profile(config)).profileId);
-function request(procId, payload) {
-  const socket = net.createConnection(address),
+function request(procId, payload, destination = address) {
+  const socket = net.createConnection(destination),
     chunks = [];
   const result = new Promise((resolve, reject) => {
     socket.on("error", reject);
@@ -219,6 +220,86 @@ try {
     0,
   );
   evidence.duplicateActivation = true;
+  if (executable) {
+    const otherConfig = `${dir}/second.yaml`;
+    await writeFile(
+      otherConfig,
+      "listenAddr: 127.0.0.1:19020\ndomain: fixture-second.invalid\n",
+    );
+    const otherAddress = endpoint((await profile(otherConfig)).profileId);
+    const other = spawn(executable, ["--config", otherConfig, "--show"], {
+      cwd: process.cwd(),
+      env: childEnv,
+      stdio: ["pipe", "pipe", "pipe"],
+      windowsHide: true,
+    });
+    ownedChildren.add(other);
+    other.stderr.on("data", (bytes) =>
+      appendFileSync(`${dir}/second-stderr.log`, bytes),
+    );
+    let otherApp;
+    try {
+      otherApp = await connectStdio({
+        write: (bytes) => other.stdin.write(bytes),
+        feed: (callback) =>
+          other.stdout.on("data", (bytes) => callback(bytes.toString())),
+        close: async () => {
+          other.kill();
+        },
+      });
+      await otherApp.getByTestId("daemon-url").waitFor();
+      assert.equal(
+        await otherApp.getByTestId("daemon-url").textContent(),
+        "https://fixture-second.invalid:19020",
+      );
+      const first = confirm("31");
+      let settled = false;
+      void first.result.then(
+        () => {
+          settled = true;
+        },
+        () => {
+          settled = true;
+        },
+      );
+      await app.getByTestId("candidate-31").waitFor();
+      const second = request(
+        2,
+        encodeCbor(
+          new Map([
+            [1, "https://fixture-second.invalid:19020"],
+            [2, "86"],
+            [3, "Second disposable profile"],
+          ]),
+        ),
+        otherAddress,
+      );
+      await otherApp.getByTestId("candidate-86").waitFor();
+      await otherApp.getByTestId("candidate-86").click();
+      assert.equal(accepted(await second.result), true);
+      assert.equal(settled, false);
+      const stopped = new Promise((resolve) => other.once("exit", resolve));
+      other.kill();
+      await stopped;
+      await app.getByTestId("candidate-31").waitFor();
+      await app.getByTestId("hide").click();
+      assert.equal(accepted(await first.result), false);
+      await request(
+        4,
+        wire.encodeActivateGuiReq("primary survives second profile exit"),
+      ).result;
+      await app.getByTestId("daemon-url").waitFor();
+      evidence.twoNativeProfilesAndIndependentExit = true;
+    } finally {
+      if (other.pid && other.exitCode === null && other.signalCode === null) {
+        const stopped = new Promise((resolve) => other.once("exit", resolve));
+        other.kill();
+        await stopped;
+      }
+      ownedChildren.delete(other);
+      await otherApp?.close();
+    }
+  }
   if (process.env.RIEUL_PAIRING_LAUNCHER) {
     const launcher = spawn(
       "powershell.exe",

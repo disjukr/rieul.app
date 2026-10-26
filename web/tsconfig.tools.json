@@ -7,7 +7,6 @@
   "include": [
     "vite.config.ts",
     "uno.config.ts",
-    "desktop/generate-tray-icon.ts",
     "src/tools/**/*.ts",
     "tests/**/*.ts",
     "tests/**/*.tsx"

@@ -26,7 +26,6 @@ export default defineConfig({
     rollupOptions: {
       input: {
         app: resolve(import.meta.dirname, "index.html"),
-        "daemon-main": resolve(import.meta.dirname, "daemon-main.html"),
       },
     },
   },

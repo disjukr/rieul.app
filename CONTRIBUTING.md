@@ -56,8 +56,6 @@ source because that release has no published Intel addon.
 Close-to-hide, tray activation/quit, confirmation rejection, profile-scoped IPC,
 and duplicate activation are compatibility requirements. See `pairing/README.md`
 and `pairing/VERIFICATION.md` for safe fixture commands and verification limits.
-The previous CEF source remains during the final migration verification; see
-`pairing/MIGRATION.md` for the exact removal gate and current status.
 
 `pnpm --dir web check:daemon` uses Chromium WebTransport because Node does not
 provide that browser API. Install Chromium with the command above first. It uses

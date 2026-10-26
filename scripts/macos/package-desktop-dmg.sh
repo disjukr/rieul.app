@@ -57,7 +57,7 @@ layout_dmg_volume() {
   local mount_dir="$2"
   local app_name="$3"
 
-  osascript <<EOF
+  osascript <<EOF || return 1
 tell application "Finder"
   tell disk "$volume_name"
     open
@@ -508,9 +508,23 @@ rm -rf "$MOUNT_DIR"
 mkdir -p "$MOUNT_DIR"
 DMG_SIZE_MB="$(du -sm "$DMG_ROOT" | awk '{ print $1 + 64 }')"
 dmg_mounted=0
+detach_build_image() {
+  [[ "$dmg_mounted" == 1 ]] || return 0
+  for attempt in 1 2; do
+    if hdiutil detach "$MOUNT_DIR" -quiet; then dmg_mounted=0; return 0; fi
+    sleep 1
+  done
+  # CI metadata/indexing processes can retain this build's temporary image.
+  # The flag is set only after our own attach succeeds; never force other mounts.
+  if [[ "${CI:-}" == true ]]; then
+    echo "CI: detaching this build's temporary image at $MOUNT_DIR"
+    if hdiutil detach "$MOUNT_DIR" -force -quiet; then dmg_mounted=0; return 0; fi
+  fi
+  return 1
+}
 cleanup_dmg_mount() {
   if [[ "$dmg_mounted" == 1 ]]; then
-    hdiutil detach "$MOUNT_DIR" -quiet || echo "Could not detach temporary image at $MOUNT_DIR" >&2
+    detach_build_image || echo "Could not detach temporary image at $MOUNT_DIR" >&2
   fi
 }
 trap cleanup_dmg_mount EXIT
@@ -527,8 +541,7 @@ if ! layout_dmg_volume "$VOLUME_NAME" "$MOUNT_DIR" "$APP_NAME"; then
 fi
 "$MOUNT_DIR/$APP_NAME.app/Contents/MacOS/rieul-gui" --verify-bundle
 codesign --verify --deep --strict "$MOUNT_DIR/$APP_NAME.app"
-hdiutil detach "$MOUNT_DIR" -quiet
-dmg_mounted=0
+detach_build_image
 hdiutil convert "$RW_DMG_PATH" \
   -ov \
   -format UDZO \

@@ -20,7 +20,7 @@ Options:
   --identifier IDENTIFIER       Installer package identifier. Defaults to app.rieul.desktop.
   --app-sign IDENTITY           Developer ID Application identity for the app bundle.
   --installer-sign IDENTITY     Developer ID Installer identity for the PKG.
-  --skip-build                  Reuse target/release daemon binaries and Deno Desktop app.
+  --skip-build                  Reuse target/release daemon binaries and native pairing app.
   --gui-app PATH                Candidate native app (requires --skip-build).
   -h, --help                    Show this help.
 EOF

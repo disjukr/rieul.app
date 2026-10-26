@@ -52,12 +52,7 @@ fn gui_executable_path() -> Result<PathBuf> {
     let directory = launcher
         .parent()
         .ok_or_else(|| anyhow!("launcher executable has no parent directory"))?;
-    let native = directory.join("rieul-gui");
-    let executable = if native.is_file() {
-        native
-    } else {
-        directory.join("laufey")
-    };
+    let executable = directory.join("rieul-gui");
     if executable.is_file() {
         Ok(executable)
     } else {

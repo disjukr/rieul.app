@@ -35,6 +35,7 @@ const child = spawn(
     stdio: ["pipe", "pipe", "pipe"],
   },
 );
+const ownedChildren = new Set([child]);
 let uiPid;
 child.stderr.on("data", (data) => {
   process.stderr.write(data);
@@ -42,7 +43,7 @@ child.stderr.on("data", (data) => {
   if (found) uiPid = Number(found[1]);
 });
 const deadline = setTimeout(() => {
-  child.kill();
+  for (const owned of ownedChildren) owned.kill();
   throw new Error("macOS native QA deadline");
 }, 60000);
 const app = await connectStdio({
@@ -54,9 +55,9 @@ const app = await connectStdio({
   },
 });
 const address = endpoint((await profile(config)).profileId);
-const request = (procId, payload) =>
+const request = (procId, payload, destination = address) =>
   new Promise((resolve, reject) => {
-    const socket = net.createConnection(address),
+    const socket = net.createConnection(destination),
       chunks = [];
     socket.on("error", reject);
     socket.on("data", (chunk) => chunks.push(chunk));
@@ -113,6 +114,88 @@ try {
     0,
   );
   evidence.duplicate = true;
+  if (executable) {
+    const otherConfig = `${dir}/second.yaml`;
+    await writeFile(
+      otherConfig,
+      "listenAddr: 127.0.0.1:19020\ndomain: fixture-second.invalid\n",
+    );
+    const otherAddress = endpoint((await profile(otherConfig)).profileId);
+    const other = spawn(executable, ["--config", otherConfig, "--show"], {
+      env: {
+        ...process.env,
+        RIEUL_PAIRING_AUTOMATION: "1",
+        PATH: "/usr/bin:/bin",
+        HOME: dir,
+        BUN_INSTALL_CACHE_DIR: `${dir}/empty-cache`,
+      },
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    ownedChildren.add(other);
+    other.stderr.on("data", (bytes) => process.stderr.write(bytes));
+    let otherApp;
+    try {
+      otherApp = await connectStdio({
+        write: (bytes) => other.stdin.write(bytes),
+        feed: (callback) =>
+          other.stdout.on("data", (bytes) => callback(bytes.toString())),
+        close: async () => {
+          other.kill();
+        },
+      });
+      await otherApp.getByTestId("daemon-url").waitFor();
+      assert.equal(
+        await otherApp.getByTestId("daemon-url").textContent(),
+        "https://fixture-second.invalid:19020",
+      );
+      const first = confirm("31");
+      let settled = false;
+      void first.then(
+        () => {
+          settled = true;
+        },
+        () => {
+          settled = true;
+        },
+      );
+      await app.getByTestId("candidate-31").waitFor();
+      const second = request(
+        2,
+        encodeCbor(
+          new Map([
+            [1, "https://fixture-second.invalid:19020"],
+            [2, "86"],
+            [3, "Second disposable profile"],
+          ]),
+        ),
+        otherAddress,
+      );
+      await otherApp.getByTestId("candidate-86").waitFor();
+      await otherApp.getByTestId("candidate-86").click();
+      assert.equal(accepted(await second), true);
+      assert.equal(settled, false);
+      const stopped = new Promise((resolve) => other.once("exit", resolve));
+      other.kill();
+      await stopped;
+      await app.getByTestId("candidate-31").waitFor();
+      await app.getByTestId("hide").click();
+      assert.equal(accepted(await first), false);
+      await request(
+        4,
+        wire.encodeActivateGuiReq("primary survives second profile exit"),
+      );
+      await app.getByTestId("daemon-url").waitFor();
+      evidence.twoNativeProfilesAndIndependentExit = true;
+    } finally {
+      if (other.pid && other.exitCode === null && other.signalCode === null) {
+        const stopped = new Promise((resolve) => other.once("exit", resolve));
+        other.kill();
+        await stopped;
+      }
+      ownedChildren.delete(other);
+      await otherApp?.close();
+    }
+  }
   evidence.relativeConfigUsesCallerDirectory = !!executable;
   const quitRequest = confirm("62");
   await app.getByTestId("candidate-62").waitFor();
