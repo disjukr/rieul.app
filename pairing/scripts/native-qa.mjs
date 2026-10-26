@@ -4,6 +4,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { appendFileSync } from "node:fs";
 import assert from "node:assert/strict";
 import net from "node:net";
+import path from "node:path";
 import { profile, endpoint } from "../src/profile.ts";
 import {
   encodeCbor,
@@ -131,6 +132,13 @@ try {
   evidence.uiPid = uiPid;
   evidence.bundledLauncher = !!executable;
   evidence.emptyPathAndCache = isolated;
+  assert.deepEqual(probe("icons").icons, {
+    small: true,
+    large: true,
+    minimize: false,
+    maximize: false,
+  });
+  evidence.nativeWindowIcons = true;
   assert.equal(probe("visible").visible, true);
   probe("close");
   await new Promise((r) => setTimeout(r, 100));
@@ -216,10 +224,9 @@ try {
         process.env.RIEUL_PAIRING_LAUNCHER,
         "-Config",
         config,
-        "-Node",
-        process.execPath,
-        "-Bun",
-        bun,
+        ...(executable
+          ? ["-Bundle", path.dirname(executable)]
+          : ["-Node", process.execPath, "-Bun", bun]),
         "-Show",
       ],
       { windowsHide: true, stdio: "ignore" },

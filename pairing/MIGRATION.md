@@ -63,3 +63,14 @@ Windows dev/kill now use the verified native bundle EXE and absolute config argu
 macOS dev uses the native bundle's inner GUI entry point. Kill/cleanup validates this checkout's executable/host and whole profile arguments, rechecks command identity before signals, and removes broad port-based matching. Eight pure shell fixtures including Korean/spaced paths and wrong profile/port passed via Git Bash. All affected shell/PowerShell files parse. Actual macOS dev service start/stop is deliberately not executed.
 
 These changes are staged implementation for review; main still has the previous defaults and old CEF source remains available. Installer candidates and Intel/OS-floor/signed-payload CI must still pass before final default/removal integration.
+
+## Review response / verified checkpoint 2026-10-26 09:55 UTC
+
+- CI40300524070 Windows job SUCCESS, including unsigned MSI + MSIX generation, MSI extraction/hash verification and extracted MSIX GUI --verify-bundle. No installer execution or service registration. Overall workflow remains failed/pending because macOS bridge deployment floor is15.0.
+- CI40297980044 Intel official GPUiX test-support compile completed successfully; its actual failure was own bridge Mach-O minimum15.0, not runtime support proof. ARM64 latest40300524070 confirms same bridge floor15.0. Fixed explicit clang -mmacosx-version-min=13.0 for bridge and fixture; actual whole-bundle compatibility still pending.
+- Native Windows complete-bundle-4 fixture QA PASSED: artifacts/qa-1793008532650/evidence.json. Added actual WM_GETICON small/large + titlebar button state verification, restored original window resources on disposal. Repeated flows and default bundled PowerShell wrapper duplicate activation passed. Typecheck passed.
+- Actual copied build in tmp/경로 공백/pairing succeeded (host29905 bytes/main35876 bytes), independently exercising percent-encoded entry file URLs.
+- Source stage helper now produces full embedded-runtime bundle; normal launch.ps1 uses native bundle EXE without PATH Node/Bun. Explicit dual -Node/-Bun remains source-only development override.
+- Added Windows CI --lifecycle and native-qa, with evidence artifact upload, in response to independent review. These new CI gates have not passed yet.
+- Intel package builder now automatically uses unchanged pinned official source when no addon override exists. Added provenance/hash-checked CI cache to avoid repeated32min builds after unrelated failures; no terminal-task patch is reused.
+- Default release/web/installer Deno calls and old source still await final migration/removal after these native/package gates. No main push of continuation. Real installation/upgrade/uninstall, OS tray popup selection, displayed notification/editor UI, real pairings and Developer ID/notarization remain unverified/not performed.

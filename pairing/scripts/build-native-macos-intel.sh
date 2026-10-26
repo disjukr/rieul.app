@@ -12,7 +12,13 @@ bun install --frozen-lockfile
 cd packages/native
 MACOSX_DEPLOYMENT_TARGET=13.0 bun run build
 test -f gpuix-native.darwin-x64.node
-printf 'RIEUL_NATIVE_ADDON=%s\n' "$source_dir/packages/native/gpuix-native.darwin-x64.node"
+output="$root/../target/native/gpuix-0.11.0/gpuix-native.darwin-x64.node"
+mkdir -p "$(dirname "$output")"
+cp gpuix-native.darwin-x64.node "$output"
+(cd "$(dirname "$output")" && shasum -a 256 gpuix-native.darwin-x64.node > addon.sha256)
+printf '%s\n' 2e31b47ff6432ceebe70e7fc7b0f51a76d7d30cf > "$(dirname "$output")/source-commit.txt"
+cat "$(dirname "$output")/addon.sha256"
+printf 'RIEUL_NATIVE_ADDON=%s\n' "$output"
 if [ -n "${GITHUB_ENV:-}" ]; then
-  printf 'RIEUL_NATIVE_ADDON=%s\n' "$source_dir/packages/native/gpuix-native.darwin-x64.node" >> "$GITHUB_ENV"
+  printf 'RIEUL_NATIVE_ADDON=%s\n' "$output" >> "$GITHUB_ENV"
 fi

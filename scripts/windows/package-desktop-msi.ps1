@@ -444,7 +444,7 @@ $ReleaseDir = Join-Path $RepoRoot "target\release"
 $SystemExe = Join-Path $ReleaseDir "rieul-windows-system.exe"
 $UserExe = Join-Path $ReleaseDir "rieul-windows-user.exe"
 if (-not $GuiBundle) { $GuiBundle = Join-Path $ReleaseDir "rieul-windows-gui" }
-$Icon = Join-Path $RepoRoot "web\desktop\icon.ico"
+$Icon = Join-Path $RepoRoot "pairing\assets\icon.ico"
 
 if (-not $SkipBuild) {
   Push-Location $RepoRoot

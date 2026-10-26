@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import { readFile } from "node:fs/promises";
 import { createWindowsTray } from "./windows-tray.ts";
 import type { NativeShell } from "./platform.ts";
+import { applyWindowsIcon } from "./windows-icon.ts";
 
 export async function createWindowsShell(
   onClose: () => void,
@@ -39,7 +40,19 @@ export async function createWindowsShell(
     throw new Error(`close guard installation failed: ${installed}`);
   }
   let tray: ReturnType<typeof createWindowsTray>;
+  let disposeIcon: (() => void) | undefined;
   try {
+    disposeIcon = applyWindowsIcon(
+      window,
+      fileURLToPath(
+        new URL(
+          import.meta.url.endsWith(".js")
+            ? "./assets/icon.ico"
+            : "../assets/icon.ico",
+          import.meta.url,
+        ),
+      ),
+    );
     tray = createWindowsTray({
       icon: await readFile(
         new URL(
@@ -54,6 +67,7 @@ export async function createWindowsShell(
       onQuit,
     });
   } catch (error) {
+    disposeIcon?.();
     native.symbols.rieul_uninstall_close_guard();
     native.close();
     throw error;
@@ -84,6 +98,7 @@ export async function createWindowsShell(
       destroyed = true;
       clearInterval(poll);
       tray.destroy();
+      disposeIcon?.();
       native.symbols.rieul_uninstall_close_guard();
       native.close();
     },

@@ -8,6 +8,7 @@ import { deploymentTargets } from "./macos-target.mjs";
 assert.equal(process.platform, "darwin");
 const root = path.resolve(process.argv[2]);
 let checked = 0;
+const unsupported = [];
 async function visit(directory) {
   for (const entry of await readdir(directory, { withFileTypes: true })) {
     const file = path.join(directory, entry.name);
@@ -23,16 +24,19 @@ async function visit(directory) {
       const targets = deploymentTargets(headers);
       assert.ok(targets.length, `Missing deployment target: ${file}`);
       for (const [major, minor] of targets)
-        assert.ok(
-          Number(major) < 13 || (Number(major) === 13 && Number(minor) === 0),
-          `macOS deployment target exceeds 13.0: ${file}: ${major}.${minor}`,
-        );
+        if (!(major < 13 || (major === 13 && minor === 0)))
+          unsupported.push(`${file}: ${major}.${minor}`);
       checked++;
     }
   }
 }
 await visit(root);
 assert.ok(checked >= 5, `Incomplete native bundle: ${checked} Mach-O images`);
+assert.deepEqual(
+  unsupported,
+  [],
+  "Mach-O deployment targets must preserve macOS 13.0",
+);
 console.log(
   JSON.stringify({
     root,

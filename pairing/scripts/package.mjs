@@ -65,6 +65,23 @@ const bundle = windows
   : path.join(output, "Contents/Resources/pairing");
 await mkdir(bundle, { recursive: true });
 const runtime = await prepareRuntimes(path.join(bundle, "runtime"));
+if (!windows && process.arch === "x64" && !process.env.RIEUL_NATIVE_ADDON) {
+  await execute(
+    "/bin/sh",
+    [path.join(root, "scripts/build-native-macos-intel.sh")],
+    {
+      env: {
+        ...process.env,
+        PATH: path.dirname(runtime.bun) + path.delimiter + process.env.PATH,
+      },
+      maxBuffer: 32 * 1024 * 1024,
+    },
+  );
+  process.env.RIEUL_NATIVE_ADDON = path.resolve(
+    root,
+    "../target/native/gpuix-0.11.0/gpuix-native.darwin-x64.node",
+  );
+}
 const cargo = process.env.RIEUL_CARGO ?? "cargo";
 const rustc = process.env.RIEUL_RUSTC ?? "rustc";
 await execute(

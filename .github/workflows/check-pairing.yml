@@ -29,10 +29,27 @@ jobs:
       - name: Install exact desktop dependencies
         working-directory: pairing
         run: bun install --frozen-lockfile
-      - name: Build unchanged upstream Intel native addon
+      - uses: actions/cache/restore@v4
+        id: intel-native
         if: matrix.os == 'macos-15-intel'
+        with:
+          path: target/native/gpuix-0.11.0
+          key: gpuix-2e31b47-darwin-x64-rust1.97.1-test-support-macos13-v1
+      - name: Build unchanged upstream Intel native addon
+        if: matrix.os == 'macos-15-intel' && steps.intel-native.outputs.cache-hit != 'true'
         run: |
           sh pairing/scripts/build-native-macos-intel.sh
+      - uses: actions/cache/save@v4
+        if: matrix.os == 'macos-15-intel' && steps.intel-native.outputs.cache-hit != 'true'
+        with:
+          path: target/native/gpuix-0.11.0
+          key: gpuix-2e31b47-darwin-x64-rust1.97.1-test-support-macos13-v1
+      - name: Check Intel addon cache provenance and integrity
+        if: matrix.os == 'macos-15-intel'
+        run: |
+          test "$(cat target/native/gpuix-0.11.0/source-commit.txt)" = 2e31b47ff6432ceebe70e7fc7b0f51a76d7d30cf
+          (cd target/native/gpuix-0.11.0 && shasum -a 256 -c addon.sha256)
+          echo "RIEUL_NATIVE_ADDON=$PWD/target/native/gpuix-0.11.0/gpuix-native.darwin-x64.node" >> "$GITHUB_ENV"
       - name: Types and request/IPC regressions
         working-directory: pairing
         run: |
@@ -43,7 +60,7 @@ jobs:
       - name: Compile and exercise AppKit bridge
         run: |
           sh pairing/scripts/build-bridge-macos.sh
-          clang -g -fobjc-arc -std=c11 -framework Cocoa -framework UserNotifications pairing/tests/macos-bridge.m -o pairing/native/bin/bridge-fixture
+          clang -mmacosx-version-min=13.0 -g -fobjc-arc -std=c11 -framework Cocoa -framework UserNotifications pairing/tests/macos-bridge.m -o pairing/native/bin/bridge-fixture
           if pairing/native/bin/bridge-fixture; then
             echo 'AppKit fixture exited successfully'
           else
@@ -101,7 +118,15 @@ jobs:
         run: ./scripts/windows/test-dev-process-scope.ps1
       - name: Build and verify embedded runtimes and native payload
         run: node pairing/scripts/package.mjs
-      - run: node pairing/scripts/bundle-qa.mjs --bundle target/release/rieul-windows-gui
+      - run: node pairing/scripts/bundle-qa.mjs --bundle target/release/rieul-windows-gui --lifecycle
+      - name: Exercise bundled native window and pairing request lifecycle
+        working-directory: pairing
+        env:
+          RIEUL_GUI_EXECUTABLE: ${{ github.workspace }}/target/release/rieul-windows-gui/rieul-windows-gui.exe
+          RIEUL_PAIRING_BUN: ${{ github.workspace }}/target/release/rieul-windows-gui/runtime/bun.exe
+          RIEUL_PAIRING_EMPTY_PATH: "1"
+          RIEUL_PAIRING_LAUNCHER: ${{ github.workspace }}/pairing/scripts/launch.ps1
+        run: node scripts/native-qa.mjs
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-dotnet@v4
         with:
@@ -124,3 +149,9 @@ jobs:
           if ($LASTEXITCODE) { throw 'MSIX unpack failed' }
           & ./tmp/msix-unpacked/gui/rieul-windows-gui.exe --verify-bundle
           if ($LASTEXITCODE) { throw 'MSIX GUI verification failed' }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pairing-windows-evidence
+          path: pairing/artifacts/
+          retention-days: 3
