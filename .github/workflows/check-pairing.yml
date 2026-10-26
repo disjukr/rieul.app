@@ -16,7 +16,9 @@ jobs:
       matrix:
         os: [macos-15, macos-15-intel]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
+    # A first main-branch Intel run cannot restore a feature-branch cache and
+    # compiles both pinned upstream GPUiX and the release daemon from scratch.
+    timeout-minutes: ${{ matrix.os == 'macos-15-intel' && 90 || 60 }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
