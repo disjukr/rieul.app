@@ -63,6 +63,7 @@ jobs:
           bash scripts/macos/test-dmg-lifecycle.sh
           hdiutil info -plist > "$RUNNER_TEMP/dmg-inventory.plist"
           test "$(plutil -type images "$RUNNER_TEMP/dmg-inventory.plist")" = array
+          bash scripts/macos/test-dmg-image-state.sh
       - name: Compile and exercise AppKit bridge
         run: |
           sh pairing/scripts/build-bridge-macos.sh

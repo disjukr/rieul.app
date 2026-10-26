@@ -63,9 +63,10 @@ if (
         images.push({ image: pairs[i], device: pairs[i + 1] });
       process.exitCode = ownImageAttached(image, device, images) ? 0 : 1;
     }
-  } catch {
+  } catch (error) {
     console.error(
       "Cannot establish owned disk image state; refusing detachment",
+      error instanceof Error ? error.message : String(error),
     );
     process.exitCode = 2;
   }
