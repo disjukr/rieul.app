@@ -2,7 +2,13 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 # Load only the lifecycle function, never execute packaging or any OS operation.
-source <(awk '/^detach_build_image\(\) \{/ {copy=1} copy {print} copy && /^}/ {exit}' "$ROOT/scripts/macos/package-desktop-dmg.sh")
+# macOS Bash 3.2 cannot reliably source a process-substitution pipe.
+# A regular file also lets extraction finish before the fixture is loaded.
+fixture_source="$(mktemp "${TMPDIR:-/tmp}/rieul-dmg-fixture.XXXXXX")"
+trap 'rm -f "$fixture_source"' EXIT
+awk '/^detach_build_image\(\) \{/ {copy=1} copy {print} copy && /^}/ {exit}' "$ROOT/scripts/macos/package-desktop-dmg.sh" > "$fixture_source"
+source "$fixture_source"
+declare -F detach_build_image >/dev/null
 dmg_image_attached() {
   checks=$((checks + 1))
   case "$scenario:$checks" in
