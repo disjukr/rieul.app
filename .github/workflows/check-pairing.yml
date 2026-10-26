@@ -6,6 +6,9 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+concurrency:
+  group: native-pairing-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   macos:
     strategy:
@@ -30,7 +33,6 @@ jobs:
         if: matrix.os == 'macos-15-intel'
         run: |
           sh pairing/scripts/build-native-macos-intel.sh
-          echo "RIEUL_NATIVE_ADDON=$PWD/target/gpuix-0.11-intel/packages/native/gpuix-native.darwin-x64.node" >> "$GITHUB_ENV"
       - name: Types and request/IPC regressions
         working-directory: pairing
         run: |
@@ -39,10 +41,17 @@ jobs:
       - name: Compile and exercise AppKit bridge
         run: |
           sh pairing/scripts/build-bridge-macos.sh
-          clang -fobjc-arc -std=c11 -framework Cocoa -framework UserNotifications pairing/tests/macos-bridge.m -o pairing/native/bin/bridge-fixture
-          pairing/native/bin/bridge-fixture
+          clang -g -fobjc-arc -std=c11 -framework Cocoa -framework UserNotifications pairing/tests/macos-bridge.m -o pairing/native/bin/bridge-fixture
+          if pairing/native/bin/bridge-fixture; then
+            echo 'AppKit fixture exited successfully'
+          else
+            lldb --batch -o run -o 'thread backtrace all' -- pairing/native/bin/bridge-fixture || true
+            exit 1
+          fi
       - name: Build self contained app with pinned runtimes
         run: node pairing/scripts/package.mjs
+      - name: Verify payload integrity failure boundaries
+        run: node pairing/scripts/bundle-qa.mjs --bundle target/release/Rieul-desktop.app
       - name: Verify launcher and GPUiX/AppKit lifecycle in isolated fixture
         working-directory: pairing
         env:
@@ -75,3 +84,4 @@ jobs:
       - run: cargo test -p rieul-gui-launcher --locked
       - name: Build and verify embedded runtimes and native payload
         run: node pairing/scripts/package.mjs
+      - run: node pairing/scripts/bundle-qa.mjs --bundle target/release/rieul-windows-gui
