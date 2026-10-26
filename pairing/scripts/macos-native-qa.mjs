@@ -3,6 +3,7 @@ import { spawn } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
 import assert from "node:assert/strict";
 import net from "node:net";
+import path from "node:path";
 import { profile, endpoint } from "../src/profile.ts";
 import { encodeCbor, decodeCborSequence } from "../../web/src/protocol/cbor.ts";
 import * as wire from "../../web/src/protocol/socket-ipc.ts";
@@ -16,7 +17,12 @@ await writeFile(
 const executable = process.env.RIEUL_GUI_EXECUTABLE;
 const child = spawn(
   executable ?? process.execPath,
-  [...(executable ? [] : ["src/host.ts"]), "--config", config, "--show"],
+  [
+    ...(executable ? [] : ["src/host.ts"]),
+    "--config",
+    executable ? path.relative(process.cwd(), config) : config,
+    "--show",
+  ],
   {
     cwd: process.cwd(),
     env: {
@@ -107,8 +113,13 @@ try {
     0,
   );
   evidence.duplicate = true;
+  evidence.relativeConfigUsesCallerDirectory = !!executable;
+  const quitRequest = confirm("62");
+  await app.getByTestId("candidate-62").waitFor();
   const exited = new Promise((resolve) => child.once("exit", resolve));
   child.kill("SIGTERM");
+  assert.equal(accepted(await quitRequest), false);
+  evidence.quitRejectsPending = true;
   assert.equal(await exited, 0);
   if (uiPid) {
     let alive = true;

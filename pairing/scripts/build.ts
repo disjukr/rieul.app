@@ -18,6 +18,7 @@ for (const [entry, target] of [
 }
 await mkdir("dist/assets", { recursive: true });
 await copyFile("assets/icon.ico", "dist/assets/icon.ico");
+await copyFile("assets/tray.png", "dist/assets/tray.png");
 await readFile(
   process.platform === "win32"
     ? "native/bin/rieul_pairing_windows.dll"
@@ -26,6 +27,4 @@ await readFile(
 const ui = await readFile("dist/main.js", "utf8");
 if (ui.includes("jsxDEV(") || ui.includes("react/jsx"))
   throw new Error("Solid universal transform was not applied");
-console.log(
-  "Node host + GPUiX Solid UI built; existing CEF launcher unchanged.",
-);
+console.log("Node host + GPUiX Solid UI built.");

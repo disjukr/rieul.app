@@ -5,16 +5,16 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "dev:daemon-main": "vite --host 127.0.0.1 --port 5179 --strictPort",
-    "desktop:icons": "tsx desktop/generate-tray-icon.ts",
+    "desktop:icons": "tsx src/tools/generate-desktop-icons.ts",
     "build": "vite build",
     "check": "tsc -b && tsc -p tsconfig.tools.json",
     "test": "tsx --test tests/*.test.ts",
     "check:daemon": "tsx src/tools/check-daemon.ts",
     "preview": "vite preview --host 0.0.0.0",
-    "desktop:build:windows": "cargo build --manifest-path ../Cargo.toml -p rieul-windows-close-guard --release && pnpm desktop:icons && pnpm build && deno desktop --config ./deno.desktop.json --backend cef -A --include ./dist --include ./desktop/icon.ico ./desktop/main.ts && powershell.exe -NoProfile -Command Copy-Item -LiteralPath ../target/release/rieul_windows_close_guard.dll -Destination ../target/release/rieul-windows-gui/rieul_windows_close_guard.dll -Force",
-    "desktop:dev:windows": "pnpm desktop:icons && deno desktop --config ./deno.desktop.json --backend cef --hmr -A --include ./desktop/icon.ico ./desktop/main.ts -- --config ../tmp/dev/rieul.yaml --dev-url http://127.0.0.1:5179/daemon-main.html",
-    "desktop:build:macos": "pnpm desktop:icons && pnpm build && deno desktop --config ./deno.desktop.json --backend cef -A --include ./dist --include ./desktop/tray.png --output ../target/release/Rieul-desktop.app ./desktop/main.ts",
-    "desktop:dev:macos": "pnpm desktop:icons && deno desktop --config ./deno.desktop.json --backend cef --hmr -A --include ./desktop/tray.png ./desktop/main.ts -- --config ../tmp/dev/rieul.yaml --dev-url http://127.0.0.1:5179/daemon-main.html"
+    "desktop:build:windows": "node ../pairing/scripts/package.mjs --replace",
+    "desktop:dev:windows": "node ../pairing/scripts/dev.mjs --config ../tmp/dev/rieul.yaml --show",
+    "desktop:build:macos": "node ../pairing/scripts/package.mjs --replace",
+    "desktop:dev:macos": "node ../pairing/scripts/dev.mjs --config ../tmp/dev/rieul.yaml --show"
   },
   "dependencies": {
     "@base-ui/react": "1.6.0",

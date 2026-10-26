@@ -73,7 +73,13 @@ export async function startIpc(
   controller: PairingController,
 ) {
   const sockets = new Set<net.Socket>();
+  const responses = new Set<Promise<void>>();
+  let closing = false;
   const server = net.createServer({ allowHalfOpen: true }, (socket) => {
+    if (closing) {
+      socket.destroy();
+      return;
+    }
     sockets.add(socket);
     socket.setTimeout(5000, () => socket.destroy());
     const abort = new AbortController();
@@ -86,6 +92,10 @@ export async function startIpc(
       handled = false,
       confirmation = false;
     socket.on("data", (chunk) => {
+      if (closing) {
+        socket.destroy();
+        return;
+      }
       if (handled) return;
       try {
         if (buffer.length + chunk.length > 64 * 1024 * 1024)
@@ -97,23 +107,37 @@ export async function startIpc(
         socket.setTimeout(0);
         confirmation = request.procId === wire.IPC_PROC_CONFIRM_PAIRING;
         buffer = Buffer.alloc(0);
-        void controller.request(request, abort.signal).then(
-          (payload) => {
-            if (!socket.destroyed)
-              socket.end(
+        const finish = (bytes: Uint8Array) =>
+          new Promise<void>((resolve) => {
+            if (socket.destroyed) {
+              resolve();
+              return;
+            }
+            socket.once("close", () => resolve());
+            socket.end(bytes, resolve);
+          });
+        const response = controller
+          .request(request, abort.signal)
+          .then(
+            (payload) =>
+              finish(
                 wire.encodeSocketUnaryOkResponse(request.streamId, payload),
-              );
-          },
-          (error) => {
-            if (!socket.destroyed)
-              socket.end(
+              ),
+            (error) =>
+              finish(
                 wire.encodeSocketUnaryErrorResponse(
                   request.streamId,
                   String(error),
                 ),
-              );
-          },
-        );
+              ),
+          )
+          .catch(() => {
+            socket.destroy();
+          })
+          .finally(() => {
+            responses.delete(response);
+          });
+        responses.add(response);
       } catch {
         socket.destroy();
       }
@@ -147,11 +171,26 @@ export async function startIpc(
   return {
     dispose() {
       return (disposal ??= (async () => {
-        controller.dispose();
-        for (const socket of sockets) socket.destroy();
-        await new Promise<void>((resolve, reject) =>
+        closing = true;
+        const closed = new Promise<void>((resolve, reject) =>
           server.close((error) => (error ? reject(error) : resolve())),
         );
+        controller.dispose();
+        // Let rejection responses reach the transport before destroying sockets.
+        // An incomplete or nonreading peer must not prevent application exit.
+        let timeout: ReturnType<typeof setTimeout> | undefined;
+        try {
+          await Promise.race([
+            Promise.allSettled([...responses]),
+            new Promise<void>((resolve) => {
+              timeout = setTimeout(resolve, 1000);
+            }),
+          ]);
+        } finally {
+          clearTimeout(timeout);
+        }
+        for (const socket of sockets) socket.destroy();
+        await closed;
       })());
     },
   };

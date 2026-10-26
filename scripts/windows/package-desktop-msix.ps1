@@ -86,29 +86,12 @@ function Assert-GuiBundle {
     throw "Missing GUI bundle: $Path"
   }
 
-  if (Test-Path -LiteralPath (Join-Path $Path 'bundle.json')) {
-    foreach ($relativePath in @('rieul-windows-gui.exe','runtime/node.exe','runtime/bun.exe','app/dist/host.js','app/dist/main.js','app/native/bin/rieul_pairing_windows.dll')) {
-      if (-not (Test-Path -LiteralPath (Join-Path $Path $relativePath) -PathType Leaf)) { throw "GUI payload missing $relativePath" }
-    }
-    & (Join-Path $Path 'rieul-windows-gui.exe') --verify-bundle | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw 'GUI payload integrity failed' }
-    return
+  if (-not (Test-Path -LiteralPath (Join-Path $Path 'bundle.json') -PathType Leaf)) { throw 'Missing native GUI bundle manifest' }
+  foreach ($relativePath in @('rieul-windows-gui.exe','runtime/node.exe','runtime/bun.exe','app/dist/host.js','app/dist/main.js','app/native/bin/rieul_pairing_windows.dll')) {
+    if (-not (Test-Path -LiteralPath (Join-Path $Path $relativePath) -PathType Leaf)) { throw "GUI payload missing $relativePath" }
   }
-
-  $requiredPaths = @(
-    "rieul-windows-gui.exe",
-    "rieul-windows-gui.dll",
-    "rieul_windows_close_guard.dll",
-    "libcef.dll",
-    "resources.pak",
-    "locales"
-  )
-  foreach ($relativePath in $requiredPaths) {
-    $requiredPath = Join-Path $Path $relativePath
-    if (-not (Test-Path -LiteralPath $requiredPath)) {
-      throw "GUI bundle is incomplete; missing: $requiredPath"
-    }
-  }
+  & (Join-Path $Path 'rieul-windows-gui.exe') --verify-bundle | Out-Null
+  if ($LASTEXITCODE -ne 0) { throw 'GUI payload integrity failed' }
 }
 
 function New-PngAssetsFromSvg {
@@ -286,13 +269,10 @@ if (-not $GuiBundle) { $GuiBundle = Join-Path $ReleaseDir "rieul-windows-gui" }
 if (-not $SkipBuild) {
   Push-Location $RepoRoot
   try {
-    cargo build -p rieul-windows-daemon --release --bin rieul-windows-system --bin rieul-windows-user
-    Push-Location (Join-Path $RepoRoot "web")
-    try {
-      pnpm desktop:build:windows
-    } finally {
-      Pop-Location
-    }
+    cargo build -p rieul-windows-daemon --release --bin rieul-windows-system --bin rieul-windows-user --locked
+    if ($LASTEXITCODE) { throw 'Windows daemon build failed' }
+    & (Get-Command node.exe -ErrorAction Stop).Source pairing/scripts/package.mjs --replace
+    if ($LASTEXITCODE) { throw 'Native pairing bundle build failed' }
   } finally {
     Pop-Location
   }

@@ -15,9 +15,83 @@ import {
   IPC_PROC_ACTIVATE_GUI,
   IPC_PROC_CONFIRM_PAIRING,
   encodeSocketUnaryOkResponse,
+  encodeConfirmPairingRes,
 } from "../../web/src/protocol/socket-ipc.ts";
 import { encodeCbor } from "../../web/src/protocol/cbor.ts";
 import { endpoint, profileId } from "../src/profile.ts";
+test(
+  "disposal flushes an explicit rejection to a pending real pipe peer",
+  { timeout: 5000 },
+  async () => {
+    const controller = new PairingController(
+      {
+        configPath: "fixture",
+        profileId: "shutdown",
+        daemonUrl: "https://fixture.invalid",
+        daemonVersion: "test",
+      },
+      {
+        show() {},
+        hide() {},
+        title() {},
+        async notify() {
+          return true;
+        },
+        async openConfig() {},
+      },
+    );
+    const address = endpoint(
+      profileId(`shutdown-${process.pid}-${Date.now()}`),
+    );
+    const server = await startIpc(address, controller);
+    assert.ok(server);
+    const socket = net.createConnection(address);
+    const chunks: Buffer[] = [];
+    const reply = new Promise<Buffer>((resolve, reject) => {
+      socket.on("error", reject);
+      socket.on("data", (chunk) => chunks.push(chunk));
+      socket.on("end", () => resolve(Buffer.concat(chunks)));
+      socket.on("close", () => resolve(Buffer.concat(chunks)));
+    });
+    let started!: () => void;
+    const ready = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    const unsubscribe = controller.subscribe((snapshot) => {
+      if (snapshot.route.kind === "confirmPairing") started();
+    });
+    try {
+      socket.on("connect", () =>
+        socket.write(
+          encodeSocketUnaryRequest(
+            1,
+            IPC_PROC_CONFIRM_PAIRING,
+            encodeCbor(
+              new Map([
+                [1, "https://fixture.invalid"],
+                [2, "42"],
+                [3, "Disposable fixture"],
+              ]),
+            ),
+          ),
+        ),
+      );
+      await ready;
+      await Promise.all([server.dispose(), server.dispose()]);
+      assert.deepEqual(
+        await reply,
+        Buffer.from(
+          encodeSocketUnaryOkResponse(1, encodeConfirmPairingRes(false)),
+        ),
+      );
+      assert.equal(await activateExisting(address), false);
+    } finally {
+      unsubscribe();
+      socket.destroy();
+      await server.dispose();
+    }
+  },
+);
 test("real node:net pipe fragmented requests, half close, duplicate activation and disposal", async () => {
   let shown = 0;
   const controller = new PairingController(

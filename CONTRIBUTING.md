@@ -46,12 +46,18 @@ are unchanged; `scripts/codegen/bdl-config.ts` supplies the filesystem boundary
 on Node. Tests check TypeScript output against checked-in sources and Rust output
 against independent baseline hashes.
 
-The native desktop shell still requires Deno 2.9 and its CEF backend. Its
-configuration is isolated in `web/deno.desktop.json`; web development, tests,
-code generation, Rust builds, and icon generation use Node/pnpm. Node has no
-direct equivalent of its BrowserWindow, tray/dock, and native FFI APIs. Removing
-this remaining runtime requires a separately chosen desktop shell migration;
-do not remove close-to-hide, tray, pairing confirmation, or single-instance IPC.
+The daemon-attached pairing utility lives in `pairing` and uses GPUiX + Solid.
+Build tooling uses Node.js 24 and Rust; platform bridges need the Windows SDK or
+Xcode command-line tools. Desktop bundles embed checksum-pinned Node 22.22.0 and
+Bun 1.3.9 runtimes, so users do not need a runtime on PATH. Both GPUiX packages
+are pinned together to 0.11.0. Intel macOS builds the unchanged official native
+source because that release has no published Intel addon.
+
+Close-to-hide, tray activation/quit, confirmation rejection, profile-scoped IPC,
+and duplicate activation are compatibility requirements. See `pairing/README.md`
+and `pairing/VERIFICATION.md` for safe fixture commands and verification limits.
+The previous CEF source remains during the final migration verification; see
+`pairing/MIGRATION.md` for the exact removal gate and current status.
 
 `pnpm --dir web check:daemon` uses Chromium WebTransport because Node does not
 provide that browser API. Install Chromium with the command above first. It uses
@@ -77,7 +83,7 @@ and set `domain` to the Windows machine's Tailscale hostname, or add explicit
 config is valid.
 
 Run the macOS desktop development environment. The system daemon is launched
-with `sudo`; the Deno Desktop daemon GUI runs as the current user.
+with `sudo`; the GPUiX pairing utility runs as the current user.
 
 ```sh
 pnpm macos:dev:desktop
@@ -209,8 +215,8 @@ msiexec /i .\dist\windows\rieul-windows-desktop-0.1.0.msi
 ```
 
 The MSI currently installs `rieul-windows-system.exe` and
-`rieul-windows-user.exe` under `%ProgramFiles%\Rieul`, and installs the Deno
-Desktop daemon GUI bundle under `%ProgramFiles%\Rieul\gui`. It registers
+`rieul-windows-user.exe` under `%ProgramFiles%\Rieul`, and installs the native
+pairing utility bundle under `%ProgramFiles%\Rieul\gui`. It registers
 `rieul-windows-system` as an automatic LocalSystem service, starts the service
 during install, launches the GUI app once when install finishes, creates a Start
 Menu shortcut for the GUI, and adds an HKLM Run entry so the GUI starts on user
@@ -271,7 +277,7 @@ pnpm macos:package:desktop
 ```
 
 The DMG contains `Rieul.app` and an `/Applications` shortcut, laid out for the
-usual drag-to-install flow. The app bundle contains the per-user Deno Desktop
+usual drag-to-install flow. The app bundle contains the per-user GPUiX pairing
 GUI and installer controller.
 
 Build a PKG for command-line installation, or for managed deployment after

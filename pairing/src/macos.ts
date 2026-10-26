@@ -22,10 +22,20 @@ export async function createMacosShell(
       rieul_macos_notification_result: { args: ["u32"], returns: "i32" },
     },
   );
-  let result = native.symbols.rieul_macos_init(null);
+  const icon = Buffer.from(
+    `${fileURLToPath(
+      new URL(
+        import.meta.url.endsWith(".js")
+          ? "./assets/tray.png"
+          : "../assets/tray.png",
+        import.meta.url,
+      ),
+    )}\0`,
+  );
+  let result = native.symbols.rieul_macos_init(icon);
   for (let attempt = 0; result === 0 && attempt < 100; attempt++) {
     await new Promise((resolve) => setTimeout(resolve, 20));
-    result = native.symbols.rieul_macos_init(null);
+    result = native.symbols.rieul_macos_init(icon);
   }
   if (result !== 1) {
     throw new Error(

@@ -143,7 +143,6 @@ fn run() -> Result<i32, Box<dyn std::error::Error>> {
     command
         .arg(root.join("app/dist/host.js"))
         .args(arguments)
-        .current_dir(root.join("app"))
         .env(
             "RIEUL_PAIRING_BUN",
             root.join(format!("runtime/bun{extension}")),

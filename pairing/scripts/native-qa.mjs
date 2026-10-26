@@ -26,7 +26,7 @@ await writeFile(
 const host = process.env.RIEUL_PAIRING_HOST ?? "src/host.ts";
 const executable = process.env.RIEUL_GUI_EXECUTABLE;
 const launchArgs = executable
-  ? ["--config", config, "--show"]
+  ? ["--config", path.relative(process.cwd(), config), "--show"]
   : [host, "--config", config, "--show"];
 const isolated = process.env.RIEUL_PAIRING_EMPTY_PATH === "1";
 const home = `${dir}/empty-home`;
@@ -98,7 +98,10 @@ const accepted = (bytes) =>
   decodeCborSequencePrefix(
     decodeCborSequencePrefix(bytes)[1].value.get(2),
   )[0].value.get(1);
-const evidence = { dir };
+const evidence = {
+  dir,
+  scope: "GPUiX/Win32 fixture integration; not OS tray popup selection",
+};
 try {
   await app.getByTestId("daemon-url").waitFor({ timeoutMs: 20000 });
   assert.equal(
@@ -132,6 +135,7 @@ try {
   evidence.uiPid = uiPid;
   evidence.bundledLauncher = !!executable;
   evidence.emptyPathAndCache = isolated;
+  evidence.relativeConfigUsesCallerDirectory = !!executable;
   assert.deepEqual(probe("icons").icons, {
     small: true,
     large: true,
@@ -237,8 +241,12 @@ try {
     );
     evidence.powershellLauncher = true;
   }
+  const quitRequest = confirm("62");
+  await app.getByTestId("candidate-62").waitFor();
   const exit = new Promise((resolve) => child.once("exit", resolve));
   probe("quit");
+  assert.equal(accepted(await quitRequest.result), false);
+  evidence.quitRejectsPending = true;
   assert.equal(await exit, 0);
   evidence.trayQuitCommand = true;
   console.log(JSON.stringify(evidence));

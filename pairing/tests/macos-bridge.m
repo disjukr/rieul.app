@@ -14,7 +14,9 @@ int main(void) {
     fixture.releasedWhenClosed = NO;
     fprintf(stderr, "fixture: window ready\n");
     FixtureDelegate *original = [FixtureDelegate new]; fixture.delegate = original;
-    assert(rieul_macos_init(NULL) == 1);
+    NSString *icon = [NSFileManager.defaultManager.currentDirectoryPath stringByAppendingPathComponent:@"pairing/assets/tray.png"];
+    assert(rieul_macos_init(icon.UTF8String) == 1);
+    assert(status.button.image != nil && status.button.image.template);
     fprintf(stderr, "fixture: bridge initialized\n");
     assert(status != nil && menu.numberOfItems == 3);
     for (int i=0;i<5;i++) {

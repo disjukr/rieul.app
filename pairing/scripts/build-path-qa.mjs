@@ -20,11 +20,7 @@ for (const name of [
   await cp(path.join(root, name), path.join(pairing, name), {
     recursive: true,
   });
-for (const name of [
-  "src/protocol",
-  "src/desktop-bindings.d.ts",
-  "desktop/icon.ico",
-])
+for (const name of ["src/protocol"])
   await cp(path.join(root, "../web", name), path.join(fixture, "web", name), {
     recursive: true,
   });

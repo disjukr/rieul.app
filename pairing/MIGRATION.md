@@ -74,3 +74,15 @@ These changes are staged implementation for review; main still has the previous 
 - Added Windows CI --lifecycle and native-qa, with evidence artifact upload, in response to independent review. These new CI gates have not passed yet.
 - Intel package builder now automatically uses unchanged pinned official source when no addon override exists. Added provenance/hash-checked CI cache to avoid repeated32min builds after unrelated failures; no terminal-task patch is reused.
 - Default release/web/installer Deno calls and old source still await final migration/removal after these native/package gates. No main push of continuation. Real installation/upgrade/uninstall, OS tray popup selection, displayed notification/editor UI, real pairings and Developer ID/notarization remain unverified/not performed.
+
+## Exact approval block (2026-10-26)
+
+Auto-review rejected the combined patch that removed macOS launcher laufey fallback, citing protected CEF fallback before full parity verification. No portion of that tool invocation executed: confirmed launcher fallback unchanged, fixture unchanged, icon generator copy absent. No retry or indirect removal performed. Native tests and other independent work continue. New platform/package pass evidence is required before the single permitted reevaluation; user already explicitly requested full Deno removal, so no duplicate broad permission is assumed necessary.
+
+## Latest local/native and default packaging results
+
+Native bundle5 QA passed artifacts/qa-1793010219402/evidence.json including caller-relative profile identity, duplicate absolute activation, explicit false response to an active confirmation on Quit, icon/titlebar checks and previous repeated flows. Pairing tests16 total (controller9/468 assertions + Node7) passed. General MSI packaging without SkipBuild passed; 3,755 extracted GUI files match source hashes. This MSI was built before the final IPC flush/cwd fix and is not presented as the final integrated SHA payload.
+
+CI40303773339 Windows job passed native/lifecycle plus candidate packaging. Both Mac architectures passed complete deployment target and native lifecycle; both failed only at daemon codegen because root tsx dependency was not installed. Added root pnpm install and changed the next installer checks to the normal build paths. Intel pinned native build cache is saved and hash/source checked, enabling follow-up without repeating the source compile.
+
+Default MSI/MSIX/DMG build source now invokes the self-contained package builder. Web desktop scripts and release build tooling have been connected to Node/Bun. Existing CEF source/assets and the denied macOS laufey fallback remain untouched; no denied removal retried. Main remains2b938439e2aae31b368cb6bbdfdeec07e35d3102 after safe fetch. No continuation default switch has been pushed to main.

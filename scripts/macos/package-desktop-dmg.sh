@@ -18,7 +18,7 @@ Options:
   --out-dir DIR         Output directory. Defaults to dist/macos.
   --app-name NAME       App bundle display name. Defaults to "Rieul".
   --sign IDENTITY       Code signing identity for codesign.
-  --skip-build          Reuse target/release daemon binaries and Deno Desktop app.
+  --skip-build          Reuse target/release daemon binaries and GPUiX pairing app.
   --skip-dmg            Build only the .app bundle.
   --gui-app PATH        Use an already built candidate app (requires --skip-build).
   -h, --help            Show this help.
@@ -148,37 +148,8 @@ if [[ -z "$OUT_DIR" ]]; then
 fi
 
 if [[ "$SKIP_BUILD" != "1" ]]; then
-  (cd "$REPO_ROOT" && cargo build -p rieul-macos-daemon --release --bin rieul-macos-system --bin rieul-macos-launcher)
-  if [[ -n "$SIGN_IDENTITY" && "$SIGN_IDENTITY" != "-" ]]; then
-    TEMP_DENO_CONFIG="$(mktemp "$REPO_ROOT/web/.rieul-deno-signing.XXXXXX")"
-    trap 'rm -f "${TEMP_DENO_CONFIG:-}"' EXIT
-    node --input-type=module -e '
-      const { readFile, writeFile } = await import("node:fs/promises");
-      const [sourcePath, destinationPath, identity] = process.argv.slice(1);
-      const config = JSON.parse(await readFile(sourcePath, "utf8"));
-      config.desktop.macos ??= {};
-      config.desktop.macos.codesignIdentity = identity;
-      await writeFile(destinationPath, JSON.stringify(config));
-    ' "$REPO_ROOT/web/deno.desktop.json" "$TEMP_DENO_CONFIG" "$SIGN_IDENTITY"
-    (
-      cd "$REPO_ROOT/web"
-      pnpm desktop:icons
-      pnpm build
-      deno desktop \
-        --config "$TEMP_DENO_CONFIG" \
-        --backend cef \
-        -A \
-        --include ./dist \
-        --include ./desktop/tray.png \
-        --output ../target/release/Rieul-desktop.app \
-        ./desktop/main.ts
-    )
-    rm -f "$TEMP_DENO_CONFIG"
-    TEMP_DENO_CONFIG=""
-    trap - EXIT
-  else
-    (cd "$REPO_ROOT/web" && pnpm desktop:build:macos)
-  fi
+  (cd "$REPO_ROOT" && cargo build -p rieul-macos-daemon --release --bin rieul-macos-system --bin rieul-macos-launcher --locked)
+  (cd "$REPO_ROOT" && node pairing/scripts/package.mjs --replace)
 fi
 
 RELEASE_DIR="$REPO_ROOT/target/release"
@@ -198,28 +169,19 @@ if [[ ! -x "$LAUNCHER_EXE" ]]; then
   exit 1
 fi
 if [[ ! -d "$GUI_APP" ]]; then
-  echo "Missing Deno Desktop app: $GUI_APP" >&2
+  echo "Missing GPUiX pairing app: $GUI_APP" >&2
   exit 1
 fi
-NATIVE_BUNDLE=0
-if [[ -f "$GUI_APP/Contents/Resources/pairing/bundle.json" ]]; then
-  NATIVE_BUNDLE=1
-  "$GUI_APP/Contents/MacOS/rieul-gui" --verify-bundle
+if [[ ! -f "$GUI_APP/Contents/Resources/pairing/bundle.json" ]]; then
+  echo "Missing native pairing bundle manifest" >&2; exit 1
 fi
-if [[ "$NATIVE_BUNDLE" == "0" && "$SKIP_BUILD" == "1" && -n "$SIGN_IDENTITY" && "$SIGN_IDENTITY" != "-" ]]; then
-  signing_details="$(codesign -dvv "$GUI_APP" 2>&1)"
-  if [[ "$signing_details" != *"Authority=$SIGN_IDENTITY"* ]]; then
-    echo "The reused Deno Desktop app was not signed by $SIGN_IDENTITY." >&2
-    echo "Build it with the same identity before using --skip-build." >&2
-    exit 1
-  fi
-fi
+"$GUI_APP/Contents/MacOS/rieul-gui" --verify-bundle
 
 SYSTEM_LABEL="app.rieul.daemon"
 GUI_LABEL="app.rieul.gui"
 # Remove the external pre-embedded LaunchDaemon when upgrading.
 LEGACY_SYSTEM_LABEL="app.rieul.system"
-# Remove the pre-Deno GUI LaunchAgent when upgrading an existing installation.
+# Remove the previous GUI LaunchAgent when upgrading an existing installation.
 LEGACY_LAUNCH_AGENT_LABEL="app.rieul.user"
 APP_SUPPORT_DIR="/Library/Application Support/rieul"
 BIN_DIR="$APP_SUPPORT_DIR/bin"
@@ -250,21 +212,8 @@ mkdir -p "$APP_PATH/Contents/Library/LaunchServices"
 
 GUI_EXECUTABLE_NAME="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP_PATH/Contents/Info.plist")"
 if [[ -z "$GUI_EXECUTABLE_NAME" || ! -x "$APP_PATH/Contents/MacOS/$GUI_EXECUTABLE_NAME" ]]; then
-  echo "Deno Desktop app has no executable CFBundleExecutable." >&2
+  echo "GPUiX pairing app has no executable CFBundleExecutable." >&2
   exit 1
-fi
-
-# Code signing treats every regular file under Contents/MacOS as nested code.
-# Keep Deno's updater marker in Resources and retain its expected adjacent path
-# through an internal symlink.
-GUI_UPDATE_MARKER_NAME="$GUI_EXECUTABLE_NAME.dylib.update-ok"
-if [[ -f "$APP_PATH/Contents/MacOS/$GUI_UPDATE_MARKER_NAME" ]]; then
-  mv \
-    "$APP_PATH/Contents/MacOS/$GUI_UPDATE_MARKER_NAME" \
-    "$APP_PATH/Contents/Resources/$GUI_UPDATE_MARKER_NAME"
-  ln -s \
-    "../Resources/$GUI_UPDATE_MARKER_NAME" \
-    "$APP_PATH/Contents/MacOS/$GUI_UPDATE_MARKER_NAME"
 fi
 
 install -m 0755 "$LAUNCHER_EXE" "$APP_PATH/Contents/MacOS/rieul-macos-launcher"
@@ -500,8 +449,8 @@ plutil -lint \
   "$APP_PATH/Contents/Resources/$SYSTEM_LABEL.plist" \
   "$APP_PATH/Contents/Resources/$GUI_LABEL.plist" >/dev/null
 
-DENO_ENTITLEMENTS="$STAGING_DIR/deno-runtime.entitlements"
-cat >"$DENO_ENTITLEMENTS" <<'EOF'
+RUNTIME_ENTITLEMENTS="$STAGING_DIR/runtime.entitlements"
+cat >"$RUNTIME_ENTITLEMENTS" <<'EOF'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -511,7 +460,7 @@ cat >"$DENO_ENTITLEMENTS" <<'EOF'
 </dict>
 </plist>
 EOF
-plutil -lint "$DENO_ENTITLEMENTS" >/dev/null
+plutil -lint "$RUNTIME_ENTITLEMENTS" >/dev/null
 
 if [[ -n "$SIGN_IDENTITY" && "$SIGN_IDENTITY" != "-" ]]; then
   codesign_args=(--force --options runtime --timestamp --sign "$SIGN_IDENTITY")
@@ -520,44 +469,21 @@ elif [[ -n "$SIGN_IDENTITY" ]]; then
 else
   codesign_args=(--force --sign -)
 fi
-deno_codesign_args=("${codesign_args[@]}")
+runtime_codesign_args=("${codesign_args[@]}")
 if [[ -n "$SIGN_IDENTITY" ]]; then
-  deno_codesign_args+=(--entitlements "$DENO_ENTITLEMENTS")
+  runtime_codesign_args+=(--entitlements "$RUNTIME_ENTITLEMENTS")
 fi
 
-if [[ "$NATIVE_BUNDLE" == "1" ]]; then
-  # Every runtime/addon/bridge is signed independently before the enclosing app.
-  while IFS= read -r -d '' native_file; do
-    if /usr/bin/file -b "$native_file" | grep -q 'Mach-O'; then
-      codesign "${deno_codesign_args[@]}" "$native_file"
-    fi
-  done < <(find "$APP_PATH/Contents/Resources/pairing" -type f -print0)
-  # Signing modifies Mach-O bytes, so regenerate hashes before outer signing.
-  node "$REPO_ROOT/pairing/scripts/refresh-manifest.mjs" "$APP_PATH/Contents/Resources/pairing"
-else
-# Deno signs the CEF framework itself, but its nested dylibs may retain ad-hoc
-# signatures. Notarization validates each Mach-O file independently, so sign
-# the libraries first and then refresh the enclosing framework signature.
-CEF_FRAMEWORK="$APP_PATH/Contents/Frameworks/Chromium Embedded Framework.framework"
-if [[ -d "$CEF_FRAMEWORK" ]]; then
-  while IFS= read -r -d '' cef_library; do
-    codesign "${codesign_args[@]}" "$cef_library"
-  done < <(find "$CEF_FRAMEWORK" -type f -name '*.dylib' -print0)
-  codesign "${codesign_args[@]}" \
-    --preserve-metadata=identifier,entitlements,requirements,flags,runtime \
-    "$CEF_FRAMEWORK"
-fi
+# Every runtime/addon/bridge is signed before the enclosing app.
+while IFS= read -r -d '' native_file; do
+  if /usr/bin/file -b "$native_file" | grep -q 'Mach-O'; then
+    codesign "${runtime_codesign_args[@]}" "$native_file"
+  fi
+done < <(find "$APP_PATH/Contents/Resources/pairing" -type f -print0)
+# Signing modifies Mach-O bytes. Refresh hashes before signing the outer app.
+node "$REPO_ROOT/pairing/scripts/refresh-manifest.mjs" "$APP_PATH/Contents/Resources/pairing"
 
-# Deno and CEF both embed V8. Hardened Runtime blocks V8's MAP_JIT regions
-# unless each executable process has the allow-jit entitlement.
-while IFS= read -r -d '' helper_app; do
-  codesign "${deno_codesign_args[@]}" \
-    --preserve-metadata=identifier \
-    "$helper_app"
-done < <(find "$APP_PATH/Contents/Frameworks" -maxdepth 1 -type d -name '*.app' -print0)
-fi
-
-codesign "${deno_codesign_args[@]}" \
+codesign "${runtime_codesign_args[@]}" \
   --preserve-metadata=identifier \
   "$APP_PATH/Contents/MacOS/$GUI_EXECUTABLE_NAME"
 codesign "${codesign_args[@]}" \
@@ -565,10 +491,8 @@ codesign "${codesign_args[@]}" \
 codesign "${codesign_args[@]}" \
   "$APP_PATH/Contents/MacOS/rieul-macos-launcher"
 codesign "${codesign_args[@]}" "$APP_PATH"
-if [[ "$NATIVE_BUNDLE" == "1" ]]; then
-  "$APP_PATH/Contents/MacOS/rieul-gui" --verify-bundle
-  codesign --verify --deep --strict --verbose=2 "$APP_PATH"
-fi
+"$APP_PATH/Contents/MacOS/rieul-gui" --verify-bundle
+codesign --verify --deep --strict --verbose=2 "$APP_PATH"
 
 if [[ "$SKIP_DMG" == "1" ]]; then
   echo "Wrote app: $APP_PATH"
