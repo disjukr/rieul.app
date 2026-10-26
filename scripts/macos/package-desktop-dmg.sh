@@ -511,14 +511,14 @@ dmg_mounted=0
 detach_build_image() {
   [[ "$dmg_mounted" == 1 ]] || return 0
   for attempt in 1 2; do
-    if hdiutil detach "$MOUNT_DIR" -quiet; then dmg_mounted=0; return 0; fi
+    if hdiutil detach "$MOUNT_DIR"; then dmg_mounted=0; return 0; fi
     sleep 1
   done
   # CI metadata/indexing processes can retain this build's temporary image.
   # The flag is set only after our own attach succeeds; never force other mounts.
   if [[ "${CI:-}" == true ]]; then
     echo "CI: detaching this build's temporary image at $MOUNT_DIR"
-    if hdiutil detach "$MOUNT_DIR" -force -quiet; then dmg_mounted=0; return 0; fi
+    if hdiutil detach "$MOUNT_DIR" -force; then dmg_mounted=0; return 0; fi
   fi
   return 1
 }
@@ -536,7 +536,11 @@ hdiutil create \
 hdiutil attach "$RW_DMG_PATH" -mountpoint "$MOUNT_DIR" -nobrowse -quiet
 dmg_mounted=1
 /usr/bin/ditto "$DMG_ROOT" "$MOUNT_DIR"
-if ! layout_dmg_volume "$VOLUME_NAME" "$MOUNT_DIR" "$APP_NAME"; then
+if [[ "${CI:-}" == true ]]; then
+  # Headless runners cannot reliably resolve the new Finder disk and can retain
+  # its mount after AppleScript fails. Keep interactive layout for user builds.
+  echo "CI: skipping interactive Finder layout; mounted payload checks remain enabled."
+elif ! layout_dmg_volume "$VOLUME_NAME" "$MOUNT_DIR" "$APP_NAME"; then
   echo "Warning: failed to apply Finder DMG layout; continuing with default layout." >&2
 fi
 "$MOUNT_DIR/$APP_NAME.app/Contents/MacOS/rieul-gui" --verify-bundle
