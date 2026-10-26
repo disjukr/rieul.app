@@ -6,12 +6,12 @@ import {
   stat,
   chmod,
   mkdtemp,
-  rename,
   realpath,
   lstat,
 } from "node:fs/promises";
 import path from "node:path";
 import { prepareRuntimes, execute, root, sha256 } from "./runtimes.mjs";
+import { publishReplacement } from "./publish.mjs";
 const windows = process.platform === "win32";
 if (!windows && process.platform !== "darwin")
   throw new Error("Desktop packaging supports Windows/macOS");
@@ -215,13 +215,7 @@ if (exists) {
     !path.isAbsolute(destination)
   )
     throw new Error("Invalid output publication paths");
-  await rename(destination, previous);
-  try {
-    await rename(output, destination);
-  } catch (error) {
-    await rename(previous, destination);
-    throw error;
-  }
+  await publishReplacement(output, destination, previous);
 }
 console.log(
   JSON.stringify({

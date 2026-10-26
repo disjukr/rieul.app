@@ -14,7 +14,9 @@ The default desktop build and installer paths use GPUiX + Solid with embedded, p
 - Both Mac architectures: full bundled Mach-O minimum target <=13.0, AppKit bridge/delegate forwarding and application-reopen proxy fixtures, isolated native UI repeated flows, profile activation and shutdown. Default PKG creation, ad-hoc/hardened signing, extraction and native UI execution passed. Complete DMGs passed mounted payload/codesign checks and hdiutil verify.
 - Local encoded/space-path build and profile-scoped developer process selection fixtures passed. Generated icons remained byte-identical.
 
-The final cleanup also adds two simultaneous native profile processes to the Windows/Mac QA scripts. Their final CI result must be checked before claiming this additional case passed.
+Two simultaneous native profile processes also passed the Windows and both Mac native QA stages of [CI 40321282237](https://github.com/disjukr/rieul.app/actions/runs/40321282237), including signed extracted Mac payloads. One profile's approval/exit leaves the other's pending request and window intact. That run's Windows packaging later failed at directory publication with EPERM; this is not recorded as a full CI pass. Publication now uses bounded Windows-only lock retries and preserves both payloads on failure; two filesystem regression tests cover successful retry and rollback after persistent failure.
+
+Local web type checks, Node tests and Vite production build passed after retirement. Four browser regression tests passed using already-installed official Chromium1243 with an isolated profile and the correct web configuration. The pinned Chromium1194 download was initially unavailable; the normal web CI installs its pinned browser. Root ESLint has 198 errors in files byte-identical to the existing main baseline; pairing ESLint and changed-file formatting passed.
 
 ## Limits
 
