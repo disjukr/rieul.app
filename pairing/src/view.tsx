@@ -37,6 +37,28 @@ export function PairingView(props: {
   });
   const [error, setError] = createSignal("");
   const [copied, setCopied] = createSignal(false);
+  let live = true;
+  onCleanup(() => {
+    live = false;
+  });
+  const mountBackdrop = (element: HostElement) => {
+    // Solid refs run before GPUiX assigns IDs and flushes native creation.
+    // The root flushes synchronously after render; defer the native upload.
+    queueMicrotask(() => {
+      if (!live || !element.mounted) return;
+      try {
+        const image = backdropPixels();
+        renderer.setImagePixels?.(
+          element.id,
+          image.width,
+          image.height,
+          image.pixels,
+        );
+      } catch (error) {
+        setError(String(error));
+      }
+    });
+  };
   const unsubscribe = props.controller.subscribe((snapshot) => {
     setCopied(false);
     setError("");
@@ -519,15 +541,7 @@ export function PairingView(props: {
       }}
     >
       <img
-        ref={(element) => {
-          const image = backdropPixels();
-          renderer.setImagePixels?.(
-            element.id,
-            image.width,
-            image.height,
-            image.pixels,
-          );
-        }}
+        ref={mountBackdrop}
         style={{
           position: "absolute",
           top: 0,

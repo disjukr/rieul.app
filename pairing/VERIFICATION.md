@@ -51,6 +51,13 @@ Git. Actual Mac CUA comparison is pending manual screen unlock and the separate
 visual review; source matching and app-generated CI captures are not OS-input
 or pixel-perfect proof. The restored revision requires its own all-platform CI.
 
+The first restored CI (`3009fef`, run40353325740) caught an early native image
+upload from the Solid ref callback before GPUiX assigned the element ID. Upload
+now waits for the root's synchronous creation flush and skips disposed views.
+The corrected source passed an actual offscreen native renderer smoke test on
+the ARM64 Mac, checking successful mount and absence of a UI error. This is
+separate from OS-screen comparison; successor all-platform CI is still required.
+
 ## Remaining limits
 
 - Actual tray popup selection/Quit and visible OS notification/click remain unverified: documented CUA inventory did not expose taskbar/notification-area windows. No workaround was used. Mac OS-visible interaction remains unverified; its native fixtures and app-generated captures are distinct from OS-input proof. Windows editor/clipboard and close/reopen behavior were verified in the audit described above.
