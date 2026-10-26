@@ -14,7 +14,7 @@ const identity = await profile(config ?? defaultConfigPath());
 const address = endpoint(identity.profileId);
 if (await activateExisting(address)) process.exit(0);
 let ready = false,
-  visible = false,
+  visible = process.argv.includes("--show"),
   title = "Daemon info",
   serial = 0;
 const pending = new Map<
@@ -125,7 +125,7 @@ ui.on("message", async (message: UiToHost) => {
       type: "initial",
       snapshot: await controller.getSnapshot(),
       generation: controller.generation,
-      visible: visible || process.argv.includes("--show"),
+      visible,
       title,
     });
   } else if (message.type === "result") {

@@ -507,17 +507,28 @@ rm -f "$RW_DMG_PATH"
 rm -rf "$MOUNT_DIR"
 mkdir -p "$MOUNT_DIR"
 DMG_SIZE_MB="$(du -sm "$DMG_ROOT" | awk '{ print $1 + 64 }')"
+dmg_mounted=0
+cleanup_dmg_mount() {
+  if [[ "$dmg_mounted" == 1 ]]; then
+    hdiutil detach "$MOUNT_DIR" -quiet || echo "Could not detach temporary image at $MOUNT_DIR" >&2
+  fi
+}
+trap cleanup_dmg_mount EXIT
 hdiutil create \
   -size "${DMG_SIZE_MB}m" \
   -fs HFS+ \
   -volname "$VOLUME_NAME" \
   "$RW_DMG_PATH"
 hdiutil attach "$RW_DMG_PATH" -mountpoint "$MOUNT_DIR" -nobrowse -quiet
+dmg_mounted=1
 /usr/bin/ditto "$DMG_ROOT" "$MOUNT_DIR"
 if ! layout_dmg_volume "$VOLUME_NAME" "$MOUNT_DIR" "$APP_NAME"; then
   echo "Warning: failed to apply Finder DMG layout; continuing with default layout." >&2
 fi
+"$MOUNT_DIR/$APP_NAME.app/Contents/MacOS/rieul-gui" --verify-bundle
+codesign --verify --deep --strict "$MOUNT_DIR/$APP_NAME.app"
 hdiutil detach "$MOUNT_DIR" -quiet
+dmg_mounted=0
 hdiutil convert "$RW_DMG_PATH" \
   -ov \
   -format UDZO \
@@ -527,7 +538,9 @@ mv -f "$TMP_DMG_PATH" "$DMG_PATH"
 rm -f "$RW_DMG_PATH"
 
 if [[ -n "$SIGN_IDENTITY" ]]; then
-  codesign --force --timestamp --sign "$SIGN_IDENTITY" "$DMG_PATH"
+  dmg_codesign_args=(--force --sign "$SIGN_IDENTITY")
+  if [[ "$SIGN_IDENTITY" != "-" ]]; then dmg_codesign_args+=(--timestamp); fi
+  codesign "${dmg_codesign_args[@]}" "$DMG_PATH"
   codesign --verify --verbose=2 "$DMG_PATH"
 fi
 

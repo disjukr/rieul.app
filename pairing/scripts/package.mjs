@@ -121,6 +121,12 @@ await execute(runtime.bun, ["scripts/build.ts"], {
 });
 const app = path.join(bundle, "app");
 await mkdir(path.join(app, "native/bin"), { recursive: true });
+await mkdir(path.join(bundle, "licenses"), { recursive: true });
+for (const name of ["LICENSE", "LICENSE-MIT", "LICENSE-APACHE"])
+  await cp(
+    path.resolve(root, "..", name),
+    path.join(bundle, "licenses", `Rieul-${name}`),
+  );
 for (const name of ["dist", "package.json", "bun.lock", "bunfig.toml"])
   await cp(path.join(root, name), path.join(app, name), { recursive: true });
 const bridge = windows

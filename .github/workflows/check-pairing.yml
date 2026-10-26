@@ -90,6 +90,10 @@ jobs:
           "$GUI" --verify-bundle
           codesign --verify --deep --strict "${GUI%/Contents/MacOS/rieul-gui}"
           (cd pairing && RIEUL_GUI_EXECUTABLE="$GUI" node scripts/macos-native-qa.mjs)
+      - name: Build and verify DMG without installation
+        run: |
+          bash scripts/macos/package-desktop-dmg.sh --skip-build --sign - --out-dir "$PWD/dist/candidate-dmg"
+          hdiutil verify dist/candidate-dmg/rieul-macos-desktop-0.1.0.dmg
       - uses: actions/upload-artifact@v4
         if: always()
         with:

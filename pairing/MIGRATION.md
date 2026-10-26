@@ -86,3 +86,9 @@ Native bundle5 QA passed artifacts/qa-1793010219402/evidence.json including call
 CI40303773339 Windows job passed native/lifecycle plus candidate packaging. Both Mac architectures passed complete deployment target and native lifecycle; both failed only at daemon codegen because root tsx dependency was not installed. Added root pnpm install and changed the next installer checks to the normal build paths. Intel pinned native build cache is saved and hash/source checked, enabling follow-up without repeating the source compile.
 
 Default MSI/MSIX/DMG build source now invokes the self-contained package builder. Web desktop scripts and release build tooling have been connected to Node/Bun. Existing CEF source/assets and the denied macOS laufey fallback remain untouched; no denied removal retried. Main remains2b938439e2aae31b368cb6bbdfdeec07e35d3102 after safe fetch. No continuation default switch has been pushed to main.
+
+## 2026-10-26 10:51 UTC: all-platform default-path gate GREEN
+
+CI40308372776 for57f1f9377c543629f150d699930c82751350e1c8 completed SUCCESS: Windows, macOS ARM64 and Intel all passed. This includes normal MSI/MSIX/PKG build paths, extraction/integrity and signed extracted Mac app native UI lifecycle. Intel native cache is verified and available. It is new evidence beyond the earlier fallback rejection. No fallback-removal retry has been made yet.
+
+Remaining uncommitted follow-up is full DMG generation/verify/mounted-payload smoke plus temporary image cleanup; project license notice copies; initial --show flag no longer overrides a later pre-ready hide state. These will be checked on one new SHA before the single allowed retirement reevaluation. Current main remains unchanged.
