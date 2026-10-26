@@ -508,18 +508,45 @@ rm -rf "$MOUNT_DIR"
 mkdir -p "$MOUNT_DIR"
 DMG_SIZE_MB="$(du -sm "$DMG_ROOT" | awk '{ print $1 + 64 }')"
 dmg_mounted=0
+dmg_device=""
+dmg_image_attached() {
+  local info="$STAGING_DIR/dmg-state.plist" index=0 image device
+  set -- "$RW_DMG_PATH" "$dmg_device"
+  hdiutil info -plist >"$info" || return 2
+  [[ "$(/usr/bin/plutil -type images "$info")" == array ]] || return 2
+  while /usr/libexec/PlistBuddy -c "Print :images:$index" "$info" >/dev/null 2>&1; do
+    image="$(/usr/libexec/PlistBuddy -c "Print :images:$index:image-path" "$info")" || return 2
+    device="$(/usr/libexec/PlistBuddy -c "Print :images:$index:system-entities:0:dev-entry" "$info" 2>/dev/null)" || device=""
+    set -- "$@" "$image" "$device"
+    index=$((index + 1))
+  done
+  node "$REPO_ROOT/pairing/scripts/dmg-image-state.mjs" "$@"
+}
 detach_build_image() {
+  local attempt state
   [[ "$dmg_mounted" == 1 ]] || return 0
-  for attempt in 1 2; do
-    if hdiutil detach "$MOUNT_DIR"; then dmg_mounted=0; return 0; fi
+  for attempt in 1 2 3; do
+    if dmg_image_attached; then
+      if [[ "$attempt" == 3 ]]; then
+        [[ "${CI:-}" == true ]] || return 1
+        echo "CI: detaching this build's verified image device $dmg_device"
+        if hdiutil detach "$dmg_device" -force; then dmg_mounted=0; return 0; fi
+      elif hdiutil detach "$dmg_device"; then dmg_mounted=0; return 0; fi
+    else
+      state=$?
+      if [[ "$state" == 1 ]]; then
+        echo "Owned image is no longer attached; detachment confirmed by OS inventory."
+        dmg_mounted=0
+        return 0
+      fi
+      return 1
+    fi
     sleep 1
   done
-  # CI metadata/indexing processes can retain this build's temporary image.
-  # The flag is set only after our own attach succeeds; never force other mounts.
-  if [[ "${CI:-}" == true ]]; then
-    echo "CI: detaching this build's temporary image at $MOUNT_DIR"
-    if hdiutil detach "$MOUNT_DIR" -force; then dmg_mounted=0; return 0; fi
-  fi
+  # DiskArbitration can time out after the image actually detached.
+  # Confirm the postcondition rather than trusting a vanished mount directory.
+  if dmg_image_attached; then return 1; else state=$?; fi
+  if [[ "$state" == 1 ]]; then dmg_mounted=0; return 0; fi
   return 1
 }
 cleanup_dmg_mount() {
@@ -533,8 +560,10 @@ hdiutil create \
   -fs HFS+ \
   -volname "$VOLUME_NAME" \
   "$RW_DMG_PATH"
-hdiutil attach "$RW_DMG_PATH" -mountpoint "$MOUNT_DIR" -nobrowse -quiet
+hdiutil attach "$RW_DMG_PATH" -mountpoint "$MOUNT_DIR" -nobrowse -plist >"$STAGING_DIR/dmg-attach.plist"
 dmg_mounted=1
+dmg_device="$(/usr/libexec/PlistBuddy -c 'Print :system-entities:0:dev-entry' "$STAGING_DIR/dmg-attach.plist")"
+[[ "$dmg_device" =~ ^/dev/disk[0-9]+$ ]] || { echo "Invalid owned image device" >&2; exit 1; }
 /usr/bin/ditto "$DMG_ROOT" "$MOUNT_DIR"
 if [[ "${CI:-}" == true ]]; then
   # Headless runners cannot reliably resolve the new Finder disk and can retain

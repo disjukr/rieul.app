@@ -58,7 +58,11 @@ jobs:
           bun run check
           bun run test
       - name: Verify development process ownership without starting services
-        run: bash scripts/macos/test-dev-process-scope.sh
+        run: |
+          bash scripts/macos/test-dev-process-scope.sh
+          bash scripts/macos/test-dmg-lifecycle.sh
+          hdiutil info -plist > "$RUNNER_TEMP/dmg-inventory.plist"
+          test "$(plutil -type images "$RUNNER_TEMP/dmg-inventory.plist")" = array
       - name: Compile and exercise AppKit bridge
         run: |
           sh pairing/scripts/build-bridge-macos.sh

@@ -20,6 +20,8 @@ Local web type checks, Node tests and Vite production build passed after retirem
 
 ## Actual Windows OS UI audit
 
+DMG cleanup also has three image/device identity regressions and eight scoped shell lifecycle fixtures. A DiskArbitration timeout is not treated as success unless the OS image inventory confirms the owned image is absent. Attached devices are checked against canonical image identity before detachment; malformed/unknown state fails closed. Other/reused devices are not detached. These tests complement the real Mac image build/verification gate.
+
 A separate Computer Use audit operated the isolated fake-IPC profile on source727bc8c, recorded in task-6/ui-evidence/observations.json and events.json outside this repository. Actual OS input verified the QR/fixture URL window, correct code returning true, incorrect code showing mismatch and returning false, Cancel returning false, titlebar X hiding/same-profile activation reopening, and pending Alt+F4 returning false. Open config visibly opened only the fixture YAML in the associated editor. Copy URL pasted the exact fixture URL into a fresh scratch tab; previous clipboard contents were not read or retained. Test windows/processes/editor tabs were cleaned up; no actual daemon/account/install was changed.
 
 The audit found P3 feedback ambiguity: Cancel rejected correctly but displayed the same completion text as approval. The view now distinguishes "Pairing cancelled." from "Approval sent." Windows and both Mac native QA scripts assert the distinct messages and absence of approval feedback after Cancel across three repeated flows. This label correction is subject to its successor CI; it is not claimed as a repeated OS-input audit.
