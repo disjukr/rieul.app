@@ -121,3 +121,36 @@ test("React consumers share writers, retain them on partial unmount, reload and 
   await expect(page.getByLabel("one")).toHaveText("1");
   expect(await writes()).toEqual([4, 2]);
 });
+
+test("explorer child observers wait for the shared Bunja owner and retain one subscription", async ({
+  page,
+}) => {
+  await page.goto("/tests/fixtures/explorer.html");
+  await expect(page.getByLabel("one")).toHaveText("Fixture root");
+  await expect(page.getByLabel("two")).toHaveText("Fixture root");
+  const metrics = () =>
+    page.evaluate(
+      () =>
+        (
+          window as unknown as {
+            explorerFixture: {
+              opens: number;
+              closes: number;
+              earlyCalls: number;
+            };
+          }
+        ).explorerFixture,
+    );
+  expect(await metrics()).toEqual({ opens: 1, closes: 0, earlyCalls: 0 });
+  await page
+    .getByRole("button", { name: "Keep one owner", exact: true })
+    .click();
+  await expect(page.getByLabel("two")).toHaveCount(0);
+  await expect(page.getByLabel("one")).toHaveText("Fixture root");
+  expect(await metrics()).toEqual({ opens: 1, closes: 0, earlyCalls: 0 });
+  await page
+    .getByRole("button", { name: "Remove owners", exact: true })
+    .click();
+  await expect.poll(async () => (await metrics()).closes).toBe(1);
+  expect(await metrics()).toEqual({ opens: 1, closes: 1, earlyCalls: 0 });
+});
