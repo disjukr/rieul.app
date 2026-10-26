@@ -26,7 +26,32 @@ A separate Computer Use audit operated the isolated fake-IPC profile on source72
 
 The audit found P3 feedback ambiguity: Cancel rejected correctly but displayed the same completion text as approval. The view now distinguishes "Pairing cancelled." from "Approval sent." Windows and both Mac native QA scripts assert the distinct messages and absence of approval feedback after Cancel across three repeated flows. This label correction is subject to its successor CI; it is not claimed as a repeated OS-input audit.
 
-## Limits
+## Appearance restoration checkpoint
+
+The packaging baseline `4d4019d` passed Windows x64, macOS ARM64 and Intel in
+[CI 40346452662](https://github.com/disjukr/rieul.app/actions/runs/40346452662),
+including complete DMGs and distinct approval/cancellation feedback. This pass
+predates the visual restoration and is not its final validation.
+
+The original React/UnoCSS source at `2b938439` supplies the restored 640×360
+window, 18px inset, translucent panel, colors, typography, 146px QR in a 168px
+frame, property rows, candidate layout and expiry badge. GPUiX approximates
+radial backgrounds with sampled pixels and code letter spacing with native
+digit gaps; native fonts, shadows and backdrop compositing can differ. Cancel,
+Daemon info and Close remain available to preserve current lifecycle behavior.
+The controller and IPC are unchanged. Native QA checks the restored QR size on
+both platforms and retains approval, rejection, cancellation and profile tests.
+
+Type checking, 15 Node regressions, 9 Bun controller tests (468 assertions), and
+the Solid/native UI bundle build passed locally. Bun stalls before JavaScript
+in the Documents checkout but the identical sources and installed dependencies
+build and test successfully in a disposable `/tmp` copy; no security settings
+were changed. Reference screenshots and the detailed comparison remain outside
+Git. Actual Mac CUA comparison is pending manual screen unlock and the separate
+visual review; source matching and app-generated CI captures are not OS-input
+or pixel-perfect proof. The restored revision requires its own all-platform CI.
+
+## Remaining limits
 
 - Actual tray popup selection/Quit and visible OS notification/click remain unverified: documented CUA inventory did not expose taskbar/notification-area windows. No workaround was used. Mac OS-visible interaction remains unverified; its native fixtures and app-generated captures are distinct from OS-input proof. Windows editor/clipboard and close/reopen behavior were verified in the audit described above.
 - No actual MSI/MSIX/PKG install, upgrade, uninstall, service/LaunchAgent registration or autostart changes were performed. Archive extraction and owned-process/lock tests are distinct from installation lifecycle tests.

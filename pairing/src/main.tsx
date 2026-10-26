@@ -58,8 +58,8 @@ const renderer = new GpuixRenderer((error, event) => {
 });
 renderer.init({
   title: "Daemon info",
-  width: 680,
-  height: 410,
+  width: 640,
+  height: 360,
   show: false,
   focus: false,
   resizable: false,

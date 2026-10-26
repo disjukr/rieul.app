@@ -111,8 +111,8 @@ try {
   );
   await app.screenshot({ path: `${dir}/daemon-info.png` });
   const qr = await app.getByTestId("daemon-qr").bounds();
-  assert.equal(qr.width, 154);
-  assert.equal(qr.height, 154);
+  assert.equal(qr.width, 146);
+  assert.equal(qr.height, 146);
   evidence.qrBounds = qr;
   evidence.initial = true;
   const uiPid = Number(

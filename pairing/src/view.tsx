@@ -1,6 +1,17 @@
 import { createSignal, For, onCleanup, Show } from "solid-js";
 import { Button, useGpuixRequired, type HostElement } from "@gpuix/solid";
 import QRCode from "qrcode";
+import {
+  text,
+  button,
+  column,
+  row,
+  panel,
+  smallShadow,
+  backdropPixels,
+  mono,
+  icon,
+} from "./appearance.ts";
 import type { PairingController } from "./controller.ts";
 import type { DaemonMainSnapshot } from "./bindings.ts";
 
@@ -40,14 +51,6 @@ export function PairingView(props: {
       await props.copy(text);
       setCopied(true);
     });
-  const text = { color: "#263246", fontSize: 14 } as const;
-  const button = {
-    padding: 10,
-    borderRadius: 8,
-    backgroundColor: "#dce7f9",
-    color: "#263246",
-    cursor: "pointer",
-  } as const;
   function Screen(p: { state: ReturnType<typeof state> }) {
     const route = p.state.snapshot.route;
     const [remaining, setRemaining] = createSignal(
@@ -78,41 +81,161 @@ export function PairingView(props: {
         setResolved(true);
       });
     };
+    const time = () =>
+      `${Math.floor(remaining() / 60)
+        .toString()
+        .padStart(2, "0")}:${(remaining() % 60).toString().padStart(2, "0")}`;
     return (
-      <div
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          flexGrow: 1,
-          gap: 15,
-        }}
-      >
-        <text
-          testId="route-title"
-          style={{ ...text, fontSize: 21, fontWeight: 700 }}
+      <div style={{ ...column, flexGrow: 1 }}>
+        <Show
+          when={route.kind === "confirmPairing" || route.kind === "pairingCode"}
         >
-          {route.kind === "confirmPairing"
-            ? "Select the code shown on your client."
-            : route.kind === "pairingCode"
-              ? "Pairing code"
-              : "Daemon info"}
-        </text>
-        {route.kind === "confirmPairing" ? (
-          <>
-            <text testId="client-label" style={text}>
-              {route.model.clientLabel.trim() || "Unknown client"}
-            </text>
+          <div
+            style={{
+              ...row,
+              justifyContent: "space-between",
+              gap: 14,
+              paddingLeft: 18,
+              paddingRight: 18,
+              paddingTop: 14,
+              paddingBottom: 14,
+              borderBottomWidth: 1,
+              borderColor: "#ffffff61",
+            }}
+          >
             <text
-              style={text}
-            >{`Wants to connect to daemon → ${route.model.daemonUrl}`}</text>
-            <div style={{ display: "flex", flexDirection: "row", gap: 12 }}>
+              testId="route-title"
+              style={{ ...text, fontSize: 18, lineHeight: 27, fontWeight: 800 }}
+            >
+              {route.kind === "confirmPairing"
+                ? "Select the code shown on your client."
+                : "Pairing code"}
+            </text>
+            <Show when={route.kind === "pairingCode"}>
+              <text
+                testId="expiry"
+                style={{
+                  color: "#8a6116",
+                  backgroundColor: "#fff8df",
+                  fontSize: 11,
+                  lineHeight: 11,
+                  fontWeight: 750,
+                  paddingLeft: 4,
+                  paddingRight: 4,
+                  borderWidth: 1,
+                  borderColor: "#e4c778",
+                  borderRadius: 999,
+                }}
+              >
+                {time()}
+              </text>
+            </Show>
+          </div>
+        </Show>
+        {route.kind === "confirmPairing" ? (
+          <div style={{ ...column, padding: 16, gap: 8, flexGrow: 1 }}>
+            <div
+              style={{
+                ...column,
+                paddingLeft: 14,
+                paddingRight: 14,
+                paddingTop: 9,
+                paddingBottom: 9,
+                borderRadius: 12,
+                borderWidth: 1,
+                borderColor: "#ffffff6b",
+                backgroundColor: "#ffffff52",
+              }}
+            >
+              <text
+                style={{
+                  color: "#667085",
+                  fontSize: 11,
+                  lineHeight: 16.5,
+                  fontWeight: 750,
+                }}
+              >
+                CLIENT
+              </text>
+              <text
+                testId="client-label"
+                style={{
+                  ...text,
+                  marginTop: 2,
+                  fontSize: 15,
+                  lineHeight: 22.5,
+                  fontWeight: 800,
+                }}
+              >
+                {route.model.clientLabel.trim() || "Unknown client"}
+              </text>
+              <div
+                style={{
+                  ...row,
+                  alignItems: "flex-start",
+                  marginTop: 6,
+                  gap: 6,
+                }}
+              >
+                <text
+                  style={{
+                    color: "#4f8cff",
+                    fontSize: 11,
+                    lineHeight: 14,
+                    fontWeight: 700,
+                    flexShrink: 0,
+                  }}
+                >
+                  Wants to connect to daemon →
+                </text>
+                <text
+                  style={{
+                    color: "#475467",
+                    fontSize: 11,
+                    lineHeight: 14,
+                    flexGrow: 1,
+                    flexBasis: 0,
+                    minWidth: 0,
+                  }}
+                >
+                  {route.model.daemonUrl}
+                </text>
+              </div>
+            </div>
+            <div style={{ ...row, gap: 10 }}>
               <For each={route.model.candidates}>
                 {(candidate) => (
                   <Button
                     testId={`candidate-${candidate}`}
                     disabled={resolved()}
                     onClick={() => select(candidate)}
-                    style={{ ...button, flexGrow: 1, height: 64, fontSize: 28 }}
+                    style={{
+                      ...button,
+                      height: 58,
+                      flexGrow: 1,
+                      flexBasis: 0,
+                      borderRadius: 12,
+                      borderWidth: 1,
+                      borderColor:
+                        incorrect() &&
+                        candidate === route.model.confirmationCode
+                          ? "#4f8cff"
+                          : "#d8dde7",
+                      backgroundColor: "#ffffff75",
+                      fontSize: 28,
+                      lineHeight: 42,
+                      fontWeight: 850,
+                      boxShadow: smallShadow,
+                      opacity:
+                        incorrect() &&
+                        candidate !== route.model.confirmationCode
+                          ? 0.45
+                          : 1,
+                      hover: {
+                        borderColor: "#4f8cff",
+                        backgroundColor: "#ffffffad",
+                      },
+                    }}
                   >
                     {candidate}
                   </Button>
@@ -120,13 +243,19 @@ export function PairingView(props: {
               </For>
             </div>
             <Show when={incorrect()}>
-              <text
-                testId="incorrect"
-                style={{ color: "#af293b", fontSize: 13 }}
-              >
-                That code did not match. Please start pairing again from the
-                client.
-              </text>
+              <div style={{ ...row, gap: 6 }}>
+                <svg
+                  source={icon("alert")}
+                  style={{ width: 14, height: 14, flexShrink: 0 }}
+                />
+                <text
+                  testId="incorrect"
+                  style={{ color: "#b42318", fontSize: 12 }}
+                >
+                  That code did not match. Please start pairing again from the
+                  client.
+                </text>
+              </div>
             </Show>
             <Show when={resolved() && !incorrect() && !cancelled()}>
               <text testId="accepted" style={text}>
@@ -138,88 +267,214 @@ export function PairingView(props: {
                 Pairing cancelled.
               </text>
             </Show>
-            <Button
-              testId="cancel"
-              disabled={resolved()}
-              onClick={() =>
-                act(async () => {
-                  await props.controller.resolvePairingConfirmation(
-                    false,
-                    p.state.generation,
-                  );
-                  setCancelled(true);
-                  setResolved(true);
-                })
-              }
-              style={button}
+            <div
+              style={{
+                ...row,
+                justifyContent: "flex-start",
+                flexGrow: 1,
+                alignItems: "flex-end",
+              }}
             >
-              Cancel
-            </Button>
-          </>
+              <Button
+                testId="cancel"
+                disabled={resolved()}
+                onClick={() =>
+                  act(async () => {
+                    await props.controller.resolvePairingConfirmation(
+                      false,
+                      p.state.generation,
+                    );
+                    setCancelled(true);
+                    setResolved(true);
+                  })
+                }
+                style={{ ...button, opacity: resolved() ? 0.48 : 1 }}
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
         ) : route.kind === "pairingCode" ? (
-          <>
-            <text testId="expiry" style={text}>{`${Math.floor(remaining() / 60)
-              .toString()
-              .padStart(
-                2,
-                "0",
-              )}:${(remaining() % 60).toString().padStart(2, "0")}`}</text>
+          <div style={{ ...column, padding: 16, flexGrow: 1 }}>
             <Button
               testId="copy-pairing-code"
               onClick={() => copy(route.model.pairingCode)}
-              style={{ ...button, height: 100, fontSize: 38 }}
+              style={{
+                ...button,
+                position: "relative",
+                height: "100%",
+                minHeight: 112,
+                flexGrow: 1,
+                borderRadius: 12,
+                borderWidth: 1,
+                borderColor: "#ffffff75",
+                backgroundColor: "#ffffff5c",
+                boxShadow: smallShadow,
+                hover: { borderColor: "#4f8cff", backgroundColor: "#ffffff85" },
+              }}
             >
-              {route.model.pairingCode}
+              <div
+                style={{
+                  ...row,
+                  position: "absolute",
+                  right: 14,
+                  top: 14,
+                  gap: 8,
+                }}
+              >
+                <Show when={copied()}>
+                  <text
+                    style={{
+                      color: "#ffffff",
+                      backgroundColor: "#20242d",
+                      fontSize: 11,
+                      padding: 3,
+                      borderRadius: 4,
+                    }}
+                  >
+                    Copied
+                  </text>
+                </Show>
+                <svg
+                  source={icon("clipboard")}
+                  style={{ width: 17, height: 17 }}
+                />
+              </div>
+              <div style={{ ...row, gap: 5.04 }}>
+                <For each={[...route.model.pairingCode]}>
+                  {(digit) => (
+                    <text
+                      style={{
+                        ...text,
+                        fontFamily: mono,
+                        fontSize: 42,
+                        lineHeight: 63,
+                        fontWeight: 850,
+                      }}
+                    >
+                      {digit}
+                    </text>
+                  )}
+                </For>
+              </div>
             </Button>
-          </>
+          </div>
         ) : (
-          <div style={{ display: "flex", flexDirection: "row", gap: 18 }}>
-            <Qr url={route.model.daemonUrl} />
+          <div style={{ ...row, flexGrow: 1, gap: 18, padding: 18 }}>
             <div
               style={{
-                display: "flex",
-                flexDirection: "column",
-                gap: 10,
+                ...row,
+                width: 168,
+                height: 168,
+                flexShrink: 0,
+                justifyContent: "center",
+                backgroundColor: "#ffffff",
+                borderRadius: 12,
+                borderWidth: 1,
+                borderColor: "#ffffff75",
+                boxShadow: smallShadow,
+              }}
+            >
+              <Qr url={route.model.daemonUrl} />
+            </div>
+            <div
+              style={{
+                ...column,
                 flexGrow: 1,
                 flexBasis: 0,
                 minWidth: 0,
+                backgroundColor: "#ffffff",
+                borderWidth: 1,
+                borderColor: "#d8dde7",
+                borderRadius: 6,
+                overflow: "hidden",
               }}
             >
-              <text style={text}>Daemon URL</text>
-              <text testId="daemon-url" style={text}>
-                {route.model.daemonUrl}
-              </text>
-              <Button
-                testId="copy-daemon-url"
-                onClick={() => copy(route.model.daemonUrl)}
-                style={button}
-              >
-                Copy daemon URL
-              </Button>
-              <text
+              <Property
+                label="Daemon URL"
+                value={route.model.daemonUrl}
+                testId="daemon-url"
+                actionId="copy-daemon-url"
+                actionLabel={copied() ? "Daemon URL copied" : "Copy daemon URL"}
+                image={copied() ? "check" : "clipboard"}
+                action={() => copy(route.model.daemonUrl)}
+              />
+              <Property
+                label="Config"
+                value={route.model.configPath}
                 testId="config-path"
-                style={{
-                  ...text,
-                  fontSize: 11,
-                  whiteSpace: "nowrap",
-                  textOverflow: "ellipsis",
-                }}
-              >
-                {route.model.configPath}
-              </text>
-              <Button
-                testId="open-config"
-                onClick={() => act(props.controller.openConfig)}
-                style={button}
-              >
-                Open config
-              </Button>
+                actionId="open-config"
+                actionLabel="Open config"
+                image="external"
+                action={() => act(props.controller.openConfig)}
+              />
             </div>
           </div>
         )}
       </div>
     );
   }
+  function Property(p: {
+    label: string;
+    value: string;
+    testId: string;
+    actionId: string;
+    actionLabel: string;
+    image: "clipboard" | "check" | "external";
+    action(): void;
+  }) {
+    return (
+      <div style={column}>
+        <text
+          style={{
+            color: "#667085",
+            fontSize: 12,
+            lineHeight: 18,
+            fontWeight: 700,
+            backgroundColor: "#fbfcfe",
+            paddingLeft: 12,
+            paddingRight: 12,
+            paddingTop: 6,
+            paddingBottom: 5,
+            borderBottomWidth: 1,
+            borderColor: "#d8dde7",
+          }}
+        >
+          {p.label}
+        </text>
+        <div style={{ ...row, padding: 12, gap: 8 }}>
+          <text
+            testId={p.testId}
+            style={{
+              ...text,
+              flexGrow: 1,
+              flexBasis: 0,
+              minWidth: 0,
+              fontFamily: mono,
+              lineHeight: 16.8,
+              borderRadius: 3,
+              borderWidth: 1,
+              borderColor: "#d8dde7",
+              backgroundColor: "#f4f6fa",
+              paddingLeft: 6,
+              paddingRight: 6,
+            }}
+          >
+            {p.value}
+          </text>
+          <Button
+            testId={p.actionId}
+            aria-label={p.actionLabel}
+            onClick={p.action}
+            style={{ ...button, width: 34, height: 34, flexShrink: 0 }}
+          >
+            <svg source={icon(p.image)} style={{ width: 15, height: 15 }} />
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   function Qr(p: { url: string }) {
     let live = true;
     onCleanup(() => {
@@ -229,9 +484,10 @@ export function PairingView(props: {
       const url = new URL("https://rieul.app/");
       url.searchParams.set("daemonUrl", p.url);
       void QRCode.toBuffer(url.toString(), {
-        width: 154,
+        width: 146,
         margin: 0,
         errorCorrectionLevel: "M",
+        color: { dark: "#202632", light: "#ffffff" },
       })
         .then((bytes) => {
           if (live) renderer.setImage?.(element.id, bytes);
@@ -243,8 +499,8 @@ export function PairingView(props: {
         testId="daemon-qr"
         ref={mount}
         style={{
-          width: 154,
-          height: 154,
+          width: 146,
+          height: 146,
           flexShrink: 0,
           backgroundColor: "#ffffff",
         }}
@@ -254,40 +510,75 @@ export function PairingView(props: {
   return (
     <div
       style={{
+        ...column,
+        ...text,
         height: "100%",
-        display: "flex",
-        flexDirection: "column",
-        backgroundColor: "#eef3fa",
-        padding: 24,
-        gap: 14,
+        position: "relative",
+        backgroundColor: "#f4f5f7",
+        padding: 18,
       }}
     >
-      <Show when={state()} keyed>
-        {(current) => <Screen state={current} />}
-      </Show>
-      <Show when={copied()}>
-        <text style={text}>Copied</text>
-      </Show>
-      <Show when={error()}>
-        <text testId="error" style={{ color: "#af293b", fontSize: 12 }}>
-          {error()}
-        </text>
-      </Show>
-      <div style={{ display: "flex", flexDirection: "row", gap: 8 }}>
-        <Button
-          testId="daemon-info"
-          onClick={() => act(props.controller.showDaemonInfo)}
-          style={button}
+      <img
+        ref={(element) => {
+          const image = backdropPixels();
+          renderer.setImagePixels?.(
+            element.id,
+            image.width,
+            image.height,
+            image.pixels,
+          );
+        }}
+        style={{
+          position: "absolute",
+          top: 0,
+          left: 0,
+          width: "100%",
+          height: "100%",
+          pointerEvents: "none",
+        }}
+      />
+      <div style={panel}>
+        <Show when={state()} keyed>
+          {(current) => <Screen state={current} />}
+        </Show>
+        <Show when={error()}>
+          <text
+            testId="error"
+            style={{
+              color: "#b42318",
+              fontSize: 12,
+              paddingLeft: 16,
+              paddingRight: 16,
+            }}
+          >
+            {error()}
+          </text>
+        </Show>
+        <div
+          style={{
+            ...row,
+            justifyContent: "flex-end",
+            position: "absolute",
+            right: 30,
+            bottom: 22,
+            gap: 8,
+          }}
         >
-          Daemon info
-        </Button>
-        <Button
-          testId="hide"
-          onClick={() => props.controller.close()}
-          style={button}
-        >
-          Close
-        </Button>
+          <Button
+            testId="daemon-info"
+            onClick={() => act(props.controller.showDaemonInfo)}
+            style={{ ...button, color: "#667085", fontSize: 11 }}
+          >
+            Daemon info
+          </Button>
+          <Button
+            testId="hide"
+            onClick={() => props.controller.close()}
+            style={{ ...button, color: "#667085", fontSize: 11 }}
+          >
+            Close
+          </Button>
+        </div>
       </div>
     </div>
   );

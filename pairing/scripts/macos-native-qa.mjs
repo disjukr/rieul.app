@@ -88,6 +88,10 @@ const evidence = {
 try {
   await app.getByTestId("daemon-url").waitFor({ timeoutMs: 20000 });
   await app.screenshot({ path: `${dir}/info.png` });
+  const qr = await app.getByTestId("daemon-qr").bounds();
+  assert.equal(qr.width, 146);
+  assert.equal(qr.height, 146);
+  evidence.qrBounds = qr;
   for (let i = 0; i < 3; i++) {
     const first = confirm("42");
     await app.getByTestId("candidate-42").waitFor();
