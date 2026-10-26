@@ -47,3 +47,11 @@ No main push of this continuation has occurred yet. Prior opt-in main remains in
 - Typecheck passed; controller 9 tests/468 assertions and Node IPC5 + Mach-O parser1 tests passed. Rust launcher2 tests passed.
 - CI40297980044: Windows passed. ARM64 failed in new OS-floor checker because the checker misread LC_BUILD_VERSION linker tool version1167.5 as OS floor; fixed parser and added regression excluding linker/SDK/dylib versions. Intel official build remains running as of this checkpoint. No unsupported OS floor is assumed yet.
 - Added candidate Mac PKG/signing/extracted-payload CI, Windows unsigned MSI/MSIX payload CI and per-instance Mac notification identifiers. These source additions are not yet CI-verified. Existing CEF/Deno defaults remain intact.
+
+## Packaging hardening checkpoint
+
+- Rebuild publication passed on owned tmp/complete-bundle-3: previous bundle preserved at tmp/complete-bundle-3.previous-1793006881427, replacement verified before publication. No recursive deletion. Replacement rejects links/paths outside this checkout's tmp/target tree.
+- Existing web/codegen25 tests, web/tool/codegen TypeScript checks and Vite build passed; new scripts ESLint/Prettier and shell syntax checks passed.
+- Runtime-only fresh extraction validated Node22.22.0/Bun1.3.9 architecture/version and bundled license notices. Bun notice copied unchanged from official bun-v1.3.9/LICENSE.md, SHA2567068a9711ef8196d654e143447ed7976b3678ce21145b9da16e1f786528f15bb; Node notice comes from checksum-verified official archive.
+- Mac notification identifier now per instance; bridge retains original window delegate until disposal and ignores authorization callbacks from disposed generations. Source review only until subsequent macOS CI.
+- Follow-up CI40299931391 (66af754) is pending behind the still-running official Intel source build40297980044. No installed app, service, autostart, security setting, or real pairing modified. No main integration/default switch yet.

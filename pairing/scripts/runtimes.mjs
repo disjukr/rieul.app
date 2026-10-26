@@ -83,6 +83,11 @@ export async function prepareRuntimes(destination) {
         name + (process.platform === "win32" ? ".exe" : ""),
       );
       await cp(path.join(extract, entry.path), output);
+      if (name === "node")
+        await cp(
+          path.join(extract, entry.path.split("/")[0], "LICENSE"),
+          path.join(destination, "Node-LICENSE"),
+        );
       if (process.platform !== "win32") await chmod(output, 0o755);
       paths[name] = output;
     } finally {
@@ -92,6 +97,10 @@ export async function prepareRuntimes(destination) {
       await rm(extract, { recursive: true, force: true });
     }
   }
+  await cp(
+    path.join(root, "assets/licenses/Bun-1.3.9.md"),
+    path.join(destination, "Bun-LICENSE.md"),
+  );
   for (const name of ["node", "bun"]) {
     const actual = (
       await execute(paths[name], ["--version"], { windowsHide: true })

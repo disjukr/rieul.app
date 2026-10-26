@@ -13,6 +13,7 @@ static NSMenu *menu;
 static NSApplicationActivationPolicy previousPolicy;
 static BOOL changedPolicy;
 static atomic_int notificationAuthorization;
+static atomic_uint notificationEpoch;
 static atomic_uint notificationToken;
 static atomic_int notificationResult;
 static UNUserNotificationCenter *notificationCenter;
@@ -31,7 +32,7 @@ static __weak id<UNUserNotificationCenterDelegate> originalNotificationDelegate;
 static RieulNotificationTarget *notificationTarget;
 
 @interface RieulWindowDelegate : NSObject <NSWindowDelegate>
-@property(nonatomic, weak) id original;
+@property(nonatomic, strong) id original;
 @end
 @implementation RieulWindowDelegate
 - (BOOL)windowShouldClose:(NSWindow *)sender {
@@ -115,9 +116,11 @@ int32_t rieul_macos_init(const char *iconPath) {
       originalNotificationDelegate = notificationCenter.delegate;
       notificationTarget = [RieulNotificationTarget new];
       notificationCenter.delegate = notificationTarget;
+      uint32_t epoch = atomic_fetch_add(&notificationEpoch, 1) + 1;
       [notificationCenter getNotificationSettingsWithCompletionHandler:^(UNNotificationSettings *settings) {
         BOOL allowed = settings.authorizationStatus == UNAuthorizationStatusAuthorized || settings.authorizationStatus == UNAuthorizationStatusProvisional;
-        atomic_store(&notificationAuthorization, allowed ? 1 : -1);
+        if (atomic_load(&notificationEpoch) == epoch)
+          atomic_store(&notificationAuthorization, allowed ? 1 : -1);
       }];
     }
     return 1;
@@ -164,6 +167,7 @@ int32_t rieul_macos_destroy(void) {
       [notificationCenter removePendingNotificationRequestsWithIdentifiers:@[notificationIdentifier]];
     }
     notificationIdentifier = nil;
+    atomic_fetch_add(&notificationEpoch, 1);
     atomic_fetch_add(&notificationToken, 1);
     notificationCenter = nil; notificationTarget = nil; atomic_store(&notificationAuthorization, 0);
     if (changedPolicy) [NSApp setActivationPolicy:previousPolicy];
