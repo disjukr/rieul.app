@@ -509,6 +509,11 @@ mkdir -p "$MOUNT_DIR"
 DMG_SIZE_MB="$(du -sm "$DMG_ROOT" | awk '{ print $1 + 64 }')"
 dmg_mounted=0
 dmg_device=""
+whole_image_device() {
+  local entities
+  entities="$(/usr/bin/plutil -extract "$2" json -o - "$1")" || return 2
+  printf '%s' "$entities" | node "$REPO_ROOT/pairing/scripts/dmg-image-state.mjs" --device-json
+}
 dmg_image_attached() {
   local info="$STAGING_DIR/dmg-state.plist" index=0 image device
   set -- "$RW_DMG_PATH" "$dmg_device"
@@ -516,7 +521,7 @@ dmg_image_attached() {
   [[ "$(/usr/bin/plutil -type images "$info")" == array ]] || return 2
   while /usr/libexec/PlistBuddy -c "Print :images:$index" "$info" >/dev/null 2>&1; do
     image="$(/usr/libexec/PlistBuddy -c "Print :images:$index:image-path" "$info")" || return 2
-    device="$(/usr/libexec/PlistBuddy -c "Print :images:$index:system-entities:0:dev-entry" "$info" 2>/dev/null)" || device=""
+    device="$(whole_image_device "$info" "images.$index.system-entities")" || return 2
     set -- "$@" "$image" "$device"
     index=$((index + 1))
   done
@@ -562,7 +567,7 @@ hdiutil create \
   "$RW_DMG_PATH"
 hdiutil attach "$RW_DMG_PATH" -mountpoint "$MOUNT_DIR" -nobrowse -plist >"$STAGING_DIR/dmg-attach.plist"
 dmg_mounted=1
-dmg_device="$(/usr/libexec/PlistBuddy -c 'Print :system-entities:0:dev-entry' "$STAGING_DIR/dmg-attach.plist")"
+dmg_device="$(whole_image_device "$STAGING_DIR/dmg-attach.plist" system-entities)"
 [[ "$dmg_device" =~ ^/dev/disk[0-9]+$ ]] || { echo "Invalid owned image device" >&2; exit 1; }
 /usr/bin/ditto "$DMG_ROOT" "$MOUNT_DIR"
 if [[ "${CI:-}" == true ]]; then

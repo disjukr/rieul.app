@@ -3,7 +3,28 @@ import assert from "node:assert/strict";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { ownImageAttached } from "../scripts/dmg-image-state.mjs";
+import {
+  ownImageAttached,
+  wholeImageDevice,
+} from "../scripts/dmg-image-state.mjs";
+
+test("whole image device is independent of attach/inventory entity order", () => {
+  const disk = { "dev-entry": "/dev/disk4" };
+  const partition = { "dev-entry": "/dev/disk4s1" };
+  assert.equal(wholeImageDevice([partition, disk]), "/dev/disk4");
+  assert.equal(wholeImageDevice([disk, partition]), "/dev/disk4");
+});
+
+test("missing, malformed and ambiguous whole devices fail closed", () => {
+  for (const entities of [
+    null,
+    [],
+    [{}],
+    [{ "dev-entry": "/dev/disk4s1" }],
+    [{ "dev-entry": "/dev/disk4" }, { "dev-entry": "/dev/disk5" }],
+  ])
+    assert.throws(() => wholeImageDevice(entities));
+});
 
 async function fixture(run) {
   const root = await mkdtemp(path.join(os.tmpdir(), "rieul-dmg-state-"));
