@@ -8,8 +8,10 @@ fn main() {
     println!("cargo:rerun-if-changed=../../protocol/schemas/rpc");
     println!("cargo:rerun-if-changed=../../protocol/schemas/ipc");
     println!("cargo:rerun-if-changed=../../scripts/codegen/rust");
-    println!("cargo:rerun-if-changed=../../deno.json");
-    println!("cargo:rerun-if-changed=../../deno.lock");
+    println!("cargo:rerun-if-changed=../../scripts/codegen/bdl-config.ts");
+    println!("cargo:rerun-if-changed=../../bdl.yaml");
+    println!("cargo:rerun-if-changed=../../package.json");
+    println!("cargo:rerun-if-changed=../../pnpm-lock.yaml");
 
     let out_dir = PathBuf::from(env::var_os("OUT_DIR").expect("OUT_DIR must be set"));
     run_codegen(
@@ -27,10 +29,10 @@ fn main() {
 }
 
 fn run_codegen(schema: &str, out: &Path, extra_args: &[&str]) {
-    let status = Command::new("deno")
+    let status = Command::new("node")
         .args([
-            "run",
-            "-A",
+            "--import",
+            "tsx",
             "../../scripts/codegen/rust/main.ts",
             "--schema",
             schema,
@@ -39,7 +41,7 @@ fn run_codegen(schema: &str, out: &Path, extra_args: &[&str]) {
         .arg(out)
         .args(extra_args)
         .status()
-        .expect("failed to run deno for Rust protocol codegen");
+        .expect("failed to run Node.js for Rust protocol codegen");
 
     if !status.success() {
         panic!("Rust protocol codegen failed for {schema}");

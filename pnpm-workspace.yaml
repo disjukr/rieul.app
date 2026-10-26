@@ -1,0 +1,7 @@
+packages:
+  - web
+onlyBuiltDependencies:
+  - esbuild
+  - "@resvg/resvg-js"
+  - "@napi-rs/canvas"
+  - sharp

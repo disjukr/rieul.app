@@ -107,45 +107,9 @@ function New-PngAssetsFromSvg {
     [string]$DestinationDir
   )
 
-  $deno = Get-Command deno -ErrorAction SilentlyContinue
-  if (-not $deno) {
-    throw "deno is required to render MSIX PNG assets from $SourceSvg"
-  }
-
-  $renderer = @'
-import path from "node:path";
-import sharp from "npm:sharp@0.33.5";
-
-const [sourceSvg, destinationDir] = Deno.args;
-const assets = [
-  ["Square44x44Logo.png", 44],
-  ["Square150x150Logo.png", 150],
-  ["StoreLogo.png", 256],
-];
-
-for (const [name, size] of assets) {
-  await sharp(sourceSvg)
-    .resize(size, size, {
-      fit: "contain",
-      background: { r: 0, g: 0, b: 0, alpha: 0 },
-    })
-    .png()
-    .toFile(path.join(destinationDir, name));
-}
-'@
-
-  $rendererPath = Join-Path ([System.IO.Path]::GetTempPath()) "rieul-render-msix-assets-$PID.ts"
-  Set-Content -LiteralPath $rendererPath -Value $renderer -Encoding UTF8
-  try {
-    & $deno.Source run --quiet --no-lock -A $rendererPath $SourceSvg $DestinationDir
-    if ($LASTEXITCODE -ne 0) {
-      throw "Deno SVG renderer failed with exit code $LASTEXITCODE"
-    }
-  } finally {
-    if (Test-Path -LiteralPath $rendererPath) {
-      Remove-Item -LiteralPath $rendererPath -Force
-    }
-  }
+  $node = Get-Command node.exe -ErrorAction Stop
+  & $node.Source (Join-Path $RepoRoot "scripts\windows\render-msix-assets.mjs") $SourceSvg $DestinationDir
+  if ($LASTEXITCODE -ne 0) { throw "Node SVG renderer failed with exit code $LASTEXITCODE" }
 }
 
 function New-AppxManifest {
@@ -315,7 +279,7 @@ if (-not $SkipBuild) {
     cargo build -p rieul-windows-daemon --release --bin rieul-windows-system --bin rieul-windows-user
     Push-Location (Join-Path $RepoRoot "web")
     try {
-      deno task desktop:build:windows
+      pnpm desktop:build:windows
     } finally {
       Pop-Location
     }

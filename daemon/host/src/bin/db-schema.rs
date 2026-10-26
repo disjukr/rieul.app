@@ -40,7 +40,7 @@ fn run() -> Result<()> {
                 .with_context(|| format!("read {}", output_path.display()))?;
             ensure!(
                 current == generated,
-                "{} is stale; run `deno task db-schema:generate`",
+                "{} is stale; run `pnpm db-schema:generate`",
                 output_path.display()
             );
             println!("{} is up to date", output_path.display());
@@ -128,7 +128,7 @@ fn generate_current_schema() -> Result<String> {
     let mut output = format!(
         "-- GENERATED FILE. DO NOT EDIT.\n\
          -- Source of truth: migrations/*.sql\n\
-         -- Regenerate with: deno task db-schema:generate\n\
+         -- Regenerate with: pnpm db-schema:generate\n\
          -- Schema version: {SCHEMA_VERSION}\n\n"
     );
     for definition in definitions {

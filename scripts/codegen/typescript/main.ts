@@ -4,8 +4,10 @@ import {
   getResolveModuleFileFn,
   loadBdlConfig,
   type Paths,
-} from "@disjukr/bdl/io/config";
-import { relative, resolve, SEPARATOR } from "jsr:@std/path@1";
+} from "../bdl-config.ts";
+import { relative, resolve, sep as SEPARATOR } from "node:path";
+import { mkdir, readdir, stat, writeFile } from "node:fs/promises";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 interface Schema {
   declarations: Declaration[];
@@ -146,7 +148,7 @@ function requiredArg(args: string[], index: number, option: string): string {
 }
 
 function printHelpAndExit(): never {
-  console.log(`Usage: deno run -A scripts/codegen/typescript/main.ts [options]
+  console.log(`Usage: pnpm exec tsx scripts/codegen/typescript/main.ts [options]
 
 Options:
   --standard <wire|rpc> BDL standard to generate for. Inferred from schema when omitted.
@@ -160,7 +162,7 @@ Options:
   --rpc-runtime-import <path>
                        Import specifier for RPC runtime module from rpc client output.
 `);
-  Deno.exit(0);
+  process.exit(0);
 }
 
 async function loadSchema(schemaRoots: string[]): Promise<Schema> {
@@ -186,20 +188,20 @@ async function collectBdlFiles(
   paths: Paths,
 ): Promise<string[]> {
   const resolvedPath = resolve(path);
-  const stat = await Deno.stat(resolvedPath);
-  if (stat.isFile) {
+  const info = await stat(resolvedPath);
+  if (info.isFile()) {
     return resolvedPath.endsWith(".bdl")
       ? [modulePathFromFile(resolvedPath, configDirectory, paths)]
       : [];
   }
-  if (!stat.isDirectory) return [];
+  if (!info.isDirectory()) return [];
 
   const files: string[] = [];
-  for await (const entry of Deno.readDir(resolvedPath)) {
+  for await (const entry of await readdir(resolvedPath, { withFileTypes: true })) {
     const child = resolve(resolvedPath, entry.name);
-    if (entry.isDirectory) {
+    if (entry.isDirectory()) {
       files.push(...await collectBdlFiles(child, configDirectory, paths));
-    } else if (entry.isFile && child.endsWith(".bdl")) {
+    } else if (entry.isFile() && child.endsWith(".bdl")) {
       files.push(modulePathFromFile(child, configDirectory, paths));
     }
   }
@@ -1199,8 +1201,7 @@ function normalizePath(path: string): string {
 }
 
 function toFileUrl(path: string): string {
-  return new URL(normalizePath(path), `file:///${normalizePath(Deno.cwd())}/`)
-    .href;
+  return pathToFileURL(resolve(path)).href;
 }
 
 function dirname(path: string): string {
@@ -1229,16 +1230,16 @@ class Writer {
   }
 }
 
-if (import.meta.main) {
-  const options = parseCli(Deno.args);
+if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
+  const options = parseCli(process.argv.slice(2));
   const schema = await loadSchema(options.schemaRoots);
   const standard = options.standard ?? inferStandard(schema);
   const code = standard === "wire"
     ? emitWireTypeScript(schema, options)
     : emitRpcTypeScript(schema, options);
   if (options.out) {
-    await Deno.mkdir(dirname(options.out), { recursive: true });
-    await Deno.writeTextFile(options.out, code);
+    await mkdir(dirname(options.out), { recursive: true });
+    await writeFile(options.out, code);
   } else {
     console.log(code);
   }
@@ -1247,7 +1248,7 @@ if (import.meta.main) {
       throw new Error("--rpc-client-out is only valid with --standard rpc");
     }
     const rpcClientCode = emitRpcClientTypeScript(schema, options);
-    await Deno.mkdir(dirname(options.rpcClientOut), { recursive: true });
-    await Deno.writeTextFile(options.rpcClientOut, rpcClientCode);
+    await mkdir(dirname(options.rpcClientOut), { recursive: true });
+    await writeFile(options.rpcClientOut, rpcClientCode);
   }
 }

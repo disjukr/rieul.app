@@ -93,7 +93,7 @@ echo "$SYSTEM_PID" >"$SYSTEM_PID_FILE"
 echo "Starting Rieul web dev server on $WEB_URL"
 (
   cd "$REPO_ROOT/web"
-  exec deno run -A npm:vite@^6.0.0 --host 127.0.0.1 --port "$WEB_PORT" --strictPort
+  exec node "$REPO_ROOT/web/node_modules/vite/bin/vite.js" --host 127.0.0.1 --port "$WEB_PORT" --strictPort
 ) >"$WEB_OUT_LOG" 2>"$WEB_ERR_LOG" &
 WEB_PID="$!"
 echo "$WEB_PID" >"$WEB_PID_FILE"
@@ -121,7 +121,7 @@ fi
 echo "Starting rieul macOS Deno Desktop GUI daemon"
 (
   cd "$REPO_ROOT/web"
-  exec deno desktop --backend cef --hmr -A --include ./desktop/tray.png ./desktop/main.ts -- \
+  exec deno desktop --config ./deno.desktop.json --backend cef --hmr -A --include ./desktop/tray.png ./desktop/main.ts -- \
     --config "$CONFIG_PATH" \
     --dev-url "$WEB_URL/daemon-main.html"
 ) >"$GUI_OUT_LOG" 2>"$GUI_ERR_LOG" &

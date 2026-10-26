@@ -9,19 +9,60 @@
 - `daemon/windows`: Windows-specific system/user daemon binaries.
 - `daemon/macos`: macOS-specific system daemon and desktop installer bootstrap.
 - `protocol`: BDL schemas, RPC/wire standards, and protocol docs.
-- `web`: Vite + React + TypeScript browser client, managed with Deno.
+- `web`: Vite + React + TypeScript browser client, managed with Node.js and pnpm.
 
 See `protocol/README.md` for protocol layer terminology. In short, `rieul-wire`
 is the byte-level envelope family carried over WebTransport reqres streams and
 datagrams, and `rieul-rpc` defines proc ids, stream shapes, payload schemas, and
 method errors.
 
+## JavaScript toolchain
+
+Use Node.js 24 and pnpm 10.28.0 (the version in `packageManager`). From the
+repository root, run:
+
+```sh
+pnpm install --frozen-lockfile
+pnpm check
+pnpm test
+pnpm build
+pnpm exec playwright install chromium
+pnpm test:ui
+pnpm lint
+```
+
+The browser tests use a fresh browser profile, synthetic storage, and an offline
+transport fixture. They do not connect to a user daemon or modify real sessions.
+The linter includes generated protocol code and currently reports pre-existing
+unused declarations; these are not suppressed. The Node lint baseline at
+`50827d2` is 200 errors with this ESLint configuration (the previous web-only
+runtime linter reported 196). Formatting is available with Prettier; existing
+repository-wide formatting differences have not been rewritten for this migration.
+
+Code generation runs on Node via `pnpm codegen:typescript` and the Cargo build
+script. BDL remains at 0.8.3, using its official npm compatibility distribution
+through the scoped registry in `.npmrc`. Its pure IR builder and YAML parser
+are unchanged; `scripts/codegen/bdl-config.ts` supplies the filesystem boundary
+on Node. Tests check TypeScript output against checked-in sources and Rust output
+against independent baseline hashes.
+
+The native desktop shell still requires Deno 2.9 and its CEF backend. Its
+configuration is isolated in `web/deno.desktop.json`; web development, tests,
+code generation, Rust builds, and icon generation use Node/pnpm. Node has no
+direct equivalent of its BrowserWindow, tray/dock, and native FFI APIs. Removing
+this remaining runtime requires a separately chosen desktop shell migration;
+do not remove close-to-hide, tray, pairing confirmation, or single-instance IPC.
+
+`pnpm --dir web check:daemon` uses Chromium WebTransport because Node does not
+provide that browser API. Install Chromium with the command above first. It uses
+an ephemeral browser profile and keeps normal certificate validation enabled.
+
 ## Development
 
 Run the current Windows desktop development environment:
 
 ```sh
-deno task windows:dev:desktop
+pnpm windows:dev:desktop
 ```
 
 Desktop development scripts run the daemon on `0.0.0.0:9019` by default so they
@@ -39,7 +80,7 @@ Run the macOS desktop development environment. The system daemon is launched
 with `sudo`; the Deno Desktop daemon GUI runs as the current user.
 
 ```sh
-deno task macos:dev:desktop
+pnpm macos:dev:desktop
 ```
 
 Use the same generated `tmp/dev/rieul.yaml` flow for macOS.
@@ -47,28 +88,28 @@ Use the same generated `tmp/dev/rieul.yaml` flow for macOS.
 Stop any detached desktop development processes:
 
 ```sh
-deno task windows:kill:desktop
+pnpm windows:kill:desktop
 ```
 
 ```sh
-deno task macos:kill:desktop
+pnpm macos:kill:desktop
 ```
 
 Check the daemon RPC endpoint:
 
 ```sh
 cd web
-deno task check:daemon
+pnpm check:daemon
 ```
 
 Create a short-lived pairing code for the dev daemon:
 
 ```sh
-deno task windows:pair:dev
+pnpm windows:pair:dev
 ```
 
 ```sh
-deno task macos:pair:dev
+pnpm macos:pair:dev
 ```
 
 Enter the printed code in the web client's pairing field. The browser stores the
@@ -100,7 +141,7 @@ Run the web client:
 
 ```sh
 cd web
-deno task dev
+pnpm dev
 ```
 
 ## GitHub Releases
@@ -147,7 +188,7 @@ the job.
 Build an unsigned Windows desktop MSI package:
 
 ```sh
-deno task windows:package:desktop
+pnpm windows:package:desktop
 ```
 
 The default Windows packaging task uses WiX Toolset to write
@@ -157,7 +198,7 @@ automatically when `wix` is not already on `PATH`.
 
 ```sh
 dotnet tool restore
-deno task windows:package:desktop
+pnpm windows:package:desktop
 ```
 
 Install the MSI from an elevated prompt, or double-click it and accept the UAC
@@ -187,7 +228,7 @@ packages own the same Windows service name.
 Build the older development desktop MSIX package:
 
 ```sh
-deno task windows:package:desktop:msix
+pnpm windows:package:desktop:msix
 ```
 
 The MSIX script stages `rieul-windows-system.exe`, `rieul-windows-user.exe`,
@@ -198,7 +239,7 @@ must be trusted on the test machine before the MSIX can be installed. The trust
 task requests elevation when needed:
 
 ```sh
-deno task windows:trust:desktop:dev-cert
+pnpm windows:trust:desktop:dev-cert
 ```
 
 ```sh
@@ -226,7 +267,7 @@ For production signing, pass `-CertificatePath` and `-CertificatePassword` to
 Build a macOS app bundle and DMG for the drag-to-install flow:
 
 ```sh
-deno task macos:package:desktop
+pnpm macos:package:desktop
 ```
 
 The DMG contains `Rieul.app` and an `/Applications` shortcut, laid out for the
@@ -237,7 +278,7 @@ Build a PKG for command-line installation, or for managed deployment after
 signing it:
 
 ```sh
-deno task macos:package:desktop:pkg
+pnpm macos:package:desktop:pkg
 ```
 
 This writes `dist/macos/rieul-macos-desktop-<version>.pkg`. The package installs

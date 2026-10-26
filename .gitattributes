@@ -26,7 +26,9 @@
 *.yaml text eol=lf
 *.yml text eol=lf
 Cargo.lock text eol=lf
-deno.lock text eol=lf
+pnpm-lock.yaml text eol=lf
 scripts/macos/pkg-scripts/* text eol=lf
 .gitattributes text eol=lf
 .gitignore text eol=lf
+.npmrc text eol=lf
+.prettierignore text eol=lf

@@ -15,6 +15,6 @@ Do not edit `current.sql` directly. Regenerate or verify it from the repository
 root:
 
 ```sh
-deno task db-schema:generate
-deno task db-schema:check
+pnpm db-schema:generate
+pnpm db-schema:check
 ```

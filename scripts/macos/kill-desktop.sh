@@ -87,5 +87,5 @@ stop_pid_file "web dev server" "$TMP_DIR/macos-web.pid" 0
 
 stop_pgrep_matches "system daemon" "$SYSTEM_EXE.*run.*--config $CONFIG_PATH" 1
 stop_pgrep_matches "GUI daemon" "deno desktop.*desktop/main.ts.*--config $CONFIG_PATH" 0
-stop_pgrep_matches "web dev server" "deno run.*npm:vite.*--port 5179" 0
+stop_pgrep_matches "web dev server" "node.*$REPO_ROOT/web/node_modules/vite/bin/vite.js.*--port 5179" 0
 stop_system_port_matches

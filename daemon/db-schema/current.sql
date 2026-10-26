@@ -1,6 +1,6 @@
 -- GENERATED FILE. DO NOT EDIT.
 -- Source of truth: migrations/*.sql
--- Regenerate with: deno task db-schema:generate
+-- Regenerate with: pnpm db-schema:generate
 -- Schema version: 2
 
 CREATE TABLE command_schedules (

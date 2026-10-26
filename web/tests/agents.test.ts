@@ -1,3 +1,4 @@
+import { test } from "node:test";
 import { bunja, createBunjaStore, createReadScopeFn } from "bunja";
 import { atom, createStore } from "jotai";
 import { JotaiStoreScope } from "unsaturated/store";
@@ -152,7 +153,7 @@ function fixture() {
     session,
   };
 }
-Deno.test("agent effect is shared, survives partial cleanup, and rejects responses after final cleanup", async () => {
+test("agent effect is shared, survives partial cleanup, and rejects responses after final cleanup", async () => {
   const f = fixture();
   const a = f.store.get(f.agents, f.read());
   const stopA = a.mount();
@@ -211,7 +212,7 @@ Deno.test("agent effect is shared, survives partial cleanup, and rejects respons
   stopFresh();
   f.store.dispose();
 });
-Deno.test("machine scopes stay isolated while selection switches and old requests complete", async () => {
+test("machine scopes stay isolated while selection switches and old requests complete", async () => {
   const f = fixture();
   const a = f.store.get(f.agents, f.read("a"));
   const stopA = a.mount();
@@ -257,7 +258,7 @@ Deno.test("machine scopes stay isolated while selection switches and old request
   f.store.dispose();
 });
 
-Deno.test("old list success cannot write after final cleanup or overtake a newer refresh", async () => {
+test("old list success cannot write after final cleanup or overtake a newer refresh", async () => {
   const f = fixture();
   // Another feature retains RPC, so dependency teardown cannot invalidate the list for us.
   const stopSession = f.store.get(f.session, f.read()).mount();

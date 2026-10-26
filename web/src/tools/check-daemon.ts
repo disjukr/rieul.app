@@ -1,10 +1,19 @@
+import { readFile } from "node:fs/promises";
+import { createServer } from "node:http";
+import { fileURLToPath } from "node:url";
+import { chromium } from "@playwright/test";
+
 interface Args {
   url?: string;
   config: string;
   timeoutMs: number;
 }
 
-const args = parseArgs(Deno.args[0] === "--" ? Deno.args.slice(1) : Deno.args);
+const args = parseArgs(
+  process.argv.slice(2)[0] === "--"
+    ? process.argv.slice(2).slice(1)
+    : process.argv.slice(2),
+);
 const configTls = await readConfigTls(args.config);
 if (!configTls.trustedTls) {
   throw new Error(
@@ -15,21 +24,17 @@ const baseUrl = args.url ?? configTls.defaultUrl;
 
 const rpcUrl = rpcEndpoint(baseUrl);
 
-console.log(`connecting ${rpcUrl} with Deno WebTransport`);
+console.log(`connecting ${rpcUrl} with Chromium WebTransport`);
 await checkWebTransport(rpcUrl, args.timeoutMs);
 console.log("connected");
 
 function parseArgs(argv: string[]): Args {
   const args: Args = {
-    config: decodeURIComponent(
-      new URL("../../../tmp/dev/rieul.yaml", import.meta.url).pathname,
+    config: fileURLToPath(
+      new URL("../../../tmp/dev/rieul.yaml", import.meta.url),
     ),
     timeoutMs: 10_000,
   };
-
-  if (Deno.build.os === "windows") {
-    args.config = args.config.replace(/^\//, "");
-  }
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]!;
@@ -39,7 +44,7 @@ function parseArgs(argv: string[]): Args {
       args.timeoutMs = Number(requireValue(argv, ++i, arg));
     } else if (arg === "--help" || arg === "-h") {
       printHelp();
-      Deno.exit(0);
+      process.exit(0);
     } else {
       throw new Error(`unknown argument: ${arg}`);
     }
@@ -49,8 +54,8 @@ function parseArgs(argv: string[]): Args {
 
 function printHelp() {
   console.log(`Usage:
-  deno task check:daemon
-  deno run --unstable-net --allow-net --allow-read=.. src/tools/check-daemon.ts [--url https://localhost:9019] [--config ../tmp/dev/rieul.yaml]
+  pnpm check:daemon
+  pnpm exec tsx src/tools/check-daemon.ts [--url https://localhost:9019] [--config ../tmp/dev/rieul.yaml]
 `);
 }
 
@@ -63,13 +68,14 @@ function requireValue(argv: string[], index: number, flag: string): string {
 async function readConfigTls(
   configPath: string,
 ): Promise<{ trustedTls: boolean; defaultUrl: string }> {
-  const yaml = await Deno.readTextFile(configPath);
-  const domain = yaml.match(/^\s*domain:\s*["']?([^"'\s#]+)["']?/m)?.[1]
+  const yaml = await readFile(configPath, "utf8");
+  const domain = yaml
+    .match(/^\s*domain:\s*["']?([^"'\s#]+)["']?/m)?.[1]
     ?.trim()
     .toLowerCase();
   const port = configListenPort(yaml);
-  const trustedTls = /^\s*tls:\s*$/m.test(yaml) ||
-    !!domain?.endsWith(".ts.net");
+  const trustedTls =
+    /^\s*tls:\s*$/m.test(yaml) || !!domain?.endsWith(".ts.net");
   return {
     trustedTls,
     defaultUrl: domain ? daemonUrl(domain, port) : `https://localhost:${port}`,
@@ -77,8 +83,9 @@ async function readConfigTls(
 }
 
 function configListenPort(yaml: string): number {
-  const rawListenAddr = yaml.match(/^\s*listenAddr:\s*["']?([^"'\s#]+)["']?/m)
-    ?.[1]?.trim();
+  const rawListenAddr = yaml
+    .match(/^\s*listenAddr:\s*["']?([^"'\s#]+)["']?/m)?.[1]
+    ?.trim();
   if (!rawListenAddr) return 9012;
   const port = Number(rawListenAddr.split(":").at(-1));
   if (Number.isSafeInteger(port) && port > 0 && port <= 65535) return port;
@@ -103,22 +110,40 @@ async function checkWebTransport(
   url: string,
   timeoutMs: number,
 ): Promise<void> {
-  if (typeof WebTransport === "undefined") {
-    throw new Error(
-      "WebTransport is unavailable. Run with Deno --unstable-net.",
-    );
-  }
-
-  const transport = new WebTransport(url);
-
+  // Node does not provide WebTransport. Probe with the same browser API used
+  // by the app, without changing certificate validation or persistent profiles.
+  const server = createServer((_request, response) =>
+    response.end("<!doctype html><title>Rieul transport probe</title>"),
+  );
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
   try {
-    await withTimeout(transport.ready, "WebTransport ready", timeoutMs);
+    browser = await chromium.launch();
+    const page = await browser.newPage();
+    const address = server.address();
+    if (!address || typeof address === "string")
+      throw new Error("Missing probe listener");
+    await page.goto(`http://127.0.0.1:${address.port}`);
+    await withTimeout(
+      page.evaluate(async (url) => {
+        const transport = new WebTransport(url);
+        try {
+          await transport.ready;
+        } finally {
+          transport.close({ closeCode: 0, reason: "done" });
+        }
+      }, url),
+      "WebTransport ready",
+      timeoutMs,
+    );
   } finally {
-    try {
-      transport.close({ closeCode: 0, reason: "done" });
-    } catch {
-      // Deno throws when closing a WebTransport object that never reached ready.
-    }
+    await browser?.close();
+    await new Promise<void>((resolve, reject) =>
+      server.close((error) => (error ? reject(error) : resolve())),
+    );
   }
 }
 

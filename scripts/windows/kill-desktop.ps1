@@ -14,6 +14,8 @@ $UserExe = Join-Path $RepoRoot "target\debug\rieul-windows-user.exe"
 $GuiRuntimeName = "rieul-windows-gui.dll"
 $WebPort = 5179
 $DenoDesktopCacheRoot = [System.IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA "deno\desktop"))
+$NodeExe = (Get-Command node.exe -ErrorAction Stop).Source
+$ViteScript = Join-Path $RepoRoot "web\node_modules\vite\bin\vite.js"
 $DenoExe = (Get-Command deno -ErrorAction SilentlyContinue).Source
 if (-not $DenoExe) {
   throw "deno is required to stop the Deno Desktop GUI daemon"
@@ -71,7 +73,9 @@ function Test-DevDaemonProcess {
   $isDenoDesktop = (Split-Path -Path $expectedPath -Leaf) -ieq "deno.exe" -and
     $Process.CommandLine -match '(^|\s)desktop($|\s)'
   $isDenoDesktopBundle = (Split-Path -Path $expectedPath -Leaf) -like "rieul-windows-gui*.exe"
-  if (-not $isDenoDesktop -and -not $isDenoDesktopBundle -and $Process.CommandLine -notmatch '(^|\s)run($|\s)') {
+  $isNodeVite = (Split-Path -Path $expectedPath -Leaf) -ieq "node.exe" -and
+    $Process.CommandLine.IndexOf($ViteScript, [System.StringComparison]::OrdinalIgnoreCase) -ge 0
+  if (-not $isNodeVite -and -not $isDenoDesktop -and -not $isDenoDesktopBundle -and $Process.CommandLine -notmatch '(^|\s)run($|\s)') {
     return $false
   }
 
@@ -176,9 +180,9 @@ Stop-DevDaemon `
 Stop-GuiDesktopHosts
 Stop-DevDaemon `
   -Label "web dev server" `
-  -ExecutablePath $DenoExe `
+  -ExecutablePath $NodeExe `
   -PidFile $WebPidFile `
-  -RequiredCommandLinePart "npm:vite" `
+  -RequiredCommandLinePart $ViteScript `
   -RequiredListeningPort $WebPort
 
 if ($StoppedProcessCount -eq 0) {

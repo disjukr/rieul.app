@@ -1,0 +1,48 @@
+{
+  "name": "rieul",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.28.0",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "db-schema:check": "cargo run --quiet -p rieul-daemon-host --bin db-schema -- check",
+    "db-schema:generate": "cargo run --quiet -p rieul-daemon-host --bin db-schema -- generate",
+    "macos:dev:desktop": "./scripts/macos/dev-desktop.sh",
+    "macos:kill:desktop": "./scripts/macos/kill-desktop.sh",
+    "macos:package:desktop": "./scripts/macos/package-desktop-dmg.sh",
+    "macos:package:desktop:pkg": "./scripts/macos/package-desktop-pkg.sh",
+    "macos:pair:dev": "./scripts/macos/pair-dev.sh",
+    "windows:dev:desktop": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/windows/dev-desktop.ps1",
+    "windows:kill:desktop": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/windows/kill-desktop.ps1",
+    "windows:package:desktop": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/windows/package-desktop-msi.ps1",
+    "windows:package:desktop:msix": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/windows/package-desktop-msix.ps1",
+    "windows:pair:dev": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/windows/pair-dev.ps1",
+    "windows:trust:desktop:dev-cert": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/windows/trust-desktop-dev-certificate.ps1",
+    "codegen:typescript": "tsx ./scripts/codegen/typescript/main.ts --standard wire --schema ./protocol/schemas/wire --out ./web/src/protocol/generated/wire.ts --cbor-import ../cbor.ts && tsx ./scripts/codegen/typescript/main.ts --standard rpc --schema ./protocol/schemas/rpc --out ./web/src/protocol/generated/rpc.ts --rpc-client-out ./web/src/protocol/generated/client.ts --cbor-import ../cbor.ts --generated-import ./rpc.ts --rpc-runtime-import ../client.ts",
+    "codegen:rust": "tsx scripts/codegen/rust/main.ts",
+    "dev": "pnpm --dir web dev",
+    "build": "pnpm --dir web build",
+    "check": "pnpm --dir web check && tsc -p scripts/tsconfig.json",
+    "test": "tsx --test web/tests/*.test.ts scripts/codegen/tests/*.test.ts",
+    "lint": "eslint .",
+    "format:check": "prettier --check .",
+    "test:ui": "playwright test"
+  },
+  "devDependencies": {
+    "@disjukr/bdl": "npm:@jsr/disjukr__bdl@0.8.3",
+    "@std/yaml": "npm:@jsr/std__yaml@1.0.12",
+    "@types/node": "24.10.0",
+    "typescript": "5.9.3",
+    "tsx": "4.23.15",
+    "eslint": "9.39.1",
+    "typescript-eslint": "8.46.2",
+    "prettier": "3.6.2",
+    "@playwright/test": "1.56.1",
+    "sharp": "0.33.5"
+  },
+  "workspaces": [
+    "web"
+  ]
+}

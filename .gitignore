@@ -9,3 +9,6 @@ tmp/
 *.pfx
 *.local
 *.tsbuildinfo
+
+/test-results/
+/playwright-report/

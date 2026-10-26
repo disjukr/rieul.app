@@ -442,7 +442,7 @@ if (-not $SkipBuild) {
     cargo build -p rieul-windows-daemon --release --bin rieul-windows-system --bin rieul-windows-user
     Push-Location (Join-Path $RepoRoot "web")
     try {
-      deno task desktop:build:windows
+      pnpm desktop:build:windows
     } finally {
       Pop-Location
     }

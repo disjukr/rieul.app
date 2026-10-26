@@ -1,22 +1,26 @@
-import { Resvg } from "npm:@resvg/resvg-js@2.6.2";
+import { readFile, writeFile } from "node:fs/promises";
+import { Resvg } from "@resvg/resvg-js";
 
-const svg = await Deno.readTextFile(
+const svg = await readFile(
   new URL("../public/favicon.svg", import.meta.url),
+  "utf8",
 );
 const trayPng = renderPng(32);
 const icon = encodeIco([16, 24, 32, 48, 64, 128, 256].map(renderPng));
 
 await Promise.all([
-  Deno.writeFile(new URL("./tray.png", import.meta.url), trayPng),
-  Deno.writeFile(new URL("./icon.ico", import.meta.url), icon),
-  Deno.writeFile(new URL("../public/favicon.ico", import.meta.url), icon),
+  writeFile(new URL("./tray.png", import.meta.url), trayPng),
+  writeFile(new URL("./icon.ico", import.meta.url), icon),
+  writeFile(new URL("../public/favicon.ico", import.meta.url), icon),
 ]);
 
 function renderPng(size: number): Uint8Array {
   return new Resvg(svg, {
     background: "rgba(0,0,0,0)",
     fitTo: { mode: "width", value: size },
-  }).render().asPng();
+  })
+    .render()
+    .asPng();
 }
 
 function encodeIco(images: Uint8Array[]): Uint8Array {

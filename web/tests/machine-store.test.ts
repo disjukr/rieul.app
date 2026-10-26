@@ -1,3 +1,4 @@
+import { test } from "node:test";
 import {
   createBunjaStore,
   createReadScopeFn,
@@ -36,7 +37,7 @@ function memoryStorage() {
 }
 const machine = { id: "one", name: "One", baseUrl: "https://one.example:9012" };
 
-Deno.test("machine persistence is shared until final consumer leaves and reloads on remount", () => {
+test("machine persistence is shared until final consumer leaves and reloads on remount", () => {
   const persistence = memoryStorage();
   const jotai = createStore();
   const bunjas = createBunjaStore();
@@ -74,7 +75,7 @@ Deno.test("machine persistence is shared until final consumer leaves and reloads
   bunjas.dispose();
 });
 
-Deno.test("storage replacement and Jotai domains isolate identity and persistence", () => {
+test("storage replacement and Jotai domains isolate identity and persistence", () => {
   const a = memoryStorage();
   const b = memoryStorage();
   b.values.set("rieul.machines.v1", JSON.stringify([machine]));
@@ -114,7 +115,7 @@ Deno.test("storage replacement and Jotai domains isolate identity and persistenc
   bunjas.dispose();
 });
 
-Deno.test("external storage edits are read on the next lifetime without live synchronization", () => {
+test("external storage edits are read on the next lifetime without live synchronization", () => {
   const persistence = memoryStorage();
   const jotai = createStore();
   const bunjas = createBunjaStore();
@@ -149,7 +150,7 @@ Deno.test("external storage edits are read on the next lifetime without live syn
   bunjas.dispose();
 });
 
-Deno.test("unavailable storage keeps the existing error contract instead of silently losing data", () => {
+test("unavailable storage keeps the existing error contract instead of silently losing data", () => {
   const jotai = createStore();
   const bunjas = createBunjaStore();
   const denied = new Error("storage unavailable");

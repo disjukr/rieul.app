@@ -1,0 +1,20 @@
+{
+  "nodeModulesDir": "none",
+  "lock": false,
+  "desktop": {
+    "app": {
+      "name": "Rieul",
+      "identifier": "app.rieul",
+      "icons": {
+        "windows": "./desktop/icon.ico"
+      }
+    },
+    "backend": "cef",
+    "output": {
+      "windows": "../target/release/rieul-windows-gui"
+    }
+  },
+  "compilerOptions": {
+    "types": ["npm:@types/node@24.10.0"]
+  }
+}

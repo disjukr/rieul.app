@@ -28,8 +28,8 @@ new_icns_from_svg() {
   local destination_icns="$2"
   local iconset_dir="$3"
 
-  if ! command -v deno >/dev/null 2>&1; then
-    echo "Warning: deno was not found; skipping macOS app icon rendering." >&2
+  if ! command -v node >/dev/null 2>&1; then
+    echo "Warning: node was not found; skipping macOS app icon rendering." >&2
     return 1
   fi
   if ! command -v iconutil >/dev/null 2>&1; then
@@ -40,46 +40,10 @@ new_icns_from_svg() {
   rm -rf "$iconset_dir"
   mkdir -p "$iconset_dir"
 
-  local renderer_path
-  if ! renderer_path="$(mktemp "${TMPDIR:-/tmp}/rieul-render-macos-icon.XXXXXX")"; then
-    echo "Warning: failed to create temporary icon renderer; continuing without .icns." >&2
-    return 1
-  fi
-  cat >"$renderer_path" <<'EOF'
-import path from "node:path";
-import sharp from "npm:sharp@0.33.5";
-
-const [sourceSvg, iconsetDir] = Deno.args;
-const icons = [
-  ["icon_16x16.png", 16],
-  ["icon_16x16@2x.png", 32],
-  ["icon_32x32.png", 32],
-  ["icon_32x32@2x.png", 64],
-  ["icon_128x128.png", 128],
-  ["icon_128x128@2x.png", 256],
-  ["icon_256x256.png", 256],
-  ["icon_256x256@2x.png", 512],
-  ["icon_512x512.png", 512],
-  ["icon_512x512@2x.png", 1024],
-];
-
-for (const [name, size] of icons) {
-  await sharp(sourceSvg)
-    .resize(size, size, {
-      fit: "contain",
-      background: { r: 0, g: 0, b: 0, alpha: 0 },
-    })
-    .png()
-    .toFile(path.join(iconsetDir, name));
-}
-EOF
-
-  if ! deno run --quiet --no-lock -A "$renderer_path" "$source_svg" "$iconset_dir" >/dev/null 2>&1; then
-    rm -f "$renderer_path"
+  if ! node "$REPO_ROOT/scripts/macos/render-icon.mjs" "$source_svg" "$iconset_dir" >/dev/null 2>&1; then
     echo "Warning: failed to render macOS app icon; continuing without .icns." >&2
     return 1
   fi
-  rm -f "$renderer_path"
   if ! iconutil -c icns "$iconset_dir" -o "$destination_icns"; then
     echo "Warning: failed to build macOS .icns; continuing without app icon." >&2
     return 1
@@ -182,17 +146,18 @@ if [[ "$SKIP_BUILD" != "1" ]]; then
   if [[ -n "$SIGN_IDENTITY" && "$SIGN_IDENTITY" != "-" ]]; then
     TEMP_DENO_CONFIG="$(mktemp "$REPO_ROOT/web/.rieul-deno-signing.XXXXXX")"
     trap 'rm -f "${TEMP_DENO_CONFIG:-}"' EXIT
-    deno eval --no-config '
-      const [sourcePath, destinationPath, identity] = Deno.args;
-      const config = JSON.parse(await Deno.readTextFile(sourcePath));
+    node --input-type=module -e '
+      const { readFile, writeFile } = await import("node:fs/promises");
+      const [sourcePath, destinationPath, identity] = process.argv.slice(1);
+      const config = JSON.parse(await readFile(sourcePath, "utf8"));
       config.desktop.macos ??= {};
       config.desktop.macos.codesignIdentity = identity;
-      await Deno.writeTextFile(destinationPath, JSON.stringify(config));
-    ' "$REPO_ROOT/web/deno.json" "$TEMP_DENO_CONFIG" "$SIGN_IDENTITY"
+      await writeFile(destinationPath, JSON.stringify(config));
+    ' "$REPO_ROOT/web/deno.desktop.json" "$TEMP_DENO_CONFIG" "$SIGN_IDENTITY"
     (
       cd "$REPO_ROOT/web"
-      deno task desktop:icons
-      deno task build
+      pnpm desktop:icons
+      pnpm build
       deno desktop \
         --config "$TEMP_DENO_CONFIG" \
         --backend cef \
@@ -206,7 +171,7 @@ if [[ "$SKIP_BUILD" != "1" ]]; then
     TEMP_DENO_CONFIG=""
     trap - EXIT
   else
-    (cd "$REPO_ROOT/web" && deno task desktop:build:macos)
+    (cd "$REPO_ROOT/web" && pnpm desktop:build:macos)
   fi
 fi
 

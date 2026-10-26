@@ -1,3 +1,4 @@
+import { test } from "node:test";
 import {
   desktopConfigPathFromUrl,
   withDesktopConfigPath,
@@ -9,7 +10,7 @@ function assertEquals(actual: unknown, expected: unknown) {
   }
 }
 
-Deno.test("desktop config path survives URL encoding", () => {
+test("desktop config path survives URL encoding", () => {
   const configPath = String.raw`C:\ProgramData\Rieul\rieul.yaml`;
   const url = withDesktopConfigPath(
     "http://127.0.0.1:5179/daemon-main.html?dev=true#main",
@@ -21,7 +22,7 @@ Deno.test("desktop config path survives URL encoding", () => {
   assertEquals(new URL(url).hash, "#main");
 });
 
-Deno.test("missing desktop config path remains unavailable", () => {
+test("missing desktop config path remains unavailable", () => {
   assertEquals(
     desktopConfigPathFromUrl("http://127.0.0.1:5179/daemon-main.html"),
     undefined,

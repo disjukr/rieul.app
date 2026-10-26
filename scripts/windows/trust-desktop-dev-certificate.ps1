@@ -75,7 +75,7 @@ if (-not $CertificatePath) {
 }
 
 if (-not (Test-Path -LiteralPath $CertificatePath)) {
-  throw "Missing development certificate: $CertificatePath. Run 'deno task windows:package:desktop:msix' first."
+  throw "Missing development certificate: $CertificatePath. Run 'pnpm windows:package:desktop:msix' first."
 }
 
 if (-not (Test-IsAdministrator)) {
