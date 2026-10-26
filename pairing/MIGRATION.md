@@ -92,3 +92,9 @@ Default MSI/MSIX/DMG build source now invokes the self-contained package builder
 CI40308372776 for57f1f9377c543629f150d699930c82751350e1c8 completed SUCCESS: Windows, macOS ARM64 and Intel all passed. This includes normal MSI/MSIX/PKG build paths, extraction/integrity and signed extracted Mac app native UI lifecycle. Intel native cache is verified and available. It is new evidence beyond the earlier fallback rejection. No fallback-removal retry has been made yet.
 
 Remaining uncommitted follow-up is full DMG generation/verify/mounted-payload smoke plus temporary image cleanup; project license notice copies; initial --show flag no longer overrides a later pre-ready hide state. These will be checked on one new SHA before the single allowed retirement reevaluation. Current main remains unchanged.
+
+## macOS app-level reopen review
+
+Read-only review of official GPUiX0.11 commit2e31b47ff6432ceebe70e7fc7b0f51a76d7d30cf and its pinned GPUI submodule f77e5cfe9dad04288566f00c66ecf3c58d6f84b3 found no GPUiX reopen callback registration. Added a small Rieul-owned NSApplicationDelegate adapter: enqueue profile activation on applicationShouldHandleReopen, forward other original selectors, restore the original delegate on disposal. No GPUI/Zed code copied. Fixture exercises forwarding/reopen/disposal directly; actual Finder/LaunchServices user activation remains distinct and unproven. This source change is pending macOS compilation/CI.
+
+CI57f1f93 artifacts were downloaded under ignored pairing/artifacts/ci-40308372776. Visually inspected signed/extracted Intel info.png: QR present/crisp, daemon URL, config path ellipsis and Open config/footer controls visible. This is app-rendered capture, not OS tray/notification/editor proof.

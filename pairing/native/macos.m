@@ -50,6 +50,26 @@ static RieulNotificationTarget *notificationTarget;
 @end
 static RieulWindowDelegate *delegate;
 
+@interface RieulApplicationDelegate : NSObject <NSApplicationDelegate>
+@property(nonatomic, strong) id original;
+@end
+@implementation RieulApplicationDelegate
+- (BOOL)applicationShouldHandleReopen:(NSApplication *)sender hasVisibleWindows:(BOOL)visible {
+  if ([self.original respondsToSelector:_cmd])
+    [self.original applicationShouldHandleReopen:sender hasVisibleWindows:visible];
+  atomic_fetch_or(&events, RieulOpen);
+  return NO; // The host activates its existing profile window.
+}
+- (BOOL)respondsToSelector:(SEL)selector {
+  return [super respondsToSelector:selector] || [self.original respondsToSelector:selector];
+}
+- (id)forwardingTargetForSelector:(SEL)selector {
+  if ([self.original respondsToSelector:selector]) return self.original;
+  return [super forwardingTargetForSelector:selector];
+}
+@end
+static RieulApplicationDelegate *applicationDelegate;
+
 @interface RieulStatusTarget : NSObject
 - (void)activate:(id)sender;
 - (void)info:(id)sender;
@@ -107,6 +127,9 @@ int32_t rieul_macos_init(const char *iconPath) {
     quit.target = target; [menu addItem:quit];
     previousPolicy = NSApp.activationPolicy;
     changedPolicy = [NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
+    applicationDelegate = [RieulApplicationDelegate new];
+    applicationDelegate.original = NSApp.delegate;
+    NSApp.delegate = applicationDelegate;
     [window orderOut:nil];
     atomic_store(&events, 0);
     // Query an existing authorization only. Never request a new permission.
@@ -160,6 +183,8 @@ int32_t rieul_macos_destroy(void) {
   @autoreleasepool {
     if (![NSThread isMainThread]) return 0;
     if (window.delegate == delegate) window.delegate = delegate.original;
+    if (NSApp.delegate == applicationDelegate) NSApp.delegate = applicationDelegate.original;
+    applicationDelegate = nil;
     if (status) [NSStatusBar.systemStatusBar removeStatusItem:status];
     if (notificationCenter.delegate == notificationTarget) notificationCenter.delegate = originalNotificationDelegate;
     if (notificationIdentifier) {
