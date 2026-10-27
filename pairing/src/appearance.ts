@@ -53,7 +53,9 @@ export const panel: StyleDesc = {
   borderRadius: 16,
   borderWidth: 1,
   borderColor: "#ffffff75",
-  backgroundColor: "#f8f8f980",
+  // Match the measured CEF interior. GPUI's outer shadows otherwise bleed
+  // through translucent fills and darken this surface by roughly 30 RGB levels.
+  backgroundColor: "#f4f4f6",
   overflow: "hidden",
   boxShadow: [
     {

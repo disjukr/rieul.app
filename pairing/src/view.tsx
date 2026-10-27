@@ -236,6 +236,7 @@ export function PairingView(props: {
                 {(candidate) => (
                   <Button
                     testId={`candidate-${candidate}`}
+                    aria-label={candidate}
                     disabled={resolved()}
                     onClick={() => select(candidate)}
                     style={{
@@ -250,7 +251,7 @@ export function PairingView(props: {
                         candidate === route.model.confirmationCode
                           ? "#4f8cff"
                           : "#d8dde7",
-                      backgroundColor: "#ffffff75",
+                      backgroundColor: "#f9f9fa",
                       fontSize: 28,
                       lineHeight: 42,
                       fontWeight: 850,
@@ -262,7 +263,7 @@ export function PairingView(props: {
                           : 1,
                       hover: {
                         borderColor: "#4f8cff",
-                        backgroundColor: "#ffffffad",
+                        backgroundColor: "#fcfcfd",
                       },
                     }}
                   >
@@ -311,6 +312,7 @@ export function PairingView(props: {
             >
               <Button
                 testId="cancel"
+                aria-label="Cancel"
                 disabled={resolved()}
                 onClick={() =>
                   act(async () => {
@@ -332,6 +334,7 @@ export function PairingView(props: {
           <div style={{ ...column, padding: 16, flexGrow: 1 }}>
             <Button
               testId="copy-pairing-code"
+              aria-label="Copy pairing code"
               onClick={() => copy(route.model.pairingCode)}
               style={{
                 ...button,
@@ -342,9 +345,9 @@ export function PairingView(props: {
                 borderRadius: 12,
                 borderWidth: 1,
                 borderColor: "#ffffff75",
-                backgroundColor: "#ffffff5c",
+                backgroundColor: "#f8f8f8",
                 boxShadow: smallShadow,
-                hover: { borderColor: "#4f8cff", backgroundColor: "#ffffff85" },
+                hover: { borderColor: "#4f8cff", backgroundColor: "#fafafb" },
               }}
             >
               <div
@@ -599,6 +602,7 @@ export function PairingView(props: {
         >
           <Button
             testId="daemon-info"
+            aria-label="Daemon info"
             onClick={() => act(props.controller.showDaemonInfo)}
             style={{ ...button, color: "#667085", fontSize: 11 }}
           >
@@ -606,6 +610,7 @@ export function PairingView(props: {
           </Button>
           <Button
             testId="hide"
+            aria-label="Close"
             onClick={() => props.controller.close()}
             style={{ ...button, color: "#667085", fontSize: 11 }}
           >

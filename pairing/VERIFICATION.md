@@ -64,7 +64,30 @@ The corrected source passed an actual offscreen native renderer smoke test on
 the ARM64 Mac, checking successful mount and absence of a UI error. This is
 separate from OS-screen comparison; successor all-platform CI is still required.
 
-## Remaining limits
+## Actual Mac review and color/accessibility follow-up (2026-10-27)
+
+The separate official CUA review on `ebe33e5` verified info/code/confirmation
+screens, correct-code acceptance, incorrect-code rejection, Cancel feedback,
+body/native close rejection and IPC reactivation using a disposable fake profile.
+Its source copy included the repository's `bunfig.toml`; future temporary copies
+must retain that preload configuration as well as source and dependencies.
+The review found darker panel/card fills and unnamed text buttons. Native
+shadow isolation reproduced the darkening: the original panel center was
+RGB 244/244/246, versus 212/213/217 in the actual native capture. Opaque fills
+now match measured original panel/card interiors while retaining existing
+shadows, layout and outer canvas gradients. Fine translucent corner washes
+remain an approximation and require the follow-up actual-window comparison.
+Explicit accessible names now cover candidates, Cancel, navigation and code
+copy; the native offscreen accessibility tree confirms those names.
+
+The baseline's all-platform CI40355184813 passed on attempt 2. Its first Windows
+native run crashed with a Bun/USER32 segmentation fault; one same-SHA Windows
+rerun passed native QA and packaging. The crash root cause remains unestablished.
+The color/name successor requires fresh CI and the separate actual CUA recheck.
+This Mac pass did not verify hide persistence, keyboard-only operation,
+clipboard, config-editor launch, tray or notifications.
+
+## Remaining verification limits
 
 - Actual tray popup selection/Quit and visible OS notification/click remain unverified: documented CUA inventory did not expose taskbar/notification-area windows. No workaround was used. Mac OS-visible interaction remains unverified; its native fixtures and app-generated captures are distinct from OS-input proof. Windows editor/clipboard and close/reopen behavior were verified in the audit described above.
 - No actual MSI/MSIX/PKG install, upgrade, uninstall, service/LaunchAgent registration or autostart changes were performed. Archive extraction and owned-process/lock tests are distinct from installation lifecycle tests.
