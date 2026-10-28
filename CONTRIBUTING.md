@@ -334,6 +334,14 @@ scripts/macos/package-desktop-dmg.sh --sign "Developer ID Application: Example"
 PKG distribution uses separate identities for the app bundle and installer
 package:
 
+Signed macOS packaging verifies the final bundle's entitlement scope and runs a
+real Bun FFI call before producing an installer. Bun alone retains
+`com.apple.security.cs.allow-unsigned-executable-memory` in addition to
+`allow-jit`, because its TinyCC-generated FFI wrappers need executable memory.
+Library validation and executable-page protection remain enabled. The release
+workflow also exercises the native GUI with its final Developer ID signatures
+before notarization; ad-hoc builds cannot substitute for that Team ID check.
+
 ```sh
 scripts/macos/package-desktop-pkg.sh \
   --app-sign "Developer ID Application: Example" \

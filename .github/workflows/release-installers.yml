@@ -229,6 +229,14 @@ jobs:
           codesign --verify --deep --strict --verbose=2 "$app_path"
           pkgutil --check-signature "$pkg_path"
 
+      - name: Verify Developer ID signed native GUI lifecycle
+        shell: bash
+        run: |
+          set -euo pipefail
+          export RIEUL_GUI_EXECUTABLE="$PWD/dist/macos/rieul-macos-desktop-$MACOS_RELEASE_VERSION-app/Rieul.app/Contents/MacOS/rieul-gui"
+          cd pairing
+          node scripts/macos-native-qa.mjs
+
       - name: Notarize macOS installer
         shell: bash
         env:

@@ -462,6 +462,23 @@ cat >"$RUNTIME_ENTITLEMENTS" <<'EOF'
 EOF
 plutil -lint "$RUNTIME_ENTITLEMENTS" >/dev/null
 
+# Bun's FFI compiles native call wrappers with TinyCC. Keep its memory
+# exception on the Bun executable only; do not relax library validation.
+BUN_ENTITLEMENTS="$STAGING_DIR/bun.entitlements"
+cat >"$BUN_ENTITLEMENTS" <<'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>com.apple.security.cs.allow-jit</key>
+  <true/>
+  <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+  <true/>
+</dict>
+</plist>
+EOF
+plutil -lint "$BUN_ENTITLEMENTS" >/dev/null
+
 if [[ -n "$SIGN_IDENTITY" && "$SIGN_IDENTITY" != "-" ]]; then
   codesign_args=(--force --options runtime --timestamp --sign "$SIGN_IDENTITY")
 elif [[ -n "$SIGN_IDENTITY" ]]; then
@@ -473,11 +490,19 @@ runtime_codesign_args=("${codesign_args[@]}")
 if [[ -n "$SIGN_IDENTITY" ]]; then
   runtime_codesign_args+=(--entitlements "$RUNTIME_ENTITLEMENTS")
 fi
+bun_codesign_args=("${codesign_args[@]}")
+if [[ -n "$SIGN_IDENTITY" ]]; then
+  bun_codesign_args+=(--entitlements "$BUN_ENTITLEMENTS")
+fi
 
 # Every runtime/addon/bridge is signed before the enclosing app.
 while IFS= read -r -d '' native_file; do
   if /usr/bin/file -b "$native_file" | grep -q 'Mach-O'; then
-    codesign "${runtime_codesign_args[@]}" "$native_file"
+    if [[ "$native_file" == "$APP_PATH/Contents/Resources/pairing/runtime/bun" ]]; then
+      codesign "${bun_codesign_args[@]}" "$native_file"
+    else
+      codesign "${runtime_codesign_args[@]}" "$native_file"
+    fi
   fi
 done < <(find "$APP_PATH/Contents/Resources/pairing" -type f -print0)
 # Signing modifies Mach-O bytes. Refresh hashes before signing the outer app.
@@ -493,6 +518,9 @@ codesign "${codesign_args[@]}" \
 codesign "${codesign_args[@]}" "$APP_PATH"
 "$APP_PATH/Contents/MacOS/rieul-gui" --verify-bundle
 codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+if [[ -n "$SIGN_IDENTITY" ]]; then
+  bash "$SCRIPT_DIR/test-signed-bun-ffi.sh" "$APP_PATH"
+fi
 
 if [[ "$SKIP_DMG" == "1" ]]; then
   echo "Wrote app: $APP_PATH"
