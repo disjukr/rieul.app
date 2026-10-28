@@ -14,7 +14,6 @@ import {
 import {
   killProcess,
   subscribeProcessDetail,
-  subscribeProcesses,
   subscribeProcessModules,
   subscribeProcessResourcesInUse,
   subscribeProcessSocketsInUse,
@@ -24,7 +23,6 @@ import {
   FsEntryKind,
   type ProcessDetail,
   type ProcessDetailEvent,
-  type ProcessesTableEvent,
   type ProcessInfo,
   type ProcessModuleInfo,
   ProcessModuleKind,
@@ -38,6 +36,7 @@ import {
   ProcId,
   type SocketEndpoint,
 } from "../../../../protocol/generated/rpc.ts";
+import { processesBunja } from "../../../../state/processes.ts";
 import { machineModalBunja } from "../../../../state/machine-modal.ts";
 import { machineStoreBunja } from "../../../../state/machine-store.ts";
 import { rpcSessionBunja } from "../../../../state/rpc-session.ts";
@@ -58,12 +57,6 @@ import {
   PropertyListItem,
   PropertyValue,
 } from "../../../ui/property-list.tsx";
-
-interface ProcessesState {
-  message?: string;
-  phase: "idle" | "loading" | "ready" | "error" | "unsupported";
-  rows: ProcessInfo[];
-}
 
 interface ProcessesRpcSession {
   webTransport: () => Promise<WebTransport>;
@@ -214,8 +207,6 @@ export function ProcessesTool() {
     ? undefined
     : tab?.processPage ?? "detail";
 
-  const processListSupported = daemonInfo.phase === "ready" &&
-    daemonInfo.daemonInfo.supportedProcIds.includes(ProcId.SubscribeProcesses);
   const processDetailSupported = daemonInfo.phase === "ready" &&
     daemonInfo.daemonInfo.supportedProcIds.includes(
       ProcId.SubscribeProcessDetail,
@@ -268,10 +259,6 @@ export function ProcessesTool() {
       {selectedPid === undefined
         ? (
           <ProcessListView
-            daemonInfoPhase={daemonInfo.phase}
-            machineId={machine.id}
-            rpcSession={rpcSession}
-            supported={processListSupported}
             onOpenProcess={(process) =>
               paneState.addProcessesTab({
                 processDetailPid: process.pid,
@@ -328,16 +315,12 @@ export function ProcessesTool() {
         : selectedPage === "children"
         ? (
           <ProcessChildrenView
-            daemonInfoPhase={daemonInfo.phase}
-            machineId={machine.id}
             onOpenProcess={(process) =>
               paneState.addProcessesTab({
                 processDetailPid: process.pid,
                 title: process.name || `PID ${process.pid}`,
               })}
             pid={selectedPid}
-            rpcSession={rpcSession}
-            supported={processListSupported}
           />
         )
         : (
@@ -437,86 +420,14 @@ function ProcessesBreadcrumb(
 }
 
 interface ProcessListViewProps {
-  daemonInfoPhase: string;
-  machineId: string;
-  rpcSession: ProcessesRpcSession;
-  supported: boolean;
   onOpenProcess: (process: ProcessInfo) => void;
 }
 
-function ProcessListView(
-  {
-    daemonInfoPhase,
-    machineId,
-    rpcSession,
-    supported,
-    onOpenProcess,
-  }: ProcessListViewProps,
-) {
-  const rowsRef = useRef<ProcessInfo[]>([]);
-  const [state, setState] = useState<ProcessesState>({
-    phase: "idle",
-    rows: [],
-  });
+function ProcessListView({ onOpenProcess }: ProcessListViewProps) {
+  const { stateAtom } = useBunja(processesBunja);
+  const state = useAtomValue(stateAtom);
 
-  useEffect(() => {
-    if (daemonInfoPhase === "error") {
-      rowsRef.current = [];
-      setState({
-        message: "Daemon info unavailable",
-        phase: "error",
-        rows: [],
-      });
-      return;
-    }
-    if (daemonInfoPhase !== "ready") {
-      rowsRef.current = [];
-      setState({ phase: "loading", rows: [] });
-      return;
-    }
-    if (!supported) {
-      rowsRef.current = [];
-      setState({
-        message: "This daemon does not support process subscriptions.",
-        phase: "unsupported",
-        rows: [],
-      });
-      return;
-    }
-
-    let cancelled = false;
-    let iterator: AsyncGenerator<ProcessesTableEvent> | undefined;
-    setState((current) => ({ ...current, phase: "loading" }));
-
-    void (async () => {
-      try {
-        const transport = await rpcSession.webTransport();
-        if (cancelled) return;
-        iterator = subscribeProcesses(transport);
-        for await (const event of iterator) {
-          if (cancelled) return;
-          const rows = applyProcessesEvent(rowsRef.current, event);
-          rowsRef.current = rows;
-          setState({ phase: "ready", rows });
-        }
-      } catch (err) {
-        if (cancelled) return;
-        rowsRef.current = [];
-        setState({
-          message: err instanceof Error ? err.message : String(err),
-          phase: "error",
-          rows: [],
-        });
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-      void iterator?.return(undefined);
-    };
-  }, [daemonInfoPhase, machineId, rpcSession, supported]);
-
-  if (state.phase === "loading" || daemonInfoPhase !== "ready") {
+  if (state.phase === "loading") {
     return (
       <section className={emptyWorkspaceClassName}>
         <Loader2 size={24} className="animate-spin" />
@@ -601,89 +512,18 @@ function ProcessListView(
 }
 
 interface ProcessChildrenViewProps {
-  daemonInfoPhase: string;
-  machineId: string;
   onOpenProcess: (process: ProcessInfo) => void;
   pid: number;
-  rpcSession: ProcessesRpcSession;
-  supported: boolean;
 }
 
 function ProcessChildrenView(
-  {
-    daemonInfoPhase,
-    machineId,
-    onOpenProcess,
-    pid,
-    rpcSession,
-    supported,
-  }: ProcessChildrenViewProps,
+  { onOpenProcess, pid }: ProcessChildrenViewProps,
 ) {
-  const rowsRef = useRef<ProcessInfo[]>([]);
-  const [state, setState] = useState<ProcessesState>({
-    phase: "idle",
-    rows: [],
-  });
+  const { stateAtom } = useBunja(processesBunja);
+  const state = useAtomValue(stateAtom);
   const tree = buildProcessTreeNodes(state.rows, pid);
 
-  useEffect(() => {
-    if (daemonInfoPhase === "error") {
-      rowsRef.current = [];
-      setState({
-        message: "Daemon info unavailable",
-        phase: "error",
-        rows: [],
-      });
-      return;
-    }
-    if (daemonInfoPhase !== "ready") {
-      rowsRef.current = [];
-      setState({ phase: "loading", rows: [] });
-      return;
-    }
-    if (!supported) {
-      rowsRef.current = [];
-      setState({
-        message: "This daemon does not support process subscriptions.",
-        phase: "unsupported",
-        rows: [],
-      });
-      return;
-    }
-
-    let cancelled = false;
-    let iterator: AsyncGenerator<ProcessesTableEvent> | undefined;
-    setState((current) => ({ ...current, phase: "loading" }));
-
-    void (async () => {
-      try {
-        const transport = await rpcSession.webTransport();
-        if (cancelled) return;
-        iterator = subscribeProcesses(transport);
-        for await (const event of iterator) {
-          if (cancelled) return;
-          const rows = applyProcessesEvent(rowsRef.current, event);
-          rowsRef.current = rows;
-          setState({ phase: "ready", rows });
-        }
-      } catch (err) {
-        if (cancelled) return;
-        rowsRef.current = [];
-        setState({
-          message: err instanceof Error ? err.message : String(err),
-          phase: "error",
-          rows: [],
-        });
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-      void iterator?.return(undefined);
-    };
-  }, [daemonInfoPhase, machineId, pid, rpcSession, supported]);
-
-  if (state.phase === "loading" || daemonInfoPhase !== "ready") {
+  if (state.phase === "loading") {
     return (
       <section className={emptyWorkspaceClassName}>
         <Loader2 size={24} className="animate-spin" />
@@ -1804,24 +1644,6 @@ function applyProcessDetailEvent(
   }
 }
 
-function applyProcessesEvent(
-  currentRows: ProcessInfo[],
-  event: ProcessesTableEvent,
-): ProcessInfo[] {
-  if (event.type === "snapshot") {
-    return sortedProcesses(event.rows);
-  }
-
-  const rowsByPid = new Map(currentRows.map((row) => [row.pid, row]));
-  for (const pid of event.removePids) {
-    rowsByPid.delete(pid);
-  }
-  for (const row of event.upserts) {
-    rowsByPid.set(row.pid, row);
-  }
-  return sortedProcesses([...rowsByPid.values()]);
-}
-
 function applyProcessResourcesInUseEvent(
   currentRows: ProcessResourceInUseInfo[],
   event: ProcessResourcesInUseTableEvent,
@@ -1883,10 +1705,6 @@ function applyProcessModulesEvent(
     rowsById.set(row.moduleId, row);
   }
   return sortedProcessModules([...rowsById.values()]);
-}
-
-function sortedProcesses(rows: ProcessInfo[]): ProcessInfo[] {
-  return [...rows].sort((a, b) => a.pid - b.pid);
 }
 
 function buildProcessTreeNodes(
