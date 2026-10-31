@@ -8,7 +8,7 @@
     "skipLibCheck": true,
     "allowImportingTsExtensions": true,
     "jsx": "preserve",
-    "jsxImportSource": "@gpuix/solid",
+    "jsxImportSource": "#gpuix",
     "types": ["bun", "node"]
   },
   "include": ["src", "tests"]

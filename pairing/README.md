@@ -6,10 +6,12 @@
 
 - `src/host.ts`, `src/ipc.ts`, `src/profile.ts`: Node `node:net` named pipe/Unix socket. 정규화한 설정 경로의 SHA-256 앞 12바이트로 기존 프로필 ID와 엔드포인트를 유지한다. macOS는 UID도 구분한다. 하나의 전역 앱 잠금은 사용하지 않는다.
 - `src/controller.ts`, `src/validation.ts`: 네 라우트, 네 바인딩(`getSnapshot`, `openConfig`, `showDaemonInfo`, `resolvePairingConfirmation`)과 snapshot 이벤트를 유지한다. 잘못된 요청은 진행 중 요청을 교체하지 않는다. 교체·연결 해제·닫기·종료는 확인 요청을 거절하고 오래된 응답은 무시한다.
-- `src/main.tsx`, `src/view.tsx`: GPUiX/Solid 0.11.0과 Solid 1.9.15. Bun이 UI를 실행하고 Node 부모와 전용 IPC로 통신한다. Node/Bun의 Windows 소켓 반닫기 동작 차이 때문에 데몬 IPC는 Node가 담당한다.
+- `src/main.tsx`, `src/view.tsx`: GPUiX 0.11.0 호스트와 Solid 2.0.0-rc.20. `src/gpuix.tsx`가 공식 v2 universal renderer를 기존 GPUiX 호스트에 연결하며, 앱에서 사용하는 Button과 context만 제공한다. Bun이 UI를 실행하고 Node 부모와 전용 IPC로 통신한다. Node/Bun의 Windows 소켓 반닫기 동작 차이 때문에 데몬 IPC는 Node가 담당한다.
 - `native/windows.rs`, `src/windows*.ts`: Rieul 소유 close guard, 트레이, 아이콘과 창 표시. Windows 런처의 Job이 부모·호스트·UI를 소유해 강제 종료 후 자식과 런타임 잠금을 정리한다.
 - `native/macos.m`, `src/macos.ts`: AppKit delegate 전달, close-to-hide, NSStatusItem, 트레이 이벤트와 알림. 기존 알림 허용 상태만 조회하며 새 권한을 요청하지 않는다. 미허용/실패 시 창을 표시한다.
 - `scripts/package.mjs`, `runtime-lock.json`, `daemon/gui-launcher`: 공식 런타임 아카이브 해시와 버전/아키텍처를 고정한다. 번들 런처는 절대 경로와 파일 해시를 확인한다. Node/Bun 설치나 PATH 탐색이 필요 없다. 상대 `--config`는 호출자 디렉터리를 기준으로 해석한다.
+
+v2 JSX는 `scripts/solid-plugin.ts`의 공식 `@solidjs/babel-plugin`으로 컴파일한다. 개발 preload는 TSX 변환을 제공하고, 배포 번들은 컴파일러 없는 `dist/runtime-preload.js`로 client reactive runtime만 선택한다. `@gpuix/solid`의 v1 컴포넌트/root는 실행하지 않으며, 고정 버전의 `dist/host.js`만 재사용한다.
 
 ## 빌드와 독립 프로필 실행
 

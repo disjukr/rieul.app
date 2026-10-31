@@ -1,5 +1,5 @@
 import { createSignal, For, onCleanup, Show } from "solid-js";
-import { Button, useGpuixRequired, type HostElement } from "@gpuix/solid";
+import { Button, useGpuixRequired, type HostElement } from "./gpuix.tsx";
 import QRCode from "qrcode";
 import {
   text,

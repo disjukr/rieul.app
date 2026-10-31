@@ -1,4 +1,4 @@
-import { createRoot, GpuixRenderer } from "@gpuix/solid";
+import { createRoot, GpuixRenderer } from "./gpuix.tsx";
 import { createRendererState } from "@gpuix/native/host";
 import { startFrameLoop, enableAutomation } from "@gpuix/native/runtime";
 import { createWindowsShell } from "./windows.ts";

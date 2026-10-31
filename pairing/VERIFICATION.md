@@ -96,3 +96,11 @@ clipboard, config-editor launch, tray or notifications.
 - No real device pairing, credentials, user daemon data or persistent device access was used or changed.
 
 Local artifacts and fake fixtures remain ignored, not committed. This record distinguishes OS-visible behavior and signed release distribution from the native integration and package checks actually performed.
+
+## Solid v2 migration checkpoint
+
+The daemon now resolves Solid and the official universal compiler/runtime to `2.0.0-rc.20`. The app-local `src/gpuix.tsx` adapter uses the unchanged GPUiX 0.11.0 host mutation and event implementation; it does not execute the package's v1 root/components. Static props emitted by the v2 compiler are applied at element creation, queued mutations flush asynchronously, and Button retains native click/Enter/Space behavior. Development compilation and the production client-runtime preload are separate; the packaged preload and its bunfig entry are included in bundle integrity hashes.
+
+On Mac ARM, source and packaged-app native QA passed with actual GPUiX/AppKit windows: QR dimensions, three repeated request replacement/approval/cancel/hide/reopen cycles, native mouse/Enter/Space approval, duplicate launch, pending-request rejection and UI shutdown. Packaged QA additionally passed two independent native profiles, one profile exiting while another remains pending, relative config resolution, and execution with an empty PATH/cache. Evidence is generated under `pairing/artifacts/macos-*/evidence.json`; these are disposable local QA profiles, not user data. This is native automation, not a new manual OS input/accessibility audit.
+
+The local pinned-runtime application package build and integrity verification, frozen Bun install, TypeScript check, 9 controller tests and 15 Node tests passed. Windows and Intel Mac verification must come from the integrated branch's native CI; local ARM success alone does not establish those platforms.

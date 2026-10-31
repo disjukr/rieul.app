@@ -98,7 +98,13 @@ try {
     const second = confirm("73");
     assert.equal(accepted(await first), false);
     await app.getByTestId("candidate-73").waitFor();
-    await app.getByTestId("candidate-73").click();
+    if (i === 0) await app.getByTestId("candidate-73").click();
+    else {
+      const element = await app.getByTestId("candidate-73").element();
+      const key = i === 1 ? "enter" : "space";
+      await app.call("keyDown", { elementId: element.id, key });
+      await app.call("keyUp", { elementId: element.id, key });
+    }
     assert.equal(accepted(await second), true);
     await app.getByTestId("accepted").waitFor();
     assert.equal(
@@ -123,6 +129,7 @@ try {
     await app.getByTestId("daemon-url").waitFor();
   }
   evidence.repeatCloseReplaceReopen = 3;
+  evidence.mouseEnterSpaceApproval = true;
   evidence.distinctApprovalAndCancellationFeedback = true;
   const duplicate = spawn(
     executable ?? process.execPath,

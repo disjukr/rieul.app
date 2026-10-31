@@ -127,8 +127,12 @@ for (const name of ["LICENSE", "LICENSE-MIT", "LICENSE-APACHE"])
     path.resolve(root, "..", name),
     path.join(bundle, "licenses", `Rieul-${name}`),
   );
-for (const name of ["dist", "package.json", "bun.lock", "bunfig.toml"])
+for (const name of ["dist", "package.json", "bun.lock"])
   await cp(path.join(root, name), path.join(app, name), { recursive: true });
+await writeFile(
+  path.join(app, "bunfig.toml"),
+  'preload = ["./dist/runtime-preload.js"]\n',
+);
 const bridge = windows
   ? "rieul_pairing_windows.dll"
   : "librieul_pairing_macos.dylib";
@@ -170,6 +174,8 @@ for (const relative of [
   `runtime/bun${windows ? ".exe" : ""}`,
   "app/dist/host.js",
   "app/dist/main.js",
+  "app/dist/runtime-preload.js",
+  "app/bunfig.toml",
   `app/native/bin/${bridge}`,
   `app/node_modules/${addon}`,
 ])
