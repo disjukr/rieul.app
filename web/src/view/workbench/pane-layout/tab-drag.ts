@@ -19,31 +19,28 @@ export type WorkbenchTabDndData = {
 
 export type WorkbenchTabDndDropData =
   | {
-    kind: "tab";
-    paneId: string;
-    tabId: string;
-    type: "workbench-tab-drop";
-  }
+      kind: "tab";
+      paneId: string;
+      tabId: string;
+      type: "workbench-tab-drop";
+    }
   | {
-    kind: "tab-strip";
-    paneId: string;
-    type: "workbench-tab-drop";
-  }
+      kind: "tab-strip";
+      paneId: string;
+      type: "workbench-tab-drop";
+    }
   | {
-    kind: "pane-body";
-    nodeId: string;
-    paneId: string;
-    type: "workbench-tab-drop";
-  };
+      kind: "pane-body";
+      nodeId: string;
+      paneId: string;
+      type: "workbench-tab-drop";
+    };
 
 export function workbenchTabDragId(tabId: string): string {
   return `workbench-tab-drag:${tabId}`;
 }
 
-export function workbenchTabDropId(
-  paneId: string,
-  tabId: string,
-): string {
+export function workbenchTabDropId(paneId: string, tabId: string): string {
   return `workbench-tab-drop:${paneId}:${tabId}`;
 }
 
@@ -75,9 +72,7 @@ export function readWorkbenchTabDndData(
   };
 }
 
-export function readWorkbenchTabDndLabel(
-  data: unknown,
-): string | undefined {
+export function readWorkbenchTabDndLabel(data: unknown): string | undefined {
   if (!isRecord(data) || data.type !== "workbench-tab") return undefined;
   return typeof data.label === "string" ? data.label : undefined;
 }
@@ -89,10 +84,7 @@ export function readWorkbenchTabDndDropData(
     return undefined;
   }
   if (data.kind === "tab") {
-    if (
-      typeof data.paneId !== "string" ||
-      typeof data.tabId !== "string"
-    ) {
+    if (typeof data.paneId !== "string" || typeof data.tabId !== "string") {
       return undefined;
     }
     return {
@@ -111,10 +103,7 @@ export function readWorkbenchTabDndDropData(
     };
   }
   if (data.kind === "pane-body") {
-    if (
-      typeof data.nodeId !== "string" ||
-      typeof data.paneId !== "string"
-    ) {
+    if (typeof data.nodeId !== "string" || typeof data.paneId !== "string") {
       return undefined;
     }
     return {

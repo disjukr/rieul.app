@@ -1,18 +1,22 @@
-import { useEffect, useRef, useState } from "react";
-import { useAtomValue } from "jotai";
-import { useBunja } from "bunja/react";
-import { AppWindow, HardDrive, KeyRound, Loader2 } from "lucide-react";
+import type {
+  WindowDetail,
+  WindowDetailEvent,
+  WindowsTableEvent,
+} from "../../../../protocol/generated/rpc.ts";
+import { createSignal, createMemo, createEffect } from "solid-js";
+import { useAtomValue } from "../../../../solid/jotai.tsx";
+import { useBunja } from "../../../../solid/bunja.tsx";
+import {
+  AppWindow,
+  HardDrive,
+  KeyRound,
+  Loader2,
+} from "../../../../solid/icons.tsx";
 import {
   subscribeWindowDetail,
   subscribeWindows,
 } from "../../../../protocol/generated/client.ts";
-import {
-  ProcId,
-  type WindowDetail,
-  type WindowDetailEvent,
-  type WindowInfo,
-  type WindowsTableEvent,
-} from "../../../../protocol/generated/rpc.ts";
+import { ProcId, type WindowInfo } from "../../../../protocol/generated/rpc.ts";
 import { machineModalBunja } from "../../../../state/machine-modal.ts";
 import { machineStoreBunja } from "../../../../state/machine-store.ts";
 import { rpcSessionBunja } from "../../../../state/rpc-session.ts";
@@ -27,23 +31,19 @@ import {
   PropertyListItem,
   PropertyValue,
 } from "../../../ui/property-list.tsx";
-
 interface WindowsState {
   message?: string;
   phase: "idle" | "loading" | "ready" | "error" | "unsupported";
   rows: WindowInfo[];
 }
-
 interface WindowsRpcSession {
   webTransport: () => Promise<WebTransport>;
 }
-
 interface WindowDetailState {
   detail?: WindowDetail;
   message?: string;
   phase: "idle" | "loading" | "ready" | "closed" | "error" | "unsupported";
 }
-
 const windowsToolClassName = [
   "flex h-full min-h-0 w-full flex-col",
   "overflow-hidden bg-rieul-surface text-rieul-text",
@@ -77,8 +77,7 @@ const windowCellClassName = [
 ].join(" ");
 const windowFirstColumnClassName = "pl-[1rem]";
 const windowMetaCellClassName = `${windowCellClassName} text-rieul-text-3`;
-const windowPidCellClassName =
-  `${windowCellClassName} font-mono text-rieul-text-2`;
+const windowPidCellClassName = `${windowCellClassName} font-mono text-rieul-text-2`;
 const windowTitleClassName =
   "min-w-0 overflow-hidden text-ellipsis whitespace-nowrap";
 const windowsFooterClassName = [
@@ -103,113 +102,135 @@ const windowDetailFooterClassName = [
   "flex h-[2rem] min-h-[2rem] items-center justify-end border-t border-t-rieul-border",
   "bg-rieul-surface-2 px-[8px] leading-[1.6] text-rieul-text-3",
 ].join(" ");
-
 export function WindowsTool() {
   const machineModal = useBunja(machineModalBunja);
   const machineStore = useBunja(machineStoreBunja);
   const rpcSession = useBunja(rpcSessionBunja);
   const paneState = useBunja(workbenchPaneBunja);
   const tabState = useBunja(workbenchTabBunja);
-  const machine = useAtomValue(machineStore.selectedAtom);
-  const isPaired = useAtomValue(machineStore.selectedIsPairedAtom);
-  const daemonInfo = useAtomValue(rpcSession.daemonInfoAtom);
-  const tab = useAtomValue(tabState.tabAtom);
-  const selectedWindowId = tab?.windowDetailId;
-
-  const windowListSupported = daemonInfo.phase === "ready" &&
-    daemonInfo.daemonInfo.supportedProcIds.includes(ProcId.SubscribeWindows);
-  const windowDetailSupported = daemonInfo.phase === "ready" &&
-    daemonInfo.daemonInfo.supportedProcIds.includes(
-      ProcId.SubscribeWindowDetail,
-    );
-
-  if (!machine) {
-    return (
-      <section className={emptyWorkspaceClassName}>
-        <HardDrive size={28} />
-        <h2>No machine selected</h2>
-      </section>
-    );
-  }
-
-  if (!isPaired) {
-    return (
-      <section className={emptyWorkspaceClassName}>
-        <KeyRound size={28} />
-        <h2>Pairing required</h2>
-        <Button onClick={() => machineModal.openPairMachineModal(machine.id)}>
-          <KeyRound size={16} />
-          Pair
-        </Button>
-      </section>
-    );
-  }
-
+  const machine = useAtomValue(() => machineStore().selectedAtom);
+  const isPaired = useAtomValue(() => machineStore().selectedIsPairedAtom);
+  const daemonInfo = useAtomValue(() => rpcSession().daemonInfoAtom);
+  const readyDaemonInfo = createMemo(() => {
+    const value = daemonInfo();
+    return value.phase === "ready" ? value.daemonInfo : undefined;
+  });
+  const tab = useAtomValue(() => tabState().tabAtom);
+  const selectedWindowId = createMemo(() => tab()?.windowDetailId);
+  const windowListSupported = createMemo(
+    () =>
+      daemonInfo().phase === "ready" &&
+      readyDaemonInfo()!.supportedProcIds.includes(ProcId.SubscribeWindows),
+  );
+  const windowDetailSupported = createMemo(
+    () =>
+      daemonInfo().phase === "ready" &&
+      readyDaemonInfo()!.supportedProcIds.includes(
+        ProcId.SubscribeWindowDetail,
+      ),
+  );
   return (
-    <section className={windowsToolClassName}>
-      <WindowsBreadcrumb
-        selectedWindowId={selectedWindowId}
-        onOpenRoot={() => tabState.setWindowDetailId(undefined)}
-      />
-      {selectedWindowId === undefined
-        ? (
-          <WindowListView
-            daemonInfoPhase={daemonInfo.phase}
-            machineId={machine.id}
-            rpcSession={rpcSession}
-            supported={windowListSupported}
-            onOpenWindow={(window) =>
-              paneState.addWindowsTab({
-                title: windowTitle(window),
-                windowDetailId: window.windowId,
-              })}
-          />
-        )
-        : (
-          <WindowDetailView
-            daemonInfoPhase={daemonInfo.phase}
-            machineId={machine.id}
-            onOpenProcess={(pid) =>
-              paneState.addProcessesTab({
-                processDetailPid: pid,
-                title: `PID ${pid}`,
-              })}
-            rpcSession={rpcSession}
-            supported={windowDetailSupported}
-            windowId={selectedWindowId}
-          />
-        )}
-    </section>
+    <>
+      {(() => {
+        if (!machine()) {
+          return (
+            <section class={emptyWorkspaceClassName}>
+              <HardDrive size={28} />
+              <h2>No machine selected</h2>
+            </section>
+          );
+        }
+        if (!isPaired()) {
+          return (
+            <section class={emptyWorkspaceClassName}>
+              <KeyRound size={28} />
+              <h2>Pairing required</h2>
+              <Button
+                onClick={() =>
+                  machineModal().openPairMachineModal(machine()!.id)
+                }
+              >
+                <KeyRound size={16} />
+                Pair
+              </Button>
+            </section>
+          );
+        }
+        return (
+          <section class={windowsToolClassName}>
+            <WindowsBreadcrumb
+              selectedWindowId={selectedWindowId()}
+              onOpenRoot={() => tabState().setWindowDetailId(undefined)}
+            />
+            {selectedWindowId() === undefined ? (
+              <WindowListView
+                daemonInfoPhase={daemonInfo().phase}
+                machineId={machine()!.id}
+                rpcSession={rpcSession()}
+                supported={windowListSupported()}
+                onOpenWindow={(window) =>
+                  paneState().addWindowsTab({
+                    title: windowTitle(window),
+                    windowDetailId: window.windowId,
+                  })
+                }
+              />
+            ) : (
+              <WindowDetailView
+                daemonInfoPhase={daemonInfo().phase}
+                machineId={machine()!.id}
+                onOpenProcess={(pid) =>
+                  paneState().addProcessesTab({
+                    processDetailPid: pid,
+                    title: `PID ${pid}`,
+                  })
+                }
+                rpcSession={rpcSession()}
+                supported={windowDetailSupported()}
+                windowId={selectedWindowId()!}
+              />
+            )}
+          </section>
+        );
+      })()}
+    </>
   );
 }
-
 interface WindowsBreadcrumbProps {
   selectedWindowId?: string;
   onOpenRoot: () => void;
 }
-
-function WindowsBreadcrumb(
-  { selectedWindowId, onOpenRoot }: WindowsBreadcrumbProps,
-) {
+function WindowsBreadcrumb(props: WindowsBreadcrumbProps) {
   return (
-    <Breadcrumb
-      ariaLabel="Window location"
-      className="flex-[0_0_auto] border-b border-b-[#d8dde7] bg-[#fbfcfe] px-[0.5rem]"
-      items={[
-        {
-          label: "Windows",
-          onClick: selectedWindowId === undefined ? undefined : onOpenRoot,
-        },
-        {
-          label: selectedWindowId === undefined ? "Overview" : selectedWindowId,
-          muted: selectedWindowId === undefined,
-          title: selectedWindowId,
-        },
-      ]}
-    />
+    <>
+      {(() => {
+        return (
+          <Breadcrumb
+            ariaLabel="Window location"
+            className="flex-[0_0_auto] border-b border-b-[#d8dde7] bg-[#fbfcfe] px-[0.5rem]"
+            items={[
+              {
+                label: "Windows",
+                onClick:
+                  props.selectedWindowId === undefined
+                    ? undefined
+                    : props.onOpenRoot,
+              },
+              {
+                label:
+                  props.selectedWindowId === undefined
+                    ? "Overview"
+                    : props.selectedWindowId,
+                muted: props.selectedWindowId === undefined,
+                title: props.selectedWindowId,
+              },
+            ]}
+          />
+        );
+      })()}
+    </>
   );
 }
-
 interface WindowListViewProps {
   daemonInfoPhase: string;
   machineId: string;
@@ -217,154 +238,170 @@ interface WindowListViewProps {
   supported: boolean;
   onOpenWindow: (window: WindowInfo) => void;
 }
-
-function WindowListView(
-  {
-    daemonInfoPhase,
-    machineId,
-    rpcSession,
-    supported,
-    onOpenWindow,
-  }: WindowListViewProps,
-) {
-  const rowsRef = useRef<WindowInfo[]>([]);
-  const [state, setState] = useState<WindowsState>({
+function WindowListView(props: WindowListViewProps) {
+  const rowsRef = {
+    current: [] as WindowInfo[],
+  };
+  const [state, setState] = createSignal<WindowsState>({
     phase: "idle",
     rows: [],
   });
-
-  useEffect(() => {
-    if (daemonInfoPhase === "error") {
-      rowsRef.current = [];
-      setState({
-        message: "Daemon info unavailable",
-        phase: "error",
-        rows: [],
-      });
-      return;
-    }
-    if (daemonInfoPhase !== "ready") {
-      rowsRef.current = [];
-      setState({ phase: "loading", rows: [] });
-      return;
-    }
-    if (!supported) {
-      rowsRef.current = [];
-      setState({
-        message: "This daemon does not support window subscriptions.",
-        phase: "unsupported",
-        rows: [],
-      });
-      return;
-    }
-
-    let cancelled = false;
-    let iterator: AsyncGenerator<WindowsTableEvent> | undefined;
-    setState((current) => ({ ...current, phase: "loading" }));
-
-    void (async () => {
-      try {
-        const transport = await rpcSession.webTransport();
-        if (cancelled) return;
-        iterator = subscribeWindows(transport);
-        for await (const event of iterator) {
-          if (cancelled) return;
-          const rows = applyWindowsEvent(rowsRef.current, event);
-          rowsRef.current = rows;
-          setState({ phase: "ready", rows });
-        }
-      } catch (err) {
-        if (cancelled) return;
+  createEffect(
+    createMemo(
+      () =>
+        [
+          props.daemonInfoPhase,
+          props.machineId,
+          props.rpcSession,
+          props.supported,
+        ] as const,
+      {
+        equals: (a, b) =>
+          a.length === b.length &&
+          a.every((value, index) => Object.is(value, b[index])),
+      },
+    ),
+    ([snapshotDaemonInfoPhase, , snapshotRpcSession, snapshotSupported]) => {
+      if (snapshotDaemonInfoPhase === "error") {
         rowsRef.current = [];
         setState({
-          message: err instanceof Error ? err.message : String(err),
+          message: "Daemon info unavailable",
           phase: "error",
           rows: [],
         });
+        return;
       }
-    })();
-
-    return () => {
-      cancelled = true;
-      void iterator?.return(undefined);
-    };
-  }, [daemonInfoPhase, machineId, rpcSession, supported]);
-
-  if (state.phase === "loading" || daemonInfoPhase !== "ready") {
-    return (
-      <section className={emptyWorkspaceClassName}>
-        <Loader2 size={24} className="animate-spin" />
-        <h2>Loading windows</h2>
-      </section>
-    );
-  }
-
-  if (state.phase === "unsupported" || state.phase === "error") {
-    return (
-      <section className={emptyWorkspaceClassName}>
-        <AppWindow size={28} />
-        <h2>
-          {state.phase === "unsupported"
-            ? "Windows unavailable"
-            : "Failed to load windows"}
-        </h2>
-        {state.message ? <p>{state.message}</p> : null}
-      </section>
-    );
-  }
-
+      if (snapshotDaemonInfoPhase !== "ready") {
+        rowsRef.current = [];
+        setState({
+          phase: "loading",
+          rows: [],
+        });
+        return;
+      }
+      if (!snapshotSupported) {
+        rowsRef.current = [];
+        setState({
+          message: "This daemon does not support window subscriptions.",
+          phase: "unsupported",
+          rows: [],
+        });
+        return;
+      }
+      let cancelled = false;
+      let iterator: AsyncGenerator<WindowsTableEvent> | undefined;
+      setState((current) => ({
+        ...current,
+        phase: "loading",
+      }));
+      void (async () => {
+        try {
+          const transport = await snapshotRpcSession.webTransport();
+          if (cancelled) return;
+          iterator = subscribeWindows(transport);
+          for await (const event of iterator) {
+            if (cancelled) return;
+            const rows = applyWindowsEvent(rowsRef.current, event);
+            rowsRef.current = rows;
+            setState({
+              phase: "ready",
+              rows,
+            });
+          }
+        } catch (err) {
+          if (cancelled) return;
+          rowsRef.current = [];
+          setState({
+            message: err instanceof Error ? err.message : String(err),
+            phase: "error",
+            rows: [],
+          });
+        }
+      })();
+      return () => {
+        cancelled = true;
+        void iterator?.return(undefined);
+      };
+    },
+  );
   return (
-    <div className={windowsContentClassName}>
-      <div className={windowTableClassName} role="grid" aria-label="Windows">
-        <div
-          className={`${windowHeadClassName} ${windowFirstColumnClassName}`}
-          role="columnheader"
-        >
-          Title
-        </div>
-        <div className={windowHeadClassName} role="columnheader">
-          PID
-        </div>
-        <div className={windowHeadClassName} role="columnheader">
-          State
-        </div>
-        {state.rows.length === 0
-          ? (
-            <div className={`${windowCellClassName} [grid-column:1/-1]`}>
-              No windows
-            </div>
-          )
-          : state.rows.map((window) => (
-            <div
-              key={window.windowId}
-              className={`${windowRowClassName} !cursor-pointer`}
-              role="row"
-              onDoubleClick={() => onOpenWindow(window)}
-            >
-              <span
-                className={`${windowCellClassName} ${windowFirstColumnClassName}`}
-                title={windowTitle(window)}
+    <>
+      {(() => {
+        if (state().phase === "loading" || props.daemonInfoPhase !== "ready") {
+          return (
+            <section class={emptyWorkspaceClassName}>
+              <Loader2 size={24} className="animate-spin" />
+              <h2>Loading windows</h2>
+            </section>
+          );
+        }
+        if (state().phase === "unsupported" || state().phase === "error") {
+          return (
+            <section class={emptyWorkspaceClassName}>
+              <AppWindow size={28} />
+              <h2>
+                {state().phase === "unsupported"
+                  ? "Windows unavailable"
+                  : "Failed to load windows"}
+              </h2>
+              {state().message ? <p>{state().message}</p> : null}
+            </section>
+          );
+        }
+        return (
+          <div class={windowsContentClassName}>
+            <div class={windowTableClassName} role="grid" aria-label="Windows">
+              <div
+                class={`${windowHeadClassName} ${windowFirstColumnClassName}`}
+                role="columnheader"
               >
-                <span className={windowTitleClassName}>
-                  {windowTitle(window)}
-                </span>
-              </span>
-              <span className={windowPidCellClassName}>
-                {window.processId ?? ""}
-              </span>
-              <span className={windowMetaCellClassName}>
-                {window.focused ? "Focused" : ""}
-              </span>
+                Title
+              </div>
+              <div class={windowHeadClassName} role="columnheader">
+                PID
+              </div>
+              <div class={windowHeadClassName} role="columnheader">
+                State
+              </div>
+              {state().rows.length === 0 ? (
+                <div class={`${windowCellClassName} [grid-column:1/-1]`}>
+                  No windows
+                </div>
+              ) : (
+                state().rows.map((window) => (
+                  <div
+                    class={`${windowRowClassName} !cursor-pointer`}
+                    role="row"
+                    onDblClick={() => props.onOpenWindow(window)}
+                  >
+                    <span
+                      class={`${windowCellClassName} ${windowFirstColumnClassName}`}
+                      title={windowTitle(window)}
+                    >
+                      <span class={windowTitleClassName}>
+                        {windowTitle(window)}
+                      </span>
+                    </span>
+                    <span class={windowPidCellClassName}>
+                      {window.processId ?? ""}
+                    </span>
+                    <span class={windowMetaCellClassName}>
+                      {window.focused ? "Focused" : ""}
+                    </span>
+                  </div>
+                ))
+              )}
             </div>
-          ))}
-      </div>
-      <footer className={windowsFooterClassName}>
-        {state.rows.length} {state.rows.length === 1 ? "window" : "windows"}
-      </footer>
-    </div>
+            <footer class={windowsFooterClassName}>
+              {state().rows.length}{" "}
+              {state().rows.length === 1 ? "window" : "windows"}
+            </footer>
+          </div>
+        );
+      })()}
+    </>
   );
 }
-
 interface WindowDetailViewProps {
   daemonInfoPhase: string;
   machineId: string;
@@ -373,249 +410,301 @@ interface WindowDetailViewProps {
   supported: boolean;
   windowId: string;
 }
-
-function WindowDetailView(
-  {
-    daemonInfoPhase,
-    machineId,
-    onOpenProcess,
-    rpcSession,
-    supported,
-    windowId,
-  }: WindowDetailViewProps,
-) {
-  const [state, setState] = useState<WindowDetailState>({
+function WindowDetailView(props: WindowDetailViewProps) {
+  const [state, setState] = createSignal<WindowDetailState>({
     phase: "idle",
   });
-
-  useEffect(() => {
-    if (daemonInfoPhase === "error") {
-      setState({
-        message: "Daemon info unavailable",
-        phase: "error",
-      });
-      return;
-    }
-    if (daemonInfoPhase !== "ready") {
-      setState({ phase: "loading" });
-      return;
-    }
-    if (!supported) {
-      setState({
-        message: "This daemon does not support window detail subscriptions.",
-        phase: "unsupported",
-      });
-      return;
-    }
-
-    let cancelled = false;
-    let iterator: AsyncGenerator<WindowDetailEvent> | undefined;
-    setState({ phase: "loading" });
-
-    void (async () => {
-      try {
-        const transport = await rpcSession.webTransport();
-        if (cancelled) return;
-        iterator = subscribeWindowDetail(transport, { windowId });
-        for await (const event of iterator) {
-          if (cancelled) return;
-          setState((current) => applyWindowDetailEvent(current, event));
-          if (event.type === "closed") return;
-        }
-      } catch (err) {
-        if (cancelled) return;
+  createEffect(
+    createMemo(
+      () =>
+        [
+          props.daemonInfoPhase,
+          props.machineId,
+          props.rpcSession,
+          props.supported,
+          props.windowId,
+        ] as const,
+      {
+        equals: (a, b) =>
+          a.length === b.length &&
+          a.every((value, index) => Object.is(value, b[index])),
+      },
+    ),
+    ([
+      snapshotDaemonInfoPhase,
+      ,
+      snapshotRpcSession,
+      snapshotSupported,
+      snapshotWindowId,
+    ]) => {
+      if (snapshotDaemonInfoPhase === "error") {
         setState({
-          message: err instanceof Error ? err.message : String(err),
+          message: "Daemon info unavailable",
           phase: "error",
         });
+        return;
       }
-    })();
-
-    return () => {
-      cancelled = true;
-      void iterator?.return(undefined);
-    };
-  }, [daemonInfoPhase, machineId, rpcSession, supported, windowId]);
-
-  if (state.phase === "loading" || daemonInfoPhase !== "ready") {
-    return (
-      <section className={emptyWorkspaceClassName}>
-        <Loader2 size={24} className="animate-spin" />
-        <h2>Loading window</h2>
-      </section>
-    );
-  }
-
-  if (state.phase === "unsupported" || state.phase === "error") {
-    return (
-      <section className={emptyWorkspaceClassName}>
-        <AppWindow size={28} />
-        <h2>
-          {state.phase === "unsupported"
-            ? "Window detail unavailable"
-            : "Failed to load window"}
-        </h2>
-        {state.message ? <p>{state.message}</p> : null}
-      </section>
-    );
-  }
-
-  if (!state.detail) {
-    return (
-      <section className={emptyWorkspaceClassName}>
-        <AppWindow size={28} />
-        <h2>No window detail</h2>
-      </section>
-    );
-  }
-
+      if (snapshotDaemonInfoPhase !== "ready") {
+        setState({
+          phase: "loading",
+        });
+        return;
+      }
+      if (!snapshotSupported) {
+        setState({
+          message: "This daemon does not support window detail subscriptions.",
+          phase: "unsupported",
+        });
+        return;
+      }
+      let cancelled = false;
+      let iterator: AsyncGenerator<WindowDetailEvent> | undefined;
+      setState({
+        phase: "loading",
+      });
+      void (async () => {
+        try {
+          const transport = await snapshotRpcSession.webTransport();
+          if (cancelled) return;
+          iterator = subscribeWindowDetail(transport, {
+            windowId: snapshotWindowId,
+          });
+          for await (const event of iterator) {
+            if (cancelled) return;
+            setState((current) => applyWindowDetailEvent(current, event));
+            if (event.type === "closed") return;
+          }
+        } catch (err) {
+          if (cancelled) return;
+          setState({
+            message: err instanceof Error ? err.message : String(err),
+            phase: "error",
+          });
+        }
+      })();
+      return () => {
+        cancelled = true;
+        void iterator?.return(undefined);
+      };
+    },
+  );
   return (
-    <div className={windowsContentClassName}>
-      <WindowDetailSummary
-        detail={state.detail}
-        onOpenProcess={onOpenProcess}
-      />
-      <footer className={windowDetailFooterClassName}>
-        {state.phase === "closed"
-          ? "Window closed"
-          : state.detail.info.windowId}
-      </footer>
-    </div>
+    <>
+      {(() => {
+        if (state().phase === "loading" || props.daemonInfoPhase !== "ready") {
+          return (
+            <section class={emptyWorkspaceClassName}>
+              <Loader2 size={24} className="animate-spin" />
+              <h2>Loading window</h2>
+            </section>
+          );
+        }
+        if (state().phase === "unsupported" || state().phase === "error") {
+          return (
+            <section class={emptyWorkspaceClassName}>
+              <AppWindow size={28} />
+              <h2>
+                {state().phase === "unsupported"
+                  ? "Window detail unavailable"
+                  : "Failed to load window"}
+              </h2>
+              {state().message ? <p>{state().message}</p> : null}
+            </section>
+          );
+        }
+        if (!state().detail) {
+          return (
+            <section class={emptyWorkspaceClassName}>
+              <AppWindow size={28} />
+              <h2>No window detail</h2>
+            </section>
+          );
+        }
+        return (
+          <div class={windowsContentClassName}>
+            <WindowDetailSummary
+              detail={state().detail!}
+              onOpenProcess={props.onOpenProcess}
+            />
+            <footer class={windowDetailFooterClassName}>
+              {state().phase === "closed"
+                ? "Window closed"
+                : state().detail!.info.windowId}
+            </footer>
+          </div>
+        );
+      })()}
+    </>
   );
 }
-
 interface WindowDetailSummaryProps {
   detail: WindowDetail;
   onOpenProcess: (pid: number) => void;
 }
-
-function WindowDetailSummary(
-  { detail, onOpenProcess }: WindowDetailSummaryProps,
-) {
-  const { bounds, info, state } = detail;
+function WindowDetailSummary(props: WindowDetailSummaryProps) {
+  const _value = createMemo(() => props.detail);
   return (
-    <div className={windowDetailScrollClassName}>
-      <div className={windowDetailBodyClassName}>
-        <PropertyList>
-          <WindowDetailItem label="Title" value={windowTitle(info)} />
-          <WindowDetailItem label="Window ID" value={info.windowId} />
-          <WindowProcessIdItem
-            processId={info.processId}
-            onOpenProcess={onOpenProcess}
-          />
-          <WindowDetailItem
-            label="Focused"
-            value={booleanLabel(info.focused)}
-          />
-        </PropertyList>
-        <PropertyList>
-          <WindowDetailItem
-            label="Visible"
-            value={booleanLabel(state.visible)}
-          />
-          <WindowDetailItem
-            label="Minimized"
-            value={booleanLabel(state.minimized)}
-          />
-          <WindowDetailItem
-            label="Maximized"
-            value={booleanLabel(state.maximized)}
-          />
-        </PropertyList>
-        <PropertyList>
-          <WindowDetailItem label="X" value={formatBoundsNumber(bounds?.x)} />
-          <WindowDetailItem label="Y" value={formatBoundsNumber(bounds?.y)} />
-          <WindowDetailItem
-            label="Width"
-            value={formatBoundsNumber(bounds?.width)}
-          />
-          <WindowDetailItem
-            label="Height"
-            value={formatBoundsNumber(bounds?.height)}
-          />
-        </PropertyList>
-      </div>
-    </div>
+    <>
+      {(() => {
+        return (
+          <div class={windowDetailScrollClassName}>
+            <div class={windowDetailBodyClassName}>
+              <PropertyList>
+                <WindowDetailItem
+                  label="Title"
+                  value={windowTitle(_value().info)}
+                />
+                <WindowDetailItem
+                  label="Window ID"
+                  value={_value().info.windowId}
+                />
+                <WindowProcessIdItem
+                  processId={_value().info.processId}
+                  onOpenProcess={props.onOpenProcess}
+                />
+                <WindowDetailItem
+                  label="Focused"
+                  value={booleanLabel(_value().info.focused)}
+                />
+              </PropertyList>
+              <PropertyList>
+                <WindowDetailItem
+                  label="Visible"
+                  value={booleanLabel(_value().state.visible)}
+                />
+                <WindowDetailItem
+                  label="Minimized"
+                  value={booleanLabel(_value().state.minimized)}
+                />
+                <WindowDetailItem
+                  label="Maximized"
+                  value={booleanLabel(_value().state.maximized)}
+                />
+              </PropertyList>
+              <PropertyList>
+                <WindowDetailItem
+                  label="X"
+                  value={formatBoundsNumber(_value().bounds?.x)}
+                />
+                <WindowDetailItem
+                  label="Y"
+                  value={formatBoundsNumber(_value().bounds?.y)}
+                />
+                <WindowDetailItem
+                  label="Width"
+                  value={formatBoundsNumber(_value().bounds?.width)}
+                />
+                <WindowDetailItem
+                  label="Height"
+                  value={formatBoundsNumber(_value().bounds?.height)}
+                />
+              </PropertyList>
+            </div>
+          </div>
+        );
+      })()}
+    </>
   );
 }
-
 interface WindowProcessIdItemProps {
   onOpenProcess: (pid: number) => void;
   processId?: number;
 }
-
-function WindowProcessIdItem(
-  { onOpenProcess, processId }: WindowProcessIdItemProps,
-) {
+function WindowProcessIdItem(props: WindowProcessIdItemProps) {
   return (
-    <PropertyListItem label="PID">
-      {processId === undefined
-        ? <PropertyValue>Unknown</PropertyValue>
-        : (
-          <span className={windowDetailInlineActionClassName}>
-            <PropertyValue>{processId}</PropertyValue>
-            <button
-              type="button"
-              className={windowDetailOpenButtonClassName}
-              onClick={() => onOpenProcess(processId)}
-              title={`Open process ${processId}`}
-            >
-              Open
-            </button>
-          </span>
-        )}
-    </PropertyListItem>
+    <>
+      {(() => {
+        return (
+          <PropertyListItem label="PID">
+            {props.processId === undefined ? (
+              <PropertyValue>Unknown</PropertyValue>
+            ) : (
+              <span class={windowDetailInlineActionClassName}>
+                <PropertyValue>{props.processId}</PropertyValue>
+                <button
+                  type="button"
+                  class={windowDetailOpenButtonClassName}
+                  onClick={() => props.onOpenProcess(props.processId!)}
+                  title={`Open process ${props.processId}`}
+                >
+                  Open
+                </button>
+              </span>
+            )}
+          </PropertyListItem>
+        );
+      })()}
+    </>
   );
 }
-
 interface WindowDetailItemProps {
   label: string;
   note?: string;
   value: string;
 }
-
-function WindowDetailItem({ label, note, value }: WindowDetailItemProps) {
+function WindowDetailItem(props: WindowDetailItemProps) {
   return (
-    <PropertyListItem label={label}>
-      <PropertyValue>{value}</PropertyValue>
-      {note ? <span className={windowDetailNoteClassName}>{note}</span> : null}
-    </PropertyListItem>
+    <>
+      {(() => {
+        return (
+          <PropertyListItem label={props.label}>
+            <PropertyValue>{props.value}</PropertyValue>
+            {props.note ? (
+              <span class={windowDetailNoteClassName}>{props.note}</span>
+            ) : null}
+          </PropertyListItem>
+        );
+      })()}
+    </>
   );
 }
-
 function applyWindowDetailEvent(
   current: WindowDetailState,
   event: WindowDetailEvent,
 ): WindowDetailState {
   switch (event.type) {
     case "snapshot":
-      return { detail: event.detail, phase: "ready" };
+      return {
+        detail: event.detail,
+        phase: "ready",
+      };
     case "infoChanged":
       return current.detail
         ? {
-          detail: { ...current.detail, info: event.info },
-          phase: current.phase === "closed" ? "closed" : "ready",
-        }
+            detail: {
+              ...current.detail,
+              info: event.info,
+            },
+            phase: current.phase === "closed" ? "closed" : "ready",
+          }
         : current;
     case "stateChanged":
       return current.detail
         ? {
-          detail: { ...current.detail, state: event.state },
-          phase: current.phase === "closed" ? "closed" : "ready",
-        }
+            detail: {
+              ...current.detail,
+              state: event.state,
+            },
+            phase: current.phase === "closed" ? "closed" : "ready",
+          }
         : current;
     case "boundsChanged":
       return current.detail
         ? {
-          detail: { ...current.detail, bounds: event.bounds },
-          phase: current.phase === "closed" ? "closed" : "ready",
-        }
+            detail: {
+              ...current.detail,
+              bounds: event.bounds,
+            },
+            phase: current.phase === "closed" ? "closed" : "ready",
+          }
         : current;
     case "closed":
-      return { ...current, phase: "closed" };
+      return {
+        ...current,
+        phase: "closed",
+      };
   }
 }
-
 function applyWindowsEvent(
   currentRows: WindowInfo[],
   event: WindowsTableEvent,
@@ -623,7 +712,6 @@ function applyWindowsEvent(
   if (event.type === "snapshot") {
     return sortedWindows(event.rows);
   }
-
   const rowsById = new Map(currentRows.map((row) => [row.windowId, row]));
   for (const windowId of event.removes) {
     rowsById.delete(windowId);
@@ -633,19 +721,15 @@ function applyWindowsEvent(
   }
   return sortedWindows([...rowsById.values()]);
 }
-
 function sortedWindows(rows: WindowInfo[]): WindowInfo[] {
   return [...rows].sort((a, b) => {
     const pidCompare = compareOptionalNumber(a.processId, b.processId);
     if (pidCompare !== 0) return pidCompare;
-
     const titleCompare = windowTitle(a).localeCompare(windowTitle(b));
     if (titleCompare !== 0) return titleCompare;
-
     return a.windowId.localeCompare(b.windowId);
   });
 }
-
 function compareOptionalNumber(
   left: number | undefined,
   right: number | undefined,
@@ -655,16 +739,13 @@ function compareOptionalNumber(
   if (right === undefined) return -1;
   return left - right;
 }
-
 function windowTitle(window: WindowInfo): string {
   return window.title || window.windowId;
 }
-
 function booleanLabel(value: boolean | undefined): string {
   if (value === undefined) return "Unknown";
   return value ? "Yes" : "No";
 }
-
 function formatBoundsNumber(value: number | undefined): string {
   return value === undefined ? "Unknown" : String(value);
 }

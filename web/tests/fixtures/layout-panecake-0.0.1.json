@@ -1,0 +1,252 @@
+{
+  "source": "panecake@0.0.1 dist/index.mjs",
+  "initial": {
+    "nodes": {
+      "01anm6c3g": {
+        "type": "leaf",
+        "id": "01anm6c3g",
+        "paneId": "A"
+      },
+      "02lb8co6w": {
+        "type": "leaf",
+        "id": "02lb8co6w",
+        "paneId": "B"
+      },
+      "03vyuj0ad": {
+        "type": "leaf",
+        "id": "03vyuj0ad",
+        "paneId": "C"
+      },
+      "056mgpcdt": {
+        "type": "branch",
+        "id": "056mgpcdt",
+        "direction": "vertical",
+        "children": ["02lb8co6w", "03vyuj0ad"],
+        "ratios": [0.3, 0.7]
+      },
+      "06ha2voha": {
+        "type": "branch",
+        "id": "06ha2voha",
+        "direction": "horizontal",
+        "children": ["01anm6c3g", "056mgpcdt"],
+        "ratios": [0.4, 0.6]
+      }
+    },
+    "rootId": "06ha2voha"
+  },
+  "steps": [
+    {
+      "action": {
+        "type": "SPLIT",
+        "nodeId": "01anm6c3g",
+        "paneId": "D",
+        "direction": "horizontal",
+        "position": "after"
+      },
+      "result": {
+        "nodes": {
+          "01anm6c3g": {
+            "type": "leaf",
+            "id": "01anm6c3g",
+            "paneId": "A"
+          },
+          "02lb8co6w": {
+            "type": "leaf",
+            "id": "02lb8co6w",
+            "paneId": "B"
+          },
+          "03vyuj0ad": {
+            "type": "leaf",
+            "id": "03vyuj0ad",
+            "paneId": "C"
+          },
+          "056mgpcdt": {
+            "type": "branch",
+            "id": "056mgpcdt",
+            "direction": "vertical",
+            "children": ["02lb8co6w", "03vyuj0ad"],
+            "ratios": [0.3, 0.7]
+          },
+          "06ha2voha": {
+            "type": "branch",
+            "id": "06ha2voha",
+            "direction": "horizontal",
+            "children": ["01anm6c3g", "07rxp20kq", "056mgpcdt"],
+            "ratios": [0.2, 0.2, 0.6]
+          },
+          "07rxp20kq": {
+            "type": "leaf",
+            "id": "07rxp20kq",
+            "paneId": "D"
+          }
+        },
+        "rootId": "06ha2voha"
+      }
+    },
+    {
+      "action": {
+        "type": "RESIZE",
+        "nodeId": "06ha2voha",
+        "dividerIndex": 0,
+        "ratios": [0.1, 0.3, 0.6]
+      },
+      "result": {
+        "nodes": {
+          "01anm6c3g": {
+            "type": "leaf",
+            "id": "01anm6c3g",
+            "paneId": "A"
+          },
+          "02lb8co6w": {
+            "type": "leaf",
+            "id": "02lb8co6w",
+            "paneId": "B"
+          },
+          "03vyuj0ad": {
+            "type": "leaf",
+            "id": "03vyuj0ad",
+            "paneId": "C"
+          },
+          "056mgpcdt": {
+            "type": "branch",
+            "id": "056mgpcdt",
+            "direction": "vertical",
+            "children": ["02lb8co6w", "03vyuj0ad"],
+            "ratios": [0.3, 0.7]
+          },
+          "06ha2voha": {
+            "type": "branch",
+            "id": "06ha2voha",
+            "direction": "horizontal",
+            "children": ["01anm6c3g", "07rxp20kq", "056mgpcdt"],
+            "ratios": [0.1, 0.3, 0.6]
+          },
+          "07rxp20kq": {
+            "type": "leaf",
+            "id": "07rxp20kq",
+            "paneId": "D"
+          }
+        },
+        "rootId": "06ha2voha"
+      }
+    },
+    {
+      "action": {
+        "type": "MOVE_PANE",
+        "sourceNodeId": "07rxp20kq",
+        "targetNodeId": "03vyuj0ad",
+        "position": {
+          "side": "bottom",
+          "zone": "split"
+        }
+      },
+      "result": {
+        "nodes": {
+          "01anm6c3g": {
+            "type": "leaf",
+            "id": "01anm6c3g",
+            "paneId": "A"
+          },
+          "02lb8co6w": {
+            "type": "leaf",
+            "id": "02lb8co6w",
+            "paneId": "B"
+          },
+          "03vyuj0ad": {
+            "type": "leaf",
+            "id": "03vyuj0ad",
+            "paneId": "C"
+          },
+          "056mgpcdt": {
+            "type": "branch",
+            "id": "056mgpcdt",
+            "direction": "vertical",
+            "children": ["02lb8co6w", "03vyuj0ad", "092lb8co6"],
+            "ratios": [0.3, 0.35, 0.35]
+          },
+          "06ha2voha": {
+            "type": "branch",
+            "id": "06ha2voha",
+            "direction": "horizontal",
+            "children": ["01anm6c3g", "056mgpcdt"],
+            "ratios": [0.14285714285714288, 0.8571428571428572]
+          },
+          "092lb8co6": {
+            "type": "leaf",
+            "id": "092lb8co6",
+            "paneId": "D"
+          }
+        },
+        "rootId": "06ha2voha"
+      }
+    },
+    {
+      "action": {
+        "type": "REMOVE_PANE",
+        "nodeId": "02lb8co6w"
+      },
+      "result": {
+        "nodes": {
+          "01anm6c3g": {
+            "type": "leaf",
+            "id": "01anm6c3g",
+            "paneId": "A"
+          },
+          "03vyuj0ad": {
+            "type": "leaf",
+            "id": "03vyuj0ad",
+            "paneId": "C"
+          },
+          "056mgpcdt": {
+            "type": "branch",
+            "id": "056mgpcdt",
+            "direction": "vertical",
+            "children": ["03vyuj0ad", "092lb8co6"],
+            "ratios": [0.5, 0.5]
+          },
+          "06ha2voha": {
+            "type": "branch",
+            "id": "06ha2voha",
+            "direction": "horizontal",
+            "children": ["01anm6c3g", "056mgpcdt"],
+            "ratios": [0.14285714285714288, 0.8571428571428572]
+          },
+          "092lb8co6": {
+            "type": "leaf",
+            "id": "092lb8co6",
+            "paneId": "D"
+          }
+        },
+        "rootId": "06ha2voha"
+      }
+    },
+    {
+      "action": {
+        "type": "REMOVE_PANE",
+        "nodeId": "03vyuj0ad"
+      },
+      "result": {
+        "nodes": {
+          "01anm6c3g": {
+            "type": "leaf",
+            "id": "01anm6c3g",
+            "paneId": "A"
+          },
+          "06ha2voha": {
+            "type": "branch",
+            "id": "06ha2voha",
+            "direction": "horizontal",
+            "children": ["01anm6c3g", "092lb8co6"],
+            "ratios": [0.14285714285714288, 0.8571428571428572]
+          },
+          "092lb8co6": {
+            "type": "leaf",
+            "id": "092lb8co6",
+            "paneId": "D"
+          }
+        },
+        "rootId": "06ha2voha"
+      }
+    }
+  ]
+}

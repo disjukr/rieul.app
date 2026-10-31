@@ -1,9 +1,11 @@
+import type { WorkbenchTab } from "../../../state/workbench.ts";
+import type { TabSplitDropSide, WorkbenchTabDropTarget } from "./tab-drag.ts";
+import { ModalDialog } from "../../ui/dialog.tsx";
+import { createSignal, createMemo, createEffect, For } from "solid-js";
 import { WorkbenchTabIdContext } from "../../../state/workbench-context.ts";
-import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { useDroppable } from "@dnd-kit/core";
-import { useAtomValue } from "jotai";
-import { useBunja } from "bunja/react";
-import { Handle, useLayout } from "panecake";
+import { useAtomValue } from "../../../solid/jotai.tsx";
+import { useBunja } from "../../../solid/bunja.tsx";
+import { layoutReducer } from "../../../state/layout.ts";
 import {
   Activity,
   AppWindow,
@@ -19,24 +21,16 @@ import {
   Terminal,
   Unlink,
   X,
-} from "lucide-react";
+} from "../../../solid/icons.tsx";
 import { closeTerminalSession } from "../../../protocol/generated/client.ts";
 import { machineStoreBunja } from "../../../state/machine-store.ts";
 import { rpcSessionBunja } from "../../../state/rpc-session.ts";
 import { terminalShellsBunja } from "../../../state/terminal-shells.ts";
 import {
-  type TabDropPosition,
   workbenchBunja,
   workbenchPaneBunja,
-  type WorkbenchTab,
 } from "../../../state/workbench.ts";
 import { WorkbenchToolContent } from "../tool/index.tsx";
-import {
-  type TabSplitDropSide,
-  workbenchPaneBodyDropId,
-  type WorkbenchTabDropTarget,
-  workbenchTabStripDropId,
-} from "./tab-drag.ts";
 import { WorkbenchTabItem } from "./tab-item.tsx";
 import { className } from "../../class-name.ts";
 import { Button } from "../../ui/button.tsx";
@@ -46,7 +40,6 @@ import {
   FloatingMenuItem,
   useFloatingMenuDismiss,
 } from "../../ui/floating-menu.tsx";
-
 interface WorkbenchPaneViewProps {
   canSplit: boolean;
   draggingTabId?: string;
@@ -55,18 +48,22 @@ interface WorkbenchPaneViewProps {
   tabSplitDropSide?: TabSplitDropSide;
   topRight: boolean;
 }
-
 type PendingCloseRequest =
-  | { dirtyCount: number; kind: "pane" }
-  | { dirtyCount: number; kind: "tab"; tabId: string };
+  | {
+      dirtyCount: number;
+      kind: "pane";
+    }
+  | {
+      dirtyCount: number;
+      kind: "tab";
+      tabId: string;
+    };
 type SplitDirection = "horizontal" | "vertical";
-
 interface TabContextMenuState {
   tab: WorkbenchTab;
   x: number;
   y: number;
 }
-
 const workbenchPaneOuterClassName = [
   "workbench-pane relative",
   "m-[4px] h-[calc(100%-8px)] w-[calc(100%-8px)] min-w-0 min-h-0",
@@ -157,244 +154,238 @@ const workbenchTabPageClassName = [
   "[container:workbench-tab-page_/_inline-size]",
   "[&[hidden]]:hidden",
 ].join(" ");
-const closeConfirmBackdropClassName =
-  "fixed inset-0 z-[20] grid place-items-center bg-rieul-overlay p-[24px]";
-const closeConfirmModalClassName = [
-  "w-[min(420px,100%)] overflow-hidden border border-rieul-border",
-  "rounded-rieul-xl bg-rieul-surface shadow-rieul-lg",
-].join(" ");
-const closeConfirmHeadClassName = [
-  "flex items-center justify-between gap-[12px] border-b border-b-rieul-border",
-  "px-[16px] py-[14px]",
-  "[&_div]:grid [&_div]:gap-[2px] [&_div]:min-w-0",
-  "[&_span]:text-rieul-text-3 [&_span]:text-[13px] [&_span]:font-600",
-  "[&_h2]:m-0 [&_h2]:text-rieul-text [&_h2]:text-[18px] [&_h2]:tracking-[0]",
-].join(" ");
-const closeConfirmIconButtonClassName = "!w-[36px] !min-w-[36px] !p-0";
-const closeConfirmBodyClassName = [
-  "grid gap-[14px] p-[16px]",
-  "[&_p]:m-0 [&_p]:text-rieul-text-2 [&_p]:text-[14px]",
-].join(" ");
-const closeConfirmActionsClassName = "flex justify-end gap-[8px]";
-const closeConfirmDangerButtonClassName = [
-  "border-rieul-danger bg-rieul-danger-soft text-rieul-danger",
-  "hover:border-rieul-danger hover:bg-rieul-danger-soft hover:text-rieul-danger",
-].join(" ");
-
-export function WorkbenchPaneView(
-  {
-    canSplit,
-    draggingTabId,
-    nodeId,
-    tabDropTarget,
-    tabSplitDropSide,
-    topRight,
-  }: WorkbenchPaneViewProps,
-) {
+export function WorkbenchPaneView(props: WorkbenchPaneViewProps) {
   const machineStore = useBunja(machineStoreBunja);
   const rpcSession = useBunja(rpcSessionBunja);
   const terminalShellsState = useBunja(terminalShellsBunja);
   const workbench = useBunja(workbenchBunja);
   const paneState = useBunja(workbenchPaneBunja);
-  const machine = useAtomValue(machineStore.selectedAtom);
-  const defaultShell = useAtomValue(terminalShellsState.defaultShellAtom);
-  const panes = useAtomValue(workbench.panesAtom);
-  const pane = useAtomValue(paneState.paneAtom);
-  const paneCount = useAtomValue(paneState.paneCountAtom);
-  const active = useAtomValue(paneState.activeAtom);
-  const { removePane: removeLayoutPane, split } = useLayout();
-  const [paneCreateMenuOpen, setPaneCreateMenuOpen] = useState(false);
-  const [paneOverflowMenuOpen, setPaneOverflowMenuOpen] = useState(false);
-  const [pendingCloseRequest, setPendingCloseRequest] = useState<
+  const machine = useAtomValue(() => machineStore().selectedAtom);
+  const defaultShell = useAtomValue(
+    () => terminalShellsState().defaultShellAtom,
+  );
+  const panes = useAtomValue(() => workbench().panesAtom);
+  const pane = useAtomValue(() => paneState().paneAtom);
+  const paneCount = useAtomValue(() => paneState().paneCountAtom);
+  const active = useAtomValue(() => paneState().activeAtom);
+  const layout = useAtomValue(() => workbench().layoutAtom);
+  function removeLayoutPane(nodeId: string) {
+    workbench().setLayout(
+      layoutReducer(layout(), {
+        type: "REMOVE_PANE",
+        nodeId,
+      }),
+    );
+  }
+  function split(
+    nodeId: string,
+    direction: SplitDirection,
+    paneId: string,
+    position: "before" | "after",
+  ) {
+    workbench().setLayout(
+      layoutReducer(layout(), {
+        type: "SPLIT",
+        nodeId,
+        direction,
+        paneId,
+        position,
+      }),
+    );
+  }
+  const [paneCreateMenuOpen, setPaneCreateMenuOpen] = createSignal(false);
+  const [paneOverflowMenuOpen, setPaneOverflowMenuOpen] = createSignal(false);
+  const [pendingCloseRequest, setPendingCloseRequest] = createSignal<
     PendingCloseRequest | undefined
   >();
-  const [tabContextMenu, setTabContextMenu] = useState<TabContextMenuState>();
-  const [preferredSplitDirection, setPreferredSplitDirection] = useState<
-    SplitDirection
-  >("horizontal");
-  const paneRef = useRef<HTMLElement>(null);
-  const paneOverflowMenuRef = useRef<HTMLDivElement>(null);
-  const paneCreateMenuRef = useRef<HTMLDivElement>(null);
-  const tabsRef = useRef<HTMLDivElement>(null);
-  const tabContextMenuRef = useRef<HTMLDivElement>(null);
-  const canClosePane = paneCount > 1;
-  const { setNodeRef: setTabStripDropNodeRef } = useDroppable({
-    id: workbenchTabStripDropId(paneState.paneId),
-    data: {
-      kind: "tab-strip",
-      paneId: paneState.paneId,
-      type: "workbench-tab-drop",
-    },
-  });
-  const { setNodeRef: setPaneBodyDropNodeRef } = useDroppable({
-    disabled: !canSplit,
-    id: workbenchPaneBodyDropId(paneState.paneId),
-    data: {
-      kind: "pane-body",
-      nodeId,
-      paneId: paneState.paneId,
-      type: "workbench-tab-drop",
-    },
-  });
-
-  useFloatingMenuDismiss(
-    paneCreateMenuOpen,
-    paneCreateMenuRef,
-    () => setPaneCreateMenuOpen(false),
+  const [tabContextMenu, setTabContextMenu] =
+    createSignal<TabContextMenuState>();
+  const [preferredSplitDirection, setPreferredSplitDirection] =
+    createSignal<SplitDirection>("horizontal");
+  const paneRef = {
+    current: null as HTMLElement | null,
+  };
+  const paneOverflowMenuRef = {
+    current: null as HTMLDivElement | null,
+  };
+  const paneCreateMenuRef = {
+    current: null as HTMLDivElement | null,
+  };
+  const tabsRef = {
+    current: null as HTMLDivElement | null,
+  };
+  const tabContextMenuRef = {
+    current: null as HTMLDivElement | null,
+  };
+  const canClosePane = createMemo(() => paneCount() > 1);
+  useFloatingMenuDismiss(paneCreateMenuOpen, paneCreateMenuRef, () =>
+    setPaneCreateMenuOpen(false),
+  );
+  useFloatingMenuDismiss(paneOverflowMenuOpen, paneOverflowMenuRef, () =>
+    setPaneOverflowMenuOpen(false),
   );
   useFloatingMenuDismiss(
-    paneOverflowMenuOpen,
-    paneOverflowMenuRef,
-    () => setPaneOverflowMenuOpen(false),
-  );
-  useFloatingMenuDismiss(
-    tabContextMenu !== undefined,
+    () => tabContextMenu() !== undefined,
     tabContextMenuRef,
     () => setTabContextMenu(undefined),
   );
-
-  useLayoutEffect(() => {
-    const tabScroller = tabsRef.current;
-    if (!pane?.activeTabId || !tabScroller) return;
-    const activeTab = tabScroller.querySelector<HTMLElement>(
-      ".workbench-tab.active",
-    );
-    if (!activeTab) return;
-
-    const stickyAddButtonWidth = paneCreateMenuRef.current?.offsetWidth ?? 0;
-    const gap = 4;
-    const visibleLeft = tabScroller.scrollLeft;
-    const visibleRight = tabScroller.scrollLeft + tabScroller.clientWidth -
-      stickyAddButtonWidth - gap;
-    const tabLeft = activeTab.offsetLeft;
-    const tabRight = activeTab.offsetLeft + activeTab.offsetWidth;
-
-    if (tabLeft < visibleLeft) {
-      tabScroller.scrollTo({ left: tabLeft, behavior: "smooth" });
-      return;
-    }
-    if (tabRight > visibleRight) {
-      tabScroller.scrollTo({
-        left: tabRight - tabScroller.clientWidth + stickyAddButtonWidth + gap,
-        behavior: "smooth",
-      });
-    }
-  }, [pane?.activeTabId, pane?.tabs.length]);
-
-  useLayoutEffect(() => {
-    const element = paneRef.current;
-    if (!element) return;
-
-    function updateSplitDirection(width: number, height: number) {
-      if (width <= 0 || height <= 0) return;
-      const next = width >= height ? "horizontal" : "vertical";
-      setPreferredSplitDirection((current) =>
-        current === next ? current : next
+  createEffect(
+    createMemo(() => [pane()?.activeTabId, pane()?.tabs.length] as const, {
+      equals: (a, b) =>
+        a.length === b.length &&
+        a.every((value, index) => Object.is(value, b[index])),
+    }),
+    ([snapshotPaneActiveTabId, ,]) => {
+      const tabScroller = tabsRef.current;
+      if (!snapshotPaneActiveTabId || !tabScroller) return;
+      const activeTab = tabScroller.querySelector<HTMLElement>(
+        ".workbench-tab.active",
       );
-    }
-
-    const rect = element.getBoundingClientRect();
-    updateSplitDirection(rect.width, rect.height);
-    const resizeObserver = new ResizeObserver((entries) => {
-      const entry = entries[0];
-      if (!entry) return;
-      updateSplitDirection(entry.contentRect.width, entry.contentRect.height);
-    });
-    resizeObserver.observe(element);
-    return () => resizeObserver.disconnect();
-  }, []);
-
+      if (!activeTab) return;
+      const stickyAddButtonWidth = paneCreateMenuRef.current?.offsetWidth ?? 0;
+      const gap = 4;
+      const visibleLeft = tabScroller.scrollLeft;
+      const visibleRight =
+        tabScroller.scrollLeft +
+        tabScroller.clientWidth -
+        stickyAddButtonWidth -
+        gap;
+      const tabLeft = activeTab.offsetLeft;
+      const tabRight = activeTab.offsetLeft + activeTab.offsetWidth;
+      if (tabLeft < visibleLeft) {
+        tabScroller.scrollTo({
+          left: tabLeft,
+          behavior: "smooth",
+        });
+        return;
+      }
+      if (tabRight > visibleRight) {
+        tabScroller.scrollTo({
+          left: tabRight - tabScroller.clientWidth + stickyAddButtonWidth + gap,
+          behavior: "smooth",
+        });
+      }
+    },
+  );
+  createEffect(
+    createMemo(() => [] as const, {
+      equals: (a, b) =>
+        a.length === b.length &&
+        a.every((value, index) => Object.is(value, b[index])),
+    }),
+    () => {
+      const element = paneRef.current;
+      if (!element) return;
+      function updateSplitDirection(width: number, height: number) {
+        if (width <= 0 || height <= 0) return;
+        const next = width >= height ? "horizontal" : "vertical";
+        setPreferredSplitDirection((current) =>
+          current === next ? current : next,
+        );
+      }
+      const rect = element.getBoundingClientRect();
+      updateSplitDirection(rect.width, rect.height);
+      const resizeObserver = new ResizeObserver((entries) => {
+        const entry = entries[0];
+        if (!entry) return;
+        updateSplitDirection(entry.contentRect.width, entry.contentRect.height);
+      });
+      resizeObserver.observe(element);
+      return () => resizeObserver.disconnect();
+    },
+  );
   function splitPane(direction: SplitDirection) {
-    if (!canSplit) return;
+    if (!props.canSplit) return;
     setPaneCreateMenuOpen(false);
     setPaneOverflowMenuOpen(false);
-    const newPaneId = paneState.addPane();
-    split(nodeId, direction, newPaneId, "after");
+    const newPaneId = paneState().addPane();
+    split(props.nodeId, direction, newPaneId, "after");
   }
-
-  useEffect(() => {
-    if (!pendingCloseRequest) return;
-
-    function closeOnEscape(event: KeyboardEvent) {
-      if (event.key === "Escape") setPendingCloseRequest(undefined);
-    }
-
-    globalThis.addEventListener("keydown", closeOnEscape);
-    return () => globalThis.removeEventListener("keydown", closeOnEscape);
-  }, [pendingCloseRequest]);
-
+  createEffect(
+    createMemo(() => [pendingCloseRequest()] as const, {
+      equals: (a, b) =>
+        a.length === b.length &&
+        a.every((value, index) => Object.is(value, b[index])),
+    }),
+    ([snapshotPendingCloseRequest]) => {
+      if (!snapshotPendingCloseRequest) return;
+      function closeOnEscape(event: KeyboardEvent) {
+        if (event.key === "Escape") setPendingCloseRequest(undefined);
+      }
+      globalThis.addEventListener("keydown", closeOnEscape);
+      return () => globalThis.removeEventListener("keydown", closeOnEscape);
+    },
+  );
   function requestClosePane() {
-    if (!canClosePane) return;
-    const dirtyCount = pane ? dirtyTabCount(pane.tabs) : 0;
+    if (!canClosePane()) return;
+    const dirtyCount = pane() ? dirtyTabCount(pane()!.tabs) : 0;
     if (dirtyCount > 0) {
-      setPendingCloseRequest({ dirtyCount, kind: "pane" });
+      setPendingCloseRequest({
+        dirtyCount,
+        kind: "pane",
+      });
       return;
     }
     performClosePane();
   }
-
   function performClosePane() {
-    if (!canClosePane) return;
+    if (!canClosePane()) return;
     setPaneOverflowMenuOpen(false);
-    if (pane) closeTerminalSessions(pane.tabs);
-    removeLayoutPane(nodeId);
-    paneState.removePane();
+    if (pane()) closeTerminalSessions(pane()!.tabs);
+    removeLayoutPane(props.nodeId);
+    paneState().removePane();
   }
-
   function requestCloseWorkbenchTab(tabId: string) {
     setTabContextMenu(undefined);
     setPaneOverflowMenuOpen(false);
-    if (!pane) return;
-    const closingTab = pane.tabs.find((tab) => tab.id === tabId);
+    if (!pane()) return;
+    const closingTab = pane()!.tabs.find((tab) => tab.id === tabId);
     const dirtyCount = closingTab?.dirty ? 1 : 0;
     if (dirtyCount > 0) {
-      setPendingCloseRequest({ dirtyCount, kind: "tab", tabId });
+      setPendingCloseRequest({
+        dirtyCount,
+        kind: "tab",
+        tabId,
+      });
       return;
     }
     performCloseWorkbenchTab(tabId);
   }
-
   function performCloseWorkbenchTab(tabId: string) {
-    if (!pane) return;
-    const closingTab = pane.tabs.find((tab) => tab.id === tabId);
-    if (pane.tabs.length > 1) {
+    if (!pane()) return;
+    const closingTab = pane()!.tabs.find((tab) => tab.id === tabId);
+    if (pane()!.tabs.length > 1) {
       if (closingTab) closeTerminalSessions([closingTab]);
-      paneState.closeTab(tabId);
+      paneState().closeTab(tabId);
       return;
     }
     performClosePane();
   }
-
   function detachTerminalTab(tabId: string) {
     setTabContextMenu(undefined);
     setPaneOverflowMenuOpen(false);
-    if (!pane) return;
-    if (pane.tabs.length > 1) {
-      paneState.closeTab(tabId);
+    if (!pane()) return;
+    if (pane()!.tabs.length > 1) {
+      paneState().closeTab(tabId);
       return;
     }
-    if (canClosePane) {
-      removeLayoutPane(nodeId);
-      paneState.removePane();
+    if (canClosePane()) {
+      removeLayoutPane(props.nodeId);
+      paneState().removePane();
       return;
     }
-    paneState.addFilesTab();
-    paneState.closeTab(tabId);
+    paneState().addFilesTab();
+    paneState().closeTab(tabId);
   }
-
   function duplicateWorkbenchTab(tabId: string) {
     setTabContextMenu(undefined);
     setPaneOverflowMenuOpen(false);
-    paneState.duplicateTab(tabId);
+    paneState().duplicateTab(tabId);
   }
-
-  function openTabContextMenu(
-    tab: WorkbenchTab,
-    event: React.MouseEvent<HTMLDivElement>,
-  ) {
+  function openTabContextMenu(tab: WorkbenchTab, event: MouseEvent) {
     event.preventDefault();
     event.stopPropagation();
-    paneState.selectTab(tab.id);
+    paneState().selectTab(tab.id);
     const position = tabContextMenuPosition(
       event.clientX,
       event.clientY,
@@ -402,11 +393,13 @@ export function WorkbenchPaneView(
     );
     setPaneCreateMenuOpen(false);
     setPaneOverflowMenuOpen(false);
-    setTabContextMenu({ tab, ...position });
+    setTabContextMenu({
+      tab,
+      ...position,
+    });
   }
-
   function confirmPendingCloseRequest() {
-    const request = pendingCloseRequest;
+    const request = pendingCloseRequest();
     if (!request) return;
     setPendingCloseRequest(undefined);
     if (request.kind === "tab") {
@@ -415,498 +408,466 @@ export function WorkbenchPaneView(
     }
     performClosePane();
   }
-
   function closeTerminalSessions(tabs: WorkbenchTab[]) {
-    if (!machine) return;
+    if (!machine()) return;
     const closingTabIds = new Set(tabs.map((tab) => tab.id));
     const remainingTerminalSessionIds = new Set(
-      panes.flatMap((pane) => pane.tabs)
+      panes()
+        .flatMap((pane) => pane.tabs)
         .filter((tab) => !closingTabIds.has(tab.id))
         .flatMap((tab) =>
           tab.tool === "terminal" && tab.terminalSessionId
             ? [tab.terminalSessionId]
-            : []
+            : [],
         ),
     );
     const closingTerminalSessionIds = new Set<string>();
-
     for (const tab of tabs) {
       if (tab.tool !== "terminal" || !tab.terminalSessionId) continue;
       if (remainingTerminalSessionIds.has(tab.terminalSessionId)) continue;
       closingTerminalSessionIds.add(tab.terminalSessionId);
     }
-
     for (const terminalSessionId of closingTerminalSessionIds) {
       void (async () => {
-        const transport = await rpcSession.webTransport();
-        await closeTerminalSession(transport, { terminalSessionId });
+        const transport = await rpcSession().webTransport();
+        await closeTerminalSession(transport, {
+          terminalSessionId,
+        });
       })().catch(() => {
         // Closing a tab should not be blocked by a stale connection or session.
       });
     }
   }
-
   function openFilesTab() {
-    paneState.addFilesTab();
+    paneState().addFilesTab();
     setPaneCreateMenuOpen(false);
     setPaneOverflowMenuOpen(false);
   }
-
   function openDaemonTab() {
-    paneState.addDaemonTab();
+    paneState().addDaemonTab();
     setPaneCreateMenuOpen(false);
     setPaneOverflowMenuOpen(false);
   }
-
   function openAgentTab() {
-    paneState.addAgentTab();
+    paneState().addAgentTab();
     setPaneCreateMenuOpen(false);
     setPaneOverflowMenuOpen(false);
   }
-
   function openProcessesTab() {
-    paneState.addProcessesTab();
+    paneState().addProcessesTab();
     setPaneCreateMenuOpen(false);
     setPaneOverflowMenuOpen(false);
   }
-
   function openWindowsTab() {
-    paneState.addWindowsTab();
+    paneState().addWindowsTab();
     setPaneCreateMenuOpen(false);
     setPaneOverflowMenuOpen(false);
   }
-
   function openTerminalTab() {
-    const shell = defaultShell;
-    paneState.addTerminalTab(
+    const shell = defaultShell();
+    paneState().addTerminalTab(
       shell
         ? {
-          launch: {
-            command: shell.command,
-            args: shell.args,
-          },
-          title: shell.name,
-        }
+            launch: {
+              command: shell.command,
+              args: shell.args,
+            },
+            title: shell.name,
+          }
         : {},
     );
     setPaneCreateMenuOpen(false);
     setPaneOverflowMenuOpen(false);
   }
-
-  if (!pane) return null;
-
-  const paneBodyClassName = className(
-    workbenchPaneBodyClassName,
-    tabSplitDropSide === "left" && "tab-split-left",
-    tabSplitDropSide === "right" && "tab-split-right",
-    tabSplitDropSide === "top" && "tab-split-top",
-    tabSplitDropSide === "bottom" && "tab-split-bottom",
-  );
-  const activeTab = pane?.tabs.find((tab) => tab.id === pane.activeTabId);
-  const splitButtonLabel = splitDirectionLabel(preferredSplitDirection);
-
+  const hasPane = createMemo(() => !!pane());
   return (
-    <section
-      ref={paneRef}
-      className={className(workbenchPaneOuterClassName, active && "active")}
-      data-node-id={nodeId}
-      data-pane-id={paneState.paneId}
-      onPointerDownCapture={paneState.focusPane}
-      onFocusCapture={paneState.focusPane}
-    >
-      <div className={workbenchPaneSurfaceClassName}>
-        <header className={workbenchPaneHeadClassName}>
-          <Handle className={paneHandleClassName}>
-            <GripVertical size={13} strokeWidth={1.8} />
-          </Handle>
-          <div
-            className={workbenchTabsClassName}
-            ref={(element) => {
-              tabsRef.current = element;
-              setTabStripDropNodeRef(element);
-            }}
-            data-pane-id={paneState.paneId}
-            role="tablist"
+    <>
+      {(() => {
+        if (!hasPane()) return null;
+        const paneBodyClassName = createMemo(() =>
+          className(
+            workbenchPaneBodyClassName,
+            props.tabSplitDropSide === "left" && "tab-split-left",
+            props.tabSplitDropSide === "right" && "tab-split-right",
+            props.tabSplitDropSide === "top" && "tab-split-top",
+            props.tabSplitDropSide === "bottom" && "tab-split-bottom",
+          ),
+        );
+        const activeTab = createMemo(() =>
+          pane()?.tabs.find((tab) => tab.id === pane()!.activeTabId),
+        );
+        const splitButtonLabel = createMemo(() =>
+          splitDirectionLabel(preferredSplitDirection()),
+        );
+        return (
+          <section
+            ref={(element) => (paneRef.current = element)}
+            class={className(workbenchPaneOuterClassName, active() && "active")}
+            data-node-id={props.nodeId}
+            data-pane-id={paneState().paneId}
+            onPointerDown={paneState().focusPane}
+            onFocusIn={paneState().focusPane}
           >
-            {pane.tabs.map((tab, index) => (
-              <WorkbenchTabIdContext key={tab.id} value={tab.id}>
-                <WorkbenchTabItem
-                  dragging={draggingTabId === tab.id}
-                  dropPosition={tabDropPositionForTab(
-                    tabDropTarget,
-                    tab,
-                    index === pane.tabs.length - 1,
-                  )}
-                  nodeId={nodeId}
-                  paneActive={active}
-                  onClose={() =>
-                    requestCloseWorkbenchTab(tab.id)}
-                  onContextMenu={openTabContextMenu}
-                />
-              </WorkbenchTabIdContext>
-            ))}
-            <div
-              className={paneAddTabButtonWrapClassName}
-              ref={paneCreateMenuRef}
-              role="presentation"
-            >
-              <Button
-                size="icon"
-                variant="ghost"
-                className={className(
-                  compactIconButtonClassName,
-                  standaloneButtonClassName,
-                )}
-                onClick={() => {
-                  setPaneOverflowMenuOpen(false);
-                  setPaneCreateMenuOpen((open) => !open);
-                }}
-                title="New tab"
-                aria-label="New tab"
-                aria-haspopup="menu"
-                aria-expanded={paneCreateMenuOpen}
-              >
-                <Plus size={13} />
-              </Button>
-              {paneCreateMenuOpen
-                ? (
-                  <FloatingMenu
-                    align="end"
-                    anchorRef={paneCreateMenuRef}
-                    className={paneCreateMenuClassName}
-                    strategy="absolute"
-                  >
-                    <FloatingMenuItem
-                      className={paneOverflowMenuItemClassName}
-                      onClick={openDaemonTab}
-                    >
-                      <Info size={14} />
-                      New Daemon Tab
-                    </FloatingMenuItem>
-                    <FloatingMenuItem
-                      className={paneOverflowMenuItemClassName}
-                      onClick={openAgentTab}
-                    >
-                      <Bot size={14} />
-                      New Agent Tab
-                    </FloatingMenuItem>
-                    <FloatingMenuItem
-                      className={paneOverflowMenuItemClassName}
-                      onClick={openFilesTab}
-                    >
-                      <Folder size={14} />
-                      New Files Tab
-                    </FloatingMenuItem>
-                    <FloatingMenuItem
-                      className={paneOverflowMenuItemClassName}
-                      onClick={openTerminalTab}
-                    >
-                      <Terminal size={14} />
-                      New Terminal Tab
-                    </FloatingMenuItem>
-                    <FloatingMenuItem
-                      className={paneOverflowMenuItemClassName}
-                      onClick={openProcessesTab}
-                    >
-                      <Activity size={14} />
-                      New Processes Tab
-                    </FloatingMenuItem>
-                    <FloatingMenuItem
-                      className={paneOverflowMenuItemClassName}
-                      onClick={openWindowsTab}
-                    >
-                      <AppWindow size={14} />
-                      New Windows Tab
-                    </FloatingMenuItem>
-                  </FloatingMenu>
-                )
-                : null}
-            </div>
-          </div>
-          <div className={paneActionsClassName}>
-            <div className={paneActionButtonGroupClassName}>
-              {topRight &&
-                  canSplit
-                ? (
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    className={className(
-                      compactIconButtonClassName,
-                      buttonGroupFirstClassName,
-                    )}
-                    onClick={() => splitPane(preferredSplitDirection)}
-                    title={splitButtonLabel}
-                    aria-label={splitButtonLabel}
-                  >
-                    {preferredSplitDirection === "horizontal"
-                      ? <Columns2 size={12} />
-                      : <Rows2 size={12} />}
-                  </Button>
-                )
-                : null}
-              <div
-                className={paneOverflowMenuWrapClassName}
-                ref={paneOverflowMenuRef}
-              >
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  className={className(
-                    compactIconButtonClassName,
-                    topRight
-                      ? buttonGroupLastClassName
-                      : standaloneButtonClassName,
-                  )}
-                  onClick={() => {
-                    setPaneCreateMenuOpen(false);
-                    setPaneOverflowMenuOpen((open) => !open);
-                  }}
-                  title="Pane actions"
-                  aria-label="Pane actions"
-                  aria-haspopup="menu"
-                  aria-expanded={paneOverflowMenuOpen}
+            <div class={workbenchPaneSurfaceClassName}>
+              <header class={workbenchPaneHeadClassName}>
+                <button
+                  type="button"
+                  data-pane-drag
+                  aria-label="Move pane"
+                  class={paneHandleClassName}
                 >
-                  <MoreHorizontal size={13} />
-                </Button>
-                {paneOverflowMenuOpen
-                  ? (
-                    <FloatingMenu
-                      align="end"
-                      anchorRef={paneOverflowMenuRef}
-                      className={paneOverflowMenuClassName}
-                      strategy="absolute"
+                  <GripVertical size={13} strokeWidth={1.8} />
+                </button>
+                <div
+                  class={workbenchTabsClassName}
+                  ref={(element) => {
+                    tabsRef.current = element;
+                  }}
+                  data-tab-strip
+                  data-pane-id={paneState().paneId}
+                  role="tablist"
+                >
+                  <For each={pane()?.tabs.map((tab) => tab.id)}>
+                    {(tabId, index) => (
+                      <WorkbenchTabIdContext value={() => tabId}>
+                        <WorkbenchTabItem
+                          dragging={props.draggingTabId === tabId}
+                          dropPosition={
+                            props.tabDropTarget?.tabId === tabId
+                              ? props.tabDropTarget.position
+                              : props.tabDropTarget?.position === "end" &&
+                                  index() === pane()!.tabs.length - 1
+                                ? "after"
+                                : undefined
+                          }
+                          nodeId={props.nodeId}
+                          paneActive={active()}
+                          onClose={() => requestCloseWorkbenchTab(tabId)}
+                          onContextMenu={openTabContextMenu}
+                        />
+                      </WorkbenchTabIdContext>
+                    )}
+                  </For>
+                  <div
+                    class={paneAddTabButtonWrapClassName}
+                    ref={(element) => (paneCreateMenuRef.current = element)}
+                    role="presentation"
+                  >
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className={className(
+                        compactIconButtonClassName,
+                        standaloneButtonClassName,
+                      )}
+                      onClick={() => {
+                        setPaneOverflowMenuOpen(false);
+                        setPaneCreateMenuOpen((open) => !open);
+                      }}
+                      title="New tab"
+                      aria-label="New tab"
+                      aria-haspopup="menu"
+                      aria-expanded={paneCreateMenuOpen() ? "true" : "false"}
                     >
-                      {activeTab
-                        ? (
-                          <>
-                            <div
-                              className={paneMobileTabMenuDividerClassName}
-                              aria-hidden="true"
-                            />
-                            <FloatingMenuItem
-                              className={paneMobileTabMenuItemClassName}
-                              onClick={() =>
-                                duplicateWorkbenchTab(activeTab.id)}
-                            >
-                              <Copy size={14} />
-                              Duplicate
-                            </FloatingMenuItem>
-                            {activeTab.tool === "terminal"
-                              ? (
+                      <Plus size={13} />
+                    </Button>
+                    {paneCreateMenuOpen() ? (
+                      <FloatingMenu
+                        align="end"
+                        anchorRef={paneCreateMenuRef}
+                        className={paneCreateMenuClassName}
+                        strategy="absolute"
+                      >
+                        <FloatingMenuItem
+                          className={paneOverflowMenuItemClassName}
+                          onClick={openDaemonTab}
+                        >
+                          <Info size={14} />
+                          New Daemon Tab
+                        </FloatingMenuItem>
+                        <FloatingMenuItem
+                          className={paneOverflowMenuItemClassName}
+                          onClick={openAgentTab}
+                        >
+                          <Bot size={14} />
+                          New Agent Tab
+                        </FloatingMenuItem>
+                        <FloatingMenuItem
+                          className={paneOverflowMenuItemClassName}
+                          onClick={openFilesTab}
+                        >
+                          <Folder size={14} />
+                          New Files Tab
+                        </FloatingMenuItem>
+                        <FloatingMenuItem
+                          className={paneOverflowMenuItemClassName}
+                          onClick={openTerminalTab}
+                        >
+                          <Terminal size={14} />
+                          New Terminal Tab
+                        </FloatingMenuItem>
+                        <FloatingMenuItem
+                          className={paneOverflowMenuItemClassName}
+                          onClick={openProcessesTab}
+                        >
+                          <Activity size={14} />
+                          New Processes Tab
+                        </FloatingMenuItem>
+                        <FloatingMenuItem
+                          className={paneOverflowMenuItemClassName}
+                          onClick={openWindowsTab}
+                        >
+                          <AppWindow size={14} />
+                          New Windows Tab
+                        </FloatingMenuItem>
+                      </FloatingMenu>
+                    ) : null}
+                  </div>
+                </div>
+                <div class={paneActionsClassName}>
+                  <div class={paneActionButtonGroupClassName}>
+                    {props.topRight && props.canSplit ? (
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className={className(
+                          compactIconButtonClassName,
+                          buttonGroupFirstClassName,
+                        )}
+                        onClick={() => splitPane(preferredSplitDirection())}
+                        title={splitButtonLabel()}
+                        aria-label={splitButtonLabel()}
+                      >
+                        {preferredSplitDirection() === "horizontal" ? (
+                          <Columns2 size={12} />
+                        ) : (
+                          <Rows2 size={12} />
+                        )}
+                      </Button>
+                    ) : null}
+                    <div
+                      class={paneOverflowMenuWrapClassName}
+                      ref={(element) => (paneOverflowMenuRef.current = element)}
+                    >
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className={className(
+                          compactIconButtonClassName,
+                          props.topRight
+                            ? buttonGroupLastClassName
+                            : standaloneButtonClassName,
+                        )}
+                        onClick={() => {
+                          setPaneCreateMenuOpen(false);
+                          setPaneOverflowMenuOpen((open) => !open);
+                        }}
+                        title="Pane actions"
+                        aria-label="Pane actions"
+                        aria-haspopup="menu"
+                        aria-expanded={
+                          paneOverflowMenuOpen() ? "true" : "false"
+                        }
+                      >
+                        <MoreHorizontal size={13} />
+                      </Button>
+                      {paneOverflowMenuOpen() ? (
+                        <FloatingMenu
+                          align="end"
+                          anchorRef={paneOverflowMenuRef}
+                          className={paneOverflowMenuClassName}
+                          strategy="absolute"
+                        >
+                          {activeTab() ? (
+                            <>
+                              <div
+                                class={paneMobileTabMenuDividerClassName}
+                                aria-hidden="true"
+                              />
+                              <FloatingMenuItem
+                                className={paneMobileTabMenuItemClassName}
+                                onClick={() =>
+                                  duplicateWorkbenchTab(activeTab()!.id)
+                                }
+                              >
+                                <Copy size={14} />
+                                Duplicate
+                              </FloatingMenuItem>
+                              {activeTab()!.tool === "terminal" ? (
                                 <FloatingMenuItem
                                   className={paneMobileTabMenuItemClassName}
                                   onClick={() =>
-                                    detachTerminalTab(activeTab.id)}
+                                    detachTerminalTab(activeTab()!.id)
+                                  }
                                 >
                                   <Unlink size={14} />
                                   Detach
                                 </FloatingMenuItem>
-                              )
-                              : null}
-                            <FloatingMenuItem
-                              className={paneMobileTabMenuItemClassName}
-                              tone={activeTab.dirty ? "danger" : "neutral"}
-                              onClick={() =>
-                                requestCloseWorkbenchTab(activeTab.id)}
-                            >
-                              <X size={14} />
-                              Close tab
-                            </FloatingMenuItem>
-                            <div
-                              className={paneMobileTabMenuDividerClassName}
-                              aria-hidden="true"
-                            />
-                          </>
-                        )
-                        : null}
-                      {canSplit
-                        ? (
-                          <>
-                            <FloatingMenuItem
-                              className={paneOverflowMenuItemClassName}
-                              onClick={() => splitPane("horizontal")}
-                            >
-                              <Columns2 size={14} />
-                              Split right
-                            </FloatingMenuItem>
-                            <FloatingMenuItem
-                              className={paneOverflowMenuItemClassName}
-                              onClick={() => splitPane("vertical")}
-                            >
-                              <Rows2 size={14} />
-                              Split down
-                            </FloatingMenuItem>
-                          </>
-                        )
-                        : null}
-                      <FloatingMenuItem
-                        className={paneOverflowMenuItemClassName}
-                        onClick={requestClosePane}
-                        disabled={!canClosePane}
+                              ) : null}
+                              <FloatingMenuItem
+                                className={paneMobileTabMenuItemClassName}
+                                tone={activeTab()!.dirty ? "danger" : "neutral"}
+                                onClick={() =>
+                                  requestCloseWorkbenchTab(activeTab()!.id)
+                                }
+                              >
+                                <X size={14} />
+                                Close tab
+                              </FloatingMenuItem>
+                              <div
+                                class={paneMobileTabMenuDividerClassName}
+                                aria-hidden="true"
+                              />
+                            </>
+                          ) : null}
+                          {props.canSplit ? (
+                            <>
+                              <FloatingMenuItem
+                                className={paneOverflowMenuItemClassName}
+                                onClick={() => splitPane("horizontal")}
+                              >
+                                <Columns2 size={14} />
+                                Split right
+                              </FloatingMenuItem>
+                              <FloatingMenuItem
+                                className={paneOverflowMenuItemClassName}
+                                onClick={() => splitPane("vertical")}
+                              >
+                                <Rows2 size={14} />
+                                Split down
+                              </FloatingMenuItem>
+                            </>
+                          ) : null}
+                          <FloatingMenuItem
+                            className={paneOverflowMenuItemClassName}
+                            onClick={requestClosePane}
+                            disabled={!canClosePane()}
+                          >
+                            <X size={14} />
+                            Close pane
+                          </FloatingMenuItem>
+                        </FloatingMenu>
+                      ) : null}
+                    </div>
+                  </div>
+                </div>
+              </header>
+              <div class={paneBodyClassName()}>
+                <For each={pane()?.tabs.map((tab) => tab.id)}>
+                  {(tabId) => (
+                    <WorkbenchTabIdContext value={() => tabId}>
+                      <section
+                        class={workbenchTabPageClassName}
+                        hidden={tabId !== pane()?.activeTabId}
                       >
-                        <X size={14} />
-                        Close pane
-                      </FloatingMenuItem>
-                    </FloatingMenu>
-                  )
-                  : null}
+                        <WorkbenchToolContent />
+                      </section>
+                    </WorkbenchTabIdContext>
+                  )}
+                </For>
               </div>
             </div>
-          </div>
-        </header>
-        <div
-          ref={setPaneBodyDropNodeRef}
-          className={paneBodyClassName}
-        >
-          {pane.tabs.map((tab) => (
-            <WorkbenchTabIdContext key={tab.id} value={tab.id}>
-              <section
-                className={workbenchTabPageClassName}
-                hidden={tab.id !== pane.activeTabId}
+            {tabContextMenu() ? (
+              <FloatingMenu
+                className="z-[30] w-[168px]"
+                menuRef={tabContextMenuRef}
+                position={{
+                  left: tabContextMenu()!.x,
+                  top: tabContextMenu()!.y,
+                }}
               >
-                <WorkbenchToolContent />
-              </section>
-            </WorkbenchTabIdContext>
-          ))}
-        </div>
-      </div>
-      {tabContextMenu
-        ? (
-          <FloatingMenu
-            className="z-[30] w-[168px]"
-            menuRef={tabContextMenuRef}
-            position={{ left: tabContextMenu.x, top: tabContextMenu.y }}
-          >
-            <FloatingMenuItem
-              onClick={() => duplicateWorkbenchTab(tabContextMenu.tab.id)}
-            >
-              <Copy size={14} />
-              Duplicate
-            </FloatingMenuItem>
-            {tabContextMenu.tab.tool === "terminal"
-              ? (
                 <FloatingMenuItem
-                  onClick={() => detachTerminalTab(tabContextMenu.tab.id)}
+                  onClick={() =>
+                    duplicateWorkbenchTab(tabContextMenu()!.tab.id)
+                  }
                 >
-                  <Unlink size={14} />
-                  Detach
+                  <Copy size={14} />
+                  Duplicate
                 </FloatingMenuItem>
-              )
-              : null}
-            <FloatingMenuItem
-              tone={tabContextMenu.tab.dirty ? "danger" : "neutral"}
-              onClick={() => requestCloseWorkbenchTab(tabContextMenu.tab.id)}
-            >
-              <X size={14} />
-              Close
-            </FloatingMenuItem>
-          </FloatingMenu>
-        )
-        : null}
-      {pendingCloseRequest
-        ? (
-          <UnsavedCloseConfirmModal
-            dirtyCount={pendingCloseRequest.dirtyCount}
-            kind={pendingCloseRequest.kind}
-            onCancel={() => setPendingCloseRequest(undefined)}
-            onConfirm={confirmPendingCloseRequest}
-          />
-        )
-        : null}
-    </section>
+                {tabContextMenu()!.tab.tool === "terminal" ? (
+                  <FloatingMenuItem
+                    onClick={() => detachTerminalTab(tabContextMenu()!.tab.id)}
+                  >
+                    <Unlink size={14} />
+                    Detach
+                  </FloatingMenuItem>
+                ) : null}
+                <FloatingMenuItem
+                  tone={tabContextMenu()!.tab.dirty ? "danger" : "neutral"}
+                  onClick={() =>
+                    requestCloseWorkbenchTab(tabContextMenu()!.tab.id)
+                  }
+                >
+                  <X size={14} />
+                  Close
+                </FloatingMenuItem>
+              </FloatingMenu>
+            ) : null}
+            {pendingCloseRequest() ? (
+              <UnsavedCloseConfirmModal
+                dirtyCount={pendingCloseRequest()!.dirtyCount}
+                kind={pendingCloseRequest()!.kind}
+                onCancel={() => setPendingCloseRequest(undefined)}
+                onConfirm={confirmPendingCloseRequest}
+              />
+            ) : null}
+          </section>
+        );
+      })()}
+    </>
   );
 }
-
-function tabDropPositionForTab(
-  target: WorkbenchTabDropTarget | undefined,
-  tab: WorkbenchTab,
-  last: boolean,
-): TabDropPosition | undefined {
-  if (!target) return undefined;
-  if (target.tabId === tab.id) return target.position;
-  if (target.position === "end" && last) return "after";
-  return undefined;
-}
-
 function tabContextMenuPosition(
   x: number,
   y: number,
   terminal: boolean,
-): { x: number; y: number } {
+): {
+  x: number;
+  y: number;
+} {
   const position = clampFloatingMenuPosition(x, y, {
     itemCount: terminal ? 3 : 2,
     width: tabContextMenuWidth,
   });
-  return { x: position.left, y: position.top };
+  return {
+    x: position.left,
+    y: position.top,
+  };
 }
-
 function splitDirectionLabel(direction: SplitDirection): string {
   return direction === "horizontal" ? "Split right" : "Split down";
 }
-
 function dirtyTabCount(tabs: WorkbenchTab[]): number {
   return tabs.filter((tab) => tab.dirty).length;
 }
-
 interface UnsavedCloseConfirmModalProps {
   dirtyCount: number;
   kind: PendingCloseRequest["kind"];
   onCancel: () => void;
   onConfirm: () => void;
 }
-
-function UnsavedCloseConfirmModal(
-  { dirtyCount, kind, onCancel, onConfirm }: UnsavedCloseConfirmModalProps,
-) {
-  const closingPane = kind === "pane";
+function UnsavedCloseConfirmModal(props: UnsavedCloseConfirmModalProps) {
   return (
-    <div
-      className={closeConfirmBackdropClassName}
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onCancel();
-      }}
+    <ModalDialog
+      title={props.kind === "pane" ? "Close pane?" : "Close tab?"}
+      titleId="unsaved-close-title"
+      eyebrow="Unsaved changes"
+      onClose={props.onCancel}
+      size="sm"
+      bodyClassName="p-4"
     >
-      <section
-        className={closeConfirmModalClassName}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="unsaved-close-title"
-      >
-        <header className={closeConfirmHeadClassName}>
-          <div>
-            <span>{closingPane ? "Pane" : "Tab"}</span>
-            <h2 id="unsaved-close-title">Unsaved changes</h2>
-          </div>
-          <Button
-            onClick={onCancel}
-            title="Close"
-            aria-label="Close unsaved changes dialog"
-            className={closeConfirmIconButtonClassName}
-          >
-            <X size={16} />
-          </Button>
-        </header>
-        <div className={closeConfirmBodyClassName}>
-          <p>
-            {closingPane
-              ? dirtyCount === 1
-                ? "This pane contains a tab with unsaved changes."
-                : `This pane contains ${dirtyCount} tabs with unsaved changes.`
-              : "This tab has unsaved changes."}
-          </p>
-          <p>Close it anyway?</p>
-          <div className={closeConfirmActionsClassName}>
-            <Button onClick={onCancel}>Cancel</Button>
-            <Button
-              className={closeConfirmDangerButtonClassName}
-              onClick={onConfirm}
-            >
-              Close without saving
-            </Button>
-          </div>
-        </div>
-      </section>
-    </div>
+      <p>
+        {props.dirtyCount === 1
+          ? "One tab has unsaved changes."
+          : `${props.dirtyCount} tabs have unsaved changes.`}{" "}
+        Closing will discard them.
+      </p>
+      <div class="flex justify-end gap-2">
+        <Button onClick={props.onCancel}>Cancel</Button>
+        <Button tone="danger" variant="solid" onClick={props.onConfirm}>
+          Discard and close
+        </Button>
+      </div>
+    </ModalDialog>
   );
 }

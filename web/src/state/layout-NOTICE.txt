@@ -1,0 +1,18 @@
+The pure layout reducer and builder in layout-core.js, and their type declarations
+in layout-core.d.ts, are extracted from the published panecake 0.0.1 distribution.
+
+Published package metadata:
+  name: panecake
+  version: 0.0.1
+  license: MIT
+  repository: https://github.com/hyp3rflow/panecake.git
+
+Sources retained from dist/index.mjs:
+  src/core/utils.ts, src/core/node.ts, src/core/reducer.ts, src/layout/builder.ts
+Types retained from dist/index.d.mts:
+  src/core/types.d.ts
+
+The package does not include a LICENSE file or copyright notice. The repository
+recursive tree at the time of extraction (2026-10-31) also contains no LICENSE or
+COPYRIGHT file. No author name or copyright date has been inferred. The runtime
+logic is unchanged; only unrelated React bindings and exports were omitted.

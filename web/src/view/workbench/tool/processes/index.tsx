@@ -1,7 +1,19 @@
-import { useEffect, useRef, useState } from "react";
-import { useAtomValue } from "jotai";
-import { useBunja } from "bunja/react";
-import { nowBunja } from "unsaturated/now";
+import type {
+  FsEntry,
+  ProcessDetail,
+  ProcessDetailEvent,
+  ProcessModulesTableEvent,
+  ProcessResourcesInUseTableEvent,
+  ProcessSocketsInUseTableEvent,
+  ProcessStatus,
+  SocketEndpoint,
+} from "../../../../protocol/generated/rpc.ts";
+import type { WorkbenchProcessPage } from "../../../../state/workbench.ts";
+import type { BreadcrumbItem } from "../../../ui/breadcrumb.tsx";
+import { createSignal, createMemo, createEffect } from "solid-js";
+import { useAtomValue } from "../../../../solid/jotai.tsx";
+import { useBunja } from "../../../../solid/bunja.tsx";
+import { nowBunja } from "../../../../state/now.ts";
 import {
   Activity,
   CircleStop,
@@ -10,7 +22,7 @@ import {
   KeyRound,
   Loader2,
   X,
-} from "lucide-react";
+} from "../../../../solid/icons.tsx";
 import {
   killProcess,
   subscribeProcessDetail,
@@ -19,22 +31,14 @@ import {
   subscribeProcessSocketsInUse,
 } from "../../../../protocol/generated/client.ts";
 import {
-  type FsEntry,
   FsEntryKind,
-  type ProcessDetail,
-  type ProcessDetailEvent,
   type ProcessInfo,
   type ProcessModuleInfo,
   ProcessModuleKind,
-  type ProcessModulesTableEvent,
   type ProcessResourceInUseInfo,
   ProcessResourceInUseKind,
-  type ProcessResourcesInUseTableEvent,
   type ProcessSocketInUseInfo,
-  type ProcessSocketsInUseTableEvent,
-  ProcessStatus,
   ProcId,
-  type SocketEndpoint,
 } from "../../../../protocol/generated/rpc.ts";
 import { processesBunja } from "../../../../state/processes.ts";
 import { machineModalBunja } from "../../../../state/machine-modal.ts";
@@ -47,50 +51,42 @@ import {
 } from "../../../../state/explorer.ts";
 import {
   workbenchPaneBunja,
-  type WorkbenchProcessPage,
   workbenchTabBunja,
 } from "../../../../state/workbench.ts";
 import { Button } from "../../../ui/button.tsx";
-import { Breadcrumb, type BreadcrumbItem } from "../../../ui/breadcrumb.tsx";
+import { Breadcrumb } from "../../../ui/breadcrumb.tsx";
 import {
   PropertyList,
   PropertyListItem,
   PropertyValue,
 } from "../../../ui/property-list.tsx";
-
 interface ProcessesRpcSession {
   webTransport: () => Promise<WebTransport>;
 }
-
 interface ProcessDetailState {
   detail?: ProcessDetail;
   message?: string;
   phase: "idle" | "loading" | "ready" | "exited" | "error" | "unsupported";
 }
-
 interface ProcessResourcesInUseState {
   message?: string;
   phase: "idle" | "loading" | "ready" | "exited" | "error" | "unsupported";
   rows: ProcessResourceInUseInfo[];
 }
-
 interface ProcessSocketsInUseState {
   message?: string;
   phase: "idle" | "loading" | "ready" | "exited" | "error" | "unsupported";
   rows: ProcessSocketInUseInfo[];
 }
-
 interface ProcessModulesState {
   message?: string;
   phase: "idle" | "loading" | "ready" | "exited" | "error" | "unsupported";
   rows: ProcessModuleInfo[];
 }
-
 interface ProcessTreeNode {
   depth: number;
   process: ProcessInfo;
 }
-
 const processesToolClassName = [
   "flex h-full min-h-0 w-full flex-col",
   "overflow-hidden bg-white text-[#20242d]",
@@ -148,8 +144,7 @@ const processCellClassName = [
   "text-ellipsis whitespace-nowrap text-[#303642]",
 ].join(" ");
 const processFirstColumnClassName = "pl-[1rem]";
-const processPidCellClassName =
-  `${processCellClassName} font-mono text-[#475467]`;
+const processPidCellClassName = `${processCellClassName} font-mono text-[#475467]`;
 const processMetaCellClassName = `${processCellClassName} text-[#667085]`;
 const processNameClassName =
   "min-w-0 overflow-hidden text-ellipsis whitespace-nowrap";
@@ -191,423 +186,450 @@ const processResourceDetailCloseButtonClassName = [
   "cursor-pointer [font-family:inherit]",
   "hover:bg-[#eef3fb] hover:text-[#344054]",
 ].join(" ");
-
 export function ProcessesTool() {
   const machineModal = useBunja(machineModalBunja);
   const machineStore = useBunja(machineStoreBunja);
   const rpcSession = useBunja(rpcSessionBunja);
   const paneState = useBunja(workbenchPaneBunja);
   const tabState = useBunja(workbenchTabBunja);
-  const machine = useAtomValue(machineStore.selectedAtom);
-  const isPaired = useAtomValue(machineStore.selectedIsPairedAtom);
-  const daemonInfo = useAtomValue(rpcSession.daemonInfoAtom);
-  const tab = useAtomValue(tabState.tabAtom);
-  const selectedPid = tab?.processDetailPid;
-  const selectedPage = selectedPid === undefined
-    ? undefined
-    : tab?.processPage ?? "detail";
-
-  const processDetailSupported = daemonInfo.phase === "ready" &&
-    daemonInfo.daemonInfo.supportedProcIds.includes(
-      ProcId.SubscribeProcessDetail,
-    );
-  const killProcessSupported = daemonInfo.phase === "ready" &&
-    daemonInfo.daemonInfo.supportedProcIds.includes(ProcId.KillProcess);
-  const processResourcesInUseSupported = daemonInfo.phase === "ready" &&
-    daemonInfo.daemonInfo.supportedProcIds.includes(
-      ProcId.SubscribeProcessResourcesInUse,
-    );
-  const processSocketsInUseSupported = daemonInfo.phase === "ready" &&
-    daemonInfo.daemonInfo.supportedProcIds.includes(
-      ProcId.SubscribeProcessSocketsInUse,
-    );
-  const processModulesSupported = daemonInfo.phase === "ready" &&
-    daemonInfo.daemonInfo.supportedProcIds.includes(
-      ProcId.SubscribeProcessModules,
-    );
-
-  if (!machine) {
-    return (
-      <section className={emptyWorkspaceClassName}>
-        <HardDrive size={28} />
-        <h2>No machine selected</h2>
-      </section>
-    );
-  }
-
-  if (!isPaired) {
-    return (
-      <section className={emptyWorkspaceClassName}>
-        <KeyRound size={28} />
-        <h2>Pairing required</h2>
-        <Button onClick={() => machineModal.openPairMachineModal(machine.id)}>
-          <KeyRound size={16} />
-          Pair
-        </Button>
-      </section>
-    );
-  }
-
+  const machine = useAtomValue(() => machineStore().selectedAtom);
+  const isPaired = useAtomValue(() => machineStore().selectedIsPairedAtom);
+  const daemonInfo = useAtomValue(() => rpcSession().daemonInfoAtom);
+  const readyDaemonInfo = createMemo(() => {
+    const value = daemonInfo();
+    return value.phase === "ready" ? value.daemonInfo : undefined;
+  });
+  const tab = useAtomValue(() => tabState().tabAtom);
+  const selectedPid = createMemo(() => tab()?.processDetailPid);
+  const selectedPage = createMemo(() =>
+    selectedPid() === undefined ? undefined : (tab()?.processPage ?? "detail"),
+  );
+  const processDetailSupported = createMemo(
+    () =>
+      daemonInfo().phase === "ready" &&
+      readyDaemonInfo()!.supportedProcIds.includes(
+        ProcId.SubscribeProcessDetail,
+      ),
+  );
+  const killProcessSupported = createMemo(
+    () =>
+      daemonInfo().phase === "ready" &&
+      readyDaemonInfo()!.supportedProcIds.includes(ProcId.KillProcess),
+  );
+  const processResourcesInUseSupported = createMemo(
+    () =>
+      daemonInfo().phase === "ready" &&
+      readyDaemonInfo()!.supportedProcIds.includes(
+        ProcId.SubscribeProcessResourcesInUse,
+      ),
+  );
+  const processSocketsInUseSupported = createMemo(
+    () =>
+      daemonInfo().phase === "ready" &&
+      readyDaemonInfo()!.supportedProcIds.includes(
+        ProcId.SubscribeProcessSocketsInUse,
+      ),
+  );
+  const processModulesSupported = createMemo(
+    () =>
+      daemonInfo().phase === "ready" &&
+      readyDaemonInfo()!.supportedProcIds.includes(
+        ProcId.SubscribeProcessModules,
+      ),
+  );
   return (
-    <section className={processesToolClassName}>
-      <ProcessesBreadcrumb
-        selectedPage={selectedPage}
-        selectedPid={selectedPid}
-        onOpenRoot={() => tabState.setProcessDetailPid(undefined)}
-        onOpenProcess={() => tabState.setProcessPage("detail")}
-      />
-      {selectedPid === undefined
-        ? (
-          <ProcessListView
-            onOpenProcess={(process) =>
-              paneState.addProcessesTab({
-                processDetailPid: process.pid,
-                title: process.name || `PID ${process.pid}`,
-              })}
-          />
-        )
-        : selectedPage === "heldResources"
-        ? (
-          <ProcessResourcesInUseView
-            daemonInfoPhase={daemonInfo.phase}
-            machineId={machine.id}
-            onOpenPathResource={(resource) => {
-              const tabId = paneState.addFilesTab();
-              writeProcessResourceFilesNavigationState(
-                machine.id,
-                tabId,
-                resource,
-              );
-            }}
-            pid={selectedPid}
-            rpcSession={rpcSession}
-            supported={processResourcesInUseSupported}
-          />
-        )
-        : selectedPage === "heldSockets"
-        ? (
-          <ProcessSocketsInUseView
-            daemonInfoPhase={daemonInfo.phase}
-            machineId={machine.id}
-            pid={selectedPid}
-            rpcSession={rpcSession}
-            supported={processSocketsInUseSupported}
-          />
-        )
-        : selectedPage === "modules"
-        ? (
-          <ProcessModulesView
-            daemonInfoPhase={daemonInfo.phase}
-            machineId={machine.id}
-            onOpenModulePath={(module) => {
-              const tabId = paneState.addFilesTab();
-              writeProcessModuleFilesNavigationState(
-                machine.id,
-                tabId,
-                module,
-              );
-            }}
-            pid={selectedPid}
-            rpcSession={rpcSession}
-            supported={processModulesSupported}
-          />
-        )
-        : selectedPage === "children"
-        ? (
-          <ProcessChildrenView
-            onOpenProcess={(process) =>
-              paneState.addProcessesTab({
-                processDetailPid: process.pid,
-                title: process.name || `PID ${process.pid}`,
-              })}
-            pid={selectedPid}
-          />
-        )
-        : (
-          <ProcessDetailView
-            daemonInfoPhase={daemonInfo.phase}
-            machineId={machine.id}
-            onShowChildren={() =>
-              paneState.addProcessesTab({
-                processDetailPid: selectedPid,
-                processPage: "children",
-                title: tab?.title ?? `PID ${selectedPid}`,
-              })}
-            onShowResourcesInUse={() =>
-              paneState.addProcessesTab({
-                processDetailPid: selectedPid,
-                processPage: "heldResources",
-                title: tab?.title ?? `PID ${selectedPid}`,
-              })}
-            onShowSocketsInUse={() =>
-              paneState.addProcessesTab({
-                processDetailPid: selectedPid,
-                processPage: "heldSockets",
-                title: tab?.title ?? `PID ${selectedPid}`,
-              })}
-            onShowModules={() =>
-              paneState.addProcessesTab({
-                processDetailPid: selectedPid,
-                processPage: "modules",
-                title: tab?.title ?? `PID ${selectedPid}`,
-              })}
-            pid={selectedPid}
-            rpcSession={rpcSession}
-            modulesSupported={processModulesSupported}
-            killSupported={killProcessSupported}
-            resourcesSupported={processResourcesInUseSupported}
-            socketsSupported={processSocketsInUseSupported}
-            supported={processDetailSupported}
-          />
-        )}
-    </section>
+    <>
+      {(() => {
+        if (!machine()) {
+          return (
+            <section class={emptyWorkspaceClassName}>
+              <HardDrive size={28} />
+              <h2>No machine selected</h2>
+            </section>
+          );
+        }
+        if (!isPaired()) {
+          return (
+            <section class={emptyWorkspaceClassName}>
+              <KeyRound size={28} />
+              <h2>Pairing required</h2>
+              <Button
+                onClick={() =>
+                  machineModal().openPairMachineModal(machine()!.id)
+                }
+              >
+                <KeyRound size={16} />
+                Pair
+              </Button>
+            </section>
+          );
+        }
+        return (
+          <section class={processesToolClassName}>
+            <ProcessesBreadcrumb
+              selectedPage={selectedPage()}
+              selectedPid={selectedPid()}
+              onOpenRoot={() => tabState().setProcessDetailPid(undefined)}
+              onOpenProcess={() => tabState().setProcessPage("detail")}
+            />
+            {selectedPid() === undefined ? (
+              <ProcessListView
+                onOpenProcess={(process) =>
+                  paneState().addProcessesTab({
+                    processDetailPid: process.pid,
+                    title: process.name || `PID ${process.pid}`,
+                  })
+                }
+              />
+            ) : selectedPage() === "heldResources" ? (
+              <ProcessResourcesInUseView
+                daemonInfoPhase={daemonInfo().phase}
+                machineId={machine()!.id}
+                onOpenPathResource={(resource) => {
+                  const tabId = paneState().addFilesTab();
+                  writeProcessResourceFilesNavigationState(
+                    machine()!.id,
+                    tabId,
+                    resource,
+                  );
+                }}
+                pid={selectedPid()!}
+                rpcSession={rpcSession()}
+                supported={processResourcesInUseSupported()}
+              />
+            ) : selectedPage() === "heldSockets" ? (
+              <ProcessSocketsInUseView
+                daemonInfoPhase={daemonInfo().phase}
+                machineId={machine()!.id}
+                pid={selectedPid()!}
+                rpcSession={rpcSession()}
+                supported={processSocketsInUseSupported()}
+              />
+            ) : selectedPage() === "modules" ? (
+              <ProcessModulesView
+                daemonInfoPhase={daemonInfo().phase}
+                machineId={machine()!.id}
+                onOpenModulePath={(module) => {
+                  const tabId = paneState().addFilesTab();
+                  writeProcessModuleFilesNavigationState(
+                    machine()!.id,
+                    tabId,
+                    module,
+                  );
+                }}
+                pid={selectedPid()!}
+                rpcSession={rpcSession()}
+                supported={processModulesSupported()}
+              />
+            ) : selectedPage() === "children" ? (
+              <ProcessChildrenView
+                onOpenProcess={(process) =>
+                  paneState().addProcessesTab({
+                    processDetailPid: process.pid,
+                    title: process.name || `PID ${process.pid}`,
+                  })
+                }
+                pid={selectedPid()!}
+              />
+            ) : (
+              <ProcessDetailView
+                daemonInfoPhase={daemonInfo().phase}
+                machineId={machine()!.id}
+                onShowChildren={() =>
+                  paneState().addProcessesTab({
+                    processDetailPid: selectedPid(),
+                    processPage: "children",
+                    title: tab()?.title ?? `PID ${selectedPid()}`,
+                  })
+                }
+                onShowResourcesInUse={() =>
+                  paneState().addProcessesTab({
+                    processDetailPid: selectedPid(),
+                    processPage: "heldResources",
+                    title: tab()?.title ?? `PID ${selectedPid()}`,
+                  })
+                }
+                onShowSocketsInUse={() =>
+                  paneState().addProcessesTab({
+                    processDetailPid: selectedPid(),
+                    processPage: "heldSockets",
+                    title: tab()?.title ?? `PID ${selectedPid()}`,
+                  })
+                }
+                onShowModules={() =>
+                  paneState().addProcessesTab({
+                    processDetailPid: selectedPid(),
+                    processPage: "modules",
+                    title: tab()?.title ?? `PID ${selectedPid()}`,
+                  })
+                }
+                pid={selectedPid()!}
+                rpcSession={rpcSession()}
+                modulesSupported={processModulesSupported()}
+                killSupported={killProcessSupported()}
+                resourcesSupported={processResourcesInUseSupported()}
+                socketsSupported={processSocketsInUseSupported()}
+                supported={processDetailSupported()}
+              />
+            )}
+          </section>
+        );
+      })()}
+    </>
   );
 }
-
 interface ProcessesBreadcrumbProps {
   selectedPage?: WorkbenchProcessPage;
   selectedPid?: number;
   onOpenProcess: () => void;
   onOpenRoot: () => void;
 }
-
-function ProcessesBreadcrumb(
-  {
-    selectedPage,
-    selectedPid,
-    onOpenProcess,
-    onOpenRoot,
-  }: ProcessesBreadcrumbProps,
-) {
-  const items: BreadcrumbItem[] = [
-    {
-      label: "Processes",
-      onClick: selectedPid === undefined ? undefined : onOpenRoot,
-    },
-  ];
-  if (selectedPid === undefined) {
-    items.push({ label: "Overview" });
-  } else {
-    items.push({
-      label: `PID ${selectedPid}`,
-      onClick:
-        selectedPage === "children" || selectedPage === "heldResources" ||
-          selectedPage === "heldSockets" || selectedPage === "modules"
-          ? onOpenProcess
-          : undefined,
-    });
-    if (selectedPage === "children") {
-      items.push({ label: "Process tree" });
-    } else if (selectedPage === "heldResources") {
-      items.push({ label: "Resources in use" });
-    } else if (selectedPage === "heldSockets") {
-      items.push({ label: "Sockets in use" });
-    } else if (selectedPage === "modules") {
-      items.push({ label: "Modules" });
-    }
-  }
-
+function ProcessesBreadcrumb(props: ProcessesBreadcrumbProps) {
   return (
-    <Breadcrumb
-      ariaLabel="Process location"
-      className="flex-[0_0_auto] border-b border-b-[#d8dde7] bg-[#fbfcfe] px-[0.5rem]"
-      items={items.map((item, index) => ({
-        ...item,
-        muted: index === items.length - 1,
-      }))}
-    />
+    <>
+      {(() => {
+        const items: BreadcrumbItem[] = [
+          {
+            label: "Processes",
+            onClick:
+              props.selectedPid === undefined ? undefined : props.onOpenRoot,
+          },
+        ];
+        if (props.selectedPid === undefined) {
+          items.push({
+            label: "Overview",
+          });
+        } else {
+          items.push({
+            label: `PID ${props.selectedPid}`,
+            onClick:
+              props.selectedPage === "children" ||
+              props.selectedPage === "heldResources" ||
+              props.selectedPage === "heldSockets" ||
+              props.selectedPage === "modules"
+                ? props.onOpenProcess
+                : undefined,
+          });
+          if (props.selectedPage === "children") {
+            items.push({
+              label: "Process tree",
+            });
+          } else if (props.selectedPage === "heldResources") {
+            items.push({
+              label: "Resources in use",
+            });
+          } else if (props.selectedPage === "heldSockets") {
+            items.push({
+              label: "Sockets in use",
+            });
+          } else if (props.selectedPage === "modules") {
+            items.push({
+              label: "Modules",
+            });
+          }
+        }
+        return (
+          <Breadcrumb
+            ariaLabel="Process location"
+            className="flex-[0_0_auto] border-b border-b-[#d8dde7] bg-[#fbfcfe] px-[0.5rem]"
+            items={items.map((item, index) => ({
+              ...item,
+              muted: index === items.length - 1,
+            }))}
+          />
+        );
+      })()}
+    </>
   );
 }
-
 interface ProcessListViewProps {
   onOpenProcess: (process: ProcessInfo) => void;
 }
-
-function ProcessListView({ onOpenProcess }: ProcessListViewProps) {
-  const { stateAtom } = useBunja(processesBunja);
-  const state = useAtomValue(stateAtom);
-
-  if (state.phase === "loading") {
-    return (
-      <section className={emptyWorkspaceClassName}>
-        <Loader2 size={24} className="animate-spin" />
-        <h2>Loading processes</h2>
-      </section>
-    );
-  }
-
-  if (state.phase === "unsupported" || state.phase === "error") {
-    return (
-      <section className={emptyWorkspaceClassName}>
-        <Activity size={28} />
-        <h2>
-          {state.phase === "unsupported"
-            ? "Processes unavailable"
-            : "Failed to load processes"}
-        </h2>
-        {state.message ? <p>{state.message}</p> : null}
-      </section>
-    );
-  }
-
+function ProcessListView(props: ProcessListViewProps) {
+  const _model = useBunja(processesBunja);
+  const state = useAtomValue(() => _model().stateAtom);
   return (
-    <div className={processesContentClassName}>
-      <div
-        className={processTableClassName}
-        role="grid"
-        aria-label="Processes"
-      >
-        <div
-          className={`${processHeadClassName} ${processFirstColumnClassName}`}
-          role="columnheader"
-        >
-          PID
-        </div>
-        <div className={processHeadClassName} role="columnheader">
-          PPID
-        </div>
-        <div className={processHeadClassName} role="columnheader">
-          Name
-        </div>
-        <div className={processHeadClassName} role="columnheader">
-          Status
-        </div>
-        {state.rows.length === 0
-          ? (
-            <div className={`${processCellClassName} [grid-column:1/-1]`}>
-              No processes
-            </div>
-          )
-          : state.rows.map((process) => (
+    <>
+      {(() => {
+        if (state().phase === "loading") {
+          return (
+            <section class={emptyWorkspaceClassName}>
+              <Loader2 size={24} className="animate-spin" />
+              <h2>Loading processes</h2>
+            </section>
+          );
+        }
+        if (state().phase === "unsupported" || state().phase === "error") {
+          return (
+            <section class={emptyWorkspaceClassName}>
+              <Activity size={28} />
+              <h2>
+                {state().phase === "unsupported"
+                  ? "Processes unavailable"
+                  : "Failed to load processes"}
+              </h2>
+              {state().message ? <p>{state().message}</p> : null}
+            </section>
+          );
+        }
+        return (
+          <div class={processesContentClassName}>
             <div
-              key={process.pid}
-              className={`${processRowClassName} !cursor-pointer`}
-              role="row"
-              onDoubleClick={() => onOpenProcess(process)}
+              class={processTableClassName}
+              role="grid"
+              aria-label="Processes"
             >
-              <span
-                className={`${processPidCellClassName} ${processFirstColumnClassName}`}
+              <div
+                class={`${processHeadClassName} ${processFirstColumnClassName}`}
+                role="columnheader"
               >
-                {process.pid}
-              </span>
-              <span className={processPidCellClassName}>
-                {process.ppid ?? ""}
-              </span>
-              <span className={processCellClassName}>
-                <span className={processNameClassName}>
-                  {process.name || "(unnamed)"}
-                </span>
-              </span>
-              <span className={processMetaCellClassName}>
-                {processStatusLabel(process.status)}
-              </span>
+                PID
+              </div>
+              <div class={processHeadClassName} role="columnheader">
+                PPID
+              </div>
+              <div class={processHeadClassName} role="columnheader">
+                Name
+              </div>
+              <div class={processHeadClassName} role="columnheader">
+                Status
+              </div>
+              {state().rows.length === 0 ? (
+                <div class={`${processCellClassName} [grid-column:1/-1]`}>
+                  No processes
+                </div>
+              ) : (
+                state().rows.map((process) => (
+                  <div
+                    class={`${processRowClassName} !cursor-pointer`}
+                    role="row"
+                    onDblClick={() => props.onOpenProcess(process)}
+                  >
+                    <span
+                      class={`${processPidCellClassName} ${processFirstColumnClassName}`}
+                    >
+                      {process.pid}
+                    </span>
+                    <span class={processPidCellClassName}>
+                      {process.ppid ?? ""}
+                    </span>
+                    <span class={processCellClassName}>
+                      <span class={processNameClassName}>
+                        {process.name || "(unnamed)"}
+                      </span>
+                    </span>
+                    <span class={processMetaCellClassName}>
+                      {processStatusLabel(process.status)}
+                    </span>
+                  </div>
+                ))
+              )}
             </div>
-          ))}
-      </div>
-      <footer className={processesFooterClassName}>
-        {state.rows.length} {state.rows.length === 1 ? "process" : "processes"}
-      </footer>
-    </div>
+            <footer class={processesFooterClassName}>
+              {state().rows.length}{" "}
+              {state().rows.length === 1 ? "process" : "processes"}
+            </footer>
+          </div>
+        );
+      })()}
+    </>
   );
 }
-
 interface ProcessChildrenViewProps {
   onOpenProcess: (process: ProcessInfo) => void;
   pid: number;
 }
-
-function ProcessChildrenView(
-  { onOpenProcess, pid }: ProcessChildrenViewProps,
-) {
-  const { stateAtom } = useBunja(processesBunja);
-  const state = useAtomValue(stateAtom);
-  const tree = buildProcessTreeNodes(state.rows, pid);
-
-  if (state.phase === "loading") {
-    return (
-      <section className={emptyWorkspaceClassName}>
-        <Loader2 size={24} className="animate-spin" />
-        <h2>Loading child processes</h2>
-      </section>
-    );
-  }
-
-  if (state.phase === "unsupported" || state.phase === "error") {
-    return (
-      <section className={emptyWorkspaceClassName}>
-        <Activity size={28} />
-        <h2>
-          {state.phase === "unsupported"
-            ? "Process tree unavailable"
-            : "Failed to load process tree"}
-        </h2>
-        {state.message ? <p>{state.message}</p> : null}
-      </section>
-    );
-  }
-
+function ProcessChildrenView(props: ProcessChildrenViewProps) {
+  const _model2 = useBunja(processesBunja);
+  const state = useAtomValue(() => _model2().stateAtom);
+  const tree = createMemo(() => buildProcessTreeNodes(state().rows, props.pid));
   return (
-    <div className={processesContentClassName}>
-      <div
-        className={processTreeTableClassName}
-        role="grid"
-        aria-label="Child process tree"
-      >
-        <div
-          className={`${processHeadClassName} ${processFirstColumnClassName}`}
-          role="columnheader"
-        >
-          Name
-        </div>
-        <div className={processHeadClassName} role="columnheader">
-          PID
-        </div>
-        <div className={processHeadClassName} role="columnheader">
-          PPID
-        </div>
-        <div className={processHeadClassName} role="columnheader">
-          Status
-        </div>
-        {tree.length === 0
-          ? (
-            <div className={`${processCellClassName} [grid-column:1/-1]`}>
-              No child processes
-            </div>
-          )
-          : tree.map(({ depth, process }) => (
+    <>
+      {(() => {
+        if (state().phase === "loading") {
+          return (
+            <section class={emptyWorkspaceClassName}>
+              <Loader2 size={24} className="animate-spin" />
+              <h2>Loading child processes</h2>
+            </section>
+          );
+        }
+        if (state().phase === "unsupported" || state().phase === "error") {
+          return (
+            <section class={emptyWorkspaceClassName}>
+              <Activity size={28} />
+              <h2>
+                {state().phase === "unsupported"
+                  ? "Process tree unavailable"
+                  : "Failed to load process tree"}
+              </h2>
+              {state().message ? <p>{state().message}</p> : null}
+            </section>
+          );
+        }
+        return (
+          <div class={processesContentClassName}>
             <div
-              key={process.pid}
-              className={`${processRowClassName} !cursor-pointer`}
-              role="row"
-              onDoubleClick={() => onOpenProcess(process)}
+              class={processTreeTableClassName}
+              role="grid"
+              aria-label="Child process tree"
             >
-              <span
-                className={processCellClassName}
-                style={{ paddingLeft: `calc(1rem + ${depth * 1.25}rem)` }}
+              <div
+                class={`${processHeadClassName} ${processFirstColumnClassName}`}
+                role="columnheader"
               >
-                <span className={processNameClassName}>
-                  {process.name || "(unnamed)"}
-                </span>
-              </span>
-              <span className={processPidCellClassName}>
-                {process.pid}
-              </span>
-              <span className={processPidCellClassName}>
-                {process.ppid ?? ""}
-              </span>
-              <span className={processMetaCellClassName}>
-                {processStatusLabel(process.status)}
-              </span>
+                Name
+              </div>
+              <div class={processHeadClassName} role="columnheader">
+                PID
+              </div>
+              <div class={processHeadClassName} role="columnheader">
+                PPID
+              </div>
+              <div class={processHeadClassName} role="columnheader">
+                Status
+              </div>
+              {tree().length === 0 ? (
+                <div class={`${processCellClassName} [grid-column:1/-1]`}>
+                  No child processes
+                </div>
+              ) : (
+                tree().map(({ depth, process }) => (
+                  <div
+                    class={`${processRowClassName} !cursor-pointer`}
+                    role="row"
+                    onDblClick={() => props.onOpenProcess(process)}
+                  >
+                    <span
+                      class={processCellClassName}
+                      style={{
+                        "padding-left": `calc(1rem + ${depth * 1.25}rem)`,
+                      }}
+                    >
+                      <span class={processNameClassName}>
+                        {process.name || "(unnamed)"}
+                      </span>
+                    </span>
+                    <span class={processPidCellClassName}>{process.pid}</span>
+                    <span class={processPidCellClassName}>
+                      {process.ppid ?? ""}
+                    </span>
+                    <span class={processMetaCellClassName}>
+                      {processStatusLabel(process.status)}
+                    </span>
+                  </div>
+                ))
+              )}
             </div>
-          ))}
-      </div>
-      <footer className={processesFooterClassName}>
-        {tree.length} {tree.length === 1 ? "process" : "processes"}
-      </footer>
-    </div>
+            <footer class={processesFooterClassName}>
+              {tree().length} {tree().length === 1 ? "process" : "processes"}
+            </footer>
+          </div>
+        );
+      })()}
+    </>
   );
 }
-
 interface ProcessDetailViewProps {
   daemonInfoPhase: string;
   killSupported: boolean;
@@ -623,161 +645,180 @@ interface ProcessDetailViewProps {
   socketsSupported: boolean;
   supported: boolean;
 }
-
-function ProcessDetailView(
-  {
-    daemonInfoPhase,
-    killSupported,
-    machineId,
-    onShowChildren,
-    onShowModules,
-    onShowResourcesInUse,
-    onShowSocketsInUse,
-    pid,
-    rpcSession,
-    modulesSupported,
-    resourcesSupported,
-    socketsSupported,
-    supported,
-  }: ProcessDetailViewProps,
-) {
-  const [state, setState] = useState<ProcessDetailState>({
+function ProcessDetailView(props: ProcessDetailViewProps) {
+  const [state, setState] = createSignal<ProcessDetailState>({
     phase: "idle",
   });
-  const [killPhase, setKillPhase] = useState<
+  const [killPhase, setKillPhase] = createSignal<
     "idle" | "confirming" | "killing" | "error"
   >("idle");
-  const [killError, setKillError] = useState<string>();
-
+  const [killError, setKillError] = createSignal<string>();
   async function killSelectedProcess() {
     setKillPhase("killing");
     setKillError(undefined);
     try {
-      await killProcess(await rpcSession.webTransport(), { pid });
+      await killProcess(await props.rpcSession.webTransport(), {
+        pid: props.pid,
+      });
     } catch (err) {
       setKillError(err instanceof Error ? err.message : String(err));
       setKillPhase("error");
     }
   }
-
-  useEffect(() => {
-    if (daemonInfoPhase === "error") {
-      setState({
-        message: "Daemon info unavailable",
-        phase: "error",
-      });
-      return;
-    }
-    if (daemonInfoPhase !== "ready") {
-      setState({ phase: "loading" });
-      return;
-    }
-    if (!supported) {
-      setState({
-        message: "This daemon does not support process detail subscriptions.",
-        phase: "unsupported",
-      });
-      return;
-    }
-
-    let cancelled = false;
-    let iterator: AsyncGenerator<ProcessDetailEvent> | undefined;
-    setState({ phase: "loading" });
-
-    void (async () => {
-      try {
-        const transport = await rpcSession.webTransport();
-        if (cancelled) return;
-        iterator = subscribeProcessDetail(transport, { pid });
-        for await (const event of iterator) {
-          if (cancelled) return;
-          if (event.type === "exited") {
-            setState((current) => ({ ...current, phase: "exited" }));
-            setKillPhase("idle");
-            return;
-          }
-          setState((current) => applyProcessDetailEvent(current, event));
-        }
-      } catch (err) {
-        if (cancelled) return;
+  createEffect(
+    createMemo(
+      () =>
+        [
+          props.daemonInfoPhase,
+          props.machineId,
+          props.pid,
+          props.rpcSession,
+          props.supported,
+        ] as const,
+      {
+        equals: (a, b) =>
+          a.length === b.length &&
+          a.every((value, index) => Object.is(value, b[index])),
+      },
+    ),
+    ([
+      snapshotDaemonInfoPhase,
+      ,
+      snapshotPid,
+      snapshotRpcSession,
+      snapshotSupported,
+    ]) => {
+      if (snapshotDaemonInfoPhase === "error") {
         setState({
-          message: err instanceof Error ? err.message : String(err),
+          message: "Daemon info unavailable",
           phase: "error",
         });
+        return;
       }
-    })();
-
-    return () => {
-      cancelled = true;
-      void iterator?.return(undefined);
-    };
-  }, [daemonInfoPhase, machineId, pid, rpcSession, supported]);
-
-  useEffect(() => {
-    setKillPhase("idle");
-    setKillError(undefined);
-  }, [machineId, pid]);
-
-  if (state.phase === "loading" || daemonInfoPhase !== "ready") {
-    return (
-      <section className={emptyWorkspaceClassName}>
-        <Loader2 size={24} className="animate-spin" />
-        <h2>Loading process</h2>
-      </section>
-    );
-  }
-
-  if (state.phase === "unsupported" || state.phase === "error") {
-    return (
-      <section className={emptyWorkspaceClassName}>
-        <Activity size={28} />
-        <h2>
-          {state.phase === "unsupported"
-            ? "Process detail unavailable"
-            : "Failed to load process"}
-        </h2>
-        {state.message ? <p>{state.message}</p> : null}
-      </section>
-    );
-  }
-
-  if (!state.detail) {
-    return (
-      <section className={emptyWorkspaceClassName}>
-        <Activity size={28} />
-        <h2>No process detail</h2>
-      </section>
-    );
-  }
-
+      if (snapshotDaemonInfoPhase !== "ready") {
+        setState({
+          phase: "loading",
+        });
+        return;
+      }
+      if (!snapshotSupported) {
+        setState({
+          message: "This daemon does not support process detail subscriptions.",
+          phase: "unsupported",
+        });
+        return;
+      }
+      let cancelled = false;
+      let iterator: AsyncGenerator<ProcessDetailEvent> | undefined;
+      setState({
+        phase: "loading",
+      });
+      void (async () => {
+        try {
+          const transport = await snapshotRpcSession.webTransport();
+          if (cancelled) return;
+          iterator = subscribeProcessDetail(transport, {
+            pid: snapshotPid,
+          });
+          for await (const event of iterator) {
+            if (cancelled) return;
+            if (event.type === "exited") {
+              setState((current) => ({
+                ...current,
+                phase: "exited",
+              }));
+              setKillPhase("idle");
+              return;
+            }
+            setState((current) => applyProcessDetailEvent(current, event));
+          }
+        } catch (err) {
+          if (cancelled) return;
+          setState({
+            message: err instanceof Error ? err.message : String(err),
+            phase: "error",
+          });
+        }
+      })();
+      return () => {
+        cancelled = true;
+        void iterator?.return(undefined);
+      };
+    },
+  );
+  createEffect(
+    createMemo(() => [props.machineId, props.pid] as const, {
+      equals: (a, b) =>
+        a.length === b.length &&
+        a.every((value, index) => Object.is(value, b[index])),
+    }),
+    () => {
+      setKillPhase("idle");
+      setKillError(undefined);
+    },
+  );
   return (
-    <div className={processesContentClassName}>
-      <ProcessDetailSummary
-        detail={state.detail}
-        exited={state.phase === "exited"}
-        killError={killError}
-        killPhase={killPhase}
-        killSupported={killSupported}
-        onCancelKill={() => setKillPhase("idle")}
-        onConfirmKill={killSelectedProcess}
-        onRequestKill={() => setKillPhase("confirming")}
-        onShowChildren={onShowChildren}
-        onShowModules={onShowModules}
-        onShowResourcesInUse={onShowResourcesInUse}
-        onShowSocketsInUse={onShowSocketsInUse}
-        modulesSupported={modulesSupported}
-        resourcesSupported={resourcesSupported}
-        socketsSupported={socketsSupported}
-      />
-      <footer className={processDetailFooterClassName}>
-        {state.phase === "exited"
-          ? "Process exited"
-          : `PID ${state.detail.info.pid}`}
-      </footer>
-    </div>
+    <>
+      {(() => {
+        if (state().phase === "loading" || props.daemonInfoPhase !== "ready") {
+          return (
+            <section class={emptyWorkspaceClassName}>
+              <Loader2 size={24} className="animate-spin" />
+              <h2>Loading process</h2>
+            </section>
+          );
+        }
+        if (state().phase === "unsupported" || state().phase === "error") {
+          return (
+            <section class={emptyWorkspaceClassName}>
+              <Activity size={28} />
+              <h2>
+                {state().phase === "unsupported"
+                  ? "Process detail unavailable"
+                  : "Failed to load process"}
+              </h2>
+              {state().message ? <p>{state().message}</p> : null}
+            </section>
+          );
+        }
+        if (!state().detail) {
+          return (
+            <section class={emptyWorkspaceClassName}>
+              <Activity size={28} />
+              <h2>No process detail</h2>
+            </section>
+          );
+        }
+        return (
+          <div class={processesContentClassName}>
+            <ProcessDetailSummary
+              detail={state().detail!}
+              exited={state().phase === "exited"}
+              killError={killError()}
+              killPhase={killPhase()}
+              killSupported={props.killSupported}
+              onCancelKill={() => setKillPhase("idle")}
+              onConfirmKill={killSelectedProcess}
+              onRequestKill={() => setKillPhase("confirming")}
+              onShowChildren={props.onShowChildren}
+              onShowModules={props.onShowModules}
+              onShowResourcesInUse={props.onShowResourcesInUse}
+              onShowSocketsInUse={props.onShowSocketsInUse}
+              modulesSupported={props.modulesSupported}
+              resourcesSupported={props.resourcesSupported}
+              socketsSupported={props.socketsSupported}
+            />
+            <footer class={processDetailFooterClassName}>
+              {state().phase === "exited"
+                ? "Process exited"
+                : `PID ${state().detail!.info.pid}`}
+            </footer>
+          </div>
+        );
+      })()}
+    </>
   );
 }
-
 interface ProcessDetailSummaryProps {
   detail: ProcessDetail;
   exited: boolean;
@@ -795,148 +836,158 @@ interface ProcessDetailSummaryProps {
   resourcesSupported: boolean;
   socketsSupported: boolean;
 }
-
-function ProcessDetailSummary(
-  {
-    detail,
-    exited,
-    killError,
-    killPhase,
-    killSupported,
-    onCancelKill,
-    onConfirmKill,
-    onRequestKill,
-    onShowChildren,
-    onShowModules,
-    onShowResourcesInUse,
-    onShowSocketsInUse,
-    modulesSupported,
-    resourcesSupported,
-    socketsSupported,
-  }: ProcessDetailSummaryProps,
-) {
+function ProcessDetailSummary(props: ProcessDetailSummaryProps) {
   const now = useBunja(nowBunja);
-  const nowMs = useAtomValue(now.nowEverySecondAtom);
-  const { info, metadata, usage } = detail;
+  const nowMs = useAtomValue(() => now().nowEverySecondAtom);
+  const _value = createMemo(() => props.detail);
   return (
-    <div className={processDetailScrollClassName}>
-      <div className={processDetailBodyClassName}>
-        <PropertyList>
-          <ProcessDetailItem label="Name" value={info.name || "(unnamed)"} />
-          <ProcessDetailItem label="PID" value={String(info.pid)} />
-          <ProcessDetailItem
-            label="PPID"
-            value={info.ppid === undefined ? "None" : String(info.ppid)}
-          />
-          <ProcessDetailItem
-            label="Status"
-            value={processStatusLabel(info.status)}
-          />
-          <ProcessDetailItem
-            label="Started"
-            note={`Uptime ${
-              formatProcessUptime(metadata.startTimeUnix, nowMs)
-            }`}
-            value={formatUnixTimestamp(metadata.startTimeUnix)}
-          />
-          <ProcessDetailItem
-            label="Command"
-            value={metadata.command.length === 0
-              ? "Unknown"
-              : metadata.command.join(" ")}
-          />
-          <ProcessDetailItem
-            label="Executable"
-            value={metadata.executablePath ?? "Unknown"}
-          />
-          <ProcessDetailItem label="CWD" value={metadata.cwd ?? "Unknown"} />
-        </PropertyList>
-        <div className={processDetailActionsClassName}>
-          <Button
-            onClick={onShowChildren}
-            title="Show process tree rooted at this process"
-          >
-            <ExternalLink size={14} />
-            Process tree
-          </Button>
-          <Button
-            disabled={!resourcesSupported}
-            onClick={onShowResourcesInUse}
-            title={resourcesSupported
-              ? "Show resources currently in use by this process"
-              : "This daemon does not support resource usage subscriptions"}
-          >
-            <ExternalLink size={14} />
-            Resources in use
-          </Button>
-          <Button
-            disabled={!socketsSupported}
-            onClick={onShowSocketsInUse}
-            title={socketsSupported
-              ? "Show sockets currently in use by this process"
-              : "This daemon does not support socket usage subscriptions"}
-          >
-            <ExternalLink size={14} />
-            Sockets in use
-          </Button>
-          <Button
-            disabled={!modulesSupported}
-            onClick={onShowModules}
-            title={modulesSupported
-              ? "Show executable images and dynamic libraries loaded by this process"
-              : "This daemon does not support module subscriptions"}
-          >
-            <ExternalLink size={14} />
-            Modules
-          </Button>
-          <Button
-            disabled={!killSupported || exited || killPhase === "killing"}
-            onClick={onRequestKill}
-            title={killSupported
-              ? "Forcefully terminate this process"
-              : "This daemon does not support process termination"}
-            tone="danger"
-            variant="outline"
-          >
-            <CircleStop size={14} />
-            Kill process
-          </Button>
-        </div>
-        {killPhase === "confirming" || killPhase === "killing"
-          ? (
-            <div className={processKillConfirmClassName}>
-              <span className={processKillMessageClassName}>
-                Forcefully terminate PID {info.pid}?
-              </span>
-              <Button
-                disabled={killPhase === "killing"}
-                onClick={onCancelKill}
-                size="sm"
-                variant="ghost"
-              >
-                Cancel
-              </Button>
-              <Button
-                disabled={killPhase === "killing"}
-                onClick={onConfirmKill}
-                size="sm"
-                tone="danger"
-                variant="solid"
-              >
-                <CircleStop size={14} />
-                {killPhase === "killing" ? "Killing" : "Kill process"}
-              </Button>
+    <>
+      {(() => {
+        return (
+          <div class={processDetailScrollClassName}>
+            <div class={processDetailBodyClassName}>
+              <PropertyList>
+                <ProcessDetailItem
+                  label="Name"
+                  value={_value().info.name || "(unnamed)"}
+                />
+                <ProcessDetailItem
+                  label="PID"
+                  value={String(_value().info.pid)}
+                />
+                <ProcessDetailItem
+                  label="PPID"
+                  value={
+                    _value().info.ppid === undefined
+                      ? "None"
+                      : String(_value().info.ppid)
+                  }
+                />
+                <ProcessDetailItem
+                  label="Status"
+                  value={processStatusLabel(_value().info.status)}
+                />
+                <ProcessDetailItem
+                  label="Started"
+                  note={`Uptime ${formatProcessUptime(_value().metadata.startTimeUnix, nowMs())}`}
+                  value={formatUnixTimestamp(_value().metadata.startTimeUnix)}
+                />
+                <ProcessDetailItem
+                  label="Command"
+                  value={
+                    _value().metadata.command.length === 0
+                      ? "Unknown"
+                      : _value().metadata.command.join(" ")
+                  }
+                />
+                <ProcessDetailItem
+                  label="Executable"
+                  value={_value().metadata.executablePath ?? "Unknown"}
+                />
+                <ProcessDetailItem
+                  label="CWD"
+                  value={_value().metadata.cwd ?? "Unknown"}
+                />
+              </PropertyList>
+              <div class={processDetailActionsClassName}>
+                <Button
+                  onClick={props.onShowChildren}
+                  title="Show process tree rooted at this process"
+                >
+                  <ExternalLink size={14} />
+                  Process tree
+                </Button>
+                <Button
+                  disabled={!props.resourcesSupported}
+                  onClick={props.onShowResourcesInUse}
+                  title={
+                    props.resourcesSupported
+                      ? "Show resources currently in use by this process"
+                      : "This daemon does not support resource usage subscriptions"
+                  }
+                >
+                  <ExternalLink size={14} />
+                  Resources in use
+                </Button>
+                <Button
+                  disabled={!props.socketsSupported}
+                  onClick={props.onShowSocketsInUse}
+                  title={
+                    props.socketsSupported
+                      ? "Show sockets currently in use by this process"
+                      : "This daemon does not support socket usage subscriptions"
+                  }
+                >
+                  <ExternalLink size={14} />
+                  Sockets in use
+                </Button>
+                <Button
+                  disabled={!props.modulesSupported}
+                  onClick={props.onShowModules}
+                  title={
+                    props.modulesSupported
+                      ? "Show executable images and dynamic libraries loaded by this process"
+                      : "This daemon does not support module subscriptions"
+                  }
+                >
+                  <ExternalLink size={14} />
+                  Modules
+                </Button>
+                <Button
+                  disabled={
+                    !props.killSupported ||
+                    props.exited ||
+                    props.killPhase === "killing"
+                  }
+                  onClick={props.onRequestKill}
+                  title={
+                    props.killSupported
+                      ? "Forcefully terminate this process"
+                      : "This daemon does not support process termination"
+                  }
+                  tone="danger"
+                  variant="outline"
+                >
+                  <CircleStop size={14} />
+                  Kill process
+                </Button>
+              </div>
+              {props.killPhase === "confirming" ||
+              props.killPhase === "killing" ? (
+                <div class={processKillConfirmClassName}>
+                  <span class={processKillMessageClassName}>
+                    Forcefully terminate PID {_value().info.pid}?
+                  </span>
+                  <Button
+                    disabled={props.killPhase === "killing"}
+                    onClick={props.onCancelKill}
+                    size="sm"
+                    variant="ghost"
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    disabled={props.killPhase === "killing"}
+                    onClick={props.onConfirmKill}
+                    size="sm"
+                    tone="danger"
+                    variant="solid"
+                  >
+                    <CircleStop size={14} />
+                    {props.killPhase === "killing" ? "Killing" : "Kill process"}
+                  </Button>
+                </div>
+              ) : props.killPhase === "error" ? (
+                <span class={processKillErrorClassName}>{props.killError}</span>
+              ) : null}
+              <ProcessResourceUsageTable usage={_value().usage} />
             </div>
-          )
-          : killPhase === "error"
-          ? <span className={processKillErrorClassName}>{killError}</span>
-          : null}
-        <ProcessResourceUsageTable usage={usage} />
-      </div>
-    </div>
+          </div>
+        );
+      })()}
+    </>
   );
 }
-
 interface ProcessResourcesInUseViewProps {
   daemonInfoPhase: string;
   machineId: string;
@@ -945,210 +996,248 @@ interface ProcessResourcesInUseViewProps {
   rpcSession: ProcessesRpcSession;
   supported: boolean;
 }
-
-function ProcessResourcesInUseView(
-  {
-    daemonInfoPhase,
-    machineId,
-    onOpenPathResource,
-    pid,
-    rpcSession,
-    supported,
-  }: ProcessResourcesInUseViewProps,
-) {
-  const rowsRef = useRef<ProcessResourceInUseInfo[]>([]);
-  const [state, setState] = useState<ProcessResourcesInUseState>({
+function ProcessResourcesInUseView(props: ProcessResourcesInUseViewProps) {
+  const rowsRef = {
+    current: [] as ProcessResourceInUseInfo[],
+  };
+  const [state, setState] = createSignal<ProcessResourcesInUseState>({
     phase: "idle",
     rows: [],
   });
-  const [selectedResourceId, setSelectedResourceId] = useState<string>();
-  const selectedResource = selectedResourceId === undefined
-    ? undefined
-    : state.rows.find((resource) => resource.resourceId === selectedResourceId);
-
-  useEffect(() => {
-    if (daemonInfoPhase === "error") {
-      rowsRef.current = [];
-      setState({
-        message: "Daemon info unavailable",
-        phase: "error",
-        rows: [],
-      });
-      return;
-    }
-    if (daemonInfoPhase !== "ready") {
-      rowsRef.current = [];
-      setState({ phase: "loading", rows: [] });
-      return;
-    }
-    if (!supported) {
-      rowsRef.current = [];
-      setState({
-        message:
-          "This daemon does not support process resource usage subscriptions.",
-        phase: "unsupported",
-        rows: [],
-      });
-      return;
-    }
-
-    let cancelled = false;
-    let iterator: AsyncGenerator<ProcessResourcesInUseTableEvent> | undefined;
-    setState((current) => ({ ...current, phase: "loading" }));
-
-    void (async () => {
-      try {
-        const transport = await rpcSession.webTransport();
-        if (cancelled) return;
-        iterator = subscribeProcessResourcesInUse(transport, { pid });
-        for await (const event of iterator) {
-          if (cancelled) return;
-          if (event.type === "exited") {
-            setState((current) => ({ ...current, phase: "exited" }));
-            return;
-          }
-          const rows = applyProcessResourcesInUseEvent(rowsRef.current, event);
-          rowsRef.current = rows;
-          setState({ phase: "ready", rows });
-        }
-      } catch (err) {
-        if (cancelled) return;
+  const [selectedResourceId, setSelectedResourceId] = createSignal<string>();
+  const selectedResource = createMemo(() =>
+    selectedResourceId() === undefined
+      ? undefined
+      : state().rows.find(
+          (resource) => resource.resourceId === selectedResourceId(),
+        ),
+  );
+  createEffect(
+    createMemo(
+      () =>
+        [
+          props.daemonInfoPhase,
+          props.machineId,
+          props.pid,
+          props.rpcSession,
+          props.supported,
+        ] as const,
+      {
+        equals: (a, b) =>
+          a.length === b.length &&
+          a.every((value, index) => Object.is(value, b[index])),
+      },
+    ),
+    ([
+      snapshotDaemonInfoPhase,
+      ,
+      snapshotPid,
+      snapshotRpcSession,
+      snapshotSupported,
+    ]) => {
+      if (snapshotDaemonInfoPhase === "error") {
         rowsRef.current = [];
         setState({
-          message: err instanceof Error ? err.message : String(err),
+          message: "Daemon info unavailable",
           phase: "error",
           rows: [],
         });
+        return;
       }
-    })();
-
-    return () => {
-      cancelled = true;
-      void iterator?.return(undefined);
-    };
-  }, [daemonInfoPhase, machineId, pid, rpcSession, supported]);
-
-  useEffect(() => {
-    if (selectedResourceId === undefined) return;
-    if (
-      state.rows.some((resource) => resource.resourceId === selectedResourceId)
-    ) {
-      return;
-    }
-    setSelectedResourceId(undefined);
-  }, [selectedResourceId, state.rows]);
-
-  if (state.phase === "loading" || daemonInfoPhase !== "ready") {
-    return (
-      <section className={emptyWorkspaceClassName}>
-        <Loader2 size={24} className="animate-spin" />
-        <h2>Loading resources in use</h2>
-      </section>
-    );
-  }
-
-  if (state.phase === "unsupported" || state.phase === "error") {
-    return (
-      <section className={emptyWorkspaceClassName}>
-        <Activity size={28} />
-        <h2>
-          {state.phase === "unsupported"
-            ? "Resources in use unavailable"
-            : "Failed to load resources in use"}
-        </h2>
-        {state.message ? <p>{state.message}</p> : null}
-      </section>
-    );
-  }
-
-  return (
-    <div className={processesContentClassName}>
-      <div
-        className={processResourceTableClassName}
-        role="grid"
-        aria-label="Process resources in use"
-      >
-        <div
-          className={`${processHeadClassName} ${processFirstColumnClassName}`}
-          role="columnheader"
-        >
-          Name
-        </div>
-        <div className={processHeadClassName} role="columnheader">
-          Kind
-        </div>
-        <div className={processHeadClassName} role="columnheader">
-          Access
-        </div>
-        <div className={processHeadClassName} role="columnheader">
-          ID
-        </div>
-        {state.rows.length === 0
-          ? (
-            <div className={`${processCellClassName} [grid-column:1/-1]`}>
-              No resources in use
-            </div>
-          )
-          : state.rows.map((resource) => {
-            const canOpen = isPathProcessResource(resource);
-            const selected = resource.resourceId === selectedResourceId;
-            return (
-              <div
-                key={resource.resourceId}
-                className={`${processRowClassName} ${
-                  canOpen ? "!cursor-pointer" : ""
-                } ${selected ? "!bg-[#eef4ff] hover:!bg-[#e7f0ff]" : ""}`}
-                role="row"
-                title={resource.name ?? resource.resourceId}
-                onClick={() =>
-                  setSelectedResourceId((current) =>
-                    current === resource.resourceId
-                      ? undefined
-                      : resource.resourceId
-                  )}
-                onDoubleClick={canOpen
-                  ? () => onOpenPathResource(resource)
-                  : undefined}
-              >
-                <span
-                  className={`${processCellClassName} ${processFirstColumnClassName}`}
-                >
-                  <span className={processNameClassName}>
-                    {resource.name ?? resource.resourceId}
-                  </span>
-                </span>
-                <span className={processMetaCellClassName}>
-                  {processResourceInUseKindLabel(resource.kind)}
-                </span>
-                <span className={processMetaCellClassName}>
-                  {processResourceInUseAccessLabel(resource)}
-                </span>
-                <span className={processMetaCellClassName}>
-                  {resource.resourceId}
-                </span>
-              </div>
+      if (snapshotDaemonInfoPhase !== "ready") {
+        rowsRef.current = [];
+        setState({
+          phase: "loading",
+          rows: [],
+        });
+        return;
+      }
+      if (!snapshotSupported) {
+        rowsRef.current = [];
+        setState({
+          message:
+            "This daemon does not support process resource usage subscriptions.",
+          phase: "unsupported",
+          rows: [],
+        });
+        return;
+      }
+      let cancelled = false;
+      let iterator: AsyncGenerator<ProcessResourcesInUseTableEvent> | undefined;
+      setState((current) => ({
+        ...current,
+        phase: "loading",
+      }));
+      void (async () => {
+        try {
+          const transport = await snapshotRpcSession.webTransport();
+          if (cancelled) return;
+          iterator = subscribeProcessResourcesInUse(transport, {
+            pid: snapshotPid,
+          });
+          for await (const event of iterator) {
+            if (cancelled) return;
+            if (event.type === "exited") {
+              setState((current) => ({
+                ...current,
+                phase: "exited",
+              }));
+              return;
+            }
+            const rows = applyProcessResourcesInUseEvent(
+              rowsRef.current,
+              event,
             );
-          })}
-      </div>
-      {selectedResource
-        ? (
-          <ProcessResourceInUseDetail
-            resource={selectedResource}
-            onClose={() => setSelectedResourceId(undefined)}
-          />
+            rowsRef.current = rows;
+            setState({
+              phase: "ready",
+              rows,
+            });
+          }
+        } catch (err) {
+          if (cancelled) return;
+          rowsRef.current = [];
+          setState({
+            message: err instanceof Error ? err.message : String(err),
+            phase: "error",
+            rows: [],
+          });
+        }
+      })();
+      return () => {
+        cancelled = true;
+        void iterator?.return(undefined);
+      };
+    },
+  );
+  createEffect(
+    createMemo(() => [selectedResourceId(), state().rows] as const, {
+      equals: (a, b) =>
+        a.length === b.length &&
+        a.every((value, index) => Object.is(value, b[index])),
+    }),
+    ([snapshotSelectedResourceId, snapshotStateRows]) => {
+      if (snapshotSelectedResourceId === undefined) return;
+      if (
+        snapshotStateRows.some(
+          (resource) => resource.resourceId === snapshotSelectedResourceId,
         )
-        : null}
-      <footer className={processesFooterClassName}>
-        {state.phase === "exited"
-          ? "Process exited"
-          : `${state.rows.length} ${
-            state.rows.length === 1 ? "resource" : "resources"
-          }`}
-      </footer>
-    </div>
+      ) {
+        return;
+      }
+      setSelectedResourceId(undefined);
+    },
+  );
+  return (
+    <>
+      {(() => {
+        if (state().phase === "loading" || props.daemonInfoPhase !== "ready") {
+          return (
+            <section class={emptyWorkspaceClassName}>
+              <Loader2 size={24} className="animate-spin" />
+              <h2>Loading resources in use</h2>
+            </section>
+          );
+        }
+        if (state().phase === "unsupported" || state().phase === "error") {
+          return (
+            <section class={emptyWorkspaceClassName}>
+              <Activity size={28} />
+              <h2>
+                {state().phase === "unsupported"
+                  ? "Resources in use unavailable"
+                  : "Failed to load resources in use"}
+              </h2>
+              {state().message ? <p>{state().message}</p> : null}
+            </section>
+          );
+        }
+        return (
+          <div class={processesContentClassName}>
+            <div
+              class={processResourceTableClassName}
+              role="grid"
+              aria-label="Process resources in use"
+            >
+              <div
+                class={`${processHeadClassName} ${processFirstColumnClassName}`}
+                role="columnheader"
+              >
+                Name
+              </div>
+              <div class={processHeadClassName} role="columnheader">
+                Kind
+              </div>
+              <div class={processHeadClassName} role="columnheader">
+                Access
+              </div>
+              <div class={processHeadClassName} role="columnheader">
+                ID
+              </div>
+              {state().rows.length === 0 ? (
+                <div class={`${processCellClassName} [grid-column:1/-1]`}>
+                  No resources in use
+                </div>
+              ) : (
+                state().rows.map((resource) => {
+                  const canOpen = isPathProcessResource(resource);
+                  const selected = resource.resourceId === selectedResourceId();
+                  return (
+                    <div
+                      class={`${processRowClassName} ${canOpen ? "!cursor-pointer" : ""} ${selected ? "!bg-[#eef4ff] hover:!bg-[#e7f0ff]" : ""}`}
+                      role="row"
+                      title={resource.name ?? resource.resourceId}
+                      onClick={() =>
+                        setSelectedResourceId((current) =>
+                          current === resource.resourceId
+                            ? undefined
+                            : resource.resourceId,
+                        )
+                      }
+                      onDblClick={
+                        canOpen
+                          ? () => props.onOpenPathResource(resource)
+                          : undefined
+                      }
+                    >
+                      <span
+                        class={`${processCellClassName} ${processFirstColumnClassName}`}
+                      >
+                        <span class={processNameClassName}>
+                          {resource.name ?? resource.resourceId}
+                        </span>
+                      </span>
+                      <span class={processMetaCellClassName}>
+                        {processResourceInUseKindLabel(resource.kind)}
+                      </span>
+                      <span class={processMetaCellClassName}>
+                        {processResourceInUseAccessLabel(resource)}
+                      </span>
+                      <span class={processMetaCellClassName}>
+                        {resource.resourceId}
+                      </span>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+            {selectedResource() ? (
+              <ProcessResourceInUseDetail
+                resource={selectedResource()!}
+                onClose={() => setSelectedResourceId(undefined)}
+              />
+            ) : null}
+            <footer class={processesFooterClassName}>
+              {state().phase === "exited"
+                ? "Process exited"
+                : `${state().rows.length} ${state().rows.length === 1 ? "resource" : "resources"}`}
+            </footer>
+          </div>
+        );
+      })()}
+    </>
   );
 }
-
 interface ProcessSocketsInUseViewProps {
   daemonInfoPhase: string;
   machineId: string;
@@ -1156,180 +1245,207 @@ interface ProcessSocketsInUseViewProps {
   rpcSession: ProcessesRpcSession;
   supported: boolean;
 }
-
-function ProcessSocketsInUseView(
-  {
-    daemonInfoPhase,
-    machineId,
-    pid,
-    rpcSession,
-    supported,
-  }: ProcessSocketsInUseViewProps,
-) {
-  const rowsRef = useRef<ProcessSocketInUseInfo[]>([]);
-  const [state, setState] = useState<ProcessSocketsInUseState>({
+function ProcessSocketsInUseView(props: ProcessSocketsInUseViewProps) {
+  const rowsRef = {
+    current: [] as ProcessSocketInUseInfo[],
+  };
+  const [state, setState] = createSignal<ProcessSocketsInUseState>({
     phase: "idle",
     rows: [],
   });
-
-  useEffect(() => {
-    if (daemonInfoPhase === "error") {
-      rowsRef.current = [];
-      setState({
-        message: "Daemon info unavailable",
-        phase: "error",
-        rows: [],
-      });
-      return;
-    }
-    if (daemonInfoPhase !== "ready") {
-      rowsRef.current = [];
-      setState({ phase: "loading", rows: [] });
-      return;
-    }
-    if (!supported) {
-      rowsRef.current = [];
-      setState({
-        message:
-          "This daemon does not support process socket usage subscriptions.",
-        phase: "unsupported",
-        rows: [],
-      });
-      return;
-    }
-
-    let cancelled = false;
-    let iterator: AsyncGenerator<ProcessSocketsInUseTableEvent> | undefined;
-    setState((current) => ({ ...current, phase: "loading" }));
-
-    void (async () => {
-      try {
-        const transport = await rpcSession.webTransport();
-        if (cancelled) return;
-        iterator = subscribeProcessSocketsInUse(transport, { pid });
-        for await (const event of iterator) {
-          if (cancelled) return;
-          if (event.type === "exited") {
-            setState((current) => ({ ...current, phase: "exited" }));
-            return;
-          }
-          const rows = applyProcessSocketsInUseEvent(rowsRef.current, event);
-          rowsRef.current = rows;
-          setState({ phase: "ready", rows });
-        }
-      } catch (err) {
-        if (cancelled) return;
+  createEffect(
+    createMemo(
+      () =>
+        [
+          props.daemonInfoPhase,
+          props.machineId,
+          props.pid,
+          props.rpcSession,
+          props.supported,
+        ] as const,
+      {
+        equals: (a, b) =>
+          a.length === b.length &&
+          a.every((value, index) => Object.is(value, b[index])),
+      },
+    ),
+    ([
+      snapshotDaemonInfoPhase,
+      ,
+      snapshotPid,
+      snapshotRpcSession,
+      snapshotSupported,
+    ]) => {
+      if (snapshotDaemonInfoPhase === "error") {
         rowsRef.current = [];
         setState({
-          message: err instanceof Error ? err.message : String(err),
+          message: "Daemon info unavailable",
           phase: "error",
           rows: [],
         });
+        return;
       }
-    })();
-
-    return () => {
-      cancelled = true;
-      void iterator?.return(undefined);
-    };
-  }, [daemonInfoPhase, machineId, pid, rpcSession, supported]);
-
-  if (state.phase === "loading" || daemonInfoPhase !== "ready") {
-    return (
-      <section className={emptyWorkspaceClassName}>
-        <Loader2 size={24} className="animate-spin" />
-        <h2>Loading sockets in use</h2>
-      </section>
-    );
-  }
-
-  if (state.phase === "unsupported" || state.phase === "error") {
-    return (
-      <section className={emptyWorkspaceClassName}>
-        <Activity size={28} />
-        <h2>
-          {state.phase === "unsupported"
-            ? "Sockets in use unavailable"
-            : "Failed to load sockets in use"}
-        </h2>
-        {state.message ? <p>{state.message}</p> : null}
-      </section>
-    );
-  }
-
+      if (snapshotDaemonInfoPhase !== "ready") {
+        rowsRef.current = [];
+        setState({
+          phase: "loading",
+          rows: [],
+        });
+        return;
+      }
+      if (!snapshotSupported) {
+        rowsRef.current = [];
+        setState({
+          message:
+            "This daemon does not support process socket usage subscriptions.",
+          phase: "unsupported",
+          rows: [],
+        });
+        return;
+      }
+      let cancelled = false;
+      let iterator: AsyncGenerator<ProcessSocketsInUseTableEvent> | undefined;
+      setState((current) => ({
+        ...current,
+        phase: "loading",
+      }));
+      void (async () => {
+        try {
+          const transport = await snapshotRpcSession.webTransport();
+          if (cancelled) return;
+          iterator = subscribeProcessSocketsInUse(transport, {
+            pid: snapshotPid,
+          });
+          for await (const event of iterator) {
+            if (cancelled) return;
+            if (event.type === "exited") {
+              setState((current) => ({
+                ...current,
+                phase: "exited",
+              }));
+              return;
+            }
+            const rows = applyProcessSocketsInUseEvent(rowsRef.current, event);
+            rowsRef.current = rows;
+            setState({
+              phase: "ready",
+              rows,
+            });
+          }
+        } catch (err) {
+          if (cancelled) return;
+          rowsRef.current = [];
+          setState({
+            message: err instanceof Error ? err.message : String(err),
+            phase: "error",
+            rows: [],
+          });
+        }
+      })();
+      return () => {
+        cancelled = true;
+        void iterator?.return(undefined);
+      };
+    },
+  );
   return (
-    <div className={processesContentClassName}>
-      <div
-        className={state.rows.length === 0
-          ? processSocketTableEmptyClassName
-          : processSocketTableClassName}
-        role="grid"
-        aria-label="Process sockets in use"
-      >
-        <div
-          className={`${processHeadClassName} ${processFirstColumnClassName}`}
-          role="columnheader"
-        >
-          Kind
-        </div>
-        <div className={processHeadClassName} role="columnheader">
-          Local
-        </div>
-        <div className={processHeadClassName} role="columnheader">
-          Remote
-        </div>
-        <div className={processHeadClassName} role="columnheader">
-          Listening
-        </div>
-        {state.rows.length === 0
-          ? (
-            <div className={processSocketEmptyCellClassName}>
-              <span>No sockets in use by PID {pid}</span>
-              <span className="text-slate-500">
-                Multi-process apps may keep sockets in a separate network
-                service process.
-              </span>
-            </div>
-          )
-          : state.rows.map((socket) => (
+    <>
+      {(() => {
+        if (state().phase === "loading" || props.daemonInfoPhase !== "ready") {
+          return (
+            <section class={emptyWorkspaceClassName}>
+              <Loader2 size={24} className="animate-spin" />
+              <h2>Loading sockets in use</h2>
+            </section>
+          );
+        }
+        if (state().phase === "unsupported" || state().phase === "error") {
+          return (
+            <section class={emptyWorkspaceClassName}>
+              <Activity size={28} />
+              <h2>
+                {state().phase === "unsupported"
+                  ? "Sockets in use unavailable"
+                  : "Failed to load sockets in use"}
+              </h2>
+              {state().message ? <p>{state().message}</p> : null}
+            </section>
+          );
+        }
+        return (
+          <div class={processesContentClassName}>
             <div
-              key={socket.socketId}
-              className={processRowClassName}
-              role="row"
-              title={socket.socketId}
+              class={
+                state().rows.length === 0
+                  ? processSocketTableEmptyClassName
+                  : processSocketTableClassName
+              }
+              role="grid"
+              aria-label="Process sockets in use"
             >
-              <span
-                className={`${processMetaCellClassName} ${processFirstColumnClassName}`}
+              <div
+                class={`${processHeadClassName} ${processFirstColumnClassName}`}
+                role="columnheader"
               >
-                {processSocketInUseKindLabel(socket.kind)}
-              </span>
-              <span className={processCellClassName}>
-                <span className={processNameClassName}>
-                  {socketEndpointLabel(socket.localEndpoint)}
-                </span>
-              </span>
-              <span className={processCellClassName}>
-                <span className={processNameClassName}>
-                  {socketEndpointLabel(socket.remoteEndpoint)}
-                </span>
-              </span>
-              <span className={processMetaCellClassName}>
-                {socketListeningLabel(socket.listening)}
-              </span>
+                Kind
+              </div>
+              <div class={processHeadClassName} role="columnheader">
+                Local
+              </div>
+              <div class={processHeadClassName} role="columnheader">
+                Remote
+              </div>
+              <div class={processHeadClassName} role="columnheader">
+                Listening
+              </div>
+              {state().rows.length === 0 ? (
+                <div class={processSocketEmptyCellClassName}>
+                  <span>No sockets in use by PID {props.pid}</span>
+                  <span class="text-slate-500">
+                    Multi-process apps may keep sockets in a separate network
+                    service process.
+                  </span>
+                </div>
+              ) : (
+                state().rows.map((socket) => (
+                  <div
+                    class={processRowClassName}
+                    role="row"
+                    title={socket.socketId}
+                  >
+                    <span
+                      class={`${processMetaCellClassName} ${processFirstColumnClassName}`}
+                    >
+                      {processSocketInUseKindLabel(socket.kind)}
+                    </span>
+                    <span class={processCellClassName}>
+                      <span class={processNameClassName}>
+                        {socketEndpointLabel(socket.localEndpoint)}
+                      </span>
+                    </span>
+                    <span class={processCellClassName}>
+                      <span class={processNameClassName}>
+                        {socketEndpointLabel(socket.remoteEndpoint)}
+                      </span>
+                    </span>
+                    <span class={processMetaCellClassName}>
+                      {socketListeningLabel(socket.listening)}
+                    </span>
+                  </div>
+                ))
+              )}
             </div>
-          ))}
-      </div>
-      <footer className={processesFooterClassName}>
-        {state.phase === "exited"
-          ? "Process exited"
-          : `${state.rows.length} ${
-            state.rows.length === 1 ? "socket" : "sockets"
-          }`}
-      </footer>
-    </div>
+            <footer class={processesFooterClassName}>
+              {state().phase === "exited"
+                ? "Process exited"
+                : `${state().rows.length} ${state().rows.length === 1 ? "socket" : "sockets"}`}
+            </footer>
+          </div>
+        );
+      })()}
+    </>
   );
 }
-
 interface ProcessModulesViewProps {
   daemonInfoPhase: string;
   machineId: string;
@@ -1338,312 +1454,364 @@ interface ProcessModulesViewProps {
   rpcSession: ProcessesRpcSession;
   supported: boolean;
 }
-
-function ProcessModulesView(
-  {
-    daemonInfoPhase,
-    machineId,
-    onOpenModulePath,
-    pid,
-    rpcSession,
-    supported,
-  }: ProcessModulesViewProps,
-) {
-  const rowsRef = useRef<ProcessModuleInfo[]>([]);
-  const [state, setState] = useState<ProcessModulesState>({
+function ProcessModulesView(props: ProcessModulesViewProps) {
+  const rowsRef = {
+    current: [] as ProcessModuleInfo[],
+  };
+  const [state, setState] = createSignal<ProcessModulesState>({
     phase: "idle",
     rows: [],
   });
-
-  useEffect(() => {
-    if (daemonInfoPhase === "error") {
-      rowsRef.current = [];
-      setState({
-        message: "Daemon info unavailable",
-        phase: "error",
-        rows: [],
-      });
-      return;
-    }
-    if (daemonInfoPhase !== "ready") {
-      rowsRef.current = [];
-      setState({ phase: "loading", rows: [] });
-      return;
-    }
-    if (!supported) {
-      rowsRef.current = [];
-      setState({
-        message: "This daemon does not support process module subscriptions.",
-        phase: "unsupported",
-        rows: [],
-      });
-      return;
-    }
-
-    let cancelled = false;
-    let iterator: AsyncGenerator<ProcessModulesTableEvent> | undefined;
-    setState((current) => ({ ...current, phase: "loading" }));
-
-    void (async () => {
-      try {
-        const transport = await rpcSession.webTransport();
-        if (cancelled) return;
-        iterator = subscribeProcessModules(transport, { pid });
-        for await (const event of iterator) {
-          if (cancelled) return;
-          if (event.type === "exited") {
-            setState((current) => ({ ...current, phase: "exited" }));
-            return;
-          }
-          const rows = applyProcessModulesEvent(rowsRef.current, event);
-          rowsRef.current = rows;
-          setState({ phase: "ready", rows });
-        }
-      } catch (err) {
-        if (cancelled) return;
+  createEffect(
+    createMemo(
+      () =>
+        [
+          props.daemonInfoPhase,
+          props.machineId,
+          props.pid,
+          props.rpcSession,
+          props.supported,
+        ] as const,
+      {
+        equals: (a, b) =>
+          a.length === b.length &&
+          a.every((value, index) => Object.is(value, b[index])),
+      },
+    ),
+    ([
+      snapshotDaemonInfoPhase,
+      ,
+      snapshotPid,
+      snapshotRpcSession,
+      snapshotSupported,
+    ]) => {
+      if (snapshotDaemonInfoPhase === "error") {
         rowsRef.current = [];
         setState({
-          message: err instanceof Error ? err.message : String(err),
+          message: "Daemon info unavailable",
           phase: "error",
           rows: [],
         });
+        return;
       }
-    })();
-
-    return () => {
-      cancelled = true;
-      void iterator?.return(undefined);
-    };
-  }, [daemonInfoPhase, machineId, pid, rpcSession, supported]);
-
-  if (state.phase === "loading" || daemonInfoPhase !== "ready") {
-    return (
-      <section className={emptyWorkspaceClassName}>
-        <Loader2 size={24} className="animate-spin" />
-        <h2>Loading modules</h2>
-      </section>
-    );
-  }
-
-  if (state.phase === "unsupported" || state.phase === "error") {
-    return (
-      <section className={emptyWorkspaceClassName}>
-        <Activity size={28} />
-        <h2>
-          {state.phase === "unsupported"
-            ? "Modules unavailable"
-            : "Failed to load modules"}
-        </h2>
-        {state.message ? <p>{state.message}</p> : null}
-      </section>
-    );
-  }
-
+      if (snapshotDaemonInfoPhase !== "ready") {
+        rowsRef.current = [];
+        setState({
+          phase: "loading",
+          rows: [],
+        });
+        return;
+      }
+      if (!snapshotSupported) {
+        rowsRef.current = [];
+        setState({
+          message: "This daemon does not support process module subscriptions.",
+          phase: "unsupported",
+          rows: [],
+        });
+        return;
+      }
+      let cancelled = false;
+      let iterator: AsyncGenerator<ProcessModulesTableEvent> | undefined;
+      setState((current) => ({
+        ...current,
+        phase: "loading",
+      }));
+      void (async () => {
+        try {
+          const transport = await snapshotRpcSession.webTransport();
+          if (cancelled) return;
+          iterator = subscribeProcessModules(transport, {
+            pid: snapshotPid,
+          });
+          for await (const event of iterator) {
+            if (cancelled) return;
+            if (event.type === "exited") {
+              setState((current) => ({
+                ...current,
+                phase: "exited",
+              }));
+              return;
+            }
+            const rows = applyProcessModulesEvent(rowsRef.current, event);
+            rowsRef.current = rows;
+            setState({
+              phase: "ready",
+              rows,
+            });
+          }
+        } catch (err) {
+          if (cancelled) return;
+          rowsRef.current = [];
+          setState({
+            message: err instanceof Error ? err.message : String(err),
+            phase: "error",
+            rows: [],
+          });
+        }
+      })();
+      return () => {
+        cancelled = true;
+        void iterator?.return(undefined);
+      };
+    },
+  );
   return (
-    <div className={processesContentClassName}>
-      <div
-        className={processModuleTableClassName}
-        role="grid"
-        aria-label="Process modules"
-      >
-        <div
-          className={`${processHeadClassName} ${processFirstColumnClassName}`}
-          role="columnheader"
-        >
-          Name
-        </div>
-        <div className={processHeadClassName} role="columnheader">
-          Kind
-        </div>
-        <div className={processHeadClassName} role="columnheader">
-          Base address
-        </div>
-        <div className={processHeadClassName} role="columnheader">
-          Size
-        </div>
-        <div className={processHeadClassName} role="columnheader">
-          Path
-        </div>
-        {state.rows.length === 0
-          ? (
-            <div className={`${processCellClassName} [grid-column:1/-1]`}>
-              No modules
-            </div>
-          )
-          : state.rows.map((module) => {
-            const canOpen = module.path !== undefined && module.path.length > 0;
-            return (
+    <>
+      {(() => {
+        if (state().phase === "loading" || props.daemonInfoPhase !== "ready") {
+          return (
+            <section class={emptyWorkspaceClassName}>
+              <Loader2 size={24} className="animate-spin" />
+              <h2>Loading modules</h2>
+            </section>
+          );
+        }
+        if (state().phase === "unsupported" || state().phase === "error") {
+          return (
+            <section class={emptyWorkspaceClassName}>
+              <Activity size={28} />
+              <h2>
+                {state().phase === "unsupported"
+                  ? "Modules unavailable"
+                  : "Failed to load modules"}
+              </h2>
+              {state().message ? <p>{state().message}</p> : null}
+            </section>
+          );
+        }
+        return (
+          <div class={processesContentClassName}>
+            <div
+              class={processModuleTableClassName}
+              role="grid"
+              aria-label="Process modules"
+            >
               <div
-                key={module.moduleId}
-                className={`${processRowClassName} ${
-                  canOpen ? "!cursor-pointer" : ""
-                }`}
-                role="row"
-                title={module.path ?? module.name}
-                onDoubleClick={canOpen
-                  ? () => onOpenModulePath(module)
-                  : undefined}
+                class={`${processHeadClassName} ${processFirstColumnClassName}`}
+                role="columnheader"
               >
-                <span
-                  className={`${processCellClassName} ${processFirstColumnClassName}`}
-                >
-                  <span className={processNameClassName}>
-                    {module.name}
-                  </span>
-                </span>
-                <span className={processMetaCellClassName}>
-                  {processModuleKindLabel(module.kind)}
-                </span>
-                <span className={processMetaCellClassName}>
-                  {module.baseAddress ?? ""}
-                </span>
-                <span className={processMetaCellClassName}>
-                  {module.sizeBytes === undefined
-                    ? ""
-                    : formatBytes(module.sizeBytes)}
-                </span>
-                <span className={processCellClassName}>
-                  <span className={processNameClassName}>
-                    {module.path ?? ""}
-                  </span>
-                </span>
+                Name
               </div>
-            );
-          })}
-      </div>
-      <footer className={processesFooterClassName}>
-        {state.phase === "exited"
-          ? "Process exited"
-          : `${state.rows.length} ${
-            state.rows.length === 1 ? "module" : "modules"
-          }`}
-      </footer>
-    </div>
+              <div class={processHeadClassName} role="columnheader">
+                Kind
+              </div>
+              <div class={processHeadClassName} role="columnheader">
+                Base address
+              </div>
+              <div class={processHeadClassName} role="columnheader">
+                Size
+              </div>
+              <div class={processHeadClassName} role="columnheader">
+                Path
+              </div>
+              {state().rows.length === 0 ? (
+                <div class={`${processCellClassName} [grid-column:1/-1]`}>
+                  No modules
+                </div>
+              ) : (
+                state().rows.map((module) => {
+                  const canOpen =
+                    module.path !== undefined && module.path.length > 0;
+                  return (
+                    <div
+                      class={`${processRowClassName} ${canOpen ? "!cursor-pointer" : ""}`}
+                      role="row"
+                      title={module.path ?? module.name}
+                      onDblClick={
+                        canOpen
+                          ? () => props.onOpenModulePath(module)
+                          : undefined
+                      }
+                    >
+                      <span
+                        class={`${processCellClassName} ${processFirstColumnClassName}`}
+                      >
+                        <span class={processNameClassName}>{module.name}</span>
+                      </span>
+                      <span class={processMetaCellClassName}>
+                        {processModuleKindLabel(module.kind)}
+                      </span>
+                      <span class={processMetaCellClassName}>
+                        {module.baseAddress ?? ""}
+                      </span>
+                      <span class={processMetaCellClassName}>
+                        {module.sizeBytes === undefined
+                          ? ""
+                          : formatBytes(module.sizeBytes)}
+                      </span>
+                      <span class={processCellClassName}>
+                        <span class={processNameClassName}>
+                          {module.path ?? ""}
+                        </span>
+                      </span>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+            <footer class={processesFooterClassName}>
+              {state().phase === "exited"
+                ? "Process exited"
+                : `${state().rows.length} ${state().rows.length === 1 ? "module" : "modules"}`}
+            </footer>
+          </div>
+        );
+      })()}
+    </>
   );
 }
-
 interface ProcessResourceInUseDetailProps {
   onClose: () => void;
   resource: ProcessResourceInUseInfo;
 }
-
-function ProcessResourceInUseDetail(
-  { onClose, resource }: ProcessResourceInUseDetailProps,
-) {
+function ProcessResourceInUseDetail(props: ProcessResourceInUseDetailProps) {
   return (
-    <div className={processResourceDetailPanelClassName}>
-      <button
-        type="button"
-        className={processResourceDetailCloseButtonClassName}
-        onClick={onClose}
-        title="Close resource detail"
-      >
-        <X size={14} />
-      </button>
-      <PropertyList>
-        <ProcessDetailItem
-          label="Name"
-          value={resource.name ?? "Unknown"}
-        />
-        <ProcessDetailItem
-          label="Kind"
-          value={processResourceInUseKindLabel(resource.kind)}
-        />
-        <ProcessDetailItem
-          label="Access"
-          value={processResourceInUseAccessLabel(resource) || "Unknown"}
-        />
-        <ProcessDetailItem
-          label="State"
-          value={resource.deleted ? "Deleted" : "Active"}
-        />
-        <ProcessDetailItem label="Resource ID" value={resource.resourceId} />
-      </PropertyList>
-    </div>
+    <>
+      {(() => {
+        return (
+          <div class={processResourceDetailPanelClassName}>
+            <button
+              type="button"
+              class={processResourceDetailCloseButtonClassName}
+              onClick={props.onClose}
+              title="Close resource detail"
+            >
+              <X size={14} />
+            </button>
+            <PropertyList>
+              <ProcessDetailItem
+                label="Name"
+                value={props.resource.name ?? "Unknown"}
+              />
+              <ProcessDetailItem
+                label="Kind"
+                value={processResourceInUseKindLabel(props.resource.kind)}
+              />
+              <ProcessDetailItem
+                label="Access"
+                value={
+                  processResourceInUseAccessLabel(props.resource) || "Unknown"
+                }
+              />
+              <ProcessDetailItem
+                label="State"
+                value={props.resource.deleted ? "Deleted" : "Active"}
+              />
+              <ProcessDetailItem
+                label="Resource ID"
+                value={props.resource.resourceId}
+              />
+            </PropertyList>
+          </div>
+        );
+      })()}
+    </>
   );
 }
-
 interface ProcessResourceUsageTableProps {
   usage: ProcessDetail["usage"];
 }
-
-function ProcessResourceUsageTable({ usage }: ProcessResourceUsageTableProps) {
+function ProcessResourceUsageTable(props: ProcessResourceUsageTableProps) {
   return (
-    <PropertyList>
-      <ProcessDetailItem
-        label="CPU"
-        note={`Accumulated CPU time ${
-          formatDurationMs(usage.accumulatedCpuTimeMs)
-        }`}
-        value={formatCpuUsagePercent(usage.cpuUsagePercent)}
-      />
-      <ProcessDetailItem
-        label="Memory"
-        note={`Virtual ${formatBytes(usage.virtualMemoryBytes)}`}
-        value={formatBytes(usage.memoryBytes)}
-      />
-      <ProcessDetailItem
-        label="IO read"
-        note={`Total ${formatBytes(usage.ioUsage.totalReadBytes)}`}
-        value={`${formatBytes(usage.ioUsage.readBytes)}/s`}
-      />
-      <ProcessDetailItem
-        label="IO written"
-        note={`Total ${formatBytes(usage.ioUsage.totalWrittenBytes)}`}
-        value={`${formatBytes(usage.ioUsage.writtenBytes)}/s`}
-      />
-    </PropertyList>
+    <>
+      {(() => {
+        return (
+          <PropertyList>
+            <ProcessDetailItem
+              label="CPU"
+              note={`Accumulated CPU time ${formatDurationMs(props.usage.accumulatedCpuTimeMs)}`}
+              value={formatCpuUsagePercent(props.usage.cpuUsagePercent)}
+            />
+            <ProcessDetailItem
+              label="Memory"
+              note={`Virtual ${formatBytes(props.usage.virtualMemoryBytes)}`}
+              value={formatBytes(props.usage.memoryBytes)}
+            />
+            <ProcessDetailItem
+              label="IO read"
+              note={`Total ${formatBytes(props.usage.ioUsage.totalReadBytes)}`}
+              value={`${formatBytes(props.usage.ioUsage.readBytes)}/s`}
+            />
+            <ProcessDetailItem
+              label="IO written"
+              note={`Total ${formatBytes(props.usage.ioUsage.totalWrittenBytes)}`}
+              value={`${formatBytes(props.usage.ioUsage.writtenBytes)}/s`}
+            />
+          </PropertyList>
+        );
+      })()}
+    </>
   );
 }
-
 interface ProcessDetailItemProps {
   label: string;
   note?: string;
   value: string;
 }
-
-function ProcessDetailItem({ label, note, value }: ProcessDetailItemProps) {
+function ProcessDetailItem(props: ProcessDetailItemProps) {
   return (
-    <PropertyListItem label={label}>
-      <PropertyValue>{value}</PropertyValue>
-      {note ? <span className={processDetailNoteClassName}>{note}</span> : null}
-    </PropertyListItem>
+    <>
+      {(() => {
+        return (
+          <PropertyListItem label={props.label}>
+            <PropertyValue>{props.value}</PropertyValue>
+            {props.note ? (
+              <span class={processDetailNoteClassName}>{props.note}</span>
+            ) : null}
+          </PropertyListItem>
+        );
+      })()}
+    </>
   );
 }
-
 function applyProcessDetailEvent(
   current: ProcessDetailState,
   event: ProcessDetailEvent,
 ): ProcessDetailState {
   switch (event.type) {
     case "snapshot":
-      return { detail: event.detail, phase: "ready" };
+      return {
+        detail: event.detail,
+        phase: "ready",
+      };
     case "infoChanged":
       return current.detail
         ? {
-          detail: { ...current.detail, info: event.info },
-          phase: current.phase === "exited" ? "exited" : "ready",
-        }
+            detail: {
+              ...current.detail,
+              info: event.info,
+            },
+            phase: current.phase === "exited" ? "exited" : "ready",
+          }
         : current;
     case "metadataChanged":
       return current.detail
         ? {
-          detail: { ...current.detail, metadata: event.metadata },
-          phase: current.phase === "exited" ? "exited" : "ready",
-        }
+            detail: {
+              ...current.detail,
+              metadata: event.metadata,
+            },
+            phase: current.phase === "exited" ? "exited" : "ready",
+          }
         : current;
     case "usageChanged":
       return current.detail
         ? {
-          detail: { ...current.detail, usage: event.usage },
-          phase: current.phase === "exited" ? "exited" : "ready",
-        }
+            detail: {
+              ...current.detail,
+              usage: event.usage,
+            },
+            phase: current.phase === "exited" ? "exited" : "ready",
+          }
         : current;
     case "exited":
-      return { ...current, phase: "exited" };
+      return {
+        ...current,
+        phase: "exited",
+      };
   }
 }
-
 function applyProcessResourcesInUseEvent(
   currentRows: ProcessResourceInUseInfo[],
   event: ProcessResourcesInUseTableEvent,
@@ -1654,7 +1822,6 @@ function applyProcessResourcesInUseEvent(
   if (event.type === "exited") {
     return currentRows;
   }
-
   const rowsById = new Map(currentRows.map((row) => [row.resourceId, row]));
   for (const resourceId of event.removes) {
     rowsById.delete(resourceId);
@@ -1664,7 +1831,6 @@ function applyProcessResourcesInUseEvent(
   }
   return sortedProcessResourcesInUse([...rowsById.values()]);
 }
-
 function applyProcessSocketsInUseEvent(
   currentRows: ProcessSocketInUseInfo[],
   event: ProcessSocketsInUseTableEvent,
@@ -1675,7 +1841,6 @@ function applyProcessSocketsInUseEvent(
   if (event.type === "exited") {
     return currentRows;
   }
-
   const rowsById = new Map(currentRows.map((row) => [row.socketId, row]));
   for (const socketId of event.removes) {
     rowsById.delete(socketId);
@@ -1685,7 +1850,6 @@ function applyProcessSocketsInUseEvent(
   }
   return sortedProcessSocketsInUse([...rowsById.values()]);
 }
-
 function applyProcessModulesEvent(
   currentRows: ProcessModuleInfo[],
   event: ProcessModulesTableEvent,
@@ -1696,7 +1860,6 @@ function applyProcessModulesEvent(
   if (event.type === "exited") {
     return currentRows;
   }
-
   const rowsById = new Map(currentRows.map((row) => [row.moduleId, row]));
   for (const moduleId of event.removes) {
     rowsById.delete(moduleId);
@@ -1706,7 +1869,6 @@ function applyProcessModulesEvent(
   }
   return sortedProcessModules([...rowsById.values()]);
 }
-
 function buildProcessTreeNodes(
   rows: ProcessInfo[],
   rootPid: number,
@@ -1721,13 +1883,11 @@ function buildProcessTreeNodes(
       children.push(row);
     }
   }
-
   for (const children of childrenByParent.values()) {
-    children.sort((a, b) =>
-      (a.name || "").localeCompare(b.name || "") || a.pid - b.pid
+    children.sort(
+      (a, b) => (a.name || "").localeCompare(b.name || "") || a.pid - b.pid,
     );
   }
-
   const tree: ProcessTreeNode[] = [];
   const visited = new Set<number>();
   const appendChildren = (parentPid: number, depth: number) => {
@@ -1735,56 +1895,61 @@ function buildProcessTreeNodes(
     for (const process of children) {
       if (visited.has(process.pid)) continue;
       visited.add(process.pid);
-      tree.push({ depth, process });
+      tree.push({
+        depth,
+        process,
+      });
       appendChildren(process.pid, depth + 1);
     }
   };
   appendChildren(rootPid, 0);
   return tree;
 }
-
 function sortedProcessResourcesInUse(
   rows: ProcessResourceInUseInfo[],
 ): ProcessResourceInUseInfo[] {
-  return [...rows].sort((a, b) =>
-    processResourceInUseKindLabel(a.kind).localeCompare(
-      processResourceInUseKindLabel(b.kind),
-    ) || (a.name ?? "").localeCompare(b.name ?? "") ||
-    a.resourceId.localeCompare(b.resourceId)
+  return [...rows].sort(
+    (a, b) =>
+      processResourceInUseKindLabel(a.kind).localeCompare(
+        processResourceInUseKindLabel(b.kind),
+      ) ||
+      (a.name ?? "").localeCompare(b.name ?? "") ||
+      a.resourceId.localeCompare(b.resourceId),
   );
 }
-
 function sortedProcessSocketsInUse(
   rows: ProcessSocketInUseInfo[],
 ): ProcessSocketInUseInfo[] {
-  return [...rows].sort((a, b) =>
-    processSocketInUseKindLabel(a.kind).localeCompare(
-      processSocketInUseKindLabel(b.kind),
-    ) || socketEndpointLabel(a.localEndpoint).localeCompare(
-      socketEndpointLabel(b.localEndpoint),
-    ) ||
-    socketEndpointLabel(a.remoteEndpoint).localeCompare(
-      socketEndpointLabel(b.remoteEndpoint),
-    ) ||
-    a.socketId.localeCompare(b.socketId)
+  return [...rows].sort(
+    (a, b) =>
+      processSocketInUseKindLabel(a.kind).localeCompare(
+        processSocketInUseKindLabel(b.kind),
+      ) ||
+      socketEndpointLabel(a.localEndpoint).localeCompare(
+        socketEndpointLabel(b.localEndpoint),
+      ) ||
+      socketEndpointLabel(a.remoteEndpoint).localeCompare(
+        socketEndpointLabel(b.remoteEndpoint),
+      ) ||
+      a.socketId.localeCompare(b.socketId),
   );
 }
-
 function sortedProcessModules(rows: ProcessModuleInfo[]): ProcessModuleInfo[] {
-  return [...rows].sort((a, b) =>
-    processModuleKindSortKey(a.kind) - processModuleKindSortKey(b.kind) ||
-    a.name.localeCompare(b.name) ||
-    (a.path ?? "").localeCompare(b.path ?? "") ||
-    a.moduleId.localeCompare(b.moduleId)
+  return [...rows].sort(
+    (a, b) =>
+      processModuleKindSortKey(a.kind) - processModuleKindSortKey(b.kind) ||
+      a.name.localeCompare(b.name) ||
+      (a.path ?? "").localeCompare(b.path ?? "") ||
+      a.moduleId.localeCompare(b.moduleId),
   );
 }
-
 function isPathProcessResource(resource: ProcessResourceInUseInfo): boolean {
   if (!resource.name || resource.deleted) return false;
-  return resource.kind === ProcessResourceInUseKind.File ||
-    resource.kind === ProcessResourceInUseKind.Directory;
+  return (
+    resource.kind === ProcessResourceInUseKind.File ||
+    resource.kind === ProcessResourceInUseKind.Directory
+  );
 }
-
 function writeProcessResourceFilesNavigationState(
   machineId: string | undefined,
   tabId: string,
@@ -1796,7 +1961,6 @@ function writeProcessResourceFilesNavigationState(
     return;
   }
   if (resource.kind !== ProcessResourceInUseKind.File) return;
-
   writeExplorerFileNavigationState(
     machineId,
     tabId,
@@ -1804,7 +1968,6 @@ function writeProcessResourceFilesNavigationState(
     processPathFileEntry(resource.name),
   );
 }
-
 function writeProcessModuleFilesNavigationState(
   machineId: string | undefined,
   tabId: string,
@@ -1818,7 +1981,6 @@ function writeProcessModuleFilesNavigationState(
     processPathFileEntry(module.path),
   );
 }
-
 function processPathFileEntry(path: string): FsEntry {
   return {
     kind: FsEntryKind.File,
@@ -1827,12 +1989,15 @@ function processPathFileEntry(path: string): FsEntry {
     readonly: false,
   };
 }
-
 function pathBaseName(path: string): string {
   const trimmed = path.replace(/[\\/]+$/g, "");
-  return trimmed.split(/[\\/]+/).filter(Boolean).pop() ?? path;
+  return (
+    trimmed
+      .split(/[\\/]+/)
+      .filter(Boolean)
+      .pop() ?? path
+  );
 }
-
 function processStatusLabel(status: ProcessStatus): string {
   switch (status.type) {
     case "idle":
@@ -1865,7 +2030,6 @@ function processStatusLabel(status: ProcessStatus): string {
       return `Unknown (${status.code})`;
   }
 }
-
 function processResourceInUseKindLabel(kind: ProcessResourceInUseKind): string {
   switch (kind) {
     case ProcessResourceInUseKind.File:
@@ -1882,7 +2046,6 @@ function processResourceInUseKindLabel(kind: ProcessResourceInUseKind): string {
       return "Other";
   }
 }
-
 function processSocketInUseKindLabel(
   kind: ProcessSocketInUseInfo["kind"],
 ): string {
@@ -1899,7 +2062,6 @@ function processSocketInUseKindLabel(
       return "Unknown";
   }
 }
-
 function socketEndpointLabel(endpoint: SocketEndpoint | undefined): string {
   if (!endpoint) return "";
   switch (endpoint.type) {
@@ -1911,12 +2073,10 @@ function socketEndpointLabel(endpoint: SocketEndpoint | undefined): string {
       return endpoint.path ?? endpoint.name ?? "";
   }
 }
-
 function socketListeningLabel(listening: boolean | undefined): string {
   if (listening === undefined) return "Unknown";
   return listening ? "Yes" : "No";
 }
-
 function processModuleKindLabel(kind: ProcessModuleKind): string {
   switch (kind) {
     case ProcessModuleKind.Executable:
@@ -1927,7 +2087,6 @@ function processModuleKindLabel(kind: ProcessModuleKind): string {
       return "Unknown";
   }
 }
-
 function processModuleKindSortKey(kind: ProcessModuleKind): number {
   switch (kind) {
     case ProcessModuleKind.Executable:
@@ -1938,7 +2097,6 @@ function processModuleKindSortKey(kind: ProcessModuleKind): number {
       return 2;
   }
 }
-
 function processResourceInUseAccessLabel(
   resource: ProcessResourceInUseInfo,
 ): string {
@@ -1951,12 +2109,10 @@ function processResourceInUseAccessLabel(
   ].filter((part): part is string => part !== undefined);
   return parts.join(", ");
 }
-
 function formatCpuUsagePercent(value: number): string {
   if (!Number.isFinite(value) || value < 0) return "Unknown";
   return `${value.toFixed(2)}%`;
 }
-
 function formatBytes(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes < 0) return "Unknown";
   const units = ["B", "KB", "MB", "GB", "TB"];
@@ -1969,38 +2125,31 @@ function formatBytes(bytes: number): string {
   const digits = unitIndex === 0 || value >= 10 ? 0 : 1;
   return `${value.toFixed(digits)} ${units[unitIndex]}`;
 }
-
 function formatUnixTimestamp(timeUnix: number): string {
   return new Date(timeUnix * 1000).toLocaleString();
 }
-
 function formatProcessUptime(startTimeUnix: number, nowMs: number): string {
   const elapsedSeconds = Math.max(0, Math.floor(nowMs / 1000) - startTimeUnix);
   return formatDurationSeconds(elapsedSeconds);
 }
-
 function formatDurationMs(durationMs: number): string {
   if (!Number.isFinite(durationMs) || durationMs < 0) return "Unknown";
   if (durationMs < 1000) return `${durationMs} ms`;
-  const milliseconds = Math.floor(durationMs % 1000).toString().padStart(
-    3,
-    "0",
-  );
+  const milliseconds = Math.floor(durationMs % 1000)
+    .toString()
+    .padStart(3, "0");
   const totalSeconds = Math.floor(durationMs / 1000);
   const seconds = (totalSeconds % 60).toString().padStart(2, "0");
   const minutes = Math.floor(totalSeconds / 60) % 60;
   const hours = Math.floor(totalSeconds / 3600);
   if (hours > 0) {
-    return `${hours}h ${
-      minutes.toString().padStart(2, "0")
-    }m ${seconds}.${milliseconds}s`;
+    return `${hours}h ${minutes.toString().padStart(2, "0")}m ${seconds}.${milliseconds}s`;
   }
   if (minutes > 0) {
     return `${minutes}m ${seconds}.${milliseconds}s`;
   }
   return `${totalSeconds}.${milliseconds}s`;
 }
-
 function formatDurationSeconds(totalSeconds: number): string {
   if (!Number.isFinite(totalSeconds) || totalSeconds < 0) return "Unknown";
   const days = Math.floor(totalSeconds / 86_400);

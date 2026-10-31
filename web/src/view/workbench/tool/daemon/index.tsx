@@ -1,7 +1,14 @@
-import { useEffect, useRef, useState } from "react";
-import { useAtomValue } from "jotai";
-import { useBunja } from "bunja/react";
-import { nowBunja } from "unsaturated/now";
+import type {
+  ClientsTableEvent,
+  TerminalSessionInfo,
+  TerminalSessionsTableEvent,
+} from "../../../../protocol/generated/rpc.ts";
+import type { ConnectionState } from "../../../../state/types.ts";
+import type { BreadcrumbItem } from "../../../ui/breadcrumb.tsx";
+import { createSignal, createMemo, createEffect } from "solid-js";
+import { useAtomValue } from "../../../../solid/jotai.tsx";
+import { useBunja } from "../../../../solid/bunja.tsx";
+import { nowBunja } from "../../../../state/now.ts";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -11,7 +18,7 @@ import {
   SquareTerminal,
   Trash2,
   WifiOff,
-} from "lucide-react";
+} from "../../../../solid/icons.tsx";
 import {
   closeTerminalSession,
   removeClient,
@@ -20,31 +27,23 @@ import {
   subscribeTerminalSessions,
 } from "../../../../protocol/generated/client.ts";
 import { procs } from "../../../../protocol/generated/rpc.ts";
-import type {
-  ClientInfo,
-  ClientsTableEvent,
-  TerminalSessionInfo,
-  TerminalSessionsTableEvent,
-} from "../../../../protocol/generated/rpc.ts";
+import type { ClientInfo } from "../../../../protocol/generated/rpc.ts";
 import { machineStoreBunja } from "../../../../state/machine-store.ts";
 import { rpcSessionBunja } from "../../../../state/rpc-session.ts";
-import type { ConnectionState } from "../../../../state/types.ts";
 import {
   workbenchBunja,
   workbenchTabBunja,
 } from "../../../../state/workbench.ts";
 import { Button } from "../../../ui/button.tsx";
-import { Breadcrumb, type BreadcrumbItem } from "../../../ui/breadcrumb.tsx";
+import { Breadcrumb } from "../../../ui/breadcrumb.tsx";
 import {
   PropertyList,
   PropertyListItem,
   PropertyValue,
 } from "../../../ui/property-list.tsx";
-
 function procName(procId: number): string {
   return procs[procId as keyof typeof procs]?.name ?? `Proc ${procId}`;
 }
-
 const daemonToolClassName = [
   "grid h-full min-h-0 w-full [grid-template-rows:auto_minmax(0,1fr)]",
   "overflow-hidden bg-white",
@@ -194,229 +193,297 @@ const messageStateClassName = [
   "[&_strong]:text-[15px] [&_strong]:text-[#20242d]",
   "[&_p]:m-0 [&_p]:max-w-[420px] [&_p]:text-[14px] [&_p]:text-[#667085]",
 ].join(" ");
-
 interface ClientsState {
   clients: ClientInfo[];
   message?: string;
   phase: "idle" | "loading" | "ready" | "error";
 }
-
 interface TerminalSessionsState {
   message?: string;
   phase: "idle" | "loading" | "ready" | "error";
   sessions: TerminalSessionInfo[];
 }
-
 export function DaemonTool() {
   const machines = useBunja(machineStoreBunja);
   const rpcSession = useBunja(rpcSessionBunja);
   const tabState = useBunja(workbenchTabBunja);
   const workbench = useBunja(workbenchBunja);
-  const daemonInfo = useAtomValue(rpcSession.daemonInfoAtom);
-  const daemonServerTimeMs = useAtomValue(rpcSession.daemonServerTimeMsAtom);
-  const daemonUptimeSeconds = useAtomValue(
-    rpcSession.daemonUptimeSecondsAtom,
+  const daemonInfo = useAtomValue(() => rpcSession().daemonInfoAtom);
+  const readyDaemonInfo = createMemo(() => {
+    const value = daemonInfo();
+    return value.phase === "ready" ? value.daemonInfo : undefined;
+  });
+  const daemonServerTimeMs = useAtomValue(
+    () => rpcSession().daemonServerTimeMsAtom,
   );
-  const connection = useAtomValue(rpcSession.connectionAtom);
-  const daemonInstanceId = useAtomValue(rpcSession.daemonInstanceIdAtom);
-  const machine = useAtomValue(machines.selectedAtom);
-  const isPaired = useAtomValue(machines.selectedIsPairedAtom);
-  const tab = useAtomValue(tabState.tabAtom);
-  const connectionLabel = formatDaemonConnectionLabel(connection);
-  const [clientsState, setClientsState] = useState<ClientsState>({
+  const daemonUptimeSeconds = useAtomValue(
+    () => rpcSession().daemonUptimeSecondsAtom,
+  );
+  const connection = useAtomValue(() => rpcSession().connectionAtom);
+  const daemonInstanceId = useAtomValue(
+    () => rpcSession().daemonInstanceIdAtom,
+  );
+  const machine = useAtomValue(() => machines().selectedAtom);
+  const isPaired = useAtomValue(() => machines().selectedIsPairedAtom);
+  const tab = useAtomValue(() => tabState().tabAtom);
+  const connectionLabel = createMemo(() =>
+    formatDaemonConnectionLabel(connection()),
+  );
+  const [clientsState, setClientsState] = createSignal<ClientsState>({
     clients: [],
     phase: "idle",
   });
-  const [terminalSessionsState, setTerminalSessionsState] = useState<
-    TerminalSessionsState
-  >({
-    phase: "idle",
-    sessions: [],
-  });
-  const clientsRef = useRef<ClientInfo[]>([]);
-  const clientDetailId = tab?.daemonClientDetailId;
-  const clientsPageOpen = tab?.daemonClientsPageOpen === true ||
-    clientDetailId !== undefined;
-  const clientDetailIdRef = useRef<string | undefined>(undefined);
-  const clientDetail = clientDetailId
-    ? clientsState.clients.find((client) => client.clientId === clientDetailId)
-    : undefined;
-
-  useEffect(() => {
-    clientDetailIdRef.current = clientDetailId;
-  }, [clientDetailId]);
-
-  useEffect(() => {
-    if (!machine) {
-      clientsRef.current = [];
-      setClientsState({ clients: [], phase: "idle" });
-      tabState.setDaemonClientDetailId(undefined);
-      tabState.setDaemonClientsPageOpen(false);
-      return;
-    }
-    if (!isPaired) {
-      clientsRef.current = [];
-      setClientsState({
-        clients: [],
-        message: "Pairing required to view clients",
-        phase: "error",
-      });
-      tabState.setDaemonClientDetailId(undefined);
-      tabState.setDaemonClientsPageOpen(false);
-      return;
-    }
-    if (daemonInfo.phase !== "ready") {
-      clientsRef.current = [];
-      setClientsState({ clients: [], phase: "idle" });
-      return;
-    }
-
-    let cancelled = false;
-    let iterator: AsyncGenerator<ClientsTableEvent> | undefined;
-    setClientsState((current) => ({ ...current, phase: "loading" }));
-
-    void (async () => {
-      try {
-        const transport = await rpcSession.webTransport();
-        if (cancelled) return;
-        iterator = subscribeClients(transport);
-        for await (const event of iterator) {
-          if (cancelled) return;
-          const clients = applyClientsEvent(clientsRef.current, event);
-          clientsRef.current = clients;
-          setClientsState({ clients, phase: "ready" });
-          const currentClientDetailId = clientDetailIdRef.current;
-          if (
-            currentClientDetailId &&
-            !clients.some((client) => client.clientId === currentClientDetailId)
-          ) {
-            tabState.setDaemonClientDetailId(undefined);
-            tabState.setDaemonClientsPageOpen(true);
-          }
-        }
-      } catch (err) {
-        if (cancelled) return;
+  const [terminalSessionsState, setTerminalSessionsState] =
+    createSignal<TerminalSessionsState>({
+      phase: "idle",
+      sessions: [],
+    });
+  const clientsRef = {
+    current: [] as ClientInfo[],
+  };
+  const clientDetailId = createMemo(() => tab()?.daemonClientDetailId);
+  const clientsPageOpen = createMemo(
+    () =>
+      tab()?.daemonClientsPageOpen === true || clientDetailId() !== undefined,
+  );
+  const clientDetailIdRef = {
+    current: undefined as string | undefined,
+  };
+  createEffect(
+    createMemo(() => [clientDetailId()] as const, {
+      equals: (a, b) =>
+        a.length === b.length &&
+        a.every((value, index) => Object.is(value, b[index])),
+    }),
+    ([snapshotClientDetailId]) => {
+      clientDetailIdRef.current = snapshotClientDetailId;
+    },
+  );
+  createEffect(
+    createMemo(
+      () =>
+        [
+          daemonInfo().phase,
+          isPaired(),
+          machine()?.baseUrl,
+          machine()?.clientId,
+          machine()?.clientSecret,
+          machine()?.id,
+          daemonInstanceId(),
+          rpcSession(),
+          tabState(),
+        ] as const,
+      {
+        equals: (a, b) =>
+          a.length === b.length &&
+          a.every((value, index) => Object.is(value, b[index])),
+      },
+    ),
+    ([
+      snapshotDaemonInfoPhase,
+      snapshotIsPaired,
+      ,
+      ,
+      ,
+      snapshotMachineId,
+      ,
+      snapshotRpcSession,
+      snapshotTabState,
+    ]) => {
+      if (!snapshotMachineId) {
         clientsRef.current = [];
         setClientsState({
           clients: [],
-          message: errorMessage(err),
+          phase: "idle",
+        });
+        snapshotTabState.setDaemonClientDetailId(undefined);
+        snapshotTabState.setDaemonClientsPageOpen(false);
+        return;
+      }
+      if (!snapshotIsPaired) {
+        clientsRef.current = [];
+        setClientsState({
+          clients: [],
+          message: "Pairing required to view clients",
           phase: "error",
         });
+        snapshotTabState.setDaemonClientDetailId(undefined);
+        snapshotTabState.setDaemonClientsPageOpen(false);
+        return;
       }
-    })();
-
-    return () => {
-      cancelled = true;
-      void iterator?.return(undefined);
-    };
-  }, [
-    daemonInfo.phase,
-    isPaired,
-    machine?.baseUrl,
-    machine?.clientId,
-    machine?.clientSecret,
-    machine?.id,
-    daemonInstanceId,
-  ]);
-
-  useEffect(() => {
-    if (!machine || daemonInfo.phase !== "ready") {
-      setTerminalSessionsState({ phase: "idle", sessions: [] });
-      return;
-    }
-    if (!isPaired) {
-      setTerminalSessionsState({ phase: "idle", sessions: [] });
-      return;
-    }
-
-    let cancelled = false;
-    let iterator: AsyncGenerator<TerminalSessionsTableEvent> | undefined;
-    setTerminalSessionsState((current) => ({
-      ...current,
-      phase: "loading",
-    }));
-
-    void (async () => {
-      try {
-        const transport = await rpcSession.webTransport();
-        if (cancelled) return;
-        iterator = subscribeTerminalSessions(transport);
-        for await (const event of iterator) {
+      if (snapshotDaemonInfoPhase !== "ready") {
+        clientsRef.current = [];
+        setClientsState({
+          clients: [],
+          phase: "idle",
+        });
+        return;
+      }
+      let cancelled = false;
+      let iterator: AsyncGenerator<ClientsTableEvent> | undefined;
+      setClientsState((current) => ({
+        ...current,
+        phase: "loading",
+      }));
+      void (async () => {
+        try {
+          const transport = await snapshotRpcSession.webTransport();
           if (cancelled) return;
-          setTerminalSessionsState((current) => ({
-            phase: "ready",
-            sessions: applyTerminalSessionsEvent(current.sessions, event),
-          }));
+          iterator = subscribeClients(transport);
+          for await (const event of iterator) {
+            if (cancelled) return;
+            const clients = applyClientsEvent(clientsRef.current, event);
+            clientsRef.current = clients;
+            setClientsState({
+              clients,
+              phase: "ready",
+            });
+            const currentClientDetailId = clientDetailIdRef.current;
+            if (
+              currentClientDetailId &&
+              !clients.some(
+                (client) => client.clientId === currentClientDetailId,
+              )
+            ) {
+              snapshotTabState.setDaemonClientDetailId(undefined);
+              snapshotTabState.setDaemonClientsPageOpen(true);
+            }
+          }
+        } catch (err) {
+          if (cancelled) return;
+          clientsRef.current = [];
+          setClientsState({
+            clients: [],
+            message: errorMessage(err),
+            phase: "error",
+          });
         }
-      } catch (err) {
-        if (cancelled) return;
+      })();
+      return () => {
+        cancelled = true;
+        void iterator?.return(undefined);
+      };
+    },
+  );
+  createEffect(
+    createMemo(
+      () =>
+        [
+          daemonInfo().phase,
+          isPaired(),
+          machine()?.baseUrl,
+          machine()?.clientId,
+          machine()?.clientSecret,
+          machine()?.id,
+          daemonInstanceId(),
+          rpcSession(),
+          tabState(),
+        ] as const,
+      {
+        equals: (a, b) =>
+          a.length === b.length &&
+          a.every((value, index) => Object.is(value, b[index])),
+      },
+    ),
+    ([
+      snapshotDaemonInfoPhase,
+      snapshotIsPaired,
+      ,
+      ,
+      ,
+      snapshotMachineId,
+      ,
+      snapshotRpcSession,
+      ,
+    ]) => {
+      if (!snapshotMachineId || snapshotDaemonInfoPhase !== "ready") {
         setTerminalSessionsState({
-          message: errorMessage(err),
-          phase: "error",
+          phase: "idle",
           sessions: [],
         });
+        return;
       }
-    })();
-
-    return () => {
-      cancelled = true;
-      void iterator?.return(undefined);
-    };
-  }, [
-    daemonInfo.phase,
-    isPaired,
-    machine?.baseUrl,
-    machine?.clientId,
-    machine?.clientSecret,
-    machine?.id,
-    daemonInstanceId,
-  ]);
-
+      if (!snapshotIsPaired) {
+        setTerminalSessionsState({
+          phase: "idle",
+          sessions: [],
+        });
+        return;
+      }
+      let cancelled = false;
+      let iterator: AsyncGenerator<TerminalSessionsTableEvent> | undefined;
+      setTerminalSessionsState((current) => ({
+        ...current,
+        phase: "loading",
+      }));
+      void (async () => {
+        try {
+          const transport = await snapshotRpcSession.webTransport();
+          if (cancelled) return;
+          iterator = subscribeTerminalSessions(transport);
+          for await (const event of iterator) {
+            if (cancelled) return;
+            setTerminalSessionsState((current) => ({
+              phase: "ready",
+              sessions: applyTerminalSessionsEvent(current.sessions, event),
+            }));
+          }
+        } catch (err) {
+          if (cancelled) return;
+          setTerminalSessionsState({
+            message: errorMessage(err),
+            phase: "error",
+            sessions: [],
+          });
+        }
+      })();
+      return () => {
+        cancelled = true;
+        void iterator?.return(undefined);
+      };
+    },
+  );
   function openRootPage() {
-    tabState.setDaemonClientDetailId(undefined);
-    tabState.setDaemonClientsPageOpen(false);
+    tabState().setDaemonClientDetailId(undefined);
+    tabState().setDaemonClientsPageOpen(false);
   }
-
   function openClientsPage() {
-    tabState.setDaemonClientDetailId(undefined);
-    tabState.setDaemonClientsPageOpen(true);
+    tabState().setDaemonClientDetailId(undefined);
+    tabState().setDaemonClientsPageOpen(true);
   }
-
   function openClientDetail(clientId: string) {
-    tabState.setDaemonClientsPageOpen(true);
-    tabState.setDaemonClientDetailId(clientId);
+    tabState().setDaemonClientsPageOpen(true);
+    tabState().setDaemonClientDetailId(clientId);
   }
-
   async function renewSelectedClientCredential() {
-    if (!machine) return;
+    if (!machine()) return;
     const renewal = await renewClientCredential(
-      await rpcSession.webTransport(),
+      await rpcSession().webTransport(),
     );
-    if (machine.clientId === clientDetailId) {
-      machines.setMachineCredentialExpiry(
-        machine.id,
+    if (machine()!.clientId === clientDetailId()) {
+      machines().setMachineCredentialExpiry(
+        machine()!.id,
         renewal.clientCredentialExpiresAtUnix,
       );
     }
   }
-
   async function closeSelectedTerminalSession(terminalSessionId: string) {
-    if (!machine) return;
-    await closeTerminalSession(await rpcSession.webTransport(), {
+    if (!machine()) return;
+    await closeTerminalSession(await rpcSession().webTransport(), {
       terminalSessionId,
     });
   }
-
   async function removeSelectedClient(clientId: string) {
-    if (!machine) return;
-    await removeClient(await rpcSession.webTransport(), { clientId });
-    if (machine.clientId === clientId) {
-      machines.clearMachineCredentials(machine.id);
+    if (!machine()) return;
+    await removeClient(await rpcSession().webTransport(), {
+      clientId,
+    });
+    if (machine()!.clientId === clientId) {
+      machines().clearMachineCredentials(machine()!.id);
     }
   }
-
   function openTerminalSession(session: TerminalSessionInfo) {
-    workbench.openTerminalTab({
+    workbench().openTerminalTab({
       cwd: session.lastKnownCwd,
       launch: session.launch,
       terminalSessionId: session.terminalSessionId,
@@ -424,68 +491,75 @@ export function DaemonTool() {
       title: terminalSessionTabTitle(session),
     });
   }
-
   return (
-    <section className={daemonToolClassName}>
-      <div className={daemonHeaderClassName}>
-        <DaemonBreadcrumb
-          clientsPageOpen={clientsPageOpen}
-          clientDetailId={clientDetailId}
-          onOpenClients={openClientsPage}
-          onOpenRoot={openRootPage}
-        />
-        {clientsPageOpen
-          ? null
-          : (
-            <span className={`${statusPillClassName} ${connection.phase}`}>
-              {connection.phase === "reachable"
-                ? <CheckCircle2 size={13} />
-                : connection.phase === "offline"
-                ? <WifiOff size={13} />
-                : <Info size={13} />}
-              {connectionLabel}
-            </span>
-          )}
-      </div>
-      <div className={daemonContentClassName}>
-        {daemonInfo.phase === "ready"
-          ? (
-            <DaemonInfoView
-              endpoint={machine?.baseUrl}
-              instanceId={daemonInfo.daemonInfo.instanceId}
-              os={daemonInfo.daemonInfo.os}
-              serverTimeMs={daemonServerTimeMs}
-              startedAtMs={daemonInfo.daemonInfo.startedAtMs}
-              supportedProcIds={daemonInfo.daemonInfo.supportedProcIds}
-              uptimeSeconds={daemonUptimeSeconds}
-              version={daemonInfo.daemonInfo.version}
-              clientsPageOpen={clientsPageOpen}
-              clientsState={clientsState}
-              clientDetailId={clientDetailId}
-              currentClientId={machine?.clientId}
-              terminalSessionsState={terminalSessionsState}
-              onOpenClient={openClientDetail}
-              onOpenClients={openClientsPage}
-              onCloseTerminalSession={closeSelectedTerminalSession}
-              onOpenTerminalSession={openTerminalSession}
-              onRemoveClient={removeSelectedClient}
-              onRenewCurrentClientCredential={renewSelectedClientCredential}
-            />
-          )
-          : (
-            <DaemonInfoStateView
-              hasMachine={machine !== undefined}
-              phase={daemonInfo.phase}
-              message={daemonInfo.phase === "error"
-                ? daemonInfo.message
-                : undefined}
-            />
-          )}
-      </div>
-    </section>
+    <>
+      {(() => {
+        return (
+          <section class={daemonToolClassName}>
+            <div class={daemonHeaderClassName}>
+              <DaemonBreadcrumb
+                clientsPageOpen={clientsPageOpen()}
+                clientDetailId={clientDetailId()}
+                onOpenClients={openClientsPage}
+                onOpenRoot={openRootPage}
+              />
+              {clientsPageOpen() ? null : (
+                <span class={`${statusPillClassName} ${connection().phase}`}>
+                  {connection().phase === "reachable" ? (
+                    <CheckCircle2 size={13} />
+                  ) : connection().phase === "offline" ? (
+                    <WifiOff size={13} />
+                  ) : (
+                    <Info size={13} />
+                  )}
+                  {connectionLabel()}
+                </span>
+              )}
+            </div>
+            <div class={daemonContentClassName}>
+              {daemonInfo().phase === "ready" ? (
+                <DaemonInfoView
+                  endpoint={machine()?.baseUrl}
+                  instanceId={readyDaemonInfo()!.instanceId}
+                  os={readyDaemonInfo()!.os}
+                  serverTimeMs={daemonServerTimeMs()}
+                  startedAtMs={readyDaemonInfo()!.startedAtMs}
+                  supportedProcIds={readyDaemonInfo()!.supportedProcIds}
+                  uptimeSeconds={daemonUptimeSeconds()}
+                  version={readyDaemonInfo()!.version}
+                  clientsPageOpen={clientsPageOpen()}
+                  clientsState={clientsState()}
+                  clientDetailId={clientDetailId()}
+                  currentClientId={machine()?.clientId}
+                  terminalSessionsState={terminalSessionsState()}
+                  onOpenClient={openClientDetail}
+                  onOpenClients={openClientsPage}
+                  onCloseTerminalSession={closeSelectedTerminalSession}
+                  onOpenTerminalSession={openTerminalSession}
+                  onRemoveClient={removeSelectedClient}
+                  onRenewCurrentClientCredential={renewSelectedClientCredential}
+                />
+              ) : (
+                <DaemonInfoStateView
+                  hasMachine={machine() !== undefined}
+                  phase={
+                    daemonInfo().phase === "ready"
+                      ? "idle"
+                      : (daemonInfo().phase as "idle" | "error" | "loading")
+                  }
+                  message={(() => {
+                    const value = daemonInfo();
+                    return value.phase === "error" ? value.message : undefined;
+                  })()}
+                />
+              )}
+            </div>
+          </section>
+        );
+      })()}
+    </>
   );
 }
-
 function formatDaemonConnectionLabel(connection: ConnectionState): string {
   if (connection.phase === "reachable") {
     if (connection.rttMs === undefined) return "Connected";
@@ -494,68 +568,74 @@ function formatDaemonConnectionLabel(connection: ConnectionState): string {
   if (connection.phase === "idle") return "No machine selected";
   return "Unconnected";
 }
-
 interface DaemonBreadcrumbProps {
   clientsPageOpen: boolean;
   clientDetailId?: string;
   onOpenClients: () => void;
   onOpenRoot: () => void;
 }
-
-function DaemonBreadcrumb(
-  {
-    clientsPageOpen,
-    clientDetailId,
-    onOpenClients,
-    onOpenRoot,
-  }: DaemonBreadcrumbProps,
-) {
-  const clientLabel = clientDetailId || "Client detail";
-  const items: BreadcrumbItem[] = [
-    {
-      label: "Daemon",
-      onClick: clientsPageOpen ? onOpenRoot : undefined,
-    },
-  ];
-  if (clientDetailId) {
-    items.push(
-      { label: "Clients", onClick: onOpenClients },
-      { label: clientLabel, title: clientLabel },
-    );
-  } else if (clientsPageOpen) {
-    items.push({ label: "Clients" });
-  } else {
-    items.push({ label: "Overview", muted: true });
-  }
-
+function DaemonBreadcrumb(props: DaemonBreadcrumbProps) {
+  const clientLabel = createMemo(() => props.clientDetailId || "Client detail");
   return (
-    <Breadcrumb
-      ariaLabel="Daemon location"
-      className="flex-[1_1_auto]"
-      items={items}
-    />
+    <>
+      {(() => {
+        const items: BreadcrumbItem[] = [
+          {
+            label: "Daemon",
+            onClick: props.clientsPageOpen ? props.onOpenRoot : undefined,
+          },
+        ];
+        if (props.clientDetailId) {
+          items.push(
+            {
+              label: "Clients",
+              onClick: props.onOpenClients,
+            },
+            {
+              label: clientLabel(),
+              title: clientLabel(),
+            },
+          );
+        } else if (props.clientsPageOpen) {
+          items.push({
+            label: "Clients",
+          });
+        } else {
+          items.push({
+            label: "Overview",
+            muted: true,
+          });
+        }
+        return (
+          <Breadcrumb
+            ariaLabel="Daemon location"
+            className="flex-[1_1_auto]"
+            items={items}
+          />
+        );
+      })()}
+    </>
   );
 }
-
 function applyTerminalSessionsEvent(
   current: TerminalSessionInfo[],
   event: TerminalSessionsTableEvent,
 ): TerminalSessionInfo[] {
   if (event.type === "snapshot") return event.rows;
   const removed = new Set(event.removes.map((row) => row.terminalSessionId));
-  const next = current.filter((session) =>
-    !removed.has(session.terminalSessionId)
+  const next = current.filter(
+    (session) => !removed.has(session.terminalSessionId),
   );
   for (const session of event.upserts) {
-    const index = next.findIndex((currentSession) =>
-      currentSession.terminalSessionId === session.terminalSessionId
+    const index = next.findIndex(
+      (currentSession) =>
+        currentSession.terminalSessionId === session.terminalSessionId,
     );
     if (index >= 0) next[index] = session;
     else next.push(session);
   }
   return next;
 }
-
 function applyClientsEvent(
   current: ClientInfo[],
   event: ClientsTableEvent,
@@ -564,15 +644,14 @@ function applyClientsEvent(
   const removed = new Set(event.removes.map((row) => row.clientId));
   const next = current.filter((client) => !removed.has(client.clientId));
   for (const client of event.upserts) {
-    const index = next.findIndex((currentClient) =>
-      currentClient.clientId === client.clientId
+    const index = next.findIndex(
+      (currentClient) => currentClient.clientId === client.clientId,
     );
     if (index >= 0) next[index] = client;
     else next.push(client);
   }
   return next;
 }
-
 interface DaemonInfoViewProps {
   clientsPageOpen: boolean;
   clientDetailId?: string;
@@ -594,390 +673,380 @@ interface DaemonInfoViewProps {
   uptimeSeconds?: number;
   version: string;
 }
-
-function DaemonInfoView(
-  {
-    clientsPageOpen,
-    clientDetailId,
-    clientsState,
-    currentClientId,
-    endpoint,
-    instanceId,
-    onCloseTerminalSession,
-    onOpenClient,
-    onOpenTerminalSession,
-    onRemoveClient,
-    onRenewCurrentClientCredential,
-    os,
-    serverTimeMs,
-    startedAtMs,
-    supportedProcIds,
-    terminalSessionsState,
-    uptimeSeconds,
-    version,
-    onOpenClients,
-  }: DaemonInfoViewProps,
-) {
-  const clientDetail = clientDetailId
-    ? clientsState.clients.find((client) => client.clientId === clientDetailId)
-    : undefined;
-  if (clientDetail) {
-    return (
-      <ClientDetailPage
-        client={clientDetail}
-        currentClientId={currentClientId}
-        onRenewCurrentClientCredential={onRenewCurrentClientCredential}
-        onCloseTerminalSession={onCloseTerminalSession}
-        onOpenTerminalSession={onOpenTerminalSession}
-        onRemoveClient={onRemoveClient}
-        sessions={terminalSessionsState.sessions.filter((session) =>
-          session.creatorClientId === clientDetail.clientId
-        )}
-        state={terminalSessionsState}
-      />
-    );
-  }
-  if (clientDetailId && clientsState.phase !== "ready") {
-    return (
-      <ClientDetailPendingPage
-        message={clientDetailPendingMessage(clientsState)}
-      />
-    );
-  }
-  if (clientsPageOpen) {
-    return (
-      <ClientsPage
-        clientsState={clientsState}
-        currentClientId={currentClientId}
-        onOpenClient={onOpenClient}
-        onRemoveClient={onRemoveClient}
-      />
-    );
-  }
-
+function DaemonInfoView(props: DaemonInfoViewProps) {
+  const clientDetail = createMemo(() =>
+    props.clientDetailId
+      ? props.clientsState.clients.find(
+          (client) => client.clientId === props.clientDetailId,
+        )
+      : undefined,
+  );
   return (
     <>
-      <PropertyList>
-        <PropertyListItem label="Endpoint">
-          <PropertyValue>{endpoint ?? "Unknown"}</PropertyValue>
-        </PropertyListItem>
-        <PropertyListItem label="Daemon version">
-          <PropertyValue>{version}</PropertyValue>
-        </PropertyListItem>
-        <PropertyListItem label="Machine OS">
-          <PropertyValue>{os}</PropertyValue>
-        </PropertyListItem>
-        <PropertyListItem label="Daemon instance ID">
-          <PropertyValue>{instanceId}</PropertyValue>
-          <span className={summaryNoteClassName}>
-            Changes every time the daemon starts.
-          </span>
-        </PropertyListItem>
-        <PropertyListItem label="Daemon time">
-          <PropertyValue>{formatDaemonTimestamp(serverTimeMs)}</PropertyValue>
-        </PropertyListItem>
-        <PropertyListItem label="Daemon started">
-          <PropertyValue>{formatDaemonTimestamp(startedAtMs)}</PropertyValue>
-          <span className={summaryNoteClassName}>
-            Uptime {formatDaemonUptime(uptimeSeconds)}
-          </span>
-        </PropertyListItem>
-      </PropertyList>
+      {(() => {
+        if (clientDetail()) {
+          return (
+            <ClientDetailPage
+              client={clientDetail()!}
+              currentClientId={props.currentClientId}
+              onRenewCurrentClientCredential={
+                props.onRenewCurrentClientCredential
+              }
+              onCloseTerminalSession={props.onCloseTerminalSession}
+              onOpenTerminalSession={props.onOpenTerminalSession}
+              onRemoveClient={props.onRemoveClient}
+              sessions={props.terminalSessionsState.sessions.filter(
+                (session) =>
+                  session.creatorClientId === clientDetail()!.clientId,
+              )}
+              state={props.terminalSessionsState}
+            />
+          );
+        }
+        if (props.clientDetailId && props.clientsState.phase !== "ready") {
+          return (
+            <ClientDetailPendingPage
+              message={clientDetailPendingMessage(props.clientsState)}
+            />
+          );
+        }
+        if (props.clientsPageOpen) {
+          return (
+            <ClientsPage
+              clientsState={props.clientsState}
+              currentClientId={props.currentClientId}
+              onOpenClient={props.onOpenClient}
+              onRemoveClient={props.onRemoveClient}
+            />
+          );
+        }
+        return (
+          <>
+            <PropertyList>
+              <PropertyListItem label="Endpoint">
+                <PropertyValue>{props.endpoint ?? "Unknown"}</PropertyValue>
+              </PropertyListItem>
+              <PropertyListItem label="Daemon version">
+                <PropertyValue>{props.version}</PropertyValue>
+              </PropertyListItem>
+              <PropertyListItem label="Machine OS">
+                <PropertyValue>{props.os}</PropertyValue>
+              </PropertyListItem>
+              <PropertyListItem label="Daemon instance ID">
+                <PropertyValue>{props.instanceId}</PropertyValue>
+                <span class={summaryNoteClassName}>
+                  Changes every time the daemon starts.
+                </span>
+              </PropertyListItem>
+              <PropertyListItem label="Daemon time">
+                <PropertyValue>
+                  {formatDaemonTimestamp(props.serverTimeMs)}
+                </PropertyValue>
+              </PropertyListItem>
+              <PropertyListItem label="Daemon started">
+                <PropertyValue>
+                  {formatDaemonTimestamp(props.startedAtMs)}
+                </PropertyValue>
+                <span class={summaryNoteClassName}>
+                  Uptime {formatDaemonUptime(props.uptimeSeconds)}
+                </span>
+              </PropertyListItem>
+            </PropertyList>
 
-      <ClientsOverviewSection
-        clientsState={clientsState}
-        currentClientId={currentClientId}
-        onOpenClient={onOpenClient}
-        onOpenClients={onOpenClients}
-      />
+            <ClientsOverviewSection
+              clientsState={props.clientsState}
+              currentClientId={props.currentClientId}
+              onOpenClient={props.onOpenClient}
+              onOpenClients={props.onOpenClients}
+            />
 
-      <section className={procSectionClassName}>
-        <div className={procSectionTitleClassName}>Supported RPC</div>
-        <div className={procTableClassName}>
-          {supportedProcIds.map((procId) => (
-            <div key={procId}>
-              <span>{procId}</span>
-              <span>{procName(procId)}</span>
-            </div>
-          ))}
-        </div>
-      </section>
+            <section class={procSectionClassName}>
+              <div class={procSectionTitleClassName}>Supported RPC</div>
+              <div class={procTableClassName}>
+                {props.supportedProcIds.map((procId) => (
+                  <div>
+                    <span>{procId}</span>
+                    <span>{procName(procId)}</span>
+                  </div>
+                ))}
+              </div>
+            </section>
+          </>
+        );
+      })()}
     </>
   );
 }
-
 interface ClientsOverviewSectionProps {
   clientsState: ClientsState;
   currentClientId?: string;
   onOpenClient: (clientId: string) => void;
   onOpenClients: () => void;
 }
-
-function ClientsOverviewSection(
-  {
-    clientsState,
-    currentClientId,
-    onOpenClient,
-    onOpenClients,
-  }: ClientsOverviewSectionProps,
-) {
+function ClientsOverviewSection(props: ClientsOverviewSectionProps) {
   return (
-    <section className={clientsSectionClassName}>
-      <button
-        type="button"
-        className={sectionTitleButtonClassName}
-        onClick={onOpenClients}
-      >
-        Clients
-        <ChevronRight size={13} />
-      </button>
-      <div className={clientOverviewCardClassName}>
-        <ClientsOverviewContent
-          clientsState={clientsState}
-          currentClientId={currentClientId}
-          onOpenClient={onOpenClient}
-          onOpenClients={onOpenClients}
-        />
-      </div>
-    </section>
+    <>
+      {(() => {
+        return (
+          <section class={clientsSectionClassName}>
+            <button
+              type="button"
+              class={sectionTitleButtonClassName}
+              onClick={props.onOpenClients}
+            >
+              Clients
+              <ChevronRight size={13} />
+            </button>
+            <div class={clientOverviewCardClassName}>
+              <ClientsOverviewContent
+                clientsState={props.clientsState}
+                currentClientId={props.currentClientId}
+                onOpenClient={props.onOpenClient}
+                onOpenClients={props.onOpenClients}
+              />
+            </div>
+          </section>
+        );
+      })()}
+    </>
   );
 }
-
 interface ClientsOverviewContentProps {
   clientsState: ClientsState;
   currentClientId?: string;
   onOpenClient: (clientId: string) => void;
   onOpenClients: () => void;
 }
-
-function ClientsOverviewContent(
-  {
-    clientsState,
-    currentClientId,
-    onOpenClient,
-    onOpenClients,
-  }: ClientsOverviewContentProps,
-) {
-  if (clientsState.phase !== "ready") {
-    return <span>{clientsOverviewLabel(clientsState)}</span>;
-  }
-  const currentClient = currentClientId
-    ? clientsState.clients.find((client) => client.clientId === currentClientId)
-    : undefined;
-  if (!currentClient) {
-    return (
-      <>
-        <span>{clientsOverviewLabel(clientsState)}</span>
-        <span className={clientOverviewMetaClassName}>
-          This client is not in the daemon client list.
-        </span>
-      </>
-    );
-  }
-  const otherClientCount = clientsState.clients.length - 1;
+function ClientsOverviewContent(props: ClientsOverviewContentProps) {
   return (
     <>
-      <button
-        type="button"
-        className={clientOverviewCurrentButtonClassName}
-        onClick={() => onOpenClient(currentClient.clientId)}
-      >
-        <div className={clientNameRowClassName}>
-          <strong>{currentClient.label || "Unnamed client"}</strong>
-          <em className={currentClientBadgeClassName}>This client</em>
-        </div>
-        <span>{currentClient.clientId}</span>
-      </button>
-      <button
-        type="button"
-        className={clientOverviewMetaButtonClassName}
-        onClick={onOpenClients}
-      >
-        {otherClientsLabel(otherClientCount)}
-      </button>
+      {(() => {
+        if (props.clientsState.phase !== "ready") {
+          return <span>{clientsOverviewLabel(props.clientsState)}</span>;
+        }
+        const currentClient = createMemo(() =>
+          props.currentClientId
+            ? props.clientsState.clients.find(
+                (client) => client.clientId === props.currentClientId,
+              )
+            : undefined,
+        );
+        if (!currentClient()) {
+          return (
+            <>
+              <span>{clientsOverviewLabel(props.clientsState)}</span>
+              <span class={clientOverviewMetaClassName}>
+                This client is not in the daemon client list.
+              </span>
+            </>
+          );
+        }
+        const otherClientCount = createMemo(
+          () => props.clientsState.clients.length - 1,
+        );
+        return (
+          <>
+            <button
+              type="button"
+              class={clientOverviewCurrentButtonClassName}
+              onClick={() => props.onOpenClient(currentClient()!.clientId)}
+            >
+              <div class={clientNameRowClassName}>
+                <strong>{currentClient()!.label || "Unnamed client"}</strong>
+                <em class={currentClientBadgeClassName}>This client</em>
+              </div>
+              <span>{currentClient()!.clientId}</span>
+            </button>
+            <button
+              type="button"
+              class={clientOverviewMetaButtonClassName}
+              onClick={props.onOpenClients}
+            >
+              {otherClientsLabel(otherClientCount())}
+            </button>
+          </>
+        );
+      })()}
     </>
   );
 }
-
 interface ClientsPageProps {
   clientsState: ClientsState;
   currentClientId?: string;
   onOpenClient: (clientId: string) => void;
   onRemoveClient: (clientId: string) => Promise<void>;
 }
-
-function ClientsPage(
-  { clientsState, currentClientId, onOpenClient, onRemoveClient }:
-    ClientsPageProps,
-) {
+function ClientsPage(props: ClientsPageProps) {
   return (
-    <section className={clientDetailPageClassName}>
-      <ClientsSection
-        clientsState={clientsState}
-        currentClientId={currentClientId}
-        onOpenClient={onOpenClient}
-        onRemoveClient={onRemoveClient}
-      />
-    </section>
+    <>
+      {(() => {
+        return (
+          <section class={clientDetailPageClassName}>
+            <ClientsSection
+              clientsState={props.clientsState}
+              currentClientId={props.currentClientId}
+              onOpenClient={props.onOpenClient}
+              onRemoveClient={props.onRemoveClient}
+            />
+          </section>
+        );
+      })()}
+    </>
   );
 }
-
 interface ClientDetailPendingPageProps {
   message: string;
 }
-
-function ClientDetailPendingPage(
-  { message }: ClientDetailPendingPageProps,
-) {
+function ClientDetailPendingPage(props: ClientDetailPendingPageProps) {
   return (
-    <section className={clientDetailPageClassName}>
-      <InlineState message={message} />
-    </section>
+    <>
+      {(() => {
+        return (
+          <section class={clientDetailPageClassName}>
+            <InlineState message={props.message} />
+          </section>
+        );
+      })()}
+    </>
   );
 }
-
 interface ClientsSectionProps {
   clientsState: ClientsState;
   currentClientId?: string;
   onOpenClient: (clientId: string) => void;
   onRemoveClient: (clientId: string) => Promise<void>;
 }
-
-function ClientsSection(
-  {
-    clientsState,
-    currentClientId,
-    onOpenClient,
-    onRemoveClient,
-  }: ClientsSectionProps,
-) {
+function ClientsSection(props: ClientsSectionProps) {
   return (
-    <section className={clientsSectionClassName}>
-      <div className={procSectionTitleClassName}>Clients</div>
-      {clientsState.phase === "error"
-        ? <InlineState message={clientsState.message ?? "Client list failed"} />
-        : clientsState.phase === "loading"
-        ? <InlineState message="Loading clients" />
-        : clientsState.clients.length === 0
-        ? <InlineState message="No paired clients" />
-        : (
-          <div className={clientListClassName}>
-            {clientsState.clients.map((client) => (
-              <ClientListItem
-                key={client.clientId}
-                client={client}
-                currentClientId={currentClientId}
-                onOpenClient={onOpenClient}
-                onRemoveClient={onRemoveClient}
+    <>
+      {(() => {
+        return (
+          <section class={clientsSectionClassName}>
+            <div class={procSectionTitleClassName}>Clients</div>
+            {props.clientsState.phase === "error" ? (
+              <InlineState
+                message={props.clientsState.message ?? "Client list failed"}
               />
-            ))}
-          </div>
-        )}
-    </section>
+            ) : props.clientsState.phase === "loading" ? (
+              <InlineState message="Loading clients" />
+            ) : props.clientsState.clients.length === 0 ? (
+              <InlineState message="No paired clients" />
+            ) : (
+              <div class={clientListClassName}>
+                {props.clientsState.clients.map((client) => (
+                  <ClientListItem
+                    client={client}
+                    currentClientId={props.currentClientId}
+                    onOpenClient={props.onOpenClient}
+                    onRemoveClient={props.onRemoveClient}
+                  />
+                ))}
+              </div>
+            )}
+          </section>
+        );
+      })()}
+    </>
   );
 }
-
 interface ClientListItemProps {
   client: ClientInfo;
   currentClientId?: string;
   onOpenClient: (clientId: string) => void;
   onRemoveClient: (clientId: string) => Promise<void>;
 }
-
-function ClientListItem(
-  { client, currentClientId, onOpenClient, onRemoveClient }:
-    ClientListItemProps,
-) {
-  const isCurrent = client.clientId === currentClientId;
-  const [removePhase, setRemovePhase] = useState<
+function ClientListItem(props: ClientListItemProps) {
+  const isCurrent = createMemo(
+    () => props.client.clientId === props.currentClientId,
+  );
+  const [removePhase, setRemovePhase] = createSignal<
     "idle" | "confirming" | "removing" | "error"
   >("idle");
-  const [removeError, setRemoveError] = useState<string>();
-
+  const [removeError, setRemoveError] = createSignal<string>();
   async function removeNow() {
     setRemovePhase("removing");
     setRemoveError(undefined);
     try {
-      await onRemoveClient(client.clientId);
+      await props.onRemoveClient(props.client.clientId);
     } catch (err) {
       setRemoveError(errorMessage(err));
       setRemovePhase("error");
     }
   }
-
   return (
-    <article className={clientListItemClassName}>
-      <button
-        type="button"
-        className={clientButtonClassName}
-        onClick={() => onOpenClient(client.clientId)}
-      >
-        <div className={clientNameRowClassName}>
-          <strong>{client.label || "Unnamed client"}</strong>
-          {isCurrent
-            ? <em className={currentClientBadgeClassName}>This client</em>
-            : null}
-        </div>
-        <span>{client.clientId}</span>
-      </button>
-      <Button
-        aria-label={`Remove ${client.label || client.clientId}`}
-        className={clientListRemoveButtonClassName}
-        disabled={removePhase === "removing"}
-        onClick={() => setRemovePhase("confirming")}
-        size="icon"
-        title="Remove client"
-        tone="danger"
-        variant="ghost"
-      >
-        <Trash2 size={15} />
-      </Button>
-      {removePhase === "confirming" || removePhase === "removing"
-        ? (
-          <div className={clientListConfirmationClassName}>
-            <span className={clientListConfirmationMessageClassName}>
-              This client will need to pair again.
-            </span>
+    <>
+      {(() => {
+        return (
+          <article class={clientListItemClassName}>
+            <button
+              type="button"
+              class={clientButtonClassName}
+              onClick={() => props.onOpenClient(props.client.clientId)}
+            >
+              <div class={clientNameRowClassName}>
+                <strong>{props.client.label || "Unnamed client"}</strong>
+                {isCurrent() ? (
+                  <em class={currentClientBadgeClassName}>This client</em>
+                ) : null}
+              </div>
+              <span>{props.client.clientId}</span>
+            </button>
             <Button
-              disabled={removePhase === "removing"}
-              onClick={() => setRemovePhase("idle")}
-              size="sm"
+              aria-label={`Remove ${props.client.label || props.client.clientId}`}
+              className={clientListRemoveButtonClassName}
+              disabled={removePhase() === "removing"}
+              onClick={() => setRemovePhase("confirming")}
+              size="icon"
+              title="Remove client"
+              tone="danger"
               variant="ghost"
             >
-              Cancel
+              <Trash2 size={15} />
             </Button>
-            <Button
-              disabled={removePhase === "removing"}
-              onClick={removeNow}
-              size="sm"
-              tone="danger"
-              variant="solid"
-            >
-              {removePhase === "removing" ? "Removing" : "Remove"}
-            </Button>
-          </div>
-        )
-        : removePhase === "error"
-        ? (
-          <div className={clientListConfirmationClassName}>
-            <span className={clientListErrorClassName}>
-              {removeError ?? "Client removal failed"}
-            </span>
-            <Button
-              onClick={() => setRemovePhase("confirming")}
-              size="sm"
-              tone="danger"
-              variant="outline"
-            >
-              Retry
-            </Button>
-          </div>
-        )
-        : null}
-    </article>
+            {removePhase() === "confirming" || removePhase() === "removing" ? (
+              <div class={clientListConfirmationClassName}>
+                <span class={clientListConfirmationMessageClassName}>
+                  This client will need to pair again.
+                </span>
+                <Button
+                  disabled={removePhase() === "removing"}
+                  onClick={() => setRemovePhase("idle")}
+                  size="sm"
+                  variant="ghost"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  disabled={removePhase() === "removing"}
+                  onClick={removeNow}
+                  size="sm"
+                  tone="danger"
+                  variant="solid"
+                >
+                  {removePhase() === "removing" ? "Removing" : "Remove"}
+                </Button>
+              </div>
+            ) : removePhase() === "error" ? (
+              <div class={clientListConfirmationClassName}>
+                <span class={clientListErrorClassName}>
+                  {removeError() ?? "Client removal failed"}
+                </span>
+                <Button
+                  onClick={() => setRemovePhase("confirming")}
+                  size="sm"
+                  tone="danger"
+                  variant="outline"
+                >
+                  Retry
+                </Button>
+              </div>
+            ) : null}
+          </article>
+        );
+      })()}
+    </>
   );
 }
-
 interface ClientDetailPageProps {
   client: ClientInfo;
   currentClientId?: string;
@@ -988,229 +1057,212 @@ interface ClientDetailPageProps {
   sessions: TerminalSessionInfo[];
   state: TerminalSessionsState;
 }
-
-function ClientDetailPage(
-  {
-    client,
-    currentClientId,
-    onCloseTerminalSession,
-    onOpenTerminalSession,
-    onRemoveClient,
-    onRenewCurrentClientCredential,
-    sessions,
-    state,
-  }: ClientDetailPageProps,
-) {
+function ClientDetailPage(props: ClientDetailPageProps) {
   return (
-    <section className={clientDetailPageClassName}>
-      <ClientInformationSection
-        client={client}
-        currentClientId={currentClientId}
-        onRemoveClient={onRemoveClient}
-        onRenewCurrentClientCredential={onRenewCurrentClientCredential}
-      />
-      <ClientTerminalSessions
-        onCloseTerminalSession={onCloseTerminalSession}
-        onOpenTerminalSession={onOpenTerminalSession}
-        sessions={sessions}
-        state={state}
-      />
-    </section>
+    <>
+      {(() => {
+        return (
+          <section class={clientDetailPageClassName}>
+            <ClientInformationSection
+              client={props.client}
+              currentClientId={props.currentClientId}
+              onRemoveClient={props.onRemoveClient}
+              onRenewCurrentClientCredential={
+                props.onRenewCurrentClientCredential
+              }
+            />
+            <ClientTerminalSessions
+              onCloseTerminalSession={props.onCloseTerminalSession}
+              onOpenTerminalSession={props.onOpenTerminalSession}
+              sessions={props.sessions}
+              state={props.state}
+            />
+          </section>
+        );
+      })()}
+    </>
   );
 }
-
 interface ClientInformationSectionProps {
   client: ClientInfo;
   currentClientId?: string;
   onRemoveClient: (clientId: string) => Promise<void>;
   onRenewCurrentClientCredential: () => Promise<void>;
 }
-
-function ClientInformationSection(
-  {
-    client,
-    currentClientId,
-    onRemoveClient,
-    onRenewCurrentClientCredential,
-  }: ClientInformationSectionProps,
-) {
+function ClientInformationSection(props: ClientInformationSectionProps) {
   const now = useBunja(nowBunja);
-  const nowMs = useAtomValue(now.nowEverySecondAtom);
-  const isCurrent = client.clientId === currentClientId;
-  const [renewPhase, setRenewPhase] = useState<
+  const nowMs = useAtomValue(() => now().nowEverySecondAtom);
+  const isCurrent = createMemo(
+    () => props.client.clientId === props.currentClientId,
+  );
+  const [renewPhase, setRenewPhase] = createSignal<
     "idle" | "renewing" | "renewed" | "error"
   >("idle");
-  const [renewError, setRenewError] = useState<string>();
-  const [removePhase, setRemovePhase] = useState<
+  const [renewError, setRenewError] = createSignal<string>();
+  const [removePhase, setRemovePhase] = createSignal<
     "idle" | "confirming" | "removing" | "error"
   >("idle");
-  const [removeError, setRemoveError] = useState<string>();
-
+  const [removeError, setRemoveError] = createSignal<string>();
   async function renewNow() {
     setRenewPhase("renewing");
     setRenewError(undefined);
     try {
-      await onRenewCurrentClientCredential();
+      await props.onRenewCurrentClientCredential();
       setRenewPhase("renewed");
     } catch (err) {
       setRenewError(errorMessage(err));
       setRenewPhase("error");
     }
   }
-
   async function removeNow() {
     setRemovePhase("removing");
     setRemoveError(undefined);
     try {
-      await onRemoveClient(client.clientId);
+      await props.onRemoveClient(props.client.clientId);
     } catch (err) {
       setRemoveError(errorMessage(err));
       setRemovePhase("error");
     }
   }
-
   return (
-    <section className={clientDetailSectionClassName}>
-      <header className={clientDetailSectionHeaderClassName}>
-        <h2>Client information</h2>
-      </header>
-      <PropertyList className="!border-0 !rounded-0 bg-[#edf0f5]">
-        <PropertyListItem label="Label">
-          <PropertyValue>{client.label || "Unnamed client"}</PropertyValue>
-        </PropertyListItem>
-        <PropertyListItem label="Client ID">
-          <div className={clientIdValueClassName}>
-            <PropertyValue>{client.clientId}</PropertyValue>
-            {isCurrent
-              ? (
-                <em className={clientInfoCurrentClientBadgeClassName}>
-                  This client
-                </em>
-              )
-              : null}
-          </div>
-        </PropertyListItem>
-        <PropertyListItem label="Credential created">
-          <PropertyValue>
-            {formatUnixTimestamp(client.createdAtUnix)}
-          </PropertyValue>
-          <span className={credentialCreatedAgeClassName}>
-            {formatCredentialCreatedAge(client.createdAtUnix, nowMs)}
-          </span>
-        </PropertyListItem>
-        <PropertyListItem label="Credential expires">
-          <PropertyValue>
-            {formatUnixTimestamp(client.expiresAtUnix)}
-          </PropertyValue>
-          <span className={credentialExpiryRemainingClassName}>
-            {formatCredentialExpiryRemaining(client.expiresAtUnix, nowMs)}
-          </span>
-          {isCurrent
-            ? (
-              <>
-                <Button
-                  className={renewCredentialButtonClassName}
-                  disabled={renewPhase === "renewing"}
-                  onClick={renewNow}
-                >
-                  {renewPhase === "renewing" ? "Renewing" : "Renew now"}
-                </Button>
-                {renewPhase === "renewed"
-                  ? (
-                    <span className={renewCredentialMessageClassName}>
-                      Renewal requested
-                    </span>
-                  )
-                  : null}
-                {renewPhase === "error"
-                  ? (
-                    <span className={renewCredentialErrorClassName}>
-                      {renewError ?? "Renewal failed"}
-                    </span>
-                  )
-                  : null}
-              </>
-            )
-            : null}
-        </PropertyListItem>
-      </PropertyList>
-      <div className={clientDangerZoneClassName}>
-        {removePhase === "confirming" || removePhase === "removing"
-          ? (
-            <>
-              <span className={clientDangerMessageClassName}>
-                This client will need to pair again.
-              </span>
-              <Button
-                disabled={removePhase === "removing"}
-                onClick={() => setRemovePhase("idle")}
-                size="sm"
-                variant="ghost"
-              >
-                Cancel
-              </Button>
-              <Button
-                disabled={removePhase === "removing"}
-                onClick={removeNow}
-                size="sm"
-                tone="danger"
-                variant="solid"
-              >
-                <Trash2 size={14} />
-                {removePhase === "removing" ? "Removing" : "Remove client"}
-              </Button>
-            </>
-          )
-          : (
-            <>
-              {removePhase === "error"
-                ? (
-                  <span className={clientDangerErrorClassName}>
-                    {removeError ?? "Client removal failed"}
+    <>
+      {(() => {
+        return (
+          <section class={clientDetailSectionClassName}>
+            <header class={clientDetailSectionHeaderClassName}>
+              <h2>Client information</h2>
+            </header>
+            <PropertyList className="!border-0 !rounded-0 bg-[#edf0f5]">
+              <PropertyListItem label="Label">
+                <PropertyValue>
+                  {props.client.label || "Unnamed client"}
+                </PropertyValue>
+              </PropertyListItem>
+              <PropertyListItem label="Client ID">
+                <div class={clientIdValueClassName}>
+                  <PropertyValue>{props.client.clientId}</PropertyValue>
+                  {isCurrent() ? (
+                    <em class={clientInfoCurrentClientBadgeClassName}>
+                      This client
+                    </em>
+                  ) : null}
+                </div>
+              </PropertyListItem>
+              <PropertyListItem label="Credential created">
+                <PropertyValue>
+                  {formatUnixTimestamp(props.client.createdAtUnix)}
+                </PropertyValue>
+                <span class={credentialCreatedAgeClassName}>
+                  {formatCredentialCreatedAge(
+                    props.client.createdAtUnix,
+                    nowMs(),
+                  )}
+                </span>
+              </PropertyListItem>
+              <PropertyListItem label="Credential expires">
+                <PropertyValue>
+                  {formatUnixTimestamp(props.client.expiresAtUnix)}
+                </PropertyValue>
+                <span class={credentialExpiryRemainingClassName}>
+                  {formatCredentialExpiryRemaining(
+                    props.client.expiresAtUnix,
+                    nowMs(),
+                  )}
+                </span>
+                {isCurrent() ? (
+                  <>
+                    <Button
+                      className={renewCredentialButtonClassName}
+                      disabled={renewPhase() === "renewing"}
+                      onClick={renewNow}
+                    >
+                      {renewPhase() === "renewing" ? "Renewing" : "Renew now"}
+                    </Button>
+                    {renewPhase() === "renewed" ? (
+                      <span class={renewCredentialMessageClassName}>
+                        Renewal requested
+                      </span>
+                    ) : null}
+                    {renewPhase() === "error" ? (
+                      <span class={renewCredentialErrorClassName}>
+                        {renewError() ?? "Renewal failed"}
+                      </span>
+                    ) : null}
+                  </>
+                ) : null}
+              </PropertyListItem>
+            </PropertyList>
+            <div class={clientDangerZoneClassName}>
+              {removePhase() === "confirming" ||
+              removePhase() === "removing" ? (
+                <>
+                  <span class={clientDangerMessageClassName}>
+                    This client will need to pair again.
                   </span>
-                )
-                : <span className={clientDangerMessageClassName} />}
-              <Button
-                onClick={() => setRemovePhase("confirming")}
-                size="sm"
-                tone="danger"
-                variant="outline"
-              >
-                <Trash2 size={14} />
-                Remove client
-              </Button>
-            </>
-          )}
-      </div>
-    </section>
+                  <Button
+                    disabled={removePhase() === "removing"}
+                    onClick={() => setRemovePhase("idle")}
+                    size="sm"
+                    variant="ghost"
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    disabled={removePhase() === "removing"}
+                    onClick={removeNow}
+                    size="sm"
+                    tone="danger"
+                    variant="solid"
+                  >
+                    <Trash2 size={14} />
+                    {removePhase() === "removing"
+                      ? "Removing"
+                      : "Remove client"}
+                  </Button>
+                </>
+              ) : (
+                <>
+                  {removePhase() === "error" ? (
+                    <span class={clientDangerErrorClassName}>
+                      {removeError() ?? "Client removal failed"}
+                    </span>
+                  ) : (
+                    <span class={clientDangerMessageClassName} />
+                  )}
+                  <Button
+                    onClick={() => setRemovePhase("confirming")}
+                    size="sm"
+                    tone="danger"
+                    variant="outline"
+                  >
+                    <Trash2 size={14} />
+                    Remove client
+                  </Button>
+                </>
+              )}
+            </div>
+          </section>
+        );
+      })()}
+    </>
   );
 }
-
 interface ClientTerminalSessionsProps {
   onCloseTerminalSession: (terminalSessionId: string) => Promise<void>;
   onOpenTerminalSession: (session: TerminalSessionInfo) => void;
   sessions: TerminalSessionInfo[];
   state: TerminalSessionsState;
 }
-
-function ClientTerminalSessions(
-  {
-    onCloseTerminalSession,
-    onOpenTerminalSession,
-    sessions,
-    state,
-  }: ClientTerminalSessionsProps,
-) {
-  const [closingSessionIds, setClosingSessionIds] = useState<Set<string>>(
-    () => new Set(),
+function ClientTerminalSessions(props: ClientTerminalSessionsProps) {
+  const [closingSessionIds, setClosingSessionIds] = createSignal<Set<string>>(
+    new Set<string>(),
   );
-  const [closeError, setCloseError] = useState<string>();
-
+  const [closeError, setCloseError] = createSignal<string>();
   async function closeSession(terminalSessionId: string) {
     setCloseError(undefined);
     setClosingSessionIds((current) => new Set(current).add(terminalSessionId));
     try {
-      await onCloseTerminalSession(terminalSessionId);
+      await props.onCloseTerminalSession(terminalSessionId);
     } catch (err) {
       setCloseError(errorMessage(err));
     } finally {
@@ -1221,68 +1273,80 @@ function ClientTerminalSessions(
       });
     }
   }
-
   return (
-    <section className={clientDetailSectionClassName}>
-      <header className={clientDetailSectionHeaderClassName}>
-        <h2>Terminal sessions</h2>
-      </header>
-      {closeError ? <ClientDetailState message={closeError} /> : null}
-      {state.phase === "error"
-        ? (
-          <ClientDetailState
-            message={state.message ?? "Terminal session list failed"}
-          />
-        )
-        : state.phase === "loading"
-        ? <ClientDetailState message="Loading terminal sessions" />
-        : sessions.length === 0
-        ? <ClientDetailState message="No terminal sessions for this client" />
-        : (
-          <div className={terminalSessionListClassName}>
-            {sessions.map((session) => (
-              <article key={session.terminalSessionId}>
-                <strong>{commandName(session.launch.command)}</strong>
-                <span>{session.cols} x {session.rows}</span>
-                <div className={terminalSessionActionsClassName}>
-                  <Button
-                    className={terminalSessionCloseButtonClassName}
-                    onClick={() => onOpenTerminalSession(session)}
-                  >
-                    <SquareTerminal size={13} />
-                    Open
-                  </Button>
-                  <Button
-                    className={terminalSessionCloseButtonClassName}
-                    disabled={closingSessionIds.has(session.terminalSessionId)}
-                    onClick={() => closeSession(session.terminalSessionId)}
-                  >
-                    {closingSessionIds.has(session.terminalSessionId)
-                      ? "Closing"
-                      : "Close"}
-                  </Button>
-                </div>
-                <small>
-                  {terminalSessionStatus(session)}
-                  {" - "}
-                  {session.lastKnownCwd ?? "cwd unknown"}
-                </small>
-              </article>
-            ))}
-          </div>
-        )}
-    </section>
+    <>
+      {(() => {
+        return (
+          <section class={clientDetailSectionClassName}>
+            <header class={clientDetailSectionHeaderClassName}>
+              <h2>Terminal sessions</h2>
+            </header>
+            {closeError() ? (
+              <ClientDetailState message={closeError()!} />
+            ) : null}
+            {props.state.phase === "error" ? (
+              <ClientDetailState
+                message={props.state.message ?? "Terminal session list failed"}
+              />
+            ) : props.state.phase === "loading" ? (
+              <ClientDetailState message="Loading terminal sessions" />
+            ) : props.sessions.length === 0 ? (
+              <ClientDetailState message="No terminal sessions for this client" />
+            ) : (
+              <div class={terminalSessionListClassName}>
+                {props.sessions.map((session) => (
+                  <article>
+                    <strong>{commandName(session.launch.command)}</strong>
+                    <span>
+                      {session.cols} x {session.rows}
+                    </span>
+                    <div class={terminalSessionActionsClassName}>
+                      <Button
+                        className={terminalSessionCloseButtonClassName}
+                        onClick={() => props.onOpenTerminalSession(session)}
+                      >
+                        <SquareTerminal size={13} />
+                        Open
+                      </Button>
+                      <Button
+                        className={terminalSessionCloseButtonClassName}
+                        disabled={closingSessionIds().has(
+                          session.terminalSessionId,
+                        )}
+                        onClick={() => closeSession(session.terminalSessionId)}
+                      >
+                        {closingSessionIds().has(session.terminalSessionId)
+                          ? "Closing"
+                          : "Close"}
+                      </Button>
+                    </div>
+                    <small>
+                      {terminalSessionStatus(session)}
+                      {" - "}
+                      {session.lastKnownCwd ?? "cwd unknown"}
+                    </small>
+                  </article>
+                ))}
+              </div>
+            )}
+          </section>
+        );
+      })()}
+    </>
   );
 }
-
 interface ClientDetailStateProps {
   message: string;
 }
-
-function ClientDetailState({ message }: ClientDetailStateProps) {
-  return <div className={clientDetailStateClassName}>{message}</div>;
+function ClientDetailState(props: ClientDetailStateProps) {
+  return (
+    <>
+      {(() => {
+        return <div class={clientDetailStateClassName}>{props.message}</div>;
+      })()}
+    </>
+  );
 }
-
 function terminalSessionStatus(session: TerminalSessionInfo): string {
   if (session.exit?.code !== undefined) {
     return `Exited with code ${session.exit.code}`;
@@ -1291,23 +1355,25 @@ function terminalSessionStatus(session: TerminalSessionInfo): string {
   if (session.exit) return "Exited";
   return "Running";
 }
-
 function terminalSessionTabTitle(session: TerminalSessionInfo): string {
   return session.lastKnownTitle ?? commandName(session.launch.command);
 }
-
 interface InlineStateProps {
   message: string;
 }
-
-function InlineState({ message }: InlineStateProps) {
+function InlineState(props: InlineStateProps) {
   return (
-    <div className="min-w-0 rounded-[8px] border border-[#d8dde7] bg-[#fbfcfe] px-[1rem] py-[1rem] text-[14px] text-[#667085]">
-      {message}
-    </div>
+    <>
+      {(() => {
+        return (
+          <div class="min-w-0 rounded-[8px] border border-[#d8dde7] bg-[#fbfcfe] px-[1rem] py-[1rem] text-[14px] text-[#667085]">
+            {props.message}
+          </div>
+        );
+      })()}
+    </>
   );
 }
-
 function formatDaemonTimestamp(timeMs?: number): string {
   if (timeMs === undefined || timeMs === 0) return "Unknown";
   return new Intl.DateTimeFormat(undefined, {
@@ -1315,7 +1381,6 @@ function formatDaemonTimestamp(timeMs?: number): string {
     timeStyle: "medium",
   }).format(new Date(timeMs));
 }
-
 function formatDaemonUptime(uptimeSeconds?: number): string {
   if (uptimeSeconds === undefined) return "Unknown";
   const days = Math.floor(uptimeSeconds / 86400);
@@ -1327,12 +1392,10 @@ function formatDaemonUptime(uptimeSeconds?: number): string {
   if (minutes > 0) return `${minutes}m ${seconds}s`;
   return `${seconds}s`;
 }
-
 function formatUnixTimestamp(timeUnix?: number): string {
   if (timeUnix === undefined || timeUnix === 0) return "Unknown";
   return formatDaemonTimestamp(timeUnix * 1000);
 }
-
 function formatCredentialExpiryRemaining(
   expiresAtUnix: number | undefined,
   nowMs: number,
@@ -1347,7 +1410,6 @@ function formatCredentialExpiryRemaining(
   if (remainingSeconds === 0) return "Expires now";
   return `Expired ${formatDurationSeconds(-remainingSeconds)} ago`;
 }
-
 function formatCredentialCreatedAge(
   createdAtUnix: number | undefined,
   nowMs: number,
@@ -1362,7 +1424,6 @@ function formatCredentialCreatedAge(
   if (elapsedSeconds === 0) return "Now";
   return `In ${formatDurationSeconds(-elapsedSeconds)}`;
 }
-
 function formatDurationSeconds(totalSeconds: number): string {
   const seconds = Math.max(0, Math.floor(totalSeconds));
   const days = Math.floor(seconds / 86400);
@@ -1374,23 +1435,19 @@ function formatDurationSeconds(totalSeconds: number): string {
   if (minutes > 0) return `${minutes}m ${restSeconds}s`;
   return `${restSeconds}s`;
 }
-
 function commandName(command: string): string {
   const normalized = command.replaceAll("\\", "/");
   return normalized.split("/").filter(Boolean).pop() ?? command;
 }
-
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
-
 function clientDetailPendingMessage(clientsState: ClientsState): string {
   if (clientsState.phase === "error") {
     return clientsState.message ?? "Client detail failed";
   }
   return "Loading client detail";
 }
-
 function clientsOverviewLabel(clientsState: ClientsState): string {
   if (clientsState.phase === "error") {
     return clientsState.message ?? "Client list failed";
@@ -1401,42 +1458,45 @@ function clientsOverviewLabel(clientsState: ClientsState): string {
   if (count === 1) return "1 paired client";
   return `${count} paired clients`;
 }
-
 function otherClientsLabel(count: number): string {
   if (count === 0) return "No other clients...";
   if (count === 1) return "1 other client...";
   return `${count} other clients...`;
 }
-
 interface DaemonInfoStateViewProps {
   hasMachine: boolean;
   message?: string;
   phase: "idle" | "loading" | "error";
 }
-
-function DaemonInfoStateView(
-  { hasMachine, message, phase }: DaemonInfoStateViewProps,
-) {
-  const Icon = phase === "error"
-    ? AlertTriangle
-    : phase === "loading"
-    ? Loader2
-    : Info;
-  const title = phase === "error"
-    ? "Daemon info unavailable"
-    : phase === "loading"
-    ? "Loading daemon info"
-    : hasMachine
-    ? "Daemon info unavailable"
-    : "No daemon selected";
-
+function DaemonInfoStateView(props: DaemonInfoStateViewProps) {
+  const title = createMemo(() =>
+    props.phase === "error"
+      ? "Daemon info unavailable"
+      : props.phase === "loading"
+        ? "Loading daemon info"
+        : props.hasMachine
+          ? "Daemon info unavailable"
+          : "No daemon selected",
+  );
   return (
-    <div className={messageStateClassName}>
-      <div>
-        <Icon size={24} />
-        <strong>{title}</strong>
-        {message ? <p>{message}</p> : null}
-      </div>
-    </div>
+    <>
+      {(() => {
+        return (
+          <div class={messageStateClassName}>
+            <div>
+              {props.phase === "error" ? (
+                <AlertTriangle size={24} />
+              ) : props.phase === "loading" ? (
+                <Loader2 size={24} />
+              ) : (
+                <Info size={24} />
+              )}
+              <strong>{title()}</strong>
+              {props.message ? <p>{props.message}</p> : null}
+            </div>
+          </div>
+        );
+      })()}
+    </>
   );
 }

@@ -1,7 +1,11 @@
-import React from "react";
-import { useDraggable, useDroppable } from "@dnd-kit/core";
-import { useAtomValue } from "jotai";
-import { useBunja } from "bunja/react";
+import type { Accessor } from "solid-js";
+import type {
+  TabDropPosition,
+  WorkbenchTab,
+} from "../../../state/workbench.ts";
+import { createMemo } from "solid-js";
+import { useAtomValue } from "../../../solid/jotai.tsx";
+import { useBunja } from "../../../solid/bunja.tsx";
 import {
   Activity,
   AppWindow,
@@ -11,37 +15,22 @@ import {
   Terminal,
   Trash2,
   X,
-} from "lucide-react";
+} from "../../../solid/icons.tsx";
 import {
   displayName,
   explorerNavigationBunja,
   pathCrumbs,
 } from "../../../state/explorer.ts";
-import {
-  type TabDropPosition,
-  type WorkbenchTab,
-  workbenchTabBunja,
-} from "../../../state/workbench.ts";
-import {
-  type WorkbenchTabDndData,
-  type WorkbenchTabDragData,
-  workbenchTabDragId,
-  workbenchTabDropId,
-} from "./tab-drag.ts";
+import { workbenchTabBunja } from "../../../state/workbench.ts";
 import { className } from "../../class-name.ts";
-
 interface WorkbenchTabItemProps {
   dragging: boolean;
   dropPosition?: TabDropPosition;
   nodeId: string;
   paneActive: boolean;
   onClose: () => void;
-  onContextMenu: (
-    tab: WorkbenchTab,
-    event: React.MouseEvent<HTMLDivElement>,
-  ) => void;
+  onContextMenu: (tab: WorkbenchTab, event: MouseEvent) => void;
 }
-
 const workbenchTabClassName = [
   "workbench-tab group relative flex flex-[0_0_auto] items-center min-w-[136px] max-w-[206px] h-[28px] box-border leading-none",
   "max-[680px]:min-w-[72px] max-[680px]:max-w-[104px]",
@@ -81,192 +70,155 @@ const workbenchTabIconClassName = "flex-[0_0_auto] text-rieul-text-3";
 const workbenchTabTitleClassName =
   "min-w-0 overflow-hidden text-ellipsis whitespace-nowrap";
 const activePaneTabClassName = "z-[8]";
-
-export function WorkbenchTabItem(
-  {
-    dragging,
-    dropPosition,
-    nodeId,
-    paneActive,
-    onClose,
-    onContextMenu,
-  }: WorkbenchTabItemProps,
-) {
+export function WorkbenchTabItem(props: WorkbenchTabItemProps) {
   const tabState = useBunja(workbenchTabBunja);
-  const tab = useAtomValue(tabState.tabAtom);
-  const active = useAtomValue(tabState.activeAtom);
-  const dirty = useAtomValue(tabState.dirtyAtom);
-  const showClose = useAtomValue(tabState.showCloseAtom);
+  const tab = useAtomValue(() => tabState().tabAtom);
+  const active = useAtomValue(() => tabState().activeAtom);
+  const dirty = useAtomValue(() => tabState().dirtyAtom);
+  const showClose = useAtomValue(() => tabState().showCloseAtom);
   const label = useWorkbenchTabLabel(tab);
   const navigation = useBunja(explorerNavigationBunja);
-  const specialLocation = useAtomValue(navigation.specialLocationAtom);
-  const tabClassName = className(
-    workbenchTabClassName,
-    active && "active",
-    active && paneActive && activePaneTabClassName,
-    dragging && "dragging",
-    dropPosition === "before" && "drop-before",
-    dropPosition === "after" && "drop-after",
+  const specialLocation = useAtomValue(() => navigation().specialLocationAtom);
+  const tabClassName = createMemo(() =>
+    className(
+      workbenchTabClassName,
+      active() && "active",
+      active() && props.paneActive && activePaneTabClassName,
+      props.dragging && "dragging",
+      props.dropPosition === "before" && "drop-before",
+      props.dropPosition === "after" && "drop-after",
+    ),
   );
-
-  const currentTabId = tabState.tabId;
-  const dragData: WorkbenchTabDragData = {
-    nodeId,
-    paneId: tabState.paneId,
-    tabId: currentTabId,
-  };
-  const {
-    attributes,
-    listeners,
-    setNodeRef: setDragNodeRef,
-  } = useDraggable({
-    attributes: {
-      role: "tab",
-      roleDescription: "draggable workbench tab",
-    },
-    id: workbenchTabDragId(currentTabId),
-    data: {
-      dragData,
-      label,
-      type: "workbench-tab",
-    } satisfies WorkbenchTabDndData,
-  });
-  const { setNodeRef: setDropNodeRef } = useDroppable({
-    id: workbenchTabDropId(tabState.paneId, currentTabId),
-    data: {
-      kind: "tab",
-      paneId: tabState.paneId,
-      tabId: currentTabId,
-      type: "workbench-tab-drop",
-    },
-  });
-
-  if (!tab) return null;
-
-  function handleContextMenu(event: React.MouseEvent<HTMLDivElement>) {
-    if (!tab) return;
-    if (isCoarsePointer()) {
-      event.preventDefault();
-      event.stopPropagation();
-      return;
-    }
-    onContextMenu(tab, event);
-  }
-
+  const currentTabId = createMemo(() => tabState().tabId);
   return (
-    <div
-      ref={setDropNodeRef}
-      className={tabClassName}
-      data-pane-id={tabState.paneId}
-      data-tab-id={currentTabId}
-      onContextMenu={handleContextMenu}
-    >
-      <button
-        ref={setDragNodeRef}
-        {...attributes}
-        {...listeners}
-        type="button"
-        role="tab"
-        className={workbenchTabButtonClassName}
-        aria-selected={active}
-        onClick={tabState.selectTab}
-        title={label}
-      >
-        <WorkbenchTabIcon
-          tab={tab}
-          trashActive={specialLocation === "trash"}
-          className={workbenchTabIconClassName}
-        />
-        <span className={workbenchTabTitleClassName}>{label}</span>
-      </button>
-      {showClose
-        ? (
-          <button
-            type="button"
-            className={workbenchTabCloseClassName}
-            draggable={false}
-            onMouseDown={(event) => event.stopPropagation()}
-            onClick={onClose}
-            title={dirty ? "Unsaved changes" : "Close tab"}
-            aria-label={dirty
-              ? `Close ${label} with unsaved changes`
-              : `Close ${label}`}
+    <>
+      {(() => {
+        if (!tab()) return null;
+        function handleContextMenu(event: MouseEvent) {
+          if (!tab()) return;
+          if (isCoarsePointer()) {
+            event.preventDefault();
+            event.stopPropagation();
+            return;
+          }
+          props.onContextMenu(tab()!, event);
+        }
+        return (
+          <div
+            class={tabClassName()}
+            data-pane-id={tabState().paneId}
+            data-tab-id={currentTabId()}
+            onContextMenu={handleContextMenu}
           >
-            {dirty
-              ? (
-                <span
-                  className="block size-[6px] rounded-full bg-rieul-text-3"
-                  aria-hidden="true"
-                />
-              )
-              : <X size={11} />}
-          </button>
-        )
-        : null}
-    </div>
+            <button
+              data-tab-drag
+              type="button"
+              role="tab"
+              class={workbenchTabButtonClassName}
+              aria-selected={active() ? "true" : "false"}
+              onClick={tabState().selectTab}
+              title={label()}
+            >
+              <WorkbenchTabIcon
+                tab={tab()!}
+                trashActive={specialLocation() === "trash"}
+                className={workbenchTabIconClassName}
+              />
+              <span class={workbenchTabTitleClassName}>{label()}</span>
+            </button>
+            {showClose() ? (
+              <button
+                type="button"
+                class={workbenchTabCloseClassName}
+                draggable={false}
+                onMouseDown={(event) => event.stopPropagation()}
+                onClick={props.onClose}
+                title={dirty() ? "Unsaved changes" : "Close tab"}
+                aria-label={
+                  dirty()
+                    ? `Close ${label()} with unsaved changes`
+                    : `Close ${label()}`
+                }
+              >
+                {dirty() ? (
+                  <span
+                    class="block size-[6px] rounded-full bg-rieul-text-3"
+                    aria-hidden="true"
+                  />
+                ) : (
+                  <X size={11} />
+                )}
+              </button>
+            ) : null}
+          </div>
+        );
+      })()}
+    </>
   );
 }
-
 interface WorkbenchTabIconProps {
   className: string;
   tab: WorkbenchTab;
   trashActive: boolean;
 }
-
-function WorkbenchTabIcon(
-  { className, tab, trashActive }: WorkbenchTabIconProps,
-) {
-  if (tab.tool === "daemon") {
-    return <Info size={12} className={className} />;
-  }
-  if (tab.tool === "agent") {
-    return <Bot size={12} className={className} />;
-  }
-  if (tab.tool === "terminal") {
-    return <Terminal size={12} className={className} />;
-  }
-  if (tab.tool === "processes") {
-    return <Activity size={12} className={className} />;
-  }
-  if (tab.tool === "windows") {
-    return <AppWindow size={12} className={className} />;
-  }
-  if (tab.tool === "files" && trashActive) {
-    return <Trash2 size={12} className={className} />;
-  }
-  return <Folder size={12} className={className} />;
+function WorkbenchTabIcon(props: WorkbenchTabIconProps) {
+  return (
+    <>
+      {(() => {
+        if (props.tab.tool === "daemon") {
+          return <Info size={12} className={props.className} />;
+        }
+        if (props.tab.tool === "agent") {
+          return <Bot size={12} className={props.className} />;
+        }
+        if (props.tab.tool === "terminal") {
+          return <Terminal size={12} className={props.className} />;
+        }
+        if (props.tab.tool === "processes") {
+          return <Activity size={12} className={props.className} />;
+        }
+        if (props.tab.tool === "windows") {
+          return <AppWindow size={12} className={props.className} />;
+        }
+        if (props.tab.tool === "files" && props.trashActive) {
+          return <Trash2 size={12} className={props.className} />;
+        }
+        return <Folder size={12} className={props.className} />;
+      })()}
+    </>
+  );
 }
-
 function useWorkbenchTabLabel(
-  tab: WorkbenchTab | undefined,
-): string {
+  tab: Accessor<WorkbenchTab | undefined>,
+): Accessor<string> {
   const navigation = useBunja(explorerNavigationBunja);
-  const currentPath = useAtomValue(navigation.currentPathAtom);
-  const openedFile = useAtomValue(navigation.openedFileAtom);
-  const specialLocation = useAtomValue(navigation.specialLocationAtom);
-
-  if (!tab) return "Files";
-  if (tab.tool === "files") {
-    if (specialLocation === "trash") return "Trash";
-    return openedFile
-      ? displayName(openedFile)
-      : folderNameFromPath(currentPath);
-  }
-  if (tab.tool === "processes") {
-    return tab.processDetailPid === undefined ? "Processes" : tab.title;
-  }
-  if (tab.tool === "windows") {
-    return tab.windowDetailId === undefined ? "Windows" : tab.title;
-  }
-  return tab.title;
+  const currentPath = useAtomValue(() => navigation().currentPathAtom);
+  const openedFile = useAtomValue(() => navigation().openedFileAtom);
+  const specialLocation = useAtomValue(() => navigation().specialLocationAtom);
+  return createMemo(() => {
+    if (!tab()) return "Files";
+    if (tab()!.tool === "files") {
+      if (specialLocation() === "trash") return "Trash";
+      return openedFile()
+        ? displayName(openedFile()!)
+        : folderNameFromPath(currentPath());
+    }
+    if (tab()!.tool === "processes") {
+      return tab()!.processDetailPid === undefined ? "Processes" : tab()!.title;
+    }
+    if (tab()!.tool === "windows") {
+      return tab()!.windowDetailId === undefined ? "Windows" : tab()!.title;
+    }
+    return tab()!.title;
+  });
 }
-
 function folderNameFromPath(path?: string): string {
   const crumbs = pathCrumbs(path);
   return crumbs[crumbs.length - 1]?.label ?? "Files";
 }
-
 function isCoarsePointer(): boolean {
-  return typeof globalThis.matchMedia === "function" &&
-    globalThis.matchMedia("(pointer: coarse)").matches;
+  return (
+    typeof globalThis.matchMedia === "function" &&
+    globalThis.matchMedia("(pointer: coarse)").matches
+  );
 }

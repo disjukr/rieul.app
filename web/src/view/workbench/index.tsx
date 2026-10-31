@@ -1,13 +1,13 @@
+import type { ParentProps } from "solid-js";
 import { bunja } from "bunja";
-import { atom, useAtomValue } from "jotai";
-import { useBunja } from "bunja/react";
-import { ChevronLeft } from "lucide-react";
+import { atom } from "jotai/vanilla";
+import { useAtomValue } from "../../solid/jotai.tsx";
+import { useBunja } from "../../solid/bunja.tsx";
+import { ChevronLeft } from "../../solid/icons.tsx";
 import { machineStoreBunja } from "../../state/machine-store.ts";
 import { MachineAddFormContainer } from "../machine-panel/index.tsx";
 import { WorkbenchPaneLayout } from "./pane-layout/index.tsx";
-import { type MouseEvent, PropsWithChildren } from "react";
 import { className } from "../class-name.ts";
-
 const workbenchClassName = [
   "workbench [grid-column:2] [grid-row:1]",
   "m-0 min-w-0 min-h-0 overflow-visible",
@@ -47,67 +47,95 @@ const modalHeadClassName = [
   "[&_span]:text-[var(--rieul-text-tertiary)] [&_span]:text-[12px] [&_span]:font-700",
   "[&_h2]:m-0 [&_h2]:text-[var(--rieul-text-primary)] [&_h2]:text-[18px] [&_h2]:tracking-[0]",
 ].join(" ");
-
 const workbenchRegionBunja = bunja(() => {
   const { machinesAtom, selectedAtom } = bunja.use(machineStoreBunja);
   const hasMachinesAtom = atom((get) => get(machinesAtom).length > 0);
-  return { hasMachinesAtom, selectedAtom };
+  return {
+    hasMachinesAtom,
+    selectedAtom,
+  };
 });
-
 export function WorkbenchRegion() {
-  const { hasMachinesAtom, selectedAtom } = useBunja(workbenchRegionBunja);
-  const hasMachines = useAtomValue(hasMachinesAtom);
-  const selected = useAtomValue(selectedAtom);
+  const _model = useBunja(workbenchRegionBunja);
+  const hasMachines = useAtomValue(() => _model().hasMachinesAtom);
+  const selected = useAtomValue(() => _model().selectedAtom);
   return (
-    <section
-      className={className(workbenchClassName, !hasMachines && "grid")}
-    >
-      <MobileWorkbenchHeader machineName={selected?.name ?? "No machine"} />
-      {hasMachines ? <WorkbenchPaneLayout /> : (
-        <InlineMachineSetup>
-          <MachineAddFormContainer showCancel={false} />
-        </InlineMachineSetup>
-      )}
-    </section>
+    <>
+      {(() => {
+        return (
+          <section
+            class={className(workbenchClassName, !hasMachines() && "grid")}
+          >
+            <MobileWorkbenchHeader
+              machineName={selected()?.name ?? "No machine"}
+            />
+            {hasMachines() ? (
+              <WorkbenchPaneLayout />
+            ) : (
+              <InlineMachineSetup>
+                <MachineAddFormContainer showCancel={false} />
+              </InlineMachineSetup>
+            )}
+          </section>
+        );
+      })()}
+    </>
   );
 }
-
-function MobileWorkbenchHeader({ machineName }: { machineName: string }) {
+function MobileWorkbenchHeader(props: { machineName: string }) {
   return (
-    <header className={mobileWorkbenchHeaderClassName}>
-      <button
-        type="button"
-        className={mobileBackButtonClassName}
-        onClick={showMobileRail}
-        aria-label="Back to app rail"
-        title="Back"
-      >
-        <ChevronLeft size={20} strokeWidth={2.2} />
-      </button>
-      <div className={mobileMachineTitleClassName}>{machineName}</div>
-    </header>
+    <>
+      {(() => {
+        return (
+          <header class={mobileWorkbenchHeaderClassName}>
+            <button
+              type="button"
+              class={mobileBackButtonClassName}
+              onClick={showMobileRail}
+              aria-label="Back to app rail"
+              title="Back"
+            >
+              <ChevronLeft size={20} strokeWidth={2.2} />
+            </button>
+            <div class={mobileMachineTitleClassName}>{props.machineName}</div>
+          </header>
+        );
+      })()}
+    </>
   );
 }
-
-function showMobileRail(event: MouseEvent<HTMLButtonElement>) {
-  const shell = event.currentTarget.closest<HTMLElement>(".app-shell") ??
+function showMobileRail(
+  event: MouseEvent & {
+    currentTarget: HTMLButtonElement;
+  },
+) {
+  const shell =
+    event.currentTarget.closest<HTMLElement>(".app-shell") ??
     document.querySelector<HTMLElement>(".app-shell");
   if (!shell) return;
-  shell.scrollTo({ left: 0, behavior: "smooth" });
+  shell.scrollTo({
+    left: 0,
+    behavior: "smooth",
+  });
 }
-
-function InlineMachineSetup({ children }: PropsWithChildren) {
+function InlineMachineSetup(props: ParentProps) {
   return (
-    <section className={inlineMachineSetupClassName}>
-      <div className={inlineMachineCardClassName}>
-        <header className={modalHeadClassName}>
-          <div>
-            <span>Machine</span>
-            <h2>Add machine</h2>
-          </div>
-        </header>
-        {children}
-      </div>
-    </section>
+    <>
+      {(() => {
+        return (
+          <section class={inlineMachineSetupClassName}>
+            <div class={inlineMachineCardClassName}>
+              <header class={modalHeadClassName}>
+                <div>
+                  <span>Machine</span>
+                  <h2>Add machine</h2>
+                </div>
+              </header>
+              {props.children}
+            </div>
+          </section>
+        );
+      })()}
+    </>
   );
 }

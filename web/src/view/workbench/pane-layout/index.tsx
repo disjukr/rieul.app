@@ -1,392 +1,362 @@
+import type { LayoutState } from "../../../state/layout.ts";
+import type { TabSplitDropSide } from "./tab-drag.ts";
+import { createMemo, createSignal, For, onCleanup } from "solid-js";
 import { WorkbenchPaneIdContext } from "../../../state/workbench-context.ts";
-import { useEffect, useState } from "react";
-import {
-  type CollisionDetection,
-  DndContext,
-  type DragEndEvent,
-  type DragMoveEvent,
-  type DragOverEvent,
-  DragOverlay,
-  type DragStartEvent,
-  MouseSensor,
-  pointerWithin,
-  rectIntersection,
-  TouchSensor,
-  useSensor,
-  useSensors,
-} from "@dnd-kit/core";
-import { useAtomValue } from "jotai";
-import { useBunja } from "bunja/react";
-import {
-  type LayoutNode,
-  layoutReducer,
-  type LayoutState,
-  Pane,
-  Root as PaneRoot,
-} from "panecake";
-import {
-  type TabDropPosition,
-  workbenchBunja,
-} from "../../../state/workbench.ts";
-import { PaneDivider } from "./pane-divider.tsx";
+import { useAtomValue } from "../../../solid/jotai.tsx";
+import { useBunja } from "../../../solid/bunja.tsx";
+import { layoutReducer, type BranchNode } from "../../../state/layout.ts";
+import { workbenchBunja } from "../../../state/workbench.ts";
 import { WorkbenchPaneView } from "./pane-view.tsx";
-import {
-  readWorkbenchTabDndData,
-  readWorkbenchTabDndDropData,
-  readWorkbenchTabDndLabel,
-  type TabSplitDropSide,
-  type WorkbenchTabDragData,
-  type WorkbenchTabDropTarget,
-} from "./tab-drag.ts";
-
-const paneRootClassName = [
-  "workbench-pane-root",
-  "w-full h-full min-w-0 min-h-0 overflow-visible p-[12px]",
-  "rounded-[15px]",
-  "max-[680px]:p-0 max-[680px]:rounded-none",
-].join(" ");
-const emptyWorkspaceClassName = [
-  "grid content-center justify-items-center w-full h-full gap-[10px]",
-  "min-h-0 text-rieul-text-3",
-  "[&_h2]:m-0 [&_h2]:text-rieul-text [&_h2]:text-[18px] [&_h2]:tracking-[0]",
-].join(" ");
-const tabDragOverlayClassName = [
-  "inline-flex h-[28px] max-w-[206px] items-center rounded-[999px]",
-  "border border-white/74 bg-[rgba(255,255,255,0.9)] px-[12px]",
-  "text-rieul-text text-[13px] font-640 leading-none shadow-rieul-md",
-].join(" ");
-
-interface TabDropState {
+import { PaneDivider } from "./pane-divider.tsx";
+import type { WorkbenchTabDropTarget } from "./tab-drag.ts";
+type Drag = {
+  nodeId: string;
   paneId: string;
-  target: WorkbenchTabDropTarget;
-}
-
-interface TabSplitDropState {
-  paneId: string;
-  side: TabSplitDropSide;
-}
-
-interface ActiveTabDragState {
-  dragData: WorkbenchTabDragData;
+  tabId?: string;
   label: string;
-}
-
-type ResolvedTabDndTarget =
-  | { kind: "tab"; paneId: string; position: TabDropPosition; tabId: string }
-  | { kind: "tab-strip"; paneId: string }
-  | {
-    kind: "pane-body";
-    nodeId: string;
-    paneId: string;
-    side: TabSplitDropSide;
-  };
-
+};
+type Target = {
+  nodeId: string;
+  paneId: string;
+  tabId?: string;
+  position?: "before" | "after" | "end";
+  side?: TabSplitDropSide;
+};
 export function WorkbenchPaneLayout() {
   const workbench = useBunja(workbenchBunja);
-  const layout = useAtomValue(workbench.layoutAtom);
-  const panes = useAtomValue(workbench.panesAtom);
-  const topRightNodeId = topRightLeafNodeId(layout);
-  const [activeTabDrag, setActiveTabDrag] = useState<
-    ActiveTabDragState | undefined
-  >();
-  const [tabDropState, setTabDropState] = useState<TabDropState>();
-  const [tabSplitDropState, setTabSplitDropState] = useState<
-    TabSplitDropState | undefined
-  >();
-  const sensors = useSensors(
-    useSensor(MouseSensor, {
-      activationConstraint: { distance: 4 },
-    }),
-    useSensor(TouchSensor, {
-      activationConstraint: { delay: 250, tolerance: 5 },
-    }),
-  );
-
-  useEffect(() => () => setMobileShellDragLocked(false), []);
-  function clearTabDndState() {
-    setMobileShellDragLocked(false);
-    setActiveTabDrag(undefined);
-    setTabDropState(undefined);
-    setTabSplitDropState(undefined);
-  }
-
-  function handleDragStart(event: DragStartEvent) {
-    const dragData = readWorkbenchTabDndData(event.active.data.current);
-    if (!dragData) return;
-    const label = readWorkbenchTabDndLabel(event.active.data.current) ??
-      dragData.tabId;
-    setMobileShellDragLocked(true);
-    setActiveTabDrag({ dragData, label });
-  }
-
-  function handleDragOver(event: DragOverEvent) {
-    updateTabDndTarget(event);
-  }
-
-  function handleDragMove(event: DragMoveEvent) {
-    updateTabDndTarget(event);
-  }
-
-  function updateTabDndTarget(
-    event: DragMoveEvent | DragOverEvent | DragEndEvent,
-  ) {
-    const target = tabDndTargetFromEvent(event);
-    if (target?.kind === "tab") {
-      setTabDropState({
-        paneId: target.paneId,
-        target: {
-          position: target.position,
-          tabId: target.tabId,
-        },
-      });
-      setTabSplitDropState(undefined);
-      return target;
-    }
-    if (target?.kind === "tab-strip") {
-      setTabDropState({
-        paneId: target.paneId,
-        target: { position: "end" },
-      });
-      setTabSplitDropState(undefined);
-      return target;
-    }
-    if (target?.kind === "pane-body") {
-      setTabDropState(undefined);
-      setTabSplitDropState({
-        paneId: target.paneId,
-        side: target.side,
-      });
-      return target;
-    }
-    setTabDropState(undefined);
-    setTabSplitDropState(undefined);
-    return undefined;
-  }
-
-  function handleDragEnd(event: DragEndEvent) {
-    const dragData = readWorkbenchTabDndData(event.active.data.current);
-    const target = updateTabDndTarget(event);
-    if (!dragData || !target) {
-      clearTabDndState();
-      return;
-    }
-
-    if (target.kind === "tab") {
-      workbench.moveTab(
-        dragData.paneId,
-        dragData.tabId,
-        target.paneId,
-        target.tabId,
-        target.position,
-      );
-      clearTabDndState();
-      return;
-    }
-    if (target.kind === "tab-strip") {
-      workbench.moveTab(
-        dragData.paneId,
-        dragData.tabId,
-        target.paneId,
-        undefined,
-        "end",
-      );
-      clearTabDndState();
-      return;
-    }
-
-    const result = workbench.moveTabToNewPane(
-      dragData.paneId,
-      dragData.tabId,
-      target.paneId,
-    );
-    if (result) {
-      const direction = target.side === "left" || target.side === "right"
-        ? "horizontal"
-        : "vertical";
-      const position = target.side === "left" || target.side === "top"
-        ? "before"
-        : "after";
-      let nextLayout = layout;
-      if (result.sourcePaneRemoved) {
-        nextLayout = layoutReducer(nextLayout, {
-          nodeId: dragData.nodeId,
-          type: "REMOVE_PANE",
-        });
-      }
-      if (nextLayout.nodes[target.nodeId]) {
-        nextLayout = layoutReducer(nextLayout, {
-          direction,
-          nodeId: target.nodeId,
-          paneId: result.newPaneId,
-          position,
-          type: "SPLIT",
-        });
-        workbench.setLayout(nextLayout);
-      }
-    }
-    clearTabDndState();
-  }
-
-  return (
-    <DndContext
-      collisionDetection={workbenchTabCollisionDetection}
-      sensors={sensors}
-      onDragStart={handleDragStart}
-      onDragMove={handleDragMove}
-      onDragOver={handleDragOver}
-      onDragCancel={clearTabDndState}
-      onDragEnd={handleDragEnd}
-    >
-      <PaneRoot
-        layout={layout}
-        onLayoutChange={workbench.setLayout}
-        className={paneRootClassName}
-        renderDivider={PaneDivider}
-        emptyContent={<div className={emptyWorkspaceClassName}>No panes</div>}
-      >
-        {panes.map((pane) => (
-          <Pane key={pane.id} id={pane.id} minWidth={320} minHeight={220}>
-            {(nodeId) => (
-              <WorkbenchPaneIdContext value={pane.id}>
-                <WorkbenchPaneView
-                  canSplit
-                  draggingTabId={activeTabDrag?.dragData.tabId}
-                  nodeId={nodeId}
-                  tabDropTarget={tabDropState?.paneId === pane.id
-                    ? tabDropState.target
-                    : undefined}
-                  tabSplitDropSide={tabSplitDropState?.paneId === pane.id
-                    ? tabSplitDropState.side
-                    : undefined}
-                  topRight={nodeId === topRightNodeId}
-                />
-              </WorkbenchPaneIdContext>
-            )}
-          </Pane>
-        ))}
-      </PaneRoot>
-      <DragOverlay>
-        {activeTabDrag
-          ? (
-            <div className={tabDragOverlayClassName}>
-              {activeTabDrag.label}
-            </div>
-          )
-          : null}
-      </DragOverlay>
-    </DndContext>
-  );
-}
-
-const workbenchTabCollisionDetection: CollisionDetection = (args) => {
-  const pointerCollisions = pointerWithin(args);
-  const collisions = args.pointerCoordinates
-    ? pointerCollisions
-    : rectIntersection(args);
-  const tabCollision = collisions.find((collision) => {
-    const container = args.droppableContainers.find((droppable) =>
-      droppable.id === collision.id
-    );
-    const data = readWorkbenchTabDndDropData(container?.data.current);
-    return data?.kind === "tab";
+  const layout = useAtomValue(() => workbench().layoutAtom);
+  const [drag, setDrag] = createSignal<Drag>();
+  const [target, setTarget] = createSignal<Target>();
+  const [point, setPoint] = createSignal({
+    x: 0,
+    y: 0,
   });
-  return tabCollision ? [tabCollision] : collisions;
-};
-
-function tabDndTargetFromEvent(
-  event: DragMoveEvent | DragOverEvent | DragEndEvent,
-): ResolvedTabDndTarget | undefined {
-  const over = event.over;
-  if (!over) return undefined;
-  const dragData = readWorkbenchTabDndData(event.active.data.current);
-  const dropData = readWorkbenchTabDndDropData(over.data.current);
-  if (!dropData) return undefined;
-  if (dropData.kind === "tab") {
-    if (
-      dragData?.paneId === dropData.paneId &&
-      dragData.tabId === dropData.tabId
-    ) {
-      return undefined;
+  let stopPointer: (() => void) | undefined;
+  function clear() {
+    setDrag(undefined);
+    setTarget(undefined);
+    document.body.classList.remove("workbench-tab-dnd-active");
+    document
+      .querySelector(".app-shell")
+      ?.classList.remove("workbench-tab-dnd-active");
+  }
+  onCleanup(() => {
+    stopPointer?.();
+    clear();
+  });
+  function resolve(x: number, y: number, active: Drag): Target | undefined {
+    const hit = document.elementFromPoint(x, y);
+    const pane = hit?.closest<HTMLElement>(
+      "section[data-node-id][data-pane-id]",
+    );
+    if (!pane) return;
+    const nodeId = pane.dataset.nodeId!,
+      paneId = pane.dataset.paneId!;
+    const tab = hit?.closest<HTMLElement>(".workbench-tab[data-tab-id]");
+    if (tab && active.tabId) {
+      const rect = tab.getBoundingClientRect();
+      return {
+        nodeId,
+        paneId,
+        tabId: tab.dataset.tabId,
+        position: x < rect.left + rect.width / 2 ? "before" : "after",
+      };
     }
+    if (hit?.closest("[data-tab-strip]") && active.tabId)
+      return {
+        nodeId,
+        paneId,
+        position: "end",
+      };
+    const rect = pane.getBoundingClientRect();
+    const edges = [
+      {
+        side: "left" as const,
+        d: x - rect.left,
+      },
+      {
+        side: "right" as const,
+        d: rect.right - x,
+      },
+      {
+        side: "top" as const,
+        d: y - rect.top,
+      },
+      {
+        side: "bottom" as const,
+        d: rect.bottom - y,
+      },
+    ];
     return {
-      kind: "tab",
-      paneId: dropData.paneId,
-      position: tabDropPositionFromRect(event, over.rect),
-      tabId: dropData.tabId,
+      nodeId,
+      paneId,
+      side: edges.sort((a, b) => a.d - b.d)[0].side,
     };
   }
-  if (dropData.kind === "tab-strip") {
-    return { kind: "tab-strip", paneId: dropData.paneId };
+  function drop(from: Drag, to: Target | undefined) {
+    if (!from || !to) return;
+    if (!from.tabId) {
+      if (from.nodeId !== to.nodeId)
+        workbench().setLayout(
+          layoutReducer(layout(), {
+            type: "MOVE_PANE",
+            sourceNodeId: from.nodeId,
+            targetNodeId: to.nodeId,
+            position: {
+              side: to.side ?? "right",
+              zone: "split",
+            },
+          }),
+        );
+      return;
+    }
+    if (to.position) {
+      workbench().moveTab(
+        from.paneId,
+        from.tabId,
+        to.paneId,
+        to.tabId,
+        to.position,
+      );
+      return;
+    }
+    const moved = workbench().moveTabToNewPane(
+      from.paneId,
+      from.tabId,
+      to.paneId,
+    );
+    if (!moved) return;
+    let next = layout();
+    if (moved.sourcePaneRemoved && next.nodes[from.nodeId])
+      next = layoutReducer(next, {
+        type: "REMOVE_PANE",
+        nodeId: from.nodeId,
+      });
+    if (next.nodes[to.nodeId])
+      workbench().setLayout(
+        layoutReducer(next, {
+          type: "SPLIT",
+          nodeId: to.nodeId,
+          paneId: moved.newPaneId,
+          direction:
+            to.side === "left" || to.side === "right"
+              ? "horizontal"
+              : "vertical",
+          position:
+            to.side === "left" || to.side === "top" ? "before" : "after",
+        }),
+      );
   }
-  return {
-    kind: "pane-body",
-    nodeId: dropData.nodeId,
-    paneId: dropData.paneId,
-    side: tabSplitSideFromRect(event, over.rect),
-  };
+  function start(event: PointerEvent) {
+    if (event.button !== 0) return;
+    const source = (event.target as HTMLElement).closest<HTMLElement>(
+      "[data-tab-drag], [data-pane-drag]",
+    );
+    if (!source) return;
+    const pane = source.closest<HTMLElement>(
+      "section[data-node-id][data-pane-id]",
+    );
+    if (!pane) return;
+    const tab = source.closest<HTMLElement>("[data-tab-id]");
+    const data: Drag = {
+      nodeId: pane.dataset.nodeId!,
+      paneId: pane.dataset.paneId!,
+      tabId: tab?.dataset.tabId,
+      label: source.getAttribute("title") ?? "Move pane",
+    };
+    const x = event.clientX,
+      y = event.clientY;
+    let started = false,
+      cancelled = false;
+    stopPointer?.();
+    function activate() {
+      if (cancelled) return;
+      started = true;
+      setDrag(data);
+      setPoint({ x, y });
+      document.body.classList.add("workbench-tab-dnd-active");
+      document
+        .querySelector(".app-shell")
+        ?.classList.add("workbench-tab-dnd-active");
+    }
+    const timer =
+      event.pointerType === "touch" ? setTimeout(activate, 250) : undefined;
+    function move(e: PointerEvent) {
+      if (e.pointerId !== event.pointerId) return;
+      const distance = Math.hypot(e.clientX - x, e.clientY - y);
+      if (!started) {
+        if (event.pointerType === "touch") {
+          if (distance > 5) {
+            cancelled = true;
+            clearTimeout(timer);
+          }
+        } else if (distance >= 4) activate();
+      }
+      if (!started) return;
+      e.preventDefault();
+      setPoint({
+        x: e.clientX,
+        y: e.clientY,
+      });
+      setTarget(resolve(e.clientX, e.clientY, data));
+    }
+    function touchMove(e: TouchEvent) {
+      if (started) e.preventDefault();
+    }
+    function finish(e: PointerEvent) {
+      if (e.pointerId !== event.pointerId) return;
+      if (started && e.type === "pointerup") {
+        const finalTarget = resolve(e.clientX, e.clientY, data);
+        drop(data, finalTarget);
+        document.addEventListener("click", suppressClick, {
+          capture: true,
+          once: true,
+        });
+      }
+      stopPointer?.();
+      clear();
+    }
+    function suppressClick(e: MouseEvent) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    function key(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        stopPointer?.();
+        clear();
+      }
+    }
+    stopPointer = () => {
+      clearTimeout(timer);
+      document.removeEventListener("pointermove", move);
+      document.removeEventListener("touchmove", touchMove);
+      document.removeEventListener("pointerup", finish);
+      document.removeEventListener("pointercancel", finish);
+      document.removeEventListener("keydown", key);
+      stopPointer = undefined;
+    };
+    document.addEventListener("pointermove", move, {
+      passive: false,
+    });
+    document.addEventListener("touchmove", touchMove, { passive: false });
+    document.addEventListener("pointerup", finish);
+    document.addEventListener("pointercancel", finish);
+    document.addEventListener("keydown", key);
+  }
+  const topRight = createMemo(() => topRightLeaf(layout()));
+  function Node(props: { id: string }) {
+    const node = createMemo(() => layout().nodes[props.id]);
+    const identity = createMemo(() => {
+      const value = node();
+      return value?.type === "leaf" ? value.paneId : value?.type;
+    });
+    return (
+      <>
+        {(() => {
+          const value = identity();
+          const current =
+            value === "branch"
+              ? undefined
+              : {
+                  type: "leaf" as const,
+                  id: props.id,
+                  paneId: value!,
+                };
+          if (!value) return null;
+          if (current)
+            return (
+              <WorkbenchPaneIdContext value={() => current.paneId}>
+                <WorkbenchPaneView
+                  canSplit
+                  nodeId={current.id}
+                  draggingTabId={drag()?.tabId}
+                  topRight={topRight() === current.id}
+                  tabDropTarget={
+                    target()?.paneId === current.paneId && target()?.position
+                      ? ({
+                          position: target()!.position!,
+                          tabId: target()?.tabId,
+                        } as WorkbenchTabDropTarget)
+                      : undefined
+                  }
+                  tabSplitDropSide={
+                    target()?.paneId === current.paneId
+                      ? target()?.side
+                      : undefined
+                  }
+                />
+              </WorkbenchPaneIdContext>
+            );
+          return <Branch id={props.id} />;
+        })()}
+      </>
+    );
+  }
+  function Branch(props: { id: string }) {
+    const node = createMemo(() => layout().nodes[props.id] as BranchNode);
+    return (
+      <div
+        class="flex h-full w-full min-h-0 min-w-0"
+        style={{
+          "flex-direction":
+            node().direction === "horizontal" ? "row" : "column",
+        }}
+      >
+        <For each={node().children}>
+          {(id, index) => (
+            <>
+              <div
+                class="min-w-0 min-h-0 overflow-visible"
+                style={{
+                  flex: `${node().ratios[index()]} 1 0px`,
+                }}
+              >
+                <Node id={id} />
+              </div>
+              {index() < node().children.length - 1 ? (
+                <PaneDivider
+                  nodeId={props.id}
+                  index={index()}
+                  direction={node().direction}
+                  layout={layout}
+                  onChange={(next) => workbench().setLayout(next)}
+                />
+              ) : null}
+            </>
+          )}
+        </For>
+      </div>
+    );
+  }
+  return (
+    <div
+      class="workbench-pane-root w-full h-full min-w-0 min-h-0 overflow-visible p-[12px] rounded-[15px] max-[680px]:p-0 max-[680px]:rounded-none"
+      onPointerDown={start}
+    >
+      {layout().rootId ? <Node id={layout().rootId!} /> : <div>No panes</div>}
+      {drag() ? (
+        <div
+          class="fixed z-[100] pointer-events-none rounded-full bg-white px-3 py-1 shadow-lg"
+          style={{
+            left: `${point().x + 12}px`,
+            top: `${point().y + 12}px`,
+          }}
+        >
+          {drag()?.label}
+        </div>
+      ) : null}
+    </div>
+  );
 }
-
-function tabDropPositionFromRect(
-  event: DragMoveEvent | DragOverEvent | DragEndEvent,
-  rect: { left: number; width: number },
-): TabDropPosition {
-  return dragCenterX(event) < rect.left + rect.width / 2 ? "before" : "after";
-}
-
-function tabSplitSideFromRect(
-  event: DragMoveEvent | DragOverEvent | DragEndEvent,
-  rect: { bottom: number; left: number; right: number; top: number },
-): TabSplitDropSide {
-  const centerX = dragCenterX(event);
-  const centerY = dragCenterY(event);
-  const left = centerX - rect.left;
-  const right = rect.right - centerX;
-  const top = centerY - rect.top;
-  const bottom = rect.bottom - centerY;
-  const nearest = Math.min(left, right, top, bottom);
-
-  if (nearest === left) return "left";
-  if (nearest === right) return "right";
-  if (nearest === top) return "top";
-  return "bottom";
-}
-
-function dragCenterX(
-  event: DragMoveEvent | DragOverEvent | DragEndEvent,
-): number {
-  const rect = event.active.rect.current.translated ??
-    event.active.rect.current.initial;
-  return rect ? rect.left + rect.width / 2 : 0;
-}
-
-function dragCenterY(
-  event: DragMoveEvent | DragOverEvent | DragEndEvent,
-): number {
-  const rect = event.active.rect.current.translated ??
-    event.active.rect.current.initial;
-  return rect ? rect.top + rect.height / 2 : 0;
-}
-
-function setMobileShellDragLocked(locked: boolean) {
-  const shell = document.querySelector<HTMLElement>(".app-shell");
-  shell?.classList.toggle("workbench-tab-dnd-active", locked);
-  document.body.classList.toggle("workbench-tab-dnd-active", locked);
-}
-
-function topRightLeafNodeId(layout: LayoutState): string | undefined {
-  if (!layout.rootId) return undefined;
-  return topRightLeafNodeIdFromNode(layout.nodes[layout.rootId], layout);
-}
-
-function topRightLeafNodeIdFromNode(
-  node: LayoutNode | undefined,
-  layout: LayoutState,
-): string | undefined {
-  if (!node) return undefined;
-  if (node.type === "leaf") return node.id;
-
-  const childId = node.direction === "horizontal"
-    ? node.children[node.children.length - 1]
-    : node.children[0];
-  return topRightLeafNodeIdFromNode(layout.nodes[childId], layout);
+function topRightLeaf(layout: LayoutState): string | undefined {
+  let id = layout.rootId;
+  while (id) {
+    const node = layout.nodes[id];
+    if (!node) return;
+    if (node.type === "leaf") return id;
+    id =
+      node.direction === "horizontal"
+        ? node.children.at(-1)!
+        : node.children[0];
+  }
 }
