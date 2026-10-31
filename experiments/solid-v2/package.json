@@ -1,0 +1,33 @@
+{
+  "name": "@rieul/solid-v2-compat",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.28.0",
+  "scripts": {
+    "check": "tsc --noEmit",
+    "build": "vite build",
+    "test": "playwright test",
+    "test:gpuix": "node --import ./gpuix/browser-runtime.mjs ./gpuix/compiler-test.mjs"
+  },
+  "dependencies": {
+    "@solidjs/universal": "2.0.0-rc.20",
+    "@solidjs/web": "2.0.0-rc.20",
+    "bunja": "4.0.0-alpha.1",
+    "jotai": "3.0.1",
+    "solid-js": "2.0.0-rc.20"
+  },
+  "devDependencies": {
+    "@babel/core": "7.28.0",
+    "@babel/preset-typescript": "7.27.1",
+    "@gpuix/solid": "0.11.0",
+    "@playwright/test": "1.56.1",
+    "@solidjs/babel-plugin": "2.0.0-rc.20",
+    "@solidjs/vite-plugin": "3.0.0-next.54",
+    "@types/node": "24.10.0",
+    "@types/react": "19.2.14",
+    "react": "19.2.6",
+    "typescript": "5.9.3",
+    "unsaturated": "0.0.3",
+    "vite": "8.3.5"
+  }
+}
