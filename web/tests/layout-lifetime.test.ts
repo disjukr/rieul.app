@@ -1,6 +1,5 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import type { PointerEvent } from "react";
 import { createBunjaStore, createReadScopeFn } from "bunja";
 import { createStore } from "jotai/vanilla";
 import { JotaiStoreScope } from "../src/state/jotai-store.ts";
@@ -44,7 +43,7 @@ test("layout shares drag ownership and releases listeners and transition timer o
   const event = {
     preventDefault() {},
     clientX: 10,
-  } as PointerEvent<HTMLDivElement>;
+  } as PointerEvent;
   a.value.startMachinePanelResize(event);
   a.value.startMachinePanelResize(event);
   assert.equal(

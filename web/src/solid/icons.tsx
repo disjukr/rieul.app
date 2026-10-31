@@ -3,6 +3,7 @@ import type { JSX } from "@solidjs/web";
 export type LucideProps = JSX.SvgSVGAttributes<SVGSVGElement> & {
   size?: number | string;
   className?: string;
+  strokeWidth?: number | string;
 };
 export type LucideIcon = (props: LucideProps) => JSX.Element;
 
@@ -15,7 +16,7 @@ export function Activity(props: LucideProps) {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      stroke-width="2"
+      stroke-width={props.strokeWidth ?? props["stroke-width"] ?? 2}
       stroke-linecap="round"
       stroke-linejoin="round"
       aria-hidden="true"
@@ -36,7 +37,7 @@ export function AlertCircle(props: LucideProps) {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      stroke-width="2"
+      stroke-width={props.strokeWidth ?? props["stroke-width"] ?? 2}
       stroke-linecap="round"
       stroke-linejoin="round"
       aria-hidden="true"
@@ -59,7 +60,7 @@ export function AlertTriangle(props: LucideProps) {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      stroke-width="2"
+      stroke-width={props.strokeWidth ?? props["stroke-width"] ?? 2}
       stroke-linecap="round"
       stroke-linejoin="round"
       aria-hidden="true"
@@ -82,7 +83,7 @@ export function AppWindow(props: LucideProps) {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      stroke-width="2"
+      stroke-width={props.strokeWidth ?? props["stroke-width"] ?? 2}
       stroke-linecap="round"
       stroke-linejoin="round"
       aria-hidden="true"
@@ -106,7 +107,7 @@ export function Archive(props: LucideProps) {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      stroke-width="2"
+      stroke-width={props.strokeWidth ?? props["stroke-width"] ?? 2}
       stroke-linecap="round"
       stroke-linejoin="round"
       aria-hidden="true"
@@ -129,7 +130,7 @@ export function ArrowLeft(props: LucideProps) {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      stroke-width="2"
+      stroke-width={props.strokeWidth ?? props["stroke-width"] ?? 2}
       stroke-linecap="round"
       stroke-linejoin="round"
       aria-hidden="true"
@@ -151,7 +152,7 @@ export function ArrowUp(props: LucideProps) {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      stroke-width="2"
+      stroke-width={props.strokeWidth ?? props["stroke-width"] ?? 2}
       stroke-linecap="round"
       stroke-linejoin="round"
       aria-hidden="true"
@@ -173,7 +174,7 @@ export function ArrowUpRight(props: LucideProps) {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      stroke-width="2"
+      stroke-width={props.strokeWidth ?? props["stroke-width"] ?? 2}
       stroke-linecap="round"
       stroke-linejoin="round"
       aria-hidden="true"
@@ -195,7 +196,7 @@ export function Bot(props: LucideProps) {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      stroke-width="2"
+      stroke-width={props.strokeWidth ?? props["stroke-width"] ?? 2}
       stroke-linecap="round"
       stroke-linejoin="round"
       aria-hidden="true"
@@ -221,7 +222,7 @@ export function Check(props: LucideProps) {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      stroke-width="2"
+      stroke-width={props.strokeWidth ?? props["stroke-width"] ?? 2}
       stroke-linecap="round"
       stroke-linejoin="round"
       aria-hidden="true"
@@ -242,7 +243,7 @@ export function CheckCircle2(props: LucideProps) {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      stroke-width="2"
+      stroke-width={props.strokeWidth ?? props["stroke-width"] ?? 2}
       stroke-linecap="round"
       stroke-linejoin="round"
       aria-hidden="true"
@@ -264,7 +265,7 @@ export function ChevronDown(props: LucideProps) {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      stroke-width="2"
+      stroke-width={props.strokeWidth ?? props["stroke-width"] ?? 2}
       stroke-linecap="round"
       stroke-linejoin="round"
       aria-hidden="true"
@@ -285,7 +286,7 @@ export function ChevronLeft(props: LucideProps) {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      stroke-width="2"
+      stroke-width={props.strokeWidth ?? props["stroke-width"] ?? 2}
       stroke-linecap="round"
       stroke-linejoin="round"
       aria-hidden="true"
@@ -306,7 +307,7 @@ export function ChevronRight(props: LucideProps) {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      stroke-width="2"
+      stroke-width={props.strokeWidth ?? props["stroke-width"] ?? 2}
       stroke-linecap="round"
       stroke-linejoin="round"
       aria-hidden="true"
@@ -327,7 +328,7 @@ export function CircleStop(props: LucideProps) {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      stroke-width="2"
+      stroke-width={props.strokeWidth ?? props["stroke-width"] ?? 2}
       stroke-linecap="round"
       stroke-linejoin="round"
       aria-hidden="true"
@@ -349,7 +350,7 @@ export function CircuitBoard(props: LucideProps) {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      stroke-width="2"
+      stroke-width={props.strokeWidth ?? props["stroke-width"] ?? 2}
       stroke-linecap="round"
       stroke-linejoin="round"
       aria-hidden="true"
@@ -374,7 +375,7 @@ export function Columns2(props: LucideProps) {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      stroke-width="2"
+      stroke-width={props.strokeWidth ?? props["stroke-width"] ?? 2}
       stroke-linecap="round"
       stroke-linejoin="round"
       aria-hidden="true"
@@ -396,7 +397,7 @@ export function Copy(props: LucideProps) {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      stroke-width="2"
+      stroke-width={props.strokeWidth ?? props["stroke-width"] ?? 2}
       stroke-linecap="round"
       stroke-linejoin="round"
       aria-hidden="true"
@@ -418,7 +419,7 @@ export function Cpu(props: LucideProps) {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      stroke-width="2"
+      stroke-width={props.strokeWidth ?? props["stroke-width"] ?? 2}
       stroke-linecap="round"
       stroke-linejoin="round"
       aria-hidden="true"
@@ -448,7 +449,7 @@ export function ExternalLink(props: LucideProps) {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      stroke-width="2"
+      stroke-width={props.strokeWidth ?? props["stroke-width"] ?? 2}
       stroke-linecap="round"
       stroke-linejoin="round"
       aria-hidden="true"
@@ -471,7 +472,7 @@ export function FilePlus2(props: LucideProps) {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      stroke-width="2"
+      stroke-width={props.strokeWidth ?? props["stroke-width"] ?? 2}
       stroke-linecap="round"
       stroke-linejoin="round"
       aria-hidden="true"
@@ -495,7 +496,7 @@ export function FileQuestion(props: LucideProps) {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      stroke-width="2"
+      stroke-width={props.strokeWidth ?? props["stroke-width"] ?? 2}
       stroke-linecap="round"
       stroke-linejoin="round"
       aria-hidden="true"
@@ -518,7 +519,7 @@ export function FileText(props: LucideProps) {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      stroke-width="2"
+      stroke-width={props.strokeWidth ?? props["stroke-width"] ?? 2}
       stroke-linecap="round"
       stroke-linejoin="round"
       aria-hidden="true"
@@ -543,7 +544,7 @@ export function Folder(props: LucideProps) {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      stroke-width="2"
+      stroke-width={props.strokeWidth ?? props["stroke-width"] ?? 2}
       stroke-linecap="round"
       stroke-linejoin="round"
       aria-hidden="true"
@@ -564,7 +565,7 @@ export function FolderKanban(props: LucideProps) {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      stroke-width="2"
+      stroke-width={props.strokeWidth ?? props["stroke-width"] ?? 2}
       stroke-linecap="round"
       stroke-linejoin="round"
       aria-hidden="true"
@@ -588,7 +589,7 @@ export function GripVertical(props: LucideProps) {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      stroke-width="2"
+      stroke-width={props.strokeWidth ?? props["stroke-width"] ?? 2}
       stroke-linecap="round"
       stroke-linejoin="round"
       aria-hidden="true"
@@ -614,7 +615,7 @@ export function HardDrive(props: LucideProps) {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      stroke-width="2"
+      stroke-width={props.strokeWidth ?? props["stroke-width"] ?? 2}
       stroke-linecap="round"
       stroke-linejoin="round"
       aria-hidden="true"
@@ -638,7 +639,7 @@ export function Home(props: LucideProps) {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      stroke-width="2"
+      stroke-width={props.strokeWidth ?? props["stroke-width"] ?? 2}
       stroke-linecap="round"
       stroke-linejoin="round"
       aria-hidden="true"
@@ -660,7 +661,7 @@ export function ImageOff(props: LucideProps) {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      stroke-width="2"
+      stroke-width={props.strokeWidth ?? props["stroke-width"] ?? 2}
       stroke-linecap="round"
       stroke-linejoin="round"
       aria-hidden="true"
@@ -686,7 +687,7 @@ export function Info(props: LucideProps) {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      stroke-width="2"
+      stroke-width={props.strokeWidth ?? props["stroke-width"] ?? 2}
       stroke-linecap="round"
       stroke-linejoin="round"
       aria-hidden="true"
@@ -709,7 +710,7 @@ export function KeyRound(props: LucideProps) {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      stroke-width="2"
+      stroke-width={props.strokeWidth ?? props["stroke-width"] ?? 2}
       stroke-linecap="round"
       stroke-linejoin="round"
       aria-hidden="true"
@@ -731,7 +732,7 @@ export function Laptop(props: LucideProps) {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      stroke-width="2"
+      stroke-width={props.strokeWidth ?? props["stroke-width"] ?? 2}
       stroke-linecap="round"
       stroke-linejoin="round"
       aria-hidden="true"
@@ -752,7 +753,7 @@ export function Link2(props: LucideProps) {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      stroke-width="2"
+      stroke-width={props.strokeWidth ?? props["stroke-width"] ?? 2}
       stroke-linecap="round"
       stroke-linejoin="round"
       aria-hidden="true"
@@ -775,7 +776,7 @@ export function Loader2(props: LucideProps) {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      stroke-width="2"
+      stroke-width={props.strokeWidth ?? props["stroke-width"] ?? 2}
       stroke-linecap="round"
       stroke-linejoin="round"
       aria-hidden="true"
@@ -796,7 +797,7 @@ export function LoaderCircle(props: LucideProps) {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      stroke-width="2"
+      stroke-width={props.strokeWidth ?? props["stroke-width"] ?? 2}
       stroke-linecap="round"
       stroke-linejoin="round"
       aria-hidden="true"
@@ -817,7 +818,7 @@ export function Maximize2(props: LucideProps) {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      stroke-width="2"
+      stroke-width={props.strokeWidth ?? props["stroke-width"] ?? 2}
       stroke-linecap="round"
       stroke-linejoin="round"
       aria-hidden="true"
@@ -841,7 +842,7 @@ export function Minus(props: LucideProps) {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      stroke-width="2"
+      stroke-width={props.strokeWidth ?? props["stroke-width"] ?? 2}
       stroke-linecap="round"
       stroke-linejoin="round"
       aria-hidden="true"
@@ -862,7 +863,7 @@ export function Monitor(props: LucideProps) {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      stroke-width="2"
+      stroke-width={props.strokeWidth ?? props["stroke-width"] ?? 2}
       stroke-linecap="round"
       stroke-linejoin="round"
       aria-hidden="true"
@@ -885,7 +886,7 @@ export function MoreHorizontal(props: LucideProps) {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      stroke-width="2"
+      stroke-width={props.strokeWidth ?? props["stroke-width"] ?? 2}
       stroke-linecap="round"
       stroke-linejoin="round"
       aria-hidden="true"
@@ -908,7 +909,7 @@ export function PanelLeftClose(props: LucideProps) {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      stroke-width="2"
+      stroke-width={props.strokeWidth ?? props["stroke-width"] ?? 2}
       stroke-linecap="round"
       stroke-linejoin="round"
       aria-hidden="true"
@@ -931,7 +932,7 @@ export function PanelLeftOpen(props: LucideProps) {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      stroke-width="2"
+      stroke-width={props.strokeWidth ?? props["stroke-width"] ?? 2}
       stroke-linecap="round"
       stroke-linejoin="round"
       aria-hidden="true"
@@ -954,7 +955,7 @@ export function PcCase(props: LucideProps) {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      stroke-width="2"
+      stroke-width={props.strokeWidth ?? props["stroke-width"] ?? 2}
       stroke-linecap="round"
       stroke-linejoin="round"
       aria-hidden="true"
@@ -978,7 +979,7 @@ export function Pencil(props: LucideProps) {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      stroke-width="2"
+      stroke-width={props.strokeWidth ?? props["stroke-width"] ?? 2}
       stroke-linecap="round"
       stroke-linejoin="round"
       aria-hidden="true"
@@ -1000,7 +1001,7 @@ export function Plus(props: LucideProps) {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      stroke-width="2"
+      stroke-width={props.strokeWidth ?? props["stroke-width"] ?? 2}
       stroke-linecap="round"
       stroke-linejoin="round"
       aria-hidden="true"
@@ -1022,7 +1023,7 @@ export function Radio(props: LucideProps) {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      stroke-width="2"
+      stroke-width={props.strokeWidth ?? props["stroke-width"] ?? 2}
       stroke-linecap="round"
       stroke-linejoin="round"
       aria-hidden="true"
@@ -1047,7 +1048,7 @@ export function RefreshCw(props: LucideProps) {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      stroke-width="2"
+      stroke-width={props.strokeWidth ?? props["stroke-width"] ?? 2}
       stroke-linecap="round"
       stroke-linejoin="round"
       aria-hidden="true"
@@ -1071,7 +1072,7 @@ export function RotateCcw(props: LucideProps) {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      stroke-width="2"
+      stroke-width={props.strokeWidth ?? props["stroke-width"] ?? 2}
       stroke-linecap="round"
       stroke-linejoin="round"
       aria-hidden="true"
@@ -1093,7 +1094,7 @@ export function Router(props: LucideProps) {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      stroke-width="2"
+      stroke-width={props.strokeWidth ?? props["stroke-width"] ?? 2}
       stroke-linecap="round"
       stroke-linejoin="round"
       aria-hidden="true"
@@ -1119,7 +1120,7 @@ export function Rows2(props: LucideProps) {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      stroke-width="2"
+      stroke-width={props.strokeWidth ?? props["stroke-width"] ?? 2}
       stroke-linecap="round"
       stroke-linejoin="round"
       aria-hidden="true"
@@ -1141,7 +1142,7 @@ export function Server(props: LucideProps) {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      stroke-width="2"
+      stroke-width={props.strokeWidth ?? props["stroke-width"] ?? 2}
       stroke-linecap="round"
       stroke-linejoin="round"
       aria-hidden="true"
@@ -1165,7 +1166,7 @@ export function Settings(props: LucideProps) {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      stroke-width="2"
+      stroke-width={props.strokeWidth ?? props["stroke-width"] ?? 2}
       stroke-linecap="round"
       stroke-linejoin="round"
       aria-hidden="true"
@@ -1187,7 +1188,7 @@ export function SlidersHorizontal(props: LucideProps) {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      stroke-width="2"
+      stroke-width={props.strokeWidth ?? props["stroke-width"] ?? 2}
       stroke-linecap="round"
       stroke-linejoin="round"
       aria-hidden="true"
@@ -1216,7 +1217,7 @@ export function Sparkles(props: LucideProps) {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      stroke-width="2"
+      stroke-width={props.strokeWidth ?? props["stroke-width"] ?? 2}
       stroke-linecap="round"
       stroke-linejoin="round"
       aria-hidden="true"
@@ -1241,7 +1242,7 @@ export function SquareTerminal(props: LucideProps) {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      stroke-width="2"
+      stroke-width={props.strokeWidth ?? props["stroke-width"] ?? 2}
       stroke-linecap="round"
       stroke-linejoin="round"
       aria-hidden="true"
@@ -1264,7 +1265,7 @@ export function Terminal(props: LucideProps) {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      stroke-width="2"
+      stroke-width={props.strokeWidth ?? props["stroke-width"] ?? 2}
       stroke-linecap="round"
       stroke-linejoin="round"
       aria-hidden="true"
@@ -1286,7 +1287,7 @@ export function Trash2(props: LucideProps) {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      stroke-width="2"
+      stroke-width={props.strokeWidth ?? props["stroke-width"] ?? 2}
       stroke-linecap="round"
       stroke-linejoin="round"
       aria-hidden="true"
@@ -1311,7 +1312,7 @@ export function Unlink(props: LucideProps) {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      stroke-width="2"
+      stroke-width={props.strokeWidth ?? props["stroke-width"] ?? 2}
       stroke-linecap="round"
       stroke-linejoin="round"
       aria-hidden="true"
@@ -1337,7 +1338,7 @@ export function Wifi(props: LucideProps) {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      stroke-width="2"
+      stroke-width={props.strokeWidth ?? props["stroke-width"] ?? 2}
       stroke-linecap="round"
       stroke-linejoin="round"
       aria-hidden="true"
@@ -1361,7 +1362,7 @@ export function WifiOff(props: LucideProps) {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      stroke-width="2"
+      stroke-width={props.strokeWidth ?? props["stroke-width"] ?? 2}
       stroke-linecap="round"
       stroke-linejoin="round"
       aria-hidden="true"
@@ -1388,7 +1389,7 @@ export function Wrench(props: LucideProps) {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      stroke-width="2"
+      stroke-width={props.strokeWidth ?? props["stroke-width"] ?? 2}
       stroke-linecap="round"
       stroke-linejoin="round"
       aria-hidden="true"
@@ -1409,7 +1410,7 @@ export function X(props: LucideProps) {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      stroke-width="2"
+      stroke-width={props.strokeWidth ?? props["stroke-width"] ?? 2}
       stroke-linecap="round"
       stroke-linejoin="round"
       aria-hidden="true"

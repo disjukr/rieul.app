@@ -4,6 +4,7 @@ import {
   createMemo,
   Show,
   onCleanup,
+  untrack,
 } from "solid-js";
 import { useAtomValue } from "../../../../solid/jotai.tsx";
 import { useBunja } from "../../../../solid/bunja.tsx";
@@ -185,42 +186,33 @@ export function TerminalTool() {
     rows: 24,
   });
   const [sessionInfo, setSessionInfo] = createSignal<TerminalSessionInfo>();
+  createEffect(machine, (value) => {
+    machineRef.current = value;
+  });
+  createEffect(focused, (value) => {
+    activeRef.current = value;
+  });
+  createEffect(focused, (value) => {
+    if (!value) return;
+    fitTerminal();
+    void takeCurrentControl();
+  });
   createEffect(
-    () => [machine()],
-    () => {
-      machineRef.current = machine();
-    },
-  );
-  createEffect(
-    () => [focused()],
-    () => {
-      activeRef.current = focused();
-    },
-  );
-  createEffect(
-    () => [focused()],
-    () => {
-      if (!focused()) return;
-      fitTerminal();
-      void takeCurrentControl();
-    },
-  );
-  createEffect(
-    () => [sessionInfo(), tabState()],
-    () => {
-      if (!sessionInfo()) {
+    () => ({ info: sessionInfo(), state: tabState() }),
+    ({ info, state }) => {
+      if (!info) {
         persistedSessionSnapshotKeyRef.current = undefined;
         return;
       }
       const snapshot: WorkbenchTerminalSessionSnapshot = {
-        lastKnownCwd: sessionInfo()!.lastKnownCwd,
-        lastKnownTitle: sessionInfo()!.lastKnownTitle,
-        launch: sessionInfo()!.launch,
+        lastKnownCwd: info.lastKnownCwd,
+        lastKnownTitle: info.lastKnownTitle,
+        launch: info.launch,
       };
       const snapshotKey = terminalSessionSnapshotKey(snapshot);
       if (persistedSessionSnapshotKeyRef.current === snapshotKey) return;
       persistedSessionSnapshotKeyRef.current = snapshotKey;
-      tabState().setTerminalSessionSnapshot(snapshot);
+      state.setTerminalSessionSnapshot(snapshot);
     },
   );
   createEffect(hostElement, (host) => {
@@ -298,7 +290,7 @@ export function TerminalTool() {
     runtime?.resizeObserver.disconnect();
     runtime?.terminal.dispose();
   }
-  createEffect(
+  const attachmentKey = createMemo(
     () => [
       machine()?.id,
       machine()?.baseUrl,
@@ -308,45 +300,53 @@ export function TerminalTool() {
       daemonInstanceId(),
       tab()?.id,
     ],
-    () => {
-      if (!machine() || !isPaired()) {
-        stopCurrentAttach();
-        terminalSessionIdRef.current = undefined;
-        attachIdRef.current = undefined;
-        primaryAttachIdRef.current = undefined;
-        takeControlPromiseRef.current = undefined;
-        replayOutputUntilSeqRef.current = undefined;
-        suppressReplayGeneratedInputRef.current = false;
-        replayWriteDepthRef.current = 0;
-        latestSeqRef.current = undefined;
-        setSessionInfo(undefined);
-        setStatus({ phase: "idle", message: "Terminal idle" });
-        return;
-      }
-      if (!daemonInstanceId()) {
-        stopCurrentAttach();
-        terminalSessionIdRef.current = undefined;
-        attachIdRef.current = undefined;
-        primaryAttachIdRef.current = undefined;
-        takeControlPromiseRef.current = undefined;
-        replayOutputUntilSeqRef.current = undefined;
-        suppressReplayGeneratedInputRef.current = false;
-        replayWriteDepthRef.current = 0;
-        latestSeqRef.current = undefined;
-        setSessionInfo(undefined);
-        setStatus({ phase: "waiting", message: "Waiting for terminal" });
-        return;
-      }
-      void openTerminal({
-        cwd: tab()?.terminalLastKnownCwd,
-        existingSessionId: tab()?.terminalSessionId,
-        launch: tab()?.terminalLaunch,
-        title: tab()?.terminalLastKnownTitle ?? tab()?.title,
-      });
-      return () => stopCurrentAttach();
+    {
+      equals: (previous, next) =>
+        previous.length === next.length &&
+        previous.every((value, i) => Object.is(value, next[i])),
     },
   );
+  createEffect(attachmentKey, (key) => {
+    if (!key[0] || !key[4]) {
+      stopCurrentAttach();
+      terminalSessionIdRef.current = undefined;
+      attachIdRef.current = undefined;
+      primaryAttachIdRef.current = undefined;
+      takeControlPromiseRef.current = undefined;
+      replayOutputUntilSeqRef.current = undefined;
+      suppressReplayGeneratedInputRef.current = false;
+      replayWriteDepthRef.current = 0;
+      latestSeqRef.current = undefined;
+      setSessionInfo(undefined);
+      setStatus({ phase: "idle", message: "Terminal idle" });
+      return;
+    }
+    if (!key[5]) {
+      stopCurrentAttach();
+      terminalSessionIdRef.current = undefined;
+      attachIdRef.current = undefined;
+      primaryAttachIdRef.current = undefined;
+      takeControlPromiseRef.current = undefined;
+      replayOutputUntilSeqRef.current = undefined;
+      suppressReplayGeneratedInputRef.current = false;
+      replayWriteDepthRef.current = 0;
+      latestSeqRef.current = undefined;
+      setSessionInfo(undefined);
+      setStatus({ phase: "waiting", message: "Waiting for terminal" });
+      return;
+    }
+    const currentTab = untrack(tab);
+    void openTerminal({
+      cwd: currentTab?.terminalLastKnownCwd,
+      existingSessionId: currentTab?.terminalSessionId,
+      launch: currentTab?.terminalLaunch,
+      title: currentTab?.terminalLastKnownTitle ?? currentTab?.title,
+    });
+    return () => stopCurrentAttach();
+  });
   async function openTerminal(options: OpenTerminalOptions) {
+    const rpc = untrack(rpcSession);
+    const currentTabState = untrack(tabState);
     const currentMachine = machineRef.current;
     if (!currentMachine) return;
     stopCurrentAttach();
@@ -383,7 +383,7 @@ export function TerminalTool() {
         return;
       }
       const size = terminalStartupSize();
-      const transportPromise = rpcSession().webTransport();
+      const transportPromise = rpc.webTransport();
       const runtimePromise = terminalRuntime();
       const transport = await transportPromise;
       const session = await createTerminalSession(transport, {
@@ -400,7 +400,7 @@ export function TerminalTool() {
         return;
       }
       terminalSessionIdRef.current = session.terminalSessionId;
-      tabState().setTerminalSessionId(session.terminalSessionId);
+      currentTabState.setTerminalSessionId(session.terminalSessionId);
       setSessionInfo(session);
       await runtimePromise;
       await attachTerminal(session.terminalSessionId, generation);
@@ -465,7 +465,7 @@ export function TerminalTool() {
   }
   function terminalStartupSize() {
     const runtime = runtimeRef.current;
-    if (!runtime) return lastSizeRef.current ?? terminalDimensions();
+    if (!runtime) return lastSizeRef.current ?? untrack(terminalDimensions);
     fitTerminal();
     return terminalSize(runtime.terminal);
   }
@@ -750,6 +750,10 @@ export function TerminalTool() {
       title,
     });
   }
+  function TerminalHost() {
+    onCleanup(() => setHostElement(undefined));
+    return <div ref={setHostElement} class={terminalHostClassName} />;
+  }
   const terminalNotice = createMemo(() =>
     terminalNoticeFromState(status(), sessionInfo()),
   );
@@ -783,13 +787,7 @@ export function TerminalTool() {
       >
         <section class={terminalToolClassName}>
           <div class={terminalSurfaceClassName}>
-            <div
-              ref={(element) => {
-                setHostElement(element);
-                onCleanup(() => setHostElement(undefined));
-              }}
-              class={terminalHostClassName}
-            />
+            <TerminalHost />
             {status().phase === "waiting" ? (
               <div class={terminalWaitingNoticeClassName}>
                 <div>
