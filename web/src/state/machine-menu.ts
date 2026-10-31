@@ -10,9 +10,9 @@ export const machineMenuBunja = bunja(() => {
 
   const machineMenuAtom = atom<MachineMenuState | undefined>(undefined);
   const menuMachineAtom = atom((get) =>
-    get(machines.machinesAtom).find((machine) =>
-      machine.id === get(machineMenuAtom)?.machineId
-    )
+    get(machines.machinesAtom).find(
+      (machine) => machine.id === get(machineMenuAtom)?.machineId,
+    ),
   );
 
   function openMachineMenu(machineId: string, x: number, y: number) {

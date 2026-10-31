@@ -12,10 +12,7 @@ import {
   WorkbenchTabIdScope,
 } from "./workbench-scopes.ts";
 
-export {
-  WorkbenchPaneIdScope,
-  WorkbenchTabIdScope,
-};
+export { WorkbenchPaneIdScope, WorkbenchTabIdScope };
 
 export type WorkbenchTool =
   | "agent"
@@ -158,26 +155,23 @@ export const workbenchBunja = bunja(() => {
   }
 
   function focusPane(paneId: string) {
-    store.set(
-      stateAtom,
-      (current) => {
-        if (current.activePaneId === paneId) return current;
-        if (!current.panes.some((pane) => pane.id === paneId)) return current;
-        return { ...current, activePaneId: paneId };
-      },
-    );
+    store.set(stateAtom, (current) => {
+      if (current.activePaneId === paneId) return current;
+      if (!current.panes.some((pane) => pane.id === paneId)) return current;
+      return { ...current, activePaneId: paneId };
+    });
   }
 
   function addPane(sourcePaneId?: string): string {
-    const sourcePane = sourcePaneId === undefined
-      ? undefined
-      : store.get(stateAtom).panes.find((pane) => pane.id === sourcePaneId);
-    const sourceTab = sourcePane?.tabs.find((tab) =>
-      tab.id === sourcePane.activeTabId
-    ) ?? sourcePane?.tabs[0];
-    const tab = sourceTab === undefined
-      ? createFilesTab()
-      : cloneWorkbenchTab(sourceTab);
+    const sourcePane =
+      sourcePaneId === undefined
+        ? undefined
+        : store.get(stateAtom).panes.find((pane) => pane.id === sourcePaneId);
+    const sourceTab =
+      sourcePane?.tabs.find((tab) => tab.id === sourcePane.activeTabId) ??
+      sourcePane?.tabs[0];
+    const tab =
+      sourceTab === undefined ? createFilesTab() : cloneWorkbenchTab(sourceTab);
     const pane: WorkbenchPane = {
       id: `pane-${crypto.randomUUID()}`,
       tabs: [tab],
@@ -193,35 +187,28 @@ export const workbenchBunja = bunja(() => {
   }
 
   function removePane(paneId: string) {
-    store.set(
-      stateAtom,
-      (current) => {
-        if (current.panes.length <= 1) return current;
-        const panes = current.panes.filter((pane) => pane.id !== paneId);
-        return {
-          ...current,
-          layout: pruneStaleLayoutLeaves(current.layout, panes),
-          panes,
-          activePaneId: current.activePaneId === paneId
-            ? panes[0]?.id
-            : current.activePaneId,
-        };
-      },
-    );
+    store.set(stateAtom, (current) => {
+      if (current.panes.length <= 1) return current;
+      const panes = current.panes.filter((pane) => pane.id !== paneId);
+      return {
+        ...current,
+        layout: pruneStaleLayoutLeaves(current.layout, panes),
+        panes,
+        activePaneId:
+          current.activePaneId === paneId ? panes[0]?.id : current.activePaneId,
+      };
+    });
   }
 
   function updatePanes(update: (panes: WorkbenchPane[]) => WorkbenchPane[]) {
-    store.set(
-      stateAtom,
-      (current) => {
-        const panes = update(current.panes);
-        return {
-          ...current,
-          layout: pruneStaleLayoutLeaves(current.layout, panes),
-          panes,
-        };
-      },
-    );
+    store.set(stateAtom, (current) => {
+      const panes = update(current.panes);
+      return {
+        ...current,
+        layout: pruneStaleLayoutLeaves(current.layout, panes),
+        panes,
+      };
+    });
   }
 
   function addFilesTab(
@@ -284,19 +271,17 @@ export const workbenchBunja = bunja(() => {
 
   function openDaemonTab() {
     store.set(stateAtom, (current) =>
-      openToolTabInActivePane(
-        current,
-        "daemon",
-      ));
+      openToolTabInActivePane(current, "daemon"),
+    );
   }
 
   function openAgentTab(config: WorkbenchAgentTabConfig = {}) {
     store.set(stateAtom, (current) => {
       const activePane = activePaneFromState(current);
       if (!activePane) return current;
-      const existing = activePane.tabs.find((tab) =>
-        tab.tool === "agent" &&
-        tab.agentSessionId === config.sessionId
+      const existing = activePane.tabs.find(
+        (tab) =>
+          tab.tool === "agent" && tab.agentSessionId === config.sessionId,
       );
       if (existing) {
         return {
@@ -305,7 +290,7 @@ export const workbenchBunja = bunja(() => {
           panes: current.panes.map((pane) =>
             pane.id === activePane.id
               ? activatePaneTab(pane, existing.id)
-              : pane
+              : pane,
           ),
         };
       }
@@ -328,24 +313,21 @@ export const workbenchBunja = bunja(() => {
     tabId: string,
     terminalSessionId: string | undefined,
   ) {
-    store.set(
-      stateAtom,
-      (current) => ({
-        ...current,
-        panes: current.panes.map((pane) =>
-          pane.id === paneId
-            ? {
+    store.set(stateAtom, (current) => ({
+      ...current,
+      panes: current.panes.map((pane) =>
+        pane.id === paneId
+          ? {
               ...pane,
               tabs: pane.tabs.map((tab) =>
                 tab.id === tabId && tab.tool === "terminal"
                   ? { ...tab, terminalSessionId }
-                  : tab
+                  : tab,
               ),
             }
-            : pane
-        ),
-      }),
-    );
+          : pane,
+      ),
+    }));
   }
 
   function setAgentSession(
@@ -354,28 +336,25 @@ export const workbenchBunja = bunja(() => {
     sessionId: string,
     title?: string,
   ) {
-    store.set(
-      stateAtom,
-      (current) => ({
-        ...current,
-        panes: current.panes.map((pane) =>
-          pane.id === paneId
-            ? {
+    store.set(stateAtom, (current) => ({
+      ...current,
+      panes: current.panes.map((pane) =>
+        pane.id === paneId
+          ? {
               ...pane,
               tabs: pane.tabs.map((tab) =>
                 tab.id === tabId && tab.tool === "agent"
                   ? {
-                    ...tab,
-                    agentSessionId: sessionId,
-                    title: title ?? tab.title,
-                  }
-                  : tab
+                      ...tab,
+                      agentSessionId: sessionId,
+                      title: title ?? tab.title,
+                    }
+                  : tab,
               ),
             }
-            : pane
-        ),
-      }),
-    );
+          : pane,
+      ),
+    }));
   }
 
   function setTerminalSessionSnapshot(
@@ -383,58 +362,52 @@ export const workbenchBunja = bunja(() => {
     tabId: string,
     snapshot: WorkbenchTerminalSessionSnapshot,
   ) {
-    store.set(
-      stateAtom,
-      (current) => {
-        let changed = false;
-        const panes = current.panes.map((pane) => {
-          if (pane.id !== paneId) return pane;
-          let paneChanged = false;
-          const tabs = pane.tabs.map((tab) => {
-            if (tab.id !== tabId || tab.tool !== "terminal") return tab;
-            if (
-              terminalLaunchEquals(tab.terminalLaunch, snapshot.launch) &&
-              tab.terminalLastKnownCwd === snapshot.lastKnownCwd &&
-              tab.terminalLastKnownTitle === snapshot.lastKnownTitle
-            ) {
-              return tab;
-            }
-            changed = true;
-            paneChanged = true;
-            return {
-              ...tab,
-              terminalLastKnownCwd: snapshot.lastKnownCwd,
-              terminalLastKnownTitle: snapshot.lastKnownTitle,
-              terminalLaunch: snapshot.launch,
-            };
-          });
-          return paneChanged ? { ...pane, tabs } : pane;
+    store.set(stateAtom, (current) => {
+      let changed = false;
+      const panes = current.panes.map((pane) => {
+        if (pane.id !== paneId) return pane;
+        let paneChanged = false;
+        const tabs = pane.tabs.map((tab) => {
+          if (tab.id !== tabId || tab.tool !== "terminal") return tab;
+          if (
+            terminalLaunchEquals(tab.terminalLaunch, snapshot.launch) &&
+            tab.terminalLastKnownCwd === snapshot.lastKnownCwd &&
+            tab.terminalLastKnownTitle === snapshot.lastKnownTitle
+          ) {
+            return tab;
+          }
+          changed = true;
+          paneChanged = true;
+          return {
+            ...tab,
+            terminalLastKnownCwd: snapshot.lastKnownCwd,
+            terminalLastKnownTitle: snapshot.lastKnownTitle,
+            terminalLaunch: snapshot.launch,
+          };
         });
-        return changed ? { ...current, panes } : current;
-      },
-    );
+        return paneChanged ? { ...pane, tabs } : pane;
+      });
+      return changed ? { ...current, panes } : current;
+    });
   }
 
   function setTabDirty(paneId: string, tabId: string, dirty: boolean) {
-    store.set(
-      stateAtom,
-      (current) => {
-        let changed = false;
-        const panes = current.panes.map((pane) => {
-          if (pane.id !== paneId) return pane;
-          let paneChanged = false;
-          const tabs = pane.tabs.map((tab) => {
-            if (tab.id !== tabId) return tab;
-            if (Boolean(tab.dirty) === dirty) return tab;
-            changed = true;
-            paneChanged = true;
-            return { ...tab, dirty: dirty ? true : undefined };
-          });
-          return paneChanged ? { ...pane, tabs } : pane;
+    store.set(stateAtom, (current) => {
+      let changed = false;
+      const panes = current.panes.map((pane) => {
+        if (pane.id !== paneId) return pane;
+        let paneChanged = false;
+        const tabs = pane.tabs.map((tab) => {
+          if (tab.id !== tabId) return tab;
+          if (Boolean(tab.dirty) === dirty) return tab;
+          changed = true;
+          paneChanged = true;
+          return { ...tab, dirty: dirty ? true : undefined };
         });
-        return changed ? { ...current, panes } : current;
-      },
-    );
+        return paneChanged ? { ...pane, tabs } : pane;
+      });
+      return changed ? { ...current, panes } : current;
+    });
   }
 
   function setDaemonClientDetailId(
@@ -442,24 +415,21 @@ export const workbenchBunja = bunja(() => {
     tabId: string,
     daemonClientDetailId: string | undefined,
   ) {
-    store.set(
-      stateAtom,
-      (current) => ({
-        ...current,
-        panes: current.panes.map((pane) =>
-          pane.id === paneId
-            ? {
+    store.set(stateAtom, (current) => ({
+      ...current,
+      panes: current.panes.map((pane) =>
+        pane.id === paneId
+          ? {
               ...pane,
               tabs: pane.tabs.map((tab) =>
                 tab.id === tabId && tab.tool === "daemon"
                   ? { ...tab, daemonClientDetailId }
-                  : tab
+                  : tab,
               ),
             }
-            : pane
-        ),
-      }),
-    );
+          : pane,
+      ),
+    }));
   }
 
   function setDaemonClientsPageOpen(
@@ -467,24 +437,21 @@ export const workbenchBunja = bunja(() => {
     tabId: string,
     daemonClientsPageOpen: boolean,
   ) {
-    store.set(
-      stateAtom,
-      (current) => ({
-        ...current,
-        panes: current.panes.map((pane) =>
-          pane.id === paneId
-            ? {
+    store.set(stateAtom, (current) => ({
+      ...current,
+      panes: current.panes.map((pane) =>
+        pane.id === paneId
+          ? {
               ...pane,
               tabs: pane.tabs.map((tab) =>
                 tab.id === tabId && tab.tool === "daemon"
                   ? { ...tab, daemonClientsPageOpen }
-                  : tab
+                  : tab,
               ),
             }
-            : pane
-        ),
-      }),
-    );
+          : pane,
+      ),
+    }));
   }
 
   function setProcessDetailPid(
@@ -492,30 +459,26 @@ export const workbenchBunja = bunja(() => {
     tabId: string,
     processDetailPid: number | undefined,
   ) {
-    store.set(
-      stateAtom,
-      (current) => ({
-        ...current,
-        panes: current.panes.map((pane) =>
-          pane.id === paneId
-            ? {
+    store.set(stateAtom, (current) => ({
+      ...current,
+      panes: current.panes.map((pane) =>
+        pane.id === paneId
+          ? {
               ...pane,
               tabs: pane.tabs.map((tab) =>
                 tab.id === tabId && tab.tool === "processes"
                   ? {
-                    ...tab,
-                    processDetailPid,
-                    processPage: processDetailPid === undefined
-                      ? undefined
-                      : "detail",
-                  }
-                  : tab
+                      ...tab,
+                      processDetailPid,
+                      processPage:
+                        processDetailPid === undefined ? undefined : "detail",
+                    }
+                  : tab,
               ),
             }
-            : pane
-        ),
-      }),
-    );
+          : pane,
+      ),
+    }));
   }
 
   function setProcessPage(
@@ -523,25 +486,23 @@ export const workbenchBunja = bunja(() => {
     tabId: string,
     processPage: WorkbenchProcessPage,
   ) {
-    store.set(
-      stateAtom,
-      (current) => ({
-        ...current,
-        panes: current.panes.map((pane) =>
-          pane.id === paneId
-            ? {
+    store.set(stateAtom, (current) => ({
+      ...current,
+      panes: current.panes.map((pane) =>
+        pane.id === paneId
+          ? {
               ...pane,
               tabs: pane.tabs.map((tab) =>
-                tab.id === tabId && tab.tool === "processes" &&
-                  tab.processDetailPid !== undefined
+                tab.id === tabId &&
+                tab.tool === "processes" &&
+                tab.processDetailPid !== undefined
                   ? { ...tab, processPage }
-                  : tab
+                  : tab,
               ),
             }
-            : pane
-        ),
-      }),
-    );
+          : pane,
+      ),
+    }));
   }
 
   function setWindowDetailId(
@@ -549,24 +510,21 @@ export const workbenchBunja = bunja(() => {
     tabId: string,
     windowDetailId: string | undefined,
   ) {
-    store.set(
-      stateAtom,
-      (current) => ({
-        ...current,
-        panes: current.panes.map((pane) =>
-          pane.id === paneId
-            ? {
+    store.set(stateAtom, (current) => ({
+      ...current,
+      panes: current.panes.map((pane) =>
+        pane.id === paneId
+          ? {
               ...pane,
               tabs: pane.tabs.map((tab) =>
                 tab.id === tabId && tab.tool === "windows"
                   ? { ...tab, windowDetailId }
-                  : tab
+                  : tab,
               ),
             }
-            : pane
-        ),
-      }),
-    );
+          : pane,
+      ),
+    }));
   }
 
   function addToolTab(paneId: string, tool: WorkbenchTool): string {
@@ -576,43 +534,37 @@ export const workbenchBunja = bunja(() => {
   }
 
   function duplicateTab(paneId: string, tabId: string): string | undefined {
-    const sourcePane = store.get(stateAtom).panes.find((pane) =>
-      pane.id === paneId
-    );
+    const sourcePane = store
+      .get(stateAtom)
+      .panes.find((pane) => pane.id === paneId);
     const sourceTab = sourcePane?.tabs.find((tab) => tab.id === tabId);
     if (!sourcePane || !sourceTab) return undefined;
 
     const tab = cloneWorkbenchTab(sourceTab);
     copyTabState(machineId, sourceTab, tab);
-    store.set(
-      stateAtom,
-      (current) => ({
-        ...current,
-        activePaneId: paneId,
-        panes: current.panes.map((pane) =>
-          pane.id === paneId
-            ? activatePaneTab(
+    store.set(stateAtom, (current) => ({
+      ...current,
+      activePaneId: paneId,
+      panes: current.panes.map((pane) =>
+        pane.id === paneId
+          ? activatePaneTab(
               { ...pane, tabs: insertTab(pane.tabs, tab, tabId, "after") },
               tab.id,
             )
-            : pane
-        ),
-      }),
-    );
+          : pane,
+      ),
+    }));
     return tab.id;
   }
 
   function selectTab(paneId: string, tabId: string) {
-    store.set(
-      stateAtom,
-      (current) => ({
-        ...current,
-        activePaneId: paneId,
-        panes: current.panes.map((pane) =>
-          pane.id === paneId ? activatePaneTab(pane, tabId) : pane
-        ),
-      }),
-    );
+    store.set(stateAtom, (current) => ({
+      ...current,
+      activePaneId: paneId,
+      panes: current.panes.map((pane) =>
+        pane.id === paneId ? activatePaneTab(pane, tabId) : pane,
+      ),
+    }));
   }
 
   function closeTab(paneId: string, tabId: string) {
@@ -621,11 +573,12 @@ export const workbenchBunja = bunja(() => {
         if (pane.id !== paneId || pane.tabs.length <= 1) return pane;
         const closingTab = pane.tabs.find((tab) => tab.id === tabId);
         const tabs = pane.tabs.filter((tab) => tab.id !== tabId);
-        const activeTabId = pane.activeTabId === tabId
-          ? fallbackActiveTabId(closingTab, tabs)
-          : pane.activeTabId;
+        const activeTabId =
+          pane.activeTabId === tabId
+            ? fallbackActiveTabId(closingTab, tabs)
+            : pane.activeTabId;
         return normalizePaneTabHistory({ ...pane, tabs, activeTabId });
-      })
+      }),
     );
   }
 
@@ -637,16 +590,17 @@ export const workbenchBunja = bunja(() => {
     position: TabDropPosition,
   ): boolean {
     const currentState = store.get(stateAtom);
-    const currentSourcePane = currentState.panes.find((pane) =>
-      pane.id === sourcePaneId
+    const currentSourcePane = currentState.panes.find(
+      (pane) => pane.id === sourcePaneId,
     );
-    const currentTargetPane = currentState.panes.find((pane) =>
-      pane.id === targetPaneId
+    const currentTargetPane = currentState.panes.find(
+      (pane) => pane.id === targetPaneId,
     );
-    const currentMovingTab = currentSourcePane?.tabs.find((tab) =>
-      tab.id === tabId
+    const currentMovingTab = currentSourcePane?.tabs.find(
+      (tab) => tab.id === tabId,
     );
-    const removeSourcePane = sourcePaneId !== targetPaneId &&
+    const removeSourcePane =
+      sourcePaneId !== targetPaneId &&
       currentSourcePane !== undefined &&
       currentTargetPane !== undefined &&
       currentMovingTab !== undefined &&
@@ -667,9 +621,10 @@ export const workbenchBunja = bunja(() => {
           const tabs = pane.tabs.filter((tab) => tab.id !== tabId);
           if (tabs.length === 0) return [];
           const closingTab = pane.tabs.find((tab) => tab.id === tabId);
-          const activeTabId = pane.activeTabId === tabId
-            ? fallbackActiveTabId(closingTab, tabs)
-            : pane.activeTabId;
+          const activeTabId =
+            pane.activeTabId === tabId
+              ? fallbackActiveTabId(closingTab, tabs)
+              : pane.activeTabId;
           return [normalizePaneTabHistory({ ...pane, tabs, activeTabId })];
         }
 
@@ -697,11 +652,11 @@ export const workbenchBunja = bunja(() => {
     targetPaneId: string,
   ): MoveTabToNewPaneResult | undefined {
     const currentState = store.get(stateAtom);
-    const currentSourcePane = currentState.panes.find((pane) =>
-      pane.id === sourcePaneId
+    const currentSourcePane = currentState.panes.find(
+      (pane) => pane.id === sourcePaneId,
     );
-    const currentMovingTab = currentSourcePane?.tabs.find((tab) =>
-      tab.id === tabId
+    const currentMovingTab = currentSourcePane?.tabs.find(
+      (tab) => tab.id === tabId,
     );
     if (!currentSourcePane || !currentMovingTab) return undefined;
     if (sourcePaneId === targetPaneId && currentSourcePane.tabs.length <= 1) {
@@ -727,9 +682,10 @@ export const workbenchBunja = bunja(() => {
         if (tabs.length === 0) return [];
 
         const closingTab = pane.tabs.find((tab) => tab.id === tabId);
-        const activeTabId = pane.activeTabId === tabId
-          ? fallbackActiveTabId(closingTab, tabs)
-          : pane.activeTabId;
+        const activeTabId =
+          pane.activeTabId === tabId
+            ? fallbackActiveTabId(closingTab, tabs)
+            : pane.activeTabId;
         return [normalizePaneTabHistory({ ...pane, tabs, activeTabId })];
       });
 
@@ -791,8 +747,9 @@ export const workbenchPaneBunja = bunja(() => {
   );
   const workbench = bunja.use(workbenchBunja);
 
-  const paneAtom = atom((get) =>
-    get(workbench.panesAtom).find((pane) => pane.id === paneId) ?? undefined
+  const paneAtom = atom(
+    (get) =>
+      get(workbench.panesAtom).find((pane) => pane.id === paneId) ?? undefined,
   );
   const paneCountAtom = atom((get) => get(workbench.panesAtom).length);
   const activeAtom = atom((get) => get(workbench.activePaneIdAtom) === paneId);
@@ -813,9 +770,7 @@ export const workbenchPaneBunja = bunja(() => {
     return workbench.addAgentTab(paneId, config);
   }
 
-  function addProcessesTab(
-    config: WorkbenchProcessesTabConfig = {},
-  ): string {
+  function addProcessesTab(config: WorkbenchProcessesTabConfig = {}): string {
     return workbench.addProcessesTab(paneId, config);
   }
 
@@ -876,11 +831,7 @@ export const workbenchPaneBunja = bunja(() => {
     workbench.setTerminalSessionId(paneId, tabId, terminalSessionId);
   }
 
-  function setAgentSession(
-    tabId: string,
-    sessionId: string,
-    title?: string,
-  ) {
+  function setAgentSession(tabId: string, sessionId: string, title?: string) {
     workbench.setAgentSession(paneId, tabId, sessionId, title);
   }
 
@@ -902,11 +853,7 @@ export const workbenchPaneBunja = bunja(() => {
     tabId: string,
     daemonClientsPageOpen: boolean,
   ) {
-    workbench.setDaemonClientsPageOpen(
-      paneId,
-      tabId,
-      daemonClientsPageOpen,
-    );
+    workbench.setDaemonClientsPageOpen(paneId, tabId, daemonClientsPageOpen);
   }
 
   function setProcessDetailPid(
@@ -969,12 +916,13 @@ export const workbenchTabBunja = bunja(() => {
   );
   const pane = bunja.use(workbenchPaneBunja);
 
-  const tabAtom = atom((get) =>
-    get(pane.paneAtom)?.tabs.find((tab) => tab.id === tabId) ?? undefined
+  const tabAtom = atom(
+    (get) =>
+      get(pane.paneAtom)?.tabs.find((tab) => tab.id === tabId) ?? undefined,
   );
   const activeAtom = atom((get) => get(pane.paneAtom)?.activeTabId === tabId);
-  const focusedAtom = atom((get) =>
-    get(pane.activeAtom) && get(pane.paneAtom)?.activeTabId === tabId
+  const focusedAtom = atom(
+    (get) => get(pane.activeAtom) && get(pane.paneAtom)?.activeTabId === tabId,
   );
   const showCloseAtom = atom((get) => {
     const paneValue = get(pane.paneAtom);
@@ -1049,10 +997,7 @@ function workbenchStorageKey(machineId: string | undefined): string {
   return `rieul.workbench.${machineId ?? "none"}.v1`;
 }
 
-function requireScopeValue(
-  value: string | undefined,
-  name: string,
-): string {
+function requireScopeValue(value: string | undefined, name: string): string {
   if (!value) throw new Error(`${name} is not provided.`);
   return value;
 }
@@ -1080,15 +1025,16 @@ function activatePaneTab(pane: WorkbenchPane, tabId: string): WorkbenchPane {
   if (pane.activeTabId === tabId) {
     return normalizePaneTabHistory(pane);
   }
-  const previousActiveTabId =
-    pane.tabs.some((tab) => tab.id === pane.activeTabId)
-      ? pane.activeTabId
-      : undefined;
+  const previousActiveTabId = pane.tabs.some(
+    (tab) => tab.id === pane.activeTabId,
+  )
+    ? pane.activeTabId
+    : undefined;
   return normalizePaneTabHistory({
     ...pane,
     activeTabId: tabId,
     tabs: pane.tabs.map((tab) =>
-      tab.id === tabId ? { ...tab, previousActiveTabId } : tab
+      tab.id === tabId ? { ...tab, previousActiveTabId } : tab,
     ),
   });
 }
@@ -1111,7 +1057,7 @@ function normalizePaneTabHistory(pane: WorkbenchPane): WorkbenchPane {
   const tabIds = new Set(pane.tabs.map((tab) => tab.id));
   const activeTabId = tabIds.has(pane.activeTabId)
     ? pane.activeTabId
-    : pane.tabs[0]?.id ?? "";
+    : (pane.tabs[0]?.id ?? "");
   const tabs = pane.tabs.map((tab) => {
     if (
       tab.previousActiveTabId &&
@@ -1137,8 +1083,8 @@ function pruneStaleLayoutLeaves(
   let changed = false;
 
   while (true) {
-    const staleNode = Object.values(nextLayout.nodes).find((node) =>
-      node.type === "leaf" && !paneIds.has(node.paneId)
+    const staleNode = Object.values(nextLayout.nodes).find(
+      (node) => node.type === "leaf" && !paneIds.has(node.paneId),
     );
     if (!staleNode) break;
     nextLayout = layoutReducer(nextLayout, {
@@ -1166,11 +1112,7 @@ function insertTab(
   if (targetIndex < 0) return [...tabs, tab];
 
   const insertIndex = position === "before" ? targetIndex : targetIndex + 1;
-  return [
-    ...tabs.slice(0, insertIndex),
-    tab,
-    ...tabs.slice(insertIndex),
-  ];
+  return [...tabs.slice(0, insertIndex), tab, ...tabs.slice(insertIndex)];
 }
 
 function createFilesTab(config: WorkbenchFilesTabConfig = {}): WorkbenchTab {
@@ -1199,9 +1141,10 @@ function createProcessesTab(
   return {
     id: `processes-${crypto.randomUUID()}`,
     processDetailPid: config.processDetailPid,
-    processPage: config.processDetailPid === undefined
-      ? undefined
-      : config.processPage ?? "detail",
+    processPage:
+      config.processDetailPid === undefined
+        ? undefined
+        : (config.processPage ?? "detail"),
     title: config.title ?? "Processes",
     tool: "processes",
   };
@@ -1230,9 +1173,7 @@ function createTerminalTab(config: WorkbenchTerminalTabConfig): WorkbenchTab {
   };
 }
 
-function createAgentTab(
-  config: WorkbenchAgentTabConfig = {},
-): WorkbenchTab {
+function createAgentTab(config: WorkbenchAgentTabConfig = {}): WorkbenchTab {
   return {
     agentSessionId: config.sessionId,
     id: `agent-${crypto.randomUUID()}`,
@@ -1316,16 +1257,15 @@ function openTabInPane(
     panes: state.panes.map((pane) =>
       pane.id === paneId
         ? activatePaneTab({ ...pane, tabs: [...pane.tabs, tab] }, tab.id)
-        : pane
+        : pane,
     ),
   };
 }
 
-function activePaneFromState(
-  state: WorkbenchState,
-): WorkbenchPane | undefined {
-  return state.panes.find((pane) => pane.id === state.activePaneId) ??
-    state.panes[0];
+function activePaneFromState(state: WorkbenchState): WorkbenchPane | undefined {
+  return (
+    state.panes.find((pane) => pane.id === state.activePaneId) ?? state.panes[0]
+  );
 }
 
 function activeTabFromPane(
