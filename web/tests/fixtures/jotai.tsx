@@ -10,12 +10,9 @@ import {
 const countAtom = atom(0);
 function MountWriter() {
   const store = useStore();
-  createEffect(
-    () => store,
-    (current) => {
-      current.set(countAtom, 1);
-    },
-  );
+  createEffect(store, (current) => {
+    current.set(countAtom, 1);
+  });
   return null;
 }
 function Reader(props: { name: string; initialize?: boolean }) {
@@ -27,7 +24,7 @@ function Reader(props: { name: string; initialize?: boolean }) {
         <MountWriter />
       </Show>
       <output aria-label={props.name}>{count()}</output>
-      <button onClick={() => store.set(countAtom, (value) => value + 1)}>
+      <button onClick={() => store().set(countAtom, (value) => value + 1)}>
         Increment {props.name}
       </button>
     </section>
