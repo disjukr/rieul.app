@@ -17,7 +17,7 @@ export const machineStoreBunja = bunja(() => {
   const selectedIdAtom = atom<string | undefined>(initialSelectedId);
   const pendingPairMachineIdAtom = atom<string | undefined>(undefined);
   const selectedAtom = atom((get) =>
-    getMachine(get(machinesAtom), get(selectedIdAtom))
+    getMachine(get(machinesAtom), get(selectedIdAtom)),
   );
   const selectedIsPairedAtom = atom((get) => isPaired(get(selectedAtom)));
 
@@ -38,12 +38,10 @@ export const machineStoreBunja = bunja(() => {
     machineId: string,
     update: (machine: Machine) => Machine,
   ) {
-    store.set(
-      machinesAtom,
-      (current) =>
-        current.map((machine) =>
-          machine.id === machineId ? update(machine) : machine
-        ),
+    store.set(machinesAtom, (current) =>
+      current.map((machine) =>
+        machine.id === machineId ? update(machine) : machine,
+      ),
     );
   }
 
@@ -85,29 +83,36 @@ export const machineStoreBunja = bunja(() => {
     }
   }
 
+  // Publish the collection and its fallback selection as one Jotai action.
+  const deleteSelectedMachineAtom = atom(
+    null,
+    (get, set): Machine | undefined => {
+      const selected = get(selectedAtom);
+      if (!selected) return;
+      const remaining = get(machinesAtom).filter(
+        (machine) => machine.id !== selected.id,
+      );
+      set(machinesAtom, remaining);
+      set(selectedIdAtom, (current) =>
+        current === selected.id ? remaining[0]?.id : current,
+      );
+      return selected;
+    },
+  );
+
   function deleteSelectedMachine(): Machine | undefined {
-    const selected = store.get(selectedAtom);
-    if (!selected) return undefined;
-    const remaining = store.get(machinesAtom).filter((machine) =>
-      machine.id !== selected.id
-    );
-    store.set(machinesAtom, remaining);
-    store.set(
-      selectedIdAtom,
-      (current) => current === selected.id ? remaining[0]?.id : current,
-    );
-    return selected;
+    return store.set(deleteSelectedMachineAtom);
   }
 
   bunja.effect(() =>
     store.sub(machinesAtom, () => {
       saveMachines(store.get(machinesAtom), storage);
-    })
+    }),
   );
   bunja.effect(() =>
     store.sub(selectedIdAtom, () => {
       saveSelectedMachineId(store.get(selectedIdAtom), storage);
-    })
+    }),
   );
 
   return {
@@ -134,7 +139,7 @@ export const machineBunja = bunja(() => {
   const machines = bunja.use(machineStoreBunja);
 
   const machineAtom = atom((get) =>
-    getMachine(get(machines.machinesAtom), machineId)
+    getMachine(get(machines.machinesAtom), machineId),
   );
   const isPairedAtom = atom((get) => isPaired(get(machineAtom)));
 

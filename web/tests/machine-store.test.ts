@@ -41,10 +41,10 @@ test("machine persistence is shared until final consumer leaves and reloads on r
   const persistence = memoryStorage();
   const jotai = createStore();
   const bunjas = createBunjaStore();
-  const read = readScopes([[JotaiStoreScope, jotai], [
-    MachineStorageScope,
-    persistence.storage,
-  ]]);
+  const read = readScopes([
+    [JotaiStoreScope, jotai],
+    [MachineStorageScope, persistence.storage],
+  ]);
   const first = bunjas.get(machineStoreBunja, read);
   const stopFirst = first.mount();
   const second = bunjas.get(machineStoreBunja, read);
@@ -86,10 +86,10 @@ test("storage replacement and Jotai domains isolate identity and persistence", (
   const get = (storage: MachineStorage, state = jotai) =>
     bunjas.get(
       machineStoreBunja,
-      readScopes([[JotaiStoreScope, state], [
-        MachineStorageScope,
-        storage,
-      ]]),
+      readScopes([
+        [JotaiStoreScope, state],
+        [MachineStorageScope, storage],
+      ]),
     );
   const first = get(a.storage);
   const replacement = get(b.storage);
@@ -102,10 +102,10 @@ test("storage replacement and Jotai domains isolate identity and persistence", (
     jotai.get(replacement.value.selectedIdAtom) === machine.id,
     "invalid selection falls back to first machine",
   );
-  replacement.value.updateMachine(
-    machine.id,
-    (item) => ({ ...item, name: "Changed" }),
-  );
+  replacement.value.updateMachine(machine.id, (item) => ({
+    ...item,
+    name: "Changed",
+  }));
   assert(a.writes() === 0);
   assert(b.writes() === 1);
   assert(otherJotai.get(isolated.value.machinesAtom)[0].name === "One");
@@ -119,10 +119,10 @@ test("external storage edits are read on the next lifetime without live synchron
   const persistence = memoryStorage();
   const jotai = createStore();
   const bunjas = createBunjaStore();
-  const read = readScopes([[JotaiStoreScope, jotai], [
-    MachineStorageScope,
-    persistence.storage,
-  ]]);
+  const read = readScopes([
+    [JotaiStoreScope, jotai],
+    [MachineStorageScope, persistence.storage],
+  ]);
   const first = bunjas.get(machineStoreBunja, read);
   const stop = first.mount();
   persistence.values.set(
@@ -169,11 +169,44 @@ test("unavailable storage keeps the existing error contract instead of silently 
   try {
     bunjas.get(
       machineStoreBunja,
-      readScopes([[JotaiStoreScope, jotai], [MachineStorageScope, storage]]),
+      readScopes([
+        [JotaiStoreScope, jotai],
+        [MachineStorageScope, storage],
+      ]),
     );
   } catch (error) {
     received = error;
   }
   assert(received === denied);
+  bunjas.dispose();
+});
+
+test("deleting the selected machine publishes one coherent selection transition", () => {
+  const persistence = memoryStorage(),
+    state = createStore(),
+    bunjas = createBunjaStore();
+  const owner = bunjas.get(
+    machineStoreBunja,
+    readScopes([
+      [JotaiStoreScope, state],
+      [MachineStorageScope, persistence.storage],
+    ]),
+  );
+  const stop = owner.mount();
+  owner.value.addMachine(machine);
+  owner.value.addMachine({ ...machine, id: "two" });
+  owner.value.selectMachine("one");
+  const selected: (string | undefined)[] = [];
+  const off = state.sub(owner.value.selectedAtom, () =>
+    selected.push(state.get(owner.value.selectedAtom)?.id),
+  );
+  const removed = owner.value.deleteSelectedMachine();
+  assert(removed?.id === "one");
+  assert(
+    selected.length === 1 && selected[0] === "two",
+    `selection must not pass through a missing machine: ${JSON.stringify(selected)}`,
+  );
+  off();
+  stop();
   bunjas.dispose();
 });

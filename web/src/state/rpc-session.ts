@@ -1,6 +1,6 @@
 import { bunja } from "bunja";
 import { atom, type PrimitiveAtom } from "jotai";
-import type { Store } from "jotai/vanilla/store";
+import type { Store } from "jotai/vanilla";
 import { nowBunja } from "unsaturated/now";
 import { JotaiStoreScope } from "unsaturated/store";
 import {

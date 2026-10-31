@@ -154,3 +154,47 @@ test("explorer child observers wait for the shared Bunja owner and retain one su
   await expect.poll(async () => (await metrics()).closes).toBe(1);
   expect(await metrics()).toEqual({ opens: 1, closes: 1, earlyCalls: 0 });
 });
+
+test("Jotai observes child mount writes and isolates Provider stores", async ({
+  page,
+}) => {
+  await page.goto("/tests/fixtures/jotai.html");
+  await expect(page.getByLabel("first", { exact: true })).toHaveText("1");
+  await expect(page.getByLabel("second", { exact: true })).toHaveText("0");
+  await page.getByRole("button", { name: "Increment first" }).click();
+  await expect(page.getByLabel("first", { exact: true })).toHaveText("2");
+  await expect(page.getByLabel("second", { exact: true })).toHaveText("0");
+});
+
+test("panecake split and close preserve the controlled workbench layout", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.addInitScript(() => {
+    localStorage.setItem(
+      "rieul.machines.v1",
+      JSON.stringify([
+        { id: "A", name: "Fixture A", baseUrl: "https://a.invalid:9012" },
+      ]),
+    );
+    localStorage.setItem("rieul.selected-machine-id.v1", "A");
+  });
+  await page.goto("/");
+  await expect(
+    page.getByRole("button", { name: "Pane actions", exact: true }),
+  ).toHaveCount(1);
+  await page.getByRole("button", { name: "Split right", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "Pane actions", exact: true }),
+  ).toHaveCount(2);
+  await page
+    .getByRole("button", { name: "Pane actions", exact: true })
+    .last()
+    .click();
+  await page.getByRole("menuitem", { name: "Close pane", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "Pane actions", exact: true }),
+  ).toHaveCount(1);
+  expect(errors).toEqual([]);
+});
