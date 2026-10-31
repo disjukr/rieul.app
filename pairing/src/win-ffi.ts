@@ -1,5 +1,5 @@
 // Narrow Bun FFI adapter for Rieul's Windows tray implementation.
-import { dlopen, JSCallback, ptr, type Pointer as BunPointer } from "bun:ffi";
+import { dlopen, ptr, type Pointer as BunPointer } from "bun:ffi";
 export type Pointer = BunPointer | null;
 type Spec = { parameters: readonly string[]; result: string };
 type Arg<T extends string> = T extends "pointer" | "function"
@@ -36,23 +36,6 @@ export const ffi = {
   UnsafePointer: {
     of: (value: Parameters<typeof ptr>[0]) => ptr(value),
     value: (value: Pointer) => BigInt(value ?? 0),
-  },
-  UnsafeCallback: class<const S extends Spec> {
-    private callback: JSCallback;
-    readonly pointer: Pointer;
-    constructor(
-      spec: S,
-      callback: (...args: Args<S["parameters"]>) => Result<S["result"]>,
-    ) {
-      this.callback = new JSCallback(callback, {
-        args: spec.parameters.map(kind),
-        returns: kind(spec.result),
-      } as unknown as ConstructorParameters<typeof JSCallback>[1]);
-      this.pointer = this.callback.ptr;
-    }
-    close() {
-      this.callback.close();
-    }
   },
   dlopen<const T extends Record<string, Spec>>(name: string, specs: T) {
     const definitions = Object.fromEntries(

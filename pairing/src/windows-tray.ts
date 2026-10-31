@@ -1,4 +1,5 @@
 import { ffi, type Pointer } from "./win-ffi.ts";
+import { fileURLToPath } from "node:url";
 const NIM_ADD = 0;
 const NIM_MODIFY = 1;
 const NIM_DELETE = 2;
@@ -24,13 +25,6 @@ const INFO_FLAGS_OFFSET = 948;
 
 const WM_APP = 0x8000;
 const WM_NULL = 0;
-const WM_CONTEXTMENU = 0x7b;
-const WM_LBUTTONUP = 0x202;
-const WM_LBUTTONDBLCLK = 0x203;
-const WM_RBUTTONUP = 0x205;
-const NIN_SELECT = 0x400;
-const NIN_KEYSELECT = 0x401;
-const NIN_BALLOONUSERCLICK = 0x405;
 const TRAY_CALLBACK_MESSAGE = WM_APP + 1;
 
 const ICON_RESOURCE_VERSION = 0x00030000;
@@ -162,54 +156,23 @@ export function createWindowsTray(options: WindowsTrayOptions): WindowsTray {
     return true;
   };
 
-  const windowProc = new ffi.UnsafeCallback(
+  // Keep WNDPROC native: Windows can re-enter it inside any user32 call.
+  // Poll actions after returning to JavaScript instead of re-entering Bun FFI.
+  const bridge = ffi.dlopen(
+    fileURLToPath(
+      new URL("../native/bin/rieul_pairing_windows.dll", import.meta.url),
+    ),
     {
-      parameters: ["pointer", "u32", "usize", "isize"],
-      result: "isize",
-    },
-    (hwnd, message, wParam, lParam) => {
-      // Accept ordinary Windows menu commands as well as TrackPopupMenu's return.
-      if (message === 0x111) {
-        const command = Number(wParam) & 0xffff;
-        if (command === MENU_DAEMON_INFO) queueMicrotask(options.onDaemonInfo);
-        if (command === MENU_QUIT) queueMicrotask(options.onQuit);
-        return 0n;
-      }
-      if (message === taskbarCreated) {
-        addIcon();
-        return 0n;
-      }
-      if (message === TRAY_CALLBACK_MESSAGE) {
-        const notification = Number(lParam) & 0xffff;
-        if (
-          notification === WM_LBUTTONUP ||
-          notification === WM_LBUTTONDBLCLK ||
-          notification === NIN_SELECT ||
-          notification === NIN_KEYSELECT ||
-          notification === NIN_BALLOONUSERCLICK
-        ) {
-          queueMicrotask(options.onOpen);
-        } else if (
-          notification === WM_RBUTTONUP ||
-          notification === WM_CONTEXTMENU
-        ) {
-          const command = showContextMenu(user32.symbols, hwnd);
-          if (command === MENU_DAEMON_INFO) {
-            queueMicrotask(options.onDaemonInfo);
-          } else if (command === MENU_QUIT) {
-            queueMicrotask(options.onQuit);
-          }
-        }
-        return 0n;
-      }
-      return user32.symbols.DefWindowProcW(hwnd, message, wParam, lParam);
-    },
+      rieul_tray_window_proc: { parameters: ["u32"], result: "pointer" },
+      rieul_take_tray_events: { parameters: [], result: "u32" },
+    } as const,
   );
+  const windowProc = bridge.symbols.rieul_tray_window_proc(taskbarCreated);
 
   try {
     const windowClass = new Uint8Array(WNDCLASS_SIZE);
     const classView = new DataView(windowClass.buffer);
-    classView.setBigUint64(8, pointerValue(windowProc.pointer), true);
+    classView.setBigUint64(8, pointerValue(windowProc), true);
     classView.setBigUint64(24, pointerValue(instance), true);
     classView.setBigUint64(
       64,
@@ -252,7 +215,7 @@ export function createWindowsTray(options: WindowsTrayOptions): WindowsTray {
     if (windowHandle !== null) user32.symbols.DestroyWindow(windowHandle);
     if (iconHandle !== null) user32.symbols.DestroyIcon(iconHandle);
     user32.symbols.UnregisterClassW(className, instance);
-    windowProc.close();
+    bridge.close();
     shell32.close();
     user32.close();
     kernel32.close();
@@ -264,6 +227,16 @@ export function createWindowsTray(options: WindowsTrayOptions): WindowsTray {
     while (user32.symbols.PeekMessageW(message, null, 0, 0, PM_REMOVE)) {
       user32.symbols.TranslateMessage(message);
       user32.symbols.DispatchMessageW(message);
+    }
+    const events = bridge.symbols.rieul_take_tray_events();
+    if (events & 1) options.onOpen();
+    if (events & 2) options.onDaemonInfo();
+    if (events & 4) options.onQuit();
+    if (events & 8) addIcon();
+    if (events & 16) {
+      const command = showContextMenu(user32.symbols, windowHandle);
+      if (command === MENU_DAEMON_INFO) options.onDaemonInfo();
+      if (command === MENU_QUIT) options.onQuit();
     }
   }, 16);
 
@@ -281,7 +254,7 @@ export function createWindowsTray(options: WindowsTrayOptions): WindowsTray {
       }
       if (iconHandle !== null) user32.symbols.DestroyIcon(iconHandle);
       user32.symbols.UnregisterClassW(className, instance);
-      windowProc.close();
+      bridge.close();
       shell32.close();
       user32.close();
       kernel32.close();

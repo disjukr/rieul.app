@@ -1,7 +1,7 @@
 import { connectStdio } from "@gpuix/native/automation";
 import { spawn, execFileSync } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
-import { appendFileSync } from "node:fs";
+import { appendFileSync, writeFileSync } from "node:fs";
 import assert from "node:assert/strict";
 import net from "node:net";
 import path from "node:path";
@@ -48,6 +48,17 @@ if (isolated)
     LOCALAPPDATA: home,
     BUN_INSTALL_CACHE_DIR: `${home}/bun-cache`,
   });
+const evidence = {
+  dir,
+  scope: "GPUiX/Win32 fixture integration; not OS tray popup selection",
+};
+let expectedExit = false;
+const fail = (error) => {
+  evidence.failure = String(error);
+  writeFileSync(`${dir}/evidence.json`, JSON.stringify(evidence, null, 2));
+  for (const owned of ownedChildren) owned.kill();
+  throw error;
+};
 const child = spawn(executable ?? process.execPath, launchArgs, {
   cwd: process.cwd(),
   env: childEnv,
@@ -55,13 +66,21 @@ const child = spawn(executable ?? process.execPath, launchArgs, {
   windowsHide: true,
 });
 const ownedChildren = new Set([child]);
+child.on("error", (error) => fail(error));
+child.on("exit", (code, signal) => {
+  if (!expectedExit)
+    fail(
+      new Error(
+        `Native QA app exited unexpectedly: code=${code}, signal=${signal}`,
+      ),
+    );
+});
 child.stderr.on("data", (b) => {
   appendFileSync(`${dir}/stderr.log`, b);
   process.stderr.write(b);
 });
 const deadline = setTimeout(() => {
-  for (const owned of ownedChildren) owned.kill();
-  throw new Error("Native QA timed out");
+  fail(new Error("Native QA timed out"));
 }, 60000);
 const app = await connectStdio({
   write: (c) => child.stdin.write(c),
@@ -99,10 +118,6 @@ const accepted = (bytes) =>
   decodeCborSequencePrefix(
     decodeCborSequencePrefix(bytes)[1].value.get(2),
   )[0].value.get(1);
-const evidence = {
-  dir,
-  scope: "GPUiX/Win32 fixture integration; not OS tray popup selection",
-};
 try {
   await app.getByTestId("daemon-url").waitFor({ timeoutMs: 20000 });
   assert.equal(
@@ -336,6 +351,7 @@ try {
   const quitRequest = confirm("62");
   await app.getByTestId("candidate-62").waitFor();
   const exit = new Promise((resolve) => child.once("exit", resolve));
+  expectedExit = true;
   probe("quit");
   assert.equal(accepted(await quitRequest.result), false);
   evidence.quitRejectsPending = true;
@@ -343,6 +359,7 @@ try {
   evidence.trayQuitCommand = true;
   console.log(JSON.stringify(evidence));
 } finally {
+  expectedExit = true;
   await writeFile(`${dir}/evidence.json`, JSON.stringify(evidence, null, 2));
   await app.close();
   clearTimeout(deadline);

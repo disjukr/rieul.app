@@ -42,3 +42,40 @@ pub unsafe extern "C" fn rieul_pairing_show(window: Hwnd, visible: i32) {
 // Also used by disposable native QA to exercise the actual WM_CLOSE subclass.
 #[no_mangle]
 pub unsafe extern "C" fn rieul_pairing_close(window: Hwnd) { unsafe { PostMessageW(window, 0x10, 0, 0) }; }
+
+// Windows owns this callback and may invoke it reentrantly from user32 calls.
+// Do not enter the JS engine here; the UI polls these actions on its event loop.
+use std::sync::atomic::{AtomicU32, Ordering};
+static TRAY_EVENTS: AtomicU32 = AtomicU32::new(0);
+static TASKBAR_CREATED: AtomicU32 = AtomicU32::new(0);
+#[link(name = "user32")]
+extern "system" {
+    fn DefWindowProcW(window: Hwnd, message: u32, wparam: usize, lparam: isize) -> isize;
+}
+unsafe extern "system" fn tray_window_proc(window: Hwnd, message: u32, wparam: usize, lparam: isize) -> isize {
+    let event = if message == 0x111 {
+        match wparam & 0xffff { 1 => 2, 2 => 4, _ => 0 }
+    } else if message == TASKBAR_CREATED.load(Ordering::Relaxed) {
+        8
+    } else if message == 0x8001 {
+        match lparam & 0xffff {
+            0x202 | 0x203 | 0x400 | 0x401 | 0x405 => 1,
+            0x205 | 0x7b => 16,
+            _ => 0,
+        }
+    } else {
+        return unsafe { DefWindowProcW(window, message, wparam, lparam) };
+    };
+    TRAY_EVENTS.fetch_or(event, Ordering::Release);
+    0
+}
+#[no_mangle]
+pub extern "C" fn rieul_tray_window_proc(taskbar_created: u32) -> *const c_void {
+    TASKBAR_CREATED.store(taskbar_created, Ordering::Relaxed);
+    TRAY_EVENTS.store(0, Ordering::Release);
+    tray_window_proc as *const c_void
+}
+#[no_mangle]
+pub extern "C" fn rieul_take_tray_events() -> u32 {
+    TRAY_EVENTS.swap(0, Ordering::AcqRel)
+}
