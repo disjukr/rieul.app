@@ -1,4 +1,110 @@
-import { createTerminalShellsBunja } from "./terminal-shells-model.ts";
+import { bunja } from "bunja";
+import { atom } from "jotai";
+import { JotaiStoreScope } from "unsaturated/store";
+import { subscribeAvailableShells } from "../protocol/generated/client.ts";
+import type {
+  AvailableShellInfo,
+  AvailableShellsTableEvent,
+} from "../protocol/generated/rpc.ts";
+import { machineBunja } from "./machine-store.ts";
+import type { Machine } from "./machines.ts";
 import { rpcSessionBunja } from "./rpc-session.ts";
 
-export const terminalShellsBunja = createTerminalShellsBunja(rpcSessionBunja);
+export const terminalShellsBunja = bunja(() => {
+  const store = bunja.use(JotaiStoreScope);
+  const machines = bunja.use(machineBunja);
+  const rpcSession = bunja.use(rpcSessionBunja);
+
+  const terminalShellsAtom = atom<AvailableShellInfo[]>([]);
+  const defaultShellAtom = atom((get) => {
+    const shells = get(terminalShellsAtom);
+    return shells.find((item) => item.isDefault) ?? shells[0];
+  });
+  const terminalShellsSubscriptionKeyAtom = atom((get) =>
+    terminalShellsSubscriptionKey(
+      get(machines.machineAtom),
+      get(machines.isPairedAtom),
+      get(rpcSession.daemonInstanceIdAtom),
+    ),
+  );
+
+  bunja.effect(() => {
+    let stopCurrent: (() => void) | undefined;
+
+    function start() {
+      stopCurrent?.();
+      stopCurrent = undefined;
+      store.set(terminalShellsAtom, []);
+
+      const machine = store.get(machines.machineAtom);
+      if (!machine || !store.get(machines.isPairedAtom)) return;
+
+      let cancelled = false;
+      let iterator: AsyncGenerator<AvailableShellsTableEvent> | undefined;
+      stopCurrent = () => {
+        cancelled = true;
+        void iterator?.return(undefined).catch(() => {});
+      };
+      void (async () => {
+        try {
+          const transport = await rpcSession.webTransport();
+          if (cancelled) return;
+          iterator = subscribeAvailableShells(transport);
+          for await (const event of iterator) {
+            if (cancelled) break;
+            if (event.type === "snapshot") {
+              store.set(terminalShellsAtom, event.rows);
+            } else {
+              store.set(
+                terminalShellsAtom,
+                applyShellPatch(store.get(terminalShellsAtom), event),
+              );
+            }
+          }
+        } catch {
+          if (!cancelled) store.set(terminalShellsAtom, []);
+        }
+      })();
+    }
+
+    const unsubscribe = store.sub(terminalShellsSubscriptionKeyAtom, start);
+    start();
+    return () => {
+      unsubscribe();
+      stopCurrent?.();
+    };
+  });
+
+  return {
+    defaultShellAtom,
+    terminalShellsAtom,
+  };
+});
+
+function terminalShellsSubscriptionKey(
+  machine: Machine | undefined,
+  isPaired: boolean,
+  daemonInstanceId: string | undefined,
+): string {
+  if (!machine || !isPaired || !daemonInstanceId) return "idle";
+  return [
+    machine.id,
+    machine.baseUrl,
+    machine.clientId ?? "",
+    machine.clientSecret ?? "",
+    daemonInstanceId,
+  ].join("\n");
+}
+
+function applyShellPatch(
+  current: AvailableShellInfo[],
+  event: Extract<AvailableShellsTableEvent, { type: "patch" }>,
+): AvailableShellInfo[] {
+  const removeIds = new Set(event.removes.map((item) => item.shellId));
+  const retained = current.filter((shell) => !removeIds.has(shell.shellId));
+  const upserts = new Map(event.upserts.map((shell) => [shell.shellId, shell]));
+  return [
+    ...retained.filter((shell) => !upserts.has(shell.shellId)),
+    ...event.upserts,
+  ];
+}

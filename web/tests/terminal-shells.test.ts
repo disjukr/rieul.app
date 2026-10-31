@@ -1,9 +1,22 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { bunja, createBunjaStore, createReadScopeFn } from "bunja";
+import {
+  bunja,
+  createBunjaStore,
+  createReadScopeFn,
+  override,
+  type Bunja,
+} from "bunja";
 import { atom, createStore } from "jotai/vanilla";
 import { JotaiStoreScope } from "unsaturated/store";
-import { createTerminalShellsBunja } from "../src/state/terminal-shells-model.ts";
+import { terminalShellsBunja } from "../src/state/terminal-shells.ts";
+import { rpcSessionBunja } from "../src/state/rpc-session.ts";
+import { encodeAvailableShellsTableEventValue } from "../src/protocol/generated/rpc.ts";
+import { encodeCbor } from "../src/protocol/cbor.ts";
+import {
+  encodeReqResMessageSequence,
+  ReqResMessageKind,
+} from "../src/protocol/wire.ts";
 import { MachineIdScope } from "../src/state/machine-scopes.ts";
 import { MachineStorageScope } from "../src/state/machine-storage.ts";
 import { machineBunja, machineStoreBunja } from "../src/state/machine-store.ts";
@@ -22,39 +35,36 @@ async function flush() {
   for (let i = 0; i < 20; i++) await Promise.resolve();
 }
 function stream() {
-  let pending =
-    Promise.withResolvers<IteratorResult<AvailableShellsTableEvent>>();
+  let controller!: ReadableStreamDefaultController<Uint8Array>;
   let returns = 0;
-  const iterator: AsyncGenerator<AvailableShellsTableEvent> = {
-    next: () => pending.promise,
-    // Leave the read pending to simulate a remote reply racing cancellation.
-    return: () => {
+  const readable = new ReadableStream<Uint8Array>({
+    start(value) {
+      controller = value;
+    },
+    cancel() {
       returns++;
-      return Promise.resolve({ done: true, value: undefined });
     },
-    throw: (error) => Promise.reject(error),
-    [Symbol.asyncIterator]() {
-      return this;
-    },
-    [Symbol.asyncDispose]: async () => {},
-  };
+  });
   return {
-    iterator,
+    transportStream: { readable, writable: new WritableStream<Uint8Array>() },
     returns: () => returns,
     send(event: AvailableShellsTableEvent) {
-      const old = pending;
-      pending = Promise.withResolvers();
-      old.resolve({ done: false, value: event });
+      controller.enqueue(
+        encodeReqResMessageSequence([
+          {
+            kind: ReqResMessageKind.ResponseStreamChunk,
+            payload: encodeCbor(encodeAvailableShellsTableEventValue(event)),
+          },
+        ]),
+      );
     },
     fail(error: unknown) {
-      pending.reject(error);
+      controller.error(error);
     },
   };
 }
-
 function fixture() {
-  const state = createStore(),
-    store = createBunjaStore();
+  const state = createStore();
   const storage = {
     getItem: () => null,
     setItem: () => {},
@@ -67,18 +77,43 @@ function fixture() {
     clientId: id,
     clientSecret: id,
   }));
-  const sessions = machines.map(() => ({
-    daemonInstanceIdAtom: atom<string | undefined>("daemon"),
-    webTransport: async () => ({}) as WebTransport,
-  }));
   const streams: ReturnType<typeof stream>[] = [];
-  const sessionBunja = bunja(
-    () => sessions[bunja.use(machineBunja).machineId === "a" ? 0 : 1],
+  const transport = {
+    async createBidirectionalStream() {
+      const channel = stream();
+      streams.push(channel);
+      return channel.transportStream;
+    },
+  } as WebTransport;
+  type RpcSession =
+    typeof rpcSessionBunja extends Bunja<infer Value> ? Value : never;
+  function unused(): never {
+    throw new Error("Unexpected RPC method in shell test");
+  }
+  const sessions = machines.map(
+    () =>
+      ({
+        closeRpcSession: unused,
+        reconnect: unused,
+        resetController: unused,
+        startPairingSession: async () => unused(),
+        completePairingSession: async () => unused(),
+        connectionAtom: atom({ phase: "idle" as const }),
+        daemonInfoAtom: atom({ phase: "idle" as const }),
+        daemonServerTimeMsAtom: atom<number | undefined>(undefined),
+        daemonUptimeSecondsAtom: atom<number | undefined>(undefined),
+        daemonInstanceIdAtom: atom<string | undefined>("daemon"),
+        webTransport: async () => transport,
+      }) satisfies RpcSession,
   );
-  const model = createTerminalShellsBunja(sessionBunja, () => {
-    const channel = stream();
-    streams.push(channel);
-    return channel.iterator;
+  const store = createBunjaStore({
+    overrides: [
+      override(rpcSessionBunja, () => {
+        const session =
+          sessions[bunja.use(machineBunja).machineId === "a" ? 0 : 1];
+        return session;
+      }),
+    ],
   });
   const scopes = (id = "a") =>
     createReadScopeFn(
@@ -95,7 +130,7 @@ function fixture() {
   const releaseMachines = machineStore.mount();
   state.set(machineStore.value.machinesAtom, machines);
   state.set(machineStore.value.selectedIdAtom, "a");
-  const get = (id = "a") => store.get(model, scopes(id));
+  const get = (id = "a") => store.get(terminalShellsBunja, scopes(id));
   return {
     state,
     store,
@@ -103,6 +138,7 @@ function fixture() {
     streams,
     machineStore: machineStore.value,
     releaseMachines,
+    transport,
     get,
   };
 }
@@ -134,11 +170,16 @@ test("shell consumers share per machine, ignore selection and release only the f
   assert.deepEqual(f.state.get(other.value.terminalShellsAtom), []);
   f.machineStore.clearMachineCredentials("b");
   assert.equal(f.streams[0].returns(), 0);
+  f.streams[1].send({ type: "snapshot", rows: [] });
+  await flush();
   assert.equal(f.streams[1].returns(), 1);
   stopA();
   assert.equal(f.streams[0].returns(), 0);
   stopB();
+  f.streams[0].send({ type: "snapshot", rows: [row("late")] });
+  await flush();
   assert.equal(f.streams[0].returns(), 1);
+  assert.deepEqual(f.state.get(a.value.terminalShellsAtom), [row("sh")]);
   stopOther();
   f.releaseMachines();
   f.store.dispose();
@@ -181,11 +222,11 @@ test("pairing and daemon replacement reject late events/errors; pending transpor
   const pendingEntry = f.get(),
     stopPending = pendingEntry.mount();
   stopPending();
-  f.sessions[0].webTransport = async () => ({}) as WebTransport;
+  f.sessions[0].webTransport = async () => f.transport;
   const next = f.get(),
     stopNext = next.mount();
   await flush();
-  pending.resolve({} as WebTransport);
+  pending.resolve(f.transport);
   await flush();
   assert.equal(f.streams.length, 4);
   f.streams[3].send({ type: "snapshot", rows: [row("remounted")] });
