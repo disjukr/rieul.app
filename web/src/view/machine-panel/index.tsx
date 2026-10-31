@@ -101,9 +101,6 @@ export function MachineModalHost() {
   const machineStore = useBunja(machineStoreBunja);
   const machineModal = useBunja(machineModalBunja);
   const machines = useAtomValue(() => machineStore().machinesAtom);
-  const pendingPairMachineId = useAtomValue(
-    () => machineStore().pendingPairMachineIdAtom,
-  );
   const selected = useAtomValue(() => machineStore().selectedAtom);
   const machineName = useAtomValue(() => machineModal().machineNameAtom);
   const baseUrl = useAtomValue(() => machineModal().baseUrlAtom);
@@ -173,25 +170,6 @@ export function MachineModalHost() {
         return;
       }
       machineModalSnapshot.openAddMachineModalFromUrl(normalizedDaemonUrl);
-    },
-  );
-
-  createEffect(
-    () => ({
-      pendingPairMachineIdSnapshot: pendingPairMachineId(),
-      machineStoreSnapshot: machineStore(),
-      machineModalSnapshot: machineModal(),
-    }),
-    ({
-      pendingPairMachineIdSnapshot,
-      machineStoreSnapshot,
-      machineModalSnapshot,
-    }) => {
-      if (!pendingPairMachineIdSnapshot) return;
-      machineStoreSnapshot.clearPendingPairMachine(
-        pendingPairMachineIdSnapshot!,
-      );
-      machineModalSnapshot.openPairMachineModal(pendingPairMachineIdSnapshot!);
     },
   );
 

@@ -2,7 +2,7 @@ import { bunja } from "bunja";
 import { atom } from "jotai/vanilla";
 import { JotaiStoreScope } from "./jotai-store.ts";
 import { machineMenuBunja } from "./machine-menu.ts";
-import { machineStoreBunja } from "./machine-store.ts";
+import { machineBunja, machineStoreBunja } from "./machine-store.ts";
 import { Machine, normalizeMachineUrl } from "./machines.ts";
 import { rpcSessionBunja } from "./rpc-session.ts";
 import { MachineModalMode } from "./types.ts";
@@ -10,6 +10,7 @@ import { MachineModalMode } from "./types.ts";
 export const machineModalBunja = bunja(() => {
   const store = bunja.use(JotaiStoreScope);
   const machines = bunja.use(machineStoreBunja);
+  const machineState = bunja.use(machineBunja);
   const menu = bunja.use(machineMenuBunja);
   const rpcSession = bunja.use(rpcSessionBunja);
 
@@ -32,8 +33,31 @@ export const machineModalBunja = bunja(() => {
   let active = false;
   bunja.effect(() => {
     active = true;
+    function consumePendingPair() {
+      if (!active) return;
+      const machineId = store.get(machines.pendingPairMachineIdAtom);
+      if (!machineId) return;
+      if (!machines.findMachine(machineId)) {
+        machines.clearPendingPairMachine(machineId);
+        return;
+      }
+      // Selection changes the UI's scope. An old instance must not start a
+      // request on its previous RPC session; the new instance consumes on mount.
+      if (store.get(machines.selectedIdAtom) !== machineId) {
+        machines.selectMachine(machineId);
+      }
+      if (machineState.machineId !== machineId) return;
+      machines.clearPendingPairMachine(machineId);
+      openPairMachineModal(machineId);
+    }
+    const unsubscribe = store.sub(
+      machines.pendingPairMachineIdAtom,
+      consumePendingPair,
+    );
+    consumePendingPair();
     return () => {
       active = false;
+      unsubscribe();
       pairingRequestSerial++;
     };
   });
