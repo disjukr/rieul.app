@@ -91,7 +91,7 @@ export function FloatingMenu(props: FloatingMenuProps) {
       (
         popup.querySelector<HTMLElement>("[role=menuitem]:not(:disabled)") ??
         popup
-      ).focus();
+      ).focus({ preventScroll: true });
       return () => {
         if (
           previous instanceof HTMLElement &&
@@ -103,18 +103,57 @@ export function FloatingMenu(props: FloatingMenuProps) {
       };
     },
   );
-  const position = () => {
-    if (props.position) return props.position;
-    const rect = props.anchorRef?.current?.getBoundingClientRect();
-    return {
-      left: rect
-        ? props.align === "end"
-          ? rect.right - (popup?.offsetWidth ?? 0)
-          : rect.left
-        : 0,
-      top: rect?.bottom ?? 0,
-    };
-  };
+  createEffect(
+    () => ({
+      position: props.position,
+      anchor: props.anchorRef,
+      align: props.align,
+      strategy: props.strategy,
+    }),
+    ({ position, anchor, align, strategy }) => {
+      function updatePosition() {
+        const viewportWidth = globalThis.innerWidth;
+        const viewportHeight = globalThis.innerHeight;
+        popup.style.maxWidth = `${Math.max(0, viewportWidth - viewportMargin * 2)}px`;
+        popup.style.maxHeight = `${Math.max(0, Math.min(position?.maxHeight ?? Infinity, viewportHeight - viewportMargin * 2))}px`;
+        popup.style.overflowY = "auto";
+        const width = popup.offsetWidth;
+        const height = popup.offsetHeight;
+        const rect = anchor?.current?.getBoundingClientRect();
+        let left =
+          position?.left ??
+          (rect
+            ? align === "end"
+              ? rect.right - width
+              : align === "center"
+                ? rect.left + (rect.width - width) / 2
+                : rect.left
+            : viewportMargin);
+        let top = position?.top ?? rect?.bottom ?? viewportMargin;
+        if (
+          !position &&
+          rect &&
+          top + height > viewportHeight - viewportMargin &&
+          rect.top - height >= viewportMargin
+        )
+          top = rect.top - height;
+        left = clampViewportPosition(left, width, viewportWidth);
+        top = clampViewportPosition(top, height, viewportHeight);
+        popup.style.left = `${left + (strategy === "absolute" ? globalThis.scrollX : 0)}px`;
+        popup.style.top = `${top + (strategy === "absolute" ? globalThis.scrollY : 0)}px`;
+      }
+      updatePosition();
+      const observer = new ResizeObserver(updatePosition);
+      observer.observe(popup);
+      globalThis.addEventListener("resize", updatePosition);
+      globalThis.addEventListener("scroll", updatePosition, true);
+      return () => {
+        observer.disconnect();
+        globalThis.removeEventListener("resize", updatePosition);
+        globalThis.removeEventListener("scroll", updatePosition, true);
+      };
+    },
+  );
   function keydown(event: KeyboardEvent) {
     const items = [
       ...popup.querySelectorAll<HTMLButtonElement>(
@@ -159,12 +198,6 @@ export function FloatingMenu(props: FloatingMenuProps) {
         )}
         style={{
           position: props.strategy ?? "fixed",
-          left: `${position().left}px`,
-          top: `${position().top}px`,
-          "max-height":
-            position().maxHeight === undefined
-              ? undefined
-              : `${position().maxHeight}px`,
           ...props.style,
         }}
         onClick={(event) => event.stopPropagation()}
@@ -296,6 +329,7 @@ export function useFloatingMenuDismiss(
     // Effects can mount before the opening click finishes bubbling.
     const install = globalThis.setTimeout(() => {
       globalThis.addEventListener("click", closeOnPointer);
+      globalThis.addEventListener("contextmenu", closeOnPointer);
     }, 0);
     globalThis.addEventListener("keydown", closeOnEscape);
     globalThis.addEventListener("resize", closeOnResize);
@@ -305,6 +339,7 @@ export function useFloatingMenuDismiss(
     return () => {
       globalThis.clearTimeout(install);
       globalThis.removeEventListener("click", closeOnPointer);
+      globalThis.removeEventListener("contextmenu", closeOnPointer);
       globalThis.removeEventListener("keydown", closeOnEscape);
       globalThis.removeEventListener("resize", closeOnResize);
       if (options?.closeOnScroll) {

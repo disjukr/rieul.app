@@ -7,9 +7,9 @@ interface AppTooltipProps {
 }
 export function AppTooltip(props: AppTooltipProps) {
   const [open, setOpen] = createSignal(false);
-  const [position, setPosition] = createSignal({ left: 0, top: 0 });
   const id = createUniqueId();
   let anchor!: HTMLSpanElement;
+  let popup!: HTMLSpanElement;
   createEffect(open, (visible) => {
     if (!visible) return;
     const trigger =
@@ -21,14 +21,32 @@ export function AppTooltip(props: AppTooltipProps) {
       "aria-describedby",
       [previous, id].filter(Boolean).join(" "),
     );
+    function updatePosition() {
+      const rect = trigger!.getBoundingClientRect();
+      const width = popup.offsetWidth;
+      const height = popup.offsetHeight;
+      const right = rect.right + 12;
+      const preferredLeft =
+        right + width <= globalThis.innerWidth - 8
+          ? right
+          : rect.left - 12 - width;
+      popup.style.left = `${Math.max(8, Math.min(preferredLeft, globalThis.innerWidth - width - 8))}px`;
+      popup.style.top = `${Math.max(8, Math.min(rect.top + (rect.height - height) / 2, globalThis.innerHeight - height - 8))}px`;
+    }
+    updatePosition();
+    const observer = new ResizeObserver(updatePosition);
+    observer.observe(popup);
+    globalThis.addEventListener("resize", updatePosition);
+    globalThis.addEventListener("scroll", updatePosition, true);
     return () => {
+      observer.disconnect();
+      globalThis.removeEventListener("resize", updatePosition);
+      globalThis.removeEventListener("scroll", updatePosition, true);
       if (previous === null) trigger.removeAttribute("aria-describedby");
       else trigger.setAttribute("aria-describedby", previous);
     };
   });
   function show() {
-    const rect = (anchor.firstElementChild ?? anchor).getBoundingClientRect();
-    setPosition({ left: rect.right + 12, top: rect.top + rect.height / 2 });
     setOpen(true);
   }
   return (
@@ -47,10 +65,10 @@ export function AppTooltip(props: AppTooltipProps) {
       {open() ? (
         <Portal>
           <span
+            ref={popup}
             id={id}
             role="tooltip"
-            class={`fixed z-[140] -translate-y-1/2 rounded-[var(--rieul-radius-md)] bg-[var(--rieul-bg-inverse)] text-[var(--rieul-text-inverse)] px-[9px] py-[6px] text-[12px] font-650 pointer-events-none ${props.className ?? ""}`}
-            style={{ left: `${position().left}px`, top: `${position().top}px` }}
+            class={`fixed z-[140] max-w-[calc(100vw-16px)] rounded-[var(--rieul-radius-md)] bg-[var(--rieul-bg-inverse)] text-[var(--rieul-text-inverse)] px-[9px] py-[6px] text-[12px] font-650 pointer-events-none ${props.className ?? ""}`}
           >
             {props.label}
           </span>
