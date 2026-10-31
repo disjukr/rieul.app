@@ -5,7 +5,7 @@ import { render } from "@solidjs/web";
 import { BunjaProvider } from "../../src/solid/bunja";
 import { JotaiProvider } from "../../src/solid/jotai";
 import { JotaiStoreScope } from "../../src/state/jotai-store.ts";
-import { agentsBunja } from "../../src/state/agents.ts";
+import { agentsBunja, type AgentCatalogPhase } from "../../src/state/agents.ts";
 import { rpcSessionBunja } from "../../src/state/rpc-session.ts";
 import {
   workbenchTabBunja,
@@ -14,6 +14,9 @@ import {
 import { AgentTool } from "../../src/view/workbench/tool/agent/index.tsx";
 import { rpcSessionStub } from "../helpers/rpc-session.ts";
 import {
+  type AgentProjectInfo,
+  type AgentProviderInfo,
+  type AgentSessionSummary,
   ProcId,
   AgentAttachmentState,
   AgentSessionTurnState,
@@ -117,12 +120,12 @@ const overrides = [
     addProject: unused,
     addSession: unused,
     archiveSession: unused,
-    availableProvidersAtom: atom([]),
+    availableProvidersAtom: atom<AgentProviderInfo[]>([]),
     errorAtom: atom<string | undefined>(),
-    phaseAtom: atom("ready" as const),
-    projectsAtom: atom([]),
-    providersAtom: atom([]),
-    sessionsAtom: atom([]),
+    phaseAtom: atom<AgentCatalogPhase>("ready"),
+    projectsAtom: atom<AgentProjectInfo[]>([]),
+    providersAtom: atom<AgentProviderInfo[]>([]),
+    sessionsAtom: atom<AgentSessionSummary[]>([]),
     refreshSessions: async () => {},
   })),
   override(workbenchTabBunja, () => {

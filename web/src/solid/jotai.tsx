@@ -40,7 +40,12 @@ export function readAtom<T>(
   createEffect(
     () => ({ store: store(), atom: atom() }),
     ({ store, atom }) => {
-      const update = () => setValue({ value: store.get(atom) });
+      const update = () => {
+        const next = store.get(atom);
+        setValue((previous) =>
+          Object.is(previous.value, next) ? previous : { value: next },
+        );
+      };
       const unsubscribe = store.sub(atom, update);
       // onMount can write synchronously while the subscription is established.
       update();
