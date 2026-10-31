@@ -25,7 +25,7 @@
     "dev": "pnpm --dir web dev",
     "build": "pnpm --dir web build",
     "check": "pnpm --dir web check && tsc -p scripts/tsconfig.json",
-    "test": "tsx --test web/tests/*.test.ts scripts/codegen/tests/*.test.ts",
+    "test": "node --experimental-test-module-mocks --import tsx --test web/tests/*.test.ts scripts/codegen/tests/*.test.ts",
     "lint": "eslint .",
     "format:check": "prettier --check .",
     "test:ui": "playwright test"

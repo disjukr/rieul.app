@@ -1,17 +1,22 @@
+import { rpcSessionBunja } from "../../src/state/rpc-session.ts";
+import { rpcSessionStub } from "../helpers/rpc-session.ts";
+import { encodeRootsTableEventValue } from "../../src/protocol/generated/rpc.ts";
+import { encodeCbor } from "../../src/protocol/cbor.ts";
+import {
+  encodeReqResMessageSequence,
+  ReqResMessageKind,
+} from "../../src/protocol/wire.ts";
 import { useState } from "react";
 import { createRoot } from "react-dom/client";
-import { bunja } from "bunja";
-import { BunjaStoreProvider, useBunja } from "bunja/react";
+import { bunja, createBunjaStore, override } from "bunja";
+import { BunjaStoreContext, useBunja } from "bunja/react";
 import { type Atom, useAtomValue } from "jotai";
 import { JotaiProvider } from "unsaturated/store";
-import { createExplorerRootsBunja } from "../../src/state/explorer.ts";
+import { explorerRootsBunja } from "../../src/state/explorer.ts";
 import { MachineIdContext } from "../../src/state/machine.tsx";
 import { WorkbenchTabIdContext } from "../../src/state/workbench-context.ts";
 import { MachineStorageContext } from "../../src/state/machine-storage.ts";
-import type {
-  FsEntry,
-  RootsTableEvent,
-} from "../../src/protocol/generated/rpc.ts";
+import type { FsEntry } from "../../src/protocol/generated/rpc.ts";
 
 const metrics = { opens: 0, closes: 0, earlyCalls: 0 };
 Object.assign(window, { explorerFixture: metrics });
@@ -31,59 +36,67 @@ const storage = {
   setItem() {},
   removeItem() {},
 };
-const session = bunja(() => {
-  let active = false;
-  bunja.effect(() => {
-    active = true;
-    return () => {
-      active = false;
-    };
-  });
-  return {
-    webTransport: () => {
-      if (!active) {
-        metrics.earlyCalls++;
-        throw new Error("RPC owner is not mounted");
-      }
-      return Promise.resolve({} as WebTransport);
-    },
-    closeRpcSession() {},
-  };
-});
-const roots = createExplorerRootsBunja(session, () => {
-  metrics.opens++;
-  let first = true,
-    closed = false;
-  const pending = Promise.withResolvers<IteratorResult<RootsTableEvent>>();
-  const iterator: AsyncGenerator<RootsTableEvent> = {
-    next: () => {
-      if (!first) return pending.promise;
-      first = false;
-      return Promise.resolve({
-        done: false,
-        value: {
-          type: "snapshot",
-          rows: [{ name: "Fixture root", path: "/", kind: 1, readonly: false }],
-        },
+const store = createBunjaStore({
+  overrides: [
+    override(rpcSessionBunja, () => {
+      let active = false;
+      bunja.effect(() => {
+        active = true;
+        return () => {
+          active = false;
+        };
       });
-    },
-    return: () => {
-      if (!closed) {
-        closed = true;
-        metrics.closes++;
-      }
-      pending.resolve({ done: true, value: undefined });
-      return Promise.resolve({ done: true, value: undefined });
-    },
-    throw: (error: unknown) => Promise.reject(error),
-    [Symbol.asyncIterator]() {
-      return this;
-    },
-    [Symbol.asyncDispose]() {
-      return Promise.resolve();
-    },
-  };
-  return iterator;
+      return rpcSessionStub({
+        webTransport: () => {
+          if (!active) {
+            metrics.earlyCalls++;
+            throw new Error("RPC owner is not mounted");
+          }
+          return Promise.resolve({
+            async createBidirectionalStream() {
+              metrics.opens++;
+              let timer: ReturnType<typeof setInterval>;
+              return {
+                writable: new WritableStream<Uint8Array>(),
+                readable: new ReadableStream<Uint8Array>({
+                  start(controller) {
+                    const send = () =>
+                      controller.enqueue(
+                        encodeReqResMessageSequence([
+                          {
+                            kind: ReqResMessageKind.ResponseStreamChunk,
+                            payload: encodeCbor(
+                              encodeRootsTableEventValue({
+                                type: "snapshot",
+                                rows: [
+                                  {
+                                    name: "Fixture root",
+                                    path: "/",
+                                    kind: 1,
+                                    readonly: false,
+                                  },
+                                ],
+                              }),
+                            ),
+                          },
+                        ]),
+                      );
+                    send();
+                    timer = setInterval(send, 10);
+                  },
+                  cancel() {
+                    clearInterval(timer);
+                    metrics.closes++;
+                  },
+                }),
+              };
+            },
+          } as WebTransport);
+        },
+        closeRpcSession() {},
+      });
+    }),
+  ],
 });
 function Rows({ atom, name }: { atom: Atom<FsEntry[]>; name: string }) {
   const entries = useAtomValue(atom);
@@ -94,7 +107,7 @@ function Rows({ atom, name }: { atom: Atom<FsEntry[]>; name: string }) {
   );
 }
 function Owner({ name }: { name: string }) {
-  const source = useBunja(roots);
+  const source = useBunja(explorerRootsBunja);
   // The child subscribes before its parent's Bunja mount effect in React.
   return <Rows atom={source.rootsAtom} name={name} />;
 }
@@ -116,10 +129,10 @@ function Fixture() {
 }
 createRoot(document.getElementById("root")!).render(
   <JotaiProvider>
-    <BunjaStoreProvider>
+    <BunjaStoreContext value={store}>
       <MachineStorageContext value={storage}>
         <Fixture />
       </MachineStorageContext>
-    </BunjaStoreProvider>
+    </BunjaStoreContext>
   </JotaiProvider>,
 );

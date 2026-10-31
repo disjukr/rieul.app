@@ -17,6 +17,7 @@ import { detectFileViewerImpl } from "./impl-detector/index.ts";
 
 type FileViewerState =
   | { phase: "detecting" }
+  | { phase: "error"; message: string }
   | { phase: "ready"; initialBytes: Uint8Array; impl: FileViewerImplId };
 
 export const FsEntryContext = createContext<FsEntry | undefined>(undefined);
@@ -32,9 +33,10 @@ export const fileViewerBunja = bunja(() => {
   const fsEntryPath = requireFsEntryPath(
     bunja.use(FsEntryPathScope) ?? fsEntryContext?.path,
   );
-  const fsEntry = fsEntryContext?.path === fsEntryPath
-    ? fsEntryContext
-    : fsEntryFromPath(fsEntryPath);
+  const fsEntry =
+    fsEntryContext?.path === fsEntryPath
+      ? fsEntryContext
+      : fsEntryFromPath(fsEntryPath);
   const store = bunja.use(JotaiStoreScope);
 
   const stateAtom = atom<FileViewerState>({ phase: "detecting" });
@@ -87,7 +89,14 @@ export const fileViewerBunja = bunja(() => {
         initialBytes: result.initialBytes,
         impl: result.impl,
       });
-    })();
+    })().catch((error: unknown) => {
+      if (!cancelled) {
+        store.set(stateAtom, {
+          phase: "error",
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+    });
 
     return () => {
       cancelled = true;

@@ -26,27 +26,27 @@ export function FileViewer() {
 
   return (
     <section className={fileViewerClassName}>
-      {state.phase === "detecting"
-        ? (
-          <div className={fileViewerStatusClassName}>
-            <Loader2 size={18} className="animate-spin" />
-            <span>Detecting viewer</span>
-          </div>
-        )
-        : Impl
-        ? (
-          <Suspense
-            fallback={
-              <div className={fileViewerStatusClassName}>
-                <Loader2 size={18} className="animate-spin" />
-                <span>Loading viewer</span>
-              </div>
-            }
-          >
-            <Impl />
-          </Suspense>
-        )
-        : null}
+      {state.phase === "detecting" ? (
+        <div className={fileViewerStatusClassName}>
+          <Loader2 size={18} className="animate-spin" />
+          <span>Detecting viewer</span>
+        </div>
+      ) : state.phase === "error" ? (
+        <div role="alert" className={`${fileViewerStatusClassName} error`}>
+          {state.message}
+        </div>
+      ) : Impl ? (
+        <Suspense
+          fallback={
+            <div className={fileViewerStatusClassName}>
+              <Loader2 size={18} className="animate-spin" />
+              <span>Loading viewer</span>
+            </div>
+          }
+        >
+          <Impl />
+        </Suspense>
+      ) : null}
       <FileViewerFooter />
     </section>
   );

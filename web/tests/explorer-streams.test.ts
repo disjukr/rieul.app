@@ -1,14 +1,30 @@
-import { after, test } from "node:test";
+import type { StreamState } from "../src/state/types.ts";
+import { after, test, mock } from "node:test";
 import assert from "node:assert/strict";
-import { bunja, createBunjaStore, createReadScopeFn } from "bunja";
-import { createStore } from "jotai";
+import { bunja, createBunjaStore, createReadScopeFn, override } from "bunja";
+import { createStore, type Atom } from "jotai";
 import { JotaiStoreScope } from "unsaturated/store";
-import {
-  createExplorerDirectoryBunja,
-  createExplorerRootsBunja,
+import * as client from "../src/protocol/generated/client.ts";
+import { rpcSessionStub } from "./helpers/rpc-session.ts";
+let subscribe: (
+  transport: WebTransport,
+  path?: string,
+) => AsyncGenerator<RootsTableEvent | DirectoryTableEvent>;
+mock.module("../src/protocol/generated/client.ts", {
+  namedExports: {
+    ...client,
+    subscribeRoots: (transport: WebTransport) => subscribe(transport),
+    subscribeDirectory: (transport: WebTransport, request: { path: string }) =>
+      subscribe(transport, request.path),
+  },
+});
+const {
+  explorerRootsBunja: roots,
+  explorerDirectoryBunja: directory,
   explorerNavigationBunja,
   explorerRefreshBunja,
-} from "../src/state/explorer.ts";
+} = await import("../src/state/explorer.ts");
+const { rpcSessionBunja } = await import("../src/state/rpc-session.ts");
 import { machineStoreBunja } from "../src/state/machine-store.ts";
 import { MachineStorageScope } from "../src/state/machine-storage.ts";
 import { MachineIdScope } from "../src/state/machine-scopes.ts";
@@ -66,8 +82,7 @@ const entry = (name: string): FsEntry => ({
   readonly: false,
 });
 function fixture(kind: "roots" | "directory") {
-  const state = createStore(),
-    store = createBunjaStore();
+  const state = createStore();
   const machines = ["a", "b"].map((id) => ({
     id,
     name: id,
@@ -115,33 +130,41 @@ function fixture(kind: "roots" | "directory") {
     | undefined;
   let requests = 0,
     invalidations = 0;
-  const session = bunja(() => {
-    const machine = bunja.use(MachineIdScope)!;
-    let alive = false;
-    bunja.effect(() => {
-      alive = true;
-      return () => {
-        alive = false;
-      };
-    });
-    return {
-      webTransport: () => {
-        requests++;
-        assert(alive, "stream must not use an unmounted RPC dependency");
-        const waiting = deferredTransport;
-        deferredTransport = undefined;
-        return (
-          waiting?.promise ??
-          Promise.resolve({ machine } as unknown as WebTransport)
-        );
-      },
-      closeRpcSession: () => {
-        assert(alive, "consumer cleanup cannot call the disposed dependency");
-        invalidations++;
-      },
-    };
+  const session = rpcSessionBunja;
+  const store = createBunjaStore({
+    overrides: [
+      override(session, () => {
+        const machine = bunja.use(MachineIdScope)!;
+        let alive = false;
+        bunja.effect(() => {
+          alive = true;
+          return () => {
+            alive = false;
+          };
+        });
+        return rpcSessionStub({
+          webTransport: () => {
+            requests++;
+            assert(alive, "stream must not use an unmounted RPC dependency");
+            const waiting = deferredTransport;
+            deferredTransport = undefined;
+            return (
+              waiting?.promise ??
+              Promise.resolve({ machine } as unknown as WebTransport)
+            );
+          },
+          closeRpcSession: () => {
+            assert(
+              alive,
+              "consumer cleanup cannot call the disposed dependency",
+            );
+            invalidations++;
+          },
+        });
+      }),
+    ],
   });
-  function subscribe(transport: WebTransport, path?: string) {
+  subscribe = (transport: WebTransport, path?: string) => {
     const channel = {
       machine: (transport as unknown as { machine: string }).machine,
       path,
@@ -149,33 +172,35 @@ function fixture(kind: "roots" | "directory") {
     };
     channels.push(channel);
     return channel.stream.iterator;
-  }
-  const roots = createExplorerRootsBunja(
-    session,
-    (transport) => subscribe(transport) as AsyncGenerator<RootsTableEvent>,
-  );
-  const directory = createExplorerDirectoryBunja(
-    session,
-    (transport, request) =>
-      subscribe(transport, request.path) as AsyncGenerator<DirectoryTableEvent>,
-  );
-  const model = bunja(() => {
-    if (kind === "roots") {
-      const source = bunja.use(roots);
-      return { rowsAtom: source.rootsAtom, stateAtom: source.rootsStateAtom };
-    }
-    const source = bunja.use(directory);
-    return {
-      rowsAtom: source.directoryRowsAtom,
-      stateAtom: source.directoryStateAtom,
-    };
-  });
+  };
+  const views = new WeakMap<
+    object,
+    { rowsAtom: Atom<FsEntry[]>; stateAtom: Atom<StreamState> }
+  >();
   const navigation = (machine = "a", tab = "one") =>
     store.get(explorerNavigationBunja, read(machine, tab)).value;
   const get = (machine = "a", tab = "one") => {
     if (kind === "directory")
       navigation(machine, tab).replaceWithPath("/first");
-    return store.get(model, read(machine, tab));
+    const entry =
+      kind === "roots"
+        ? store.get(roots, read(machine, tab))
+        : store.get(directory, read(machine, tab));
+    let value = views.get(entry.value);
+    if (!value) {
+      value =
+        "rootsAtom" in entry.value
+          ? {
+              rowsAtom: entry.value.rootsAtom,
+              stateAtom: entry.value.rootsStateAtom,
+            }
+          : {
+              rowsAtom: entry.value.directoryRowsAtom,
+              stateAtom: entry.value.directoryStateAtom,
+            };
+      views.set(entry.value, value);
+    }
+    return { ...entry, value };
   };
   return {
     state,

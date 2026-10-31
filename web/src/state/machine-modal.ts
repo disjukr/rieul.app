@@ -26,9 +26,17 @@ export const machineModalBunja = bunja(() => {
   const isRequestingPairingCodeAtom = atom(false);
   const isPairingAtom = atom(false);
   const modalTitleAtom = atom((get) =>
-    machineModalTitle(get(machineModalModeAtom))
+    machineModalTitle(get(machineModalModeAtom)),
   );
   let pairingRequestSerial = 0;
+  let active = false;
+  bunja.effect(() => {
+    active = true;
+    return () => {
+      active = false;
+      pairingRequestSerial++;
+    };
+  });
 
   function addMachine() {
     store.set(machineFormErrorAtom, "");
@@ -42,7 +50,8 @@ export const machineModalBunja = bunja(() => {
 
     const machine: Machine = {
       id: crypto.randomUUID(),
-      name: store.get(machineNameAtom).trim() ||
+      name:
+        store.get(machineNameAtom).trim() ||
         inferMachineNameFromUrl(normalizedBaseUrl),
       baseUrl: normalizedBaseUrl,
     };
@@ -58,7 +67,8 @@ export const machineModalBunja = bunja(() => {
     if (
       store.get(machines.machinesAtom).length === 0 &&
       store.get(machineModalModeAtom) !== "add"
-    ) return;
+    )
+      return;
     store.set(machineNameAtom, "");
     store.set(machineNameEditedAtom, false);
     store.set(baseUrlAtom, "");
@@ -168,17 +178,22 @@ export const machineModalBunja = bunja(() => {
     if (!selected || store.get(isPairingAtom)) return;
     const code = store.get(pairingCodeAtom).trim();
     if (!code) return;
+    const serial = pairingRequestSerial;
     store.set(isPairingAtom, true);
     store.set(machineFormErrorAtom, "");
     try {
       const credentials = await rpcSession.completePairingSession(code);
+      if (!isCurrentPairingRequest(selected, serial)) return;
       machines.setMachineCredentials(selected.id, credentials);
       resetPairingCode();
       store.set(machineModalModeAtom, undefined);
     } catch (err) {
-      store.set(machineFormErrorAtom, errorMessage(err));
+      if (isCurrentPairingRequest(selected, serial)) {
+        store.set(machineFormErrorAtom, errorMessage(err));
+      }
     } finally {
-      store.set(isPairingAtom, false);
+      if (active && serial === pairingRequestSerial)
+        store.set(isPairingAtom, false);
     }
   }
 
@@ -192,18 +207,15 @@ export const machineModalBunja = bunja(() => {
     store.set(isRequestingPairingCodeAtom, true);
     void (async () => {
       try {
-        const { pairingCodeExpiresAtUnix } = await rpcSession
-          .startPairingSession(
-            confirmationCode,
-            clientLabel,
-          );
+        const { pairingCodeExpiresAtUnix } =
+          await rpcSession.startPairingSession(confirmationCode, clientLabel);
         if (!isCurrentPairingRequest(machine, serial)) return;
         store.set(pairingCodeExpiresAtUnixAtom, pairingCodeExpiresAtUnix);
       } catch (err) {
         if (!isCurrentPairingRequest(machine, serial)) return;
         store.set(machineFormErrorAtom, errorMessage(err));
       } finally {
-        if (serial === pairingRequestSerial) {
+        if (active && serial === pairingRequestSerial) {
           store.set(isRequestingPairingCodeAtom, false);
         }
       }
@@ -218,6 +230,7 @@ export const machineModalBunja = bunja(() => {
 
   function cancelPairingRequest() {
     pairingRequestSerial++;
+    store.set(isPairingAtom, false);
     store.set(isRequestingPairingCodeAtom, false);
   }
 
@@ -228,10 +241,13 @@ export const machineModalBunja = bunja(() => {
   }
 
   function isCurrentPairingRequest(machine: Machine, serial: number) {
-    return serial === pairingRequestSerial &&
+    return (
+      active &&
+      serial === pairingRequestSerial &&
       store.get(machineModalModeAtom) === "pair" &&
       store.get(machines.selectedAtom)?.id === machine.id &&
-      !!machines.findMachine(machine.id);
+      !!machines.findMachine(machine.id)
+    );
   }
 
   function updateMachineNameDraft(value: string) {

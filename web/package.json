@@ -7,7 +7,7 @@
     "desktop:icons": "tsx src/tools/generate-desktop-icons.ts",
     "build": "vite build",
     "check": "tsc -b && tsc -p tsconfig.tools.json",
-    "test": "tsx --test tests/*.test.ts",
+    "test": "node --experimental-test-module-mocks --import tsx --test tests/*.test.ts",
     "check:daemon": "tsx src/tools/check-daemon.ts",
     "preview": "vite preview --host 0.0.0.0",
     "desktop:build:windows": "node ../pairing/scripts/package.mjs --replace",

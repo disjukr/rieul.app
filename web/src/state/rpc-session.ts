@@ -155,9 +155,7 @@ export const rpcSessionBunja = bunja(() => {
     if (startedAtMs <= 0) return undefined;
     const daemonServerTimeMs = get(daemonServerTimeMsAtom);
     if (daemonServerTimeMs === undefined) return undefined;
-    const uptimeSeconds = Math.floor(
-      (daemonServerTimeMs - startedAtMs) / 1000,
-    );
+    const uptimeSeconds = Math.floor((daemonServerTimeMs - startedAtMs) / 1000);
     return Math.max(0, uptimeSeconds);
   });
   bunja.effect(() => {
@@ -188,9 +186,7 @@ export const rpcSessionBunja = bunja(() => {
     setActiveController(undefined);
   }
 
-  function setActiveController(
-    controller: RpcSessionController | undefined,
-  ) {
+  function setActiveController(controller: RpcSessionController | undefined) {
     activeController = controller;
     store.set(activeControllerAtom, controller);
   }
@@ -200,8 +196,7 @@ export const rpcSessionBunja = bunja(() => {
     if (!machineId || !store.get(machineState.machineAtom)) {
       return undefined;
     }
-    let rpcController: RpcSessionController;
-    rpcController = createRpcSessionController(
+    const rpcController: RpcSessionController = createRpcSessionController(
       controllerEnv(machineId, () => {
         if (activeController === rpcController) {
           rpcController.closeRpcSession();
@@ -236,19 +231,11 @@ export const rpcSessionBunja = bunja(() => {
     replaceController();
   }
 
-  function startPairingSession(
-    confirmationCode: string,
-    clientLabel: string,
-  ) {
-    return controller().startPairingSession(
-      confirmationCode,
-      clientLabel,
-    );
+  function startPairingSession(confirmationCode: string, clientLabel: string) {
+    return controller().startPairingSession(confirmationCode, clientLabel);
   }
 
-  function completePairingSession(
-    code: string,
-  ) {
+  function completePairingSession(code: string) {
     return controller().completePairingSession(code);
   }
 
@@ -275,6 +262,7 @@ function createRpcSessionController(
   env: RpcSessionControllerEnv,
 ): RpcSessionController {
   let closed = false;
+  let sessionGeneration = 0;
   let pairingStarted = false;
   let rpcSession: Promise<ManagedRpcSession> | undefined;
   const stateAtom = atom<RpcSessionState>(initialRpcSessionState());
@@ -303,10 +291,11 @@ function createRpcSessionController(
   }
 
   async function openInitialSession(): Promise<void> {
+    const generation = sessionGeneration;
     try {
       await getRpcSession();
     } catch {
-      if (!closed) setConnectionOffline();
+      if (!closed && generation === sessionGeneration) setConnectionOffline();
     }
   }
 
@@ -326,20 +315,24 @@ function createRpcSessionController(
     if (rpcSession) return rpcSession;
     const machine = currentMachine();
     if (!machine) throw new Error("missing machine");
-    const session = openRpcSession(machine);
+    const session = openRpcSession(machine, sessionGeneration);
     rpcSession = session;
-    session.then((openedSession) => {
-      openedSession.transport.closed.catch(() => {}).finally(() => {
-        if (rpcSession !== session || closed) return;
-        rpcSession = undefined;
-        handleTransportClosed();
+    session
+      .then((openedSession) => {
+        openedSession.transport.closed
+          .catch(() => {})
+          .finally(() => {
+            if (rpcSession !== session || closed) return;
+            rpcSession = undefined;
+            handleTransportClosed();
+          });
+      })
+      .catch(() => {
+        if (rpcSession === session) {
+          rpcSession = undefined;
+          if (!closed) setConnectionOffline();
+        }
       });
-    }).catch(() => {
-      if (rpcSession === session) {
-        rpcSession = undefined;
-        if (!closed) setConnectionOffline();
-      }
-    });
     return session;
   }
 
@@ -351,12 +344,15 @@ function createRpcSessionController(
     return session;
   }
 
-  async function openRpcSession(machine: Machine): Promise<ManagedRpcSession> {
+  async function openRpcSession(
+    machine: Machine,
+    generation: number,
+  ): Promise<ManagedRpcSession> {
     const session = manageRpcSession(
       await openWebTransport(machine),
       setDatagramRtt,
     );
-    if (closed) {
+    if (closed || generation !== sessionGeneration) {
       closeManagedRpcSession(session);
       throw new Error("RPC session was closed");
     }
@@ -367,12 +363,12 @@ function createRpcSessionController(
         closeManagedRpcSession(session);
         throw err;
       }
-      if (closed) {
+      if (closed || generation !== sessionGeneration) {
         closeManagedRpcSession(session);
         throw new Error("RPC session was closed");
       }
       await renewCredential(session);
-      if (closed) {
+      if (closed || generation !== sessionGeneration) {
         closeManagedRpcSession(session);
         throw new Error("RPC session was closed");
       }
@@ -419,6 +415,7 @@ function createRpcSessionController(
   }
 
   function closeRpcSession() {
+    sessionGeneration++;
     pairingStarted = false;
     const session = rpcSession;
     rpcSession = undefined;
@@ -433,32 +430,23 @@ function createRpcSessionController(
     const machine = currentMachine();
     if (!machine) throw new Error("missing machine");
     pairingStarted = false;
-    return await withControllerRpcSession(
-      getRpcSession(),
-      async (session) => {
-        const response = await startPairing(
-          session.transport,
-          {
-            confirmationCode,
-            clientLabel,
-            clientId: machine.clientId,
-          },
-        );
-        pairingStarted = true;
-        return response;
-      },
-    );
+    return await withControllerRpcSession(getRpcSession(), async (session) => {
+      const response = await startPairing(session.transport, {
+        confirmationCode,
+        clientLabel,
+        clientId: machine.clientId,
+      });
+      pairingStarted = true;
+      return response;
+    });
   }
 
-  async function completePairingSession(
-    code: string,
-  ) {
+  async function completePairingSession(code: string) {
     if (!pairingStarted || !rpcSession) {
       throw new Error("Pairing was not started on this connection");
     }
-    const credentials = await withControllerRpcSession(
-      rpcSession,
-      (session) => completePairing(session.transport, { code }),
+    const credentials = await withControllerRpcSession(rpcSession, (session) =>
+      completePairing(session.transport, { code }),
     );
     const session = await rpcSession;
     await authenticateManagedSessionWithCredential(
@@ -484,13 +472,10 @@ function createRpcSessionController(
   function isControllerRpcSession(
     session: Promise<ManagedRpcSession>,
   ): boolean {
-    return !closed &&
-      rpcSession === session;
+    return !closed && rpcSession === session;
   }
 
-  function setState(
-    update: (state: RpcSessionState) => RpcSessionState,
-  ) {
+  function setState(update: (state: RpcSessionState) => RpcSessionState) {
     env.store.set(stateAtom, update);
   }
 
@@ -518,23 +503,21 @@ function createRpcSessionController(
     clientSecret: string,
   ): Promise<void> {
     if (session.authenticatedClientId === clientId) return;
-    await authenticateWebTransport(
-      session.transport,
-      clientId,
-      clientSecret,
-    );
+    await authenticateWebTransport(session.transport, clientId, clientSecret);
     session.authenticatedClientId = clientId;
     startCredentialRenewalLoop(session);
   }
 
   function handleTransportClosed() {
     if (closed) return;
+    sessionGeneration++;
     setConnectionOffline();
   }
 
   async function refreshDaemonInfoForCurrentMachine(
     options: { loadingAlreadySet?: boolean } = {},
   ): Promise<void> {
+    const generation = sessionGeneration;
     if (!options.loadingAlreadySet) {
       setState((state) => ({
         ...state,
@@ -543,9 +526,9 @@ function createRpcSessionController(
     }
     try {
       const session = await getRpcSession();
-      if (closed) return;
+      if (closed || generation !== sessionGeneration) return;
       const daemonInfo = await getDaemonInfo(session.transport);
-      if (closed) return;
+      if (closed || generation !== sessionGeneration) return;
       setState((state) => ({
         ...state,
         daemonInfo: {
@@ -555,7 +538,7 @@ function createRpcSessionController(
         },
       }));
     } catch (err) {
-      if (closed) return;
+      if (closed || generation !== sessionGeneration) return;
       setState((state) => ({
         ...state,
         daemonInfo: {
@@ -605,9 +588,7 @@ function manageRpcSession(
   return managed;
 }
 
-function closeManagedRpcSession(
-  session: ManagedRpcSession,
-): void {
+function closeManagedRpcSession(session: ManagedRpcSession): void {
   closeDatagramRuntime(session.datagrams);
   closeProtocolWebTransport(session.transport);
 }
@@ -642,7 +623,7 @@ async function readDatagrams(
       if (done) break;
       await handleIncomingDatagram(runtime, value);
     }
-  } catch (err) {
+  } catch {
     closeDatagramRuntime(runtime);
   } finally {
     try {
@@ -666,10 +647,12 @@ async function handleIncomingDatagram(
 
   if (message.kind === DatagramMessageKind.Ping) {
     try {
-      await runtime.writer.write(encodeDatagramMessage({
-        kind: DatagramMessageKind.Pong,
-        pingId: message.pingId,
-      }));
+      await runtime.writer.write(
+        encodeDatagramMessage({
+          kind: DatagramMessageKind.Pong,
+          pingId: message.pingId,
+        }),
+      );
     } catch {
       closeDatagramRuntime(runtime);
     }
@@ -699,19 +682,22 @@ function sendDatagramPing(runtime: DatagramRuntime): void {
     }, DATAGRAM_PING_TIMEOUT_MS),
   };
   runtime.pendingPing = pending;
-  runtime.writer.write(encodeDatagramMessage({
-    kind: DatagramMessageKind.Ping,
-    pingId,
-  })).catch(() => {
-    if (runtime.pendingPing === pending) clearPendingDatagramPing(runtime);
-    closeDatagramRuntime(runtime);
-  });
+  runtime.writer
+    .write(
+      encodeDatagramMessage({
+        kind: DatagramMessageKind.Ping,
+        pingId,
+      }),
+    )
+    .catch(() => {
+      if (runtime.pendingPing === pending) clearPendingDatagramPing(runtime);
+      closeDatagramRuntime(runtime);
+    });
 }
 
 function nextDatagramPingId(runtime: DatagramRuntime): number {
-  runtime.nextPingId = runtime.nextPingId >= Number.MAX_SAFE_INTEGER
-    ? 1
-    : runtime.nextPingId + 1;
+  runtime.nextPingId =
+    runtime.nextPingId >= Number.MAX_SAFE_INTEGER ? 1 : runtime.nextPingId + 1;
   return runtime.nextPingId;
 }
 

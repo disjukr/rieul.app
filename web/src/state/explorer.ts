@@ -1,4 +1,4 @@
-import { type Bunja, bunja } from "bunja";
+import { bunja } from "bunja";
 import { atom, type PrimitiveAtom } from "jotai";
 import { atomWithStorage } from "jotai/utils";
 import { type JotaiStore, JotaiStoreScope } from "unsaturated/store";
@@ -41,7 +41,7 @@ export const explorerMachineBunja = bunja(() => {
   const machine = bunja.use(machineBunja);
 
   const connectionKeyAtom = atom((get) =>
-    explorerConnectionKey(get(machine.machineAtom))
+    explorerConnectionKey(get(machine.machineAtom)),
   );
 
   return {
@@ -83,20 +83,21 @@ export const explorerNavigationBunja = bunja(() => {
   );
   const locationAtom = atom((get) => get(navigationStateAtom).location);
   const currentPathAtom = atom((get) =>
-    currentPathFromLocation(get(locationAtom))
+    currentPathFromLocation(get(locationAtom)),
   );
   const directoryPathAtom = atom((get) =>
-    directoryPathFromLocation(get(locationAtom))
+    directoryPathFromLocation(get(locationAtom)),
   );
   const openedFileAtom = atom((get) => {
     const location = get(locationAtom);
     return location.type === "file" ? location.entry : undefined;
   });
   const displayPathAtom = atom((get) =>
-    displayPathFromLocation(get(locationAtom))
+    displayPathFromLocation(get(locationAtom)),
   );
-  const specialLocationAtom = atom((get): ExplorerSpecialLocation | undefined =>
-    get(locationAtom).type === "trash" ? "trash" : undefined
+  const specialLocationAtom = atom(
+    (get): ExplorerSpecialLocation | undefined =>
+      get(locationAtom).type === "trash" ? "trash" : undefined,
   );
   const historyAtom = atom((get) => get(navigationStateAtom).history);
   const selectedPathAtom = atom<string | undefined>(undefined);
@@ -248,239 +249,214 @@ function ownObservedStream<T>(
   });
 }
 
-interface ExplorerRpcSession {
-  webTransport: () => Promise<WebTransport>;
-  closeRpcSession: () => void;
-}
+export const explorerRootsBunja = bunja(() => {
+  bunja.use(MachineIdScope);
+  bunja.use(WorkbenchTabIdScope);
+  const store = bunja.use(JotaiStoreScope);
+  const machineState = bunja.use(explorerMachineBunja);
+  const machines = bunja.use(machineStoreBunja);
+  const rpcSession = bunja.use(rpcSessionBunja);
+  const refresh = bunja.use(explorerRefreshBunja);
 
-export function createExplorerRootsBunja(
-  sessionBunja: Bunja<ExplorerRpcSession> = rpcSessionBunja,
-  subscribe = subscribeRoots,
-) {
-  return bunja(() => {
-    bunja.use(MachineIdScope);
-    bunja.use(WorkbenchTabIdScope);
-    const store = bunja.use(JotaiStoreScope);
-    const machineState = bunja.use(explorerMachineBunja);
-    const machines = bunja.use(machineStoreBunja);
-    const rpcSession = bunja.use(sessionBunja);
-    const refresh = bunja.use(explorerRefreshBunja);
+  const rootsAtom = atom<FsEntry[]>([]);
+  const rootsStateAtom = atom<StreamState>({
+    phase: "idle",
+    message: "Roots idle",
+  });
+  const rootsSubscriptionKeyAtom = atom((get) =>
+    [
+      get(machineState.connectionKeyAtom),
+      get(machineState.isPairedAtom) ? "paired" : "unpaired",
+      get(refresh.refreshAtom),
+    ].join("\n"),
+  );
+  const visibleRowsAtom = atom((get) => sortEntries(get(rootsAtom)));
 
-    const rootsAtom = atom<FsEntry[]>([]);
-    const rootsStateAtom = atom<StreamState>({
-      phase: "idle",
-      message: "Roots idle",
-    });
-    const rootsSubscriptionKeyAtom = atom((get) =>
-      [
-        get(machineState.connectionKeyAtom),
-        get(machineState.isPairedAtom) ? "paired" : "unpaired",
-        get(refresh.refreshAtom),
-      ].join("\n"),
-    );
-    const visibleRowsAtom = atom((get) => sortEntries(get(rootsAtom)));
+  ownObservedStream(rootsAtom, () => {
+    let stopCurrent: (() => void) | undefined;
 
-    ownObservedStream(rootsAtom, () => {
-      let stopCurrent: (() => void) | undefined;
+    function start() {
+      stopCurrent?.();
+      stopCurrent = undefined;
 
-      function start() {
-        stopCurrent?.();
-        stopCurrent = undefined;
+      const machine = store.get(machineState.machineAtom);
+      if (!machine || !store.get(machineState.isPairedAtom)) {
+        store.set(rootsAtom, []);
+        store.set(rootsStateAtom, { phase: "idle", message: "Roots idle" });
+        return;
+      }
+      const activeMachine = machine;
 
-        const machine = store.get(machineState.machineAtom);
-        if (!machine || !store.get(machineState.isPairedAtom)) {
-          store.set(rootsAtom, []);
-          store.set(rootsStateAtom, { phase: "idle", message: "Roots idle" });
-          return;
-        }
-        const activeMachine = machine;
-
-        let cancelled = false;
-        let iterator: AsyncGenerator<RootsTableEvent> | undefined;
-        stopCurrent = () => {
-          cancelled = true;
-          void iterator?.return(undefined);
-        };
-        store.set(rootsStateAtom, {
-          phase: "connecting",
-          message: "Opening roots",
-        });
-        void (async () => {
-          try {
-            const transport = await rpcSession.webTransport();
-            if (cancelled) return;
-            iterator = subscribe(transport);
-            for await (const event of iterator) {
-              if (cancelled) break;
-              applyRootsEvent(event, store, rootsAtom, rootsStateAtom);
-            }
-          } catch (err) {
-            if (!cancelled) {
-              if (
-                handleInvalidCredentials(
-                  activeMachine,
-                  err,
-                  machines.clearMachineCredentials,
-                  rpcSession.closeRpcSession,
-                )
-              ) {
-                store.set(rootsStateAtom, {
-                  phase: "error",
-                  message:
-                    "Pairing is no longer valid. Pair this machine again.",
-                });
-                return;
-              }
+      let cancelled = false;
+      let iterator: AsyncGenerator<RootsTableEvent> | undefined;
+      stopCurrent = () => {
+        cancelled = true;
+        void iterator?.return(undefined);
+      };
+      store.set(rootsStateAtom, {
+        phase: "connecting",
+        message: "Opening roots",
+      });
+      void (async () => {
+        try {
+          const transport = await rpcSession.webTransport();
+          if (cancelled) return;
+          iterator = subscribeRoots(transport);
+          for await (const event of iterator) {
+            if (cancelled) break;
+            applyRootsEvent(event, store, rootsAtom, rootsStateAtom);
+          }
+        } catch (err) {
+          if (!cancelled) {
+            if (
+              handleInvalidCredentials(
+                activeMachine,
+                err,
+                machines.clearMachineCredentials,
+                rpcSession.closeRpcSession,
+              )
+            ) {
               store.set(rootsStateAtom, {
                 phase: "error",
-                message: errorMessage(err),
+                message: "Pairing is no longer valid. Pair this machine again.",
               });
+              return;
             }
+            store.set(rootsStateAtom, {
+              phase: "error",
+              message: errorMessage(err),
+            });
           }
-        })();
-      }
+        }
+      })();
+    }
 
-      const unsubscribe = store.sub(rootsSubscriptionKeyAtom, start);
-      start();
-      return () => {
-        unsubscribe();
-        stopCurrent?.();
-      };
-    });
-
-    return {
-      rootsAtom,
-      rootsStateAtom,
-      visibleRowsAtom,
+    const unsubscribe = store.sub(rootsSubscriptionKeyAtom, start);
+    start();
+    return () => {
+      unsubscribe();
+      stopCurrent?.();
     };
   });
-}
 
-export const explorerRootsBunja = createExplorerRootsBunja();
+  return {
+    rootsAtom,
+    rootsStateAtom,
+    visibleRowsAtom,
+  };
+});
 
-export function createExplorerDirectoryBunja(
-  sessionBunja: Bunja<ExplorerRpcSession> = rpcSessionBunja,
-  subscribe = subscribeDirectory,
-) {
-  return bunja(() => {
-    bunja.use(MachineIdScope);
-    bunja.use(WorkbenchTabIdScope);
-    const store = bunja.use(JotaiStoreScope);
-    const machineState = bunja.use(explorerMachineBunja);
-    const machines = bunja.use(machineStoreBunja);
-    const rpcSession = bunja.use(sessionBunja);
-    const refresh = bunja.use(explorerRefreshBunja);
-    const navigation = bunja.use(explorerNavigationBunja);
+export const explorerDirectoryBunja = bunja(() => {
+  bunja.use(MachineIdScope);
+  bunja.use(WorkbenchTabIdScope);
+  const store = bunja.use(JotaiStoreScope);
+  const machineState = bunja.use(explorerMachineBunja);
+  const machines = bunja.use(machineStoreBunja);
+  const rpcSession = bunja.use(rpcSessionBunja);
+  const refresh = bunja.use(explorerRefreshBunja);
+  const navigation = bunja.use(explorerNavigationBunja);
 
-    const directoryRowsAtom = atom<FsEntry[]>([]);
-    const directoryStateAtom = atom<StreamState>({
-      phase: "idle",
-      message: "Directory idle",
-    });
-    const directorySubscriptionKeyAtom = atom((get) =>
-      [
-        get(machineState.connectionKeyAtom),
-        get(machineState.isPairedAtom) ? "paired" : "unpaired",
-        get(navigation.directoryPathAtom) ?? "",
-        get(refresh.refreshAtom),
-      ].join("\n"),
-    );
-    const visibleRowsAtom = atom((get) => sortEntries(get(directoryRowsAtom)));
+  const directoryRowsAtom = atom<FsEntry[]>([]);
+  const directoryStateAtom = atom<StreamState>({
+    phase: "idle",
+    message: "Directory idle",
+  });
+  const directorySubscriptionKeyAtom = atom((get) =>
+    [
+      get(machineState.connectionKeyAtom),
+      get(machineState.isPairedAtom) ? "paired" : "unpaired",
+      get(navigation.directoryPathAtom) ?? "",
+      get(refresh.refreshAtom),
+    ].join("\n"),
+  );
+  const visibleRowsAtom = atom((get) => sortEntries(get(directoryRowsAtom)));
 
-    ownObservedStream(directoryRowsAtom, () => {
-      let stopCurrent: (() => void) | undefined;
+  ownObservedStream(directoryRowsAtom, () => {
+    let stopCurrent: (() => void) | undefined;
 
-      function start() {
-        stopCurrent?.();
-        stopCurrent = undefined;
-        store.set(directoryRowsAtom, []);
-        store.set(navigation.selectedPathAtom, undefined);
+    function start() {
+      stopCurrent?.();
+      stopCurrent = undefined;
+      store.set(directoryRowsAtom, []);
+      store.set(navigation.selectedPathAtom, undefined);
 
-        const machine = store.get(machineState.machineAtom);
-        const directoryPath = store.get(navigation.directoryPathAtom);
-        if (
-          !machine ||
-          !store.get(machineState.isPairedAtom) ||
-          !directoryPath
-        ) {
-          store.set(directoryStateAtom, {
-            phase: "idle",
-            message: "Directory idle",
-          });
-          return;
-        }
-        const activeMachine = machine;
-
-        let cancelled = false;
-        let iterator: AsyncGenerator<DirectoryTableEvent> | undefined;
-        stopCurrent = () => {
-          cancelled = true;
-          void iterator?.return(undefined);
-        };
+      const machine = store.get(machineState.machineAtom);
+      const directoryPath = store.get(navigation.directoryPathAtom);
+      if (!machine || !store.get(machineState.isPairedAtom) || !directoryPath) {
         store.set(directoryStateAtom, {
-          phase: "connecting",
-          message: "Opening directory",
+          phase: "idle",
+          message: "Directory idle",
         });
-        void (async () => {
-          try {
-            const transport = await rpcSession.webTransport();
-            if (cancelled) return;
-            iterator = subscribe(transport, { path: directoryPath });
-            for await (const event of iterator) {
-              if (cancelled) break;
-              applyDirectoryEvent(
-                event,
-                store,
-                directoryRowsAtom,
-                directoryStateAtom,
-                (path) => {
-                  navigation.replaceWithMovedDirectory(path);
-                },
-              );
-            }
-          } catch (err) {
-            if (!cancelled) {
-              if (
-                handleInvalidCredentials(
-                  activeMachine,
-                  err,
-                  machines.clearMachineCredentials,
-                  rpcSession.closeRpcSession,
-                )
-              ) {
-                store.set(directoryStateAtom, {
-                  phase: "error",
-                  message:
-                    "Pairing is no longer valid. Pair this machine again.",
-                });
-                return;
-              }
+        return;
+      }
+      const activeMachine = machine;
+
+      let cancelled = false;
+      let iterator: AsyncGenerator<DirectoryTableEvent> | undefined;
+      stopCurrent = () => {
+        cancelled = true;
+        void iterator?.return(undefined);
+      };
+      store.set(directoryStateAtom, {
+        phase: "connecting",
+        message: "Opening directory",
+      });
+      void (async () => {
+        try {
+          const transport = await rpcSession.webTransport();
+          if (cancelled) return;
+          iterator = subscribeDirectory(transport, { path: directoryPath });
+          for await (const event of iterator) {
+            if (cancelled) break;
+            applyDirectoryEvent(
+              event,
+              store,
+              directoryRowsAtom,
+              directoryStateAtom,
+              (path) => {
+                navigation.replaceWithMovedDirectory(path);
+              },
+            );
+          }
+        } catch (err) {
+          if (!cancelled) {
+            if (
+              handleInvalidCredentials(
+                activeMachine,
+                err,
+                machines.clearMachineCredentials,
+                rpcSession.closeRpcSession,
+              )
+            ) {
               store.set(directoryStateAtom, {
                 phase: "error",
-                message: errorMessage(err),
+                message: "Pairing is no longer valid. Pair this machine again.",
               });
+              return;
             }
+            store.set(directoryStateAtom, {
+              phase: "error",
+              message: errorMessage(err),
+            });
           }
-        })();
-      }
+        }
+      })();
+    }
 
-      const unsubscribe = store.sub(directorySubscriptionKeyAtom, start);
-      start();
-      return () => {
-        unsubscribe();
-        stopCurrent?.();
-      };
-    });
-
-    return {
-      directoryRowsAtom,
-      directoryStateAtom,
-      visibleRowsAtom,
+    const unsubscribe = store.sub(directorySubscriptionKeyAtom, start);
+    start();
+    return () => {
+      unsubscribe();
+      stopCurrent?.();
     };
   });
-}
 
-export const explorerDirectoryBunja = createExplorerDirectoryBunja();
+  return {
+    directoryRowsAtom,
+    directoryStateAtom,
+    visibleRowsAtom,
+  };
+});
 
 export const explorerBunja = bunja(() => {
   bunja.use(MachineIdScope);
@@ -499,14 +475,17 @@ export const explorerBunja = bunja(() => {
   const openedFileAtom = atom((get) => {
     const openedFile = get(navigation.openedFileAtom);
     if (!openedFile) return undefined;
-    return get(rowsAtom).find((entry) => entry.path === openedFile.path) ??
-      openedFile;
+    return (
+      get(rowsAtom).find((entry) => entry.path === openedFile.path) ??
+      openedFile
+    );
   });
   const visibleRowsAtom = atom((get) => sortEntries(get(rowsAtom)));
-  const selectedEntryAtom = atom((get) =>
-    get(rowsAtom).find((entry) =>
-      entry.path === get(navigation.selectedPathAtom)
-    ) ?? undefined
+  const selectedEntryAtom = atom(
+    (get) =>
+      get(rowsAtom).find(
+        (entry) => entry.path === get(navigation.selectedPathAtom),
+      ) ?? undefined,
   );
 
   return {
@@ -544,10 +523,7 @@ function explorerConnectionKey(machine?: Machine): string {
   ].join("\n");
 }
 
-function requireScopeValue(
-  value: string | undefined,
-  name: string,
-): string {
+function requireScopeValue(value: string | undefined, name: string): string {
   if (!value) throw new Error(`${name} is not provided.`);
   return value;
 }
@@ -683,14 +659,12 @@ function applyRootsEvent(
     return;
   }
   if (event.type === "patch") {
-    store.set(
-      rootsAtom,
-      (current) =>
-        applyEntryPatch(
-          current,
-          event.removes.map((item) => item.path),
-          event.upserts,
-        ),
+    store.set(rootsAtom, (current) =>
+      applyEntryPatch(
+        current,
+        event.removes.map((item) => item.path),
+        event.upserts,
+      ),
     );
     store.set(rootsStateAtom, { phase: "live", message: "Roots updated" });
     return;
@@ -719,8 +693,8 @@ function applyDirectoryEvent(
   if (event.type === "patch") {
     store.set(directoryRowsAtom, (current) => {
       const removedNames = new Set(event.removes.map((item) => item.name));
-      const remaining = current.filter((entry) =>
-        !removedNames.has(entry.name)
+      const remaining = current.filter(
+        (entry) => !removedNames.has(entry.name),
       );
       const upsertNames = new Set(event.upserts.map((entry) => entry.name));
       return sortEntries([
@@ -755,8 +729,8 @@ function applyEntryPatch(
   const removed = new Set(removedPaths);
   const upsertPaths = new Set(upserts.map((entry) => entry.path));
   return sortEntries([
-    ...current.filter((entry) =>
-      !removed.has(entry.path) && !upsertPaths.has(entry.path)
+    ...current.filter(
+      (entry) => !removed.has(entry.path) && !upsertPaths.has(entry.path),
     ),
     ...upserts,
   ]);
@@ -781,9 +755,7 @@ function kindRank(kind: FsEntryKind): number {
   return 3;
 }
 
-export function pathCrumbs(
-  path?: string,
-): { label: string; path?: string }[] {
+export function pathCrumbs(path?: string): { label: string; path?: string }[] {
   if (!path) return [{ label: "Root" }];
   const { root, separator } = pathRoot(path);
   const crumbs = [{ label: "Root" }, { label: root, path: root }];

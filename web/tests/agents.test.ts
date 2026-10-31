@@ -1,8 +1,42 @@
-import { test } from "node:test";
-import { bunja, createBunjaStore, createReadScopeFn } from "bunja";
+import { test, mock } from "node:test";
+import { bunja, createBunjaStore, createReadScopeFn, override } from "bunja";
 import { atom, createStore } from "jotai";
 import { JotaiStoreScope } from "unsaturated/store";
-import { createAgentsBunja } from "../src/state/agents-model.ts";
+import * as client from "../src/protocol/generated/client.ts";
+import { rpcSessionStub } from "./helpers/rpc-session.ts";
+let api: Pick<
+  typeof client,
+  | "listAgentSessions"
+  | "createAgentProject"
+  | "createAgentSession"
+  | "updateAgentSession"
+  | "subscribeAgentProviders"
+  | "subscribeAgentProjects"
+>;
+mock.module("../src/protocol/generated/client.ts", {
+  namedExports: {
+    ...client,
+    listAgentSessions: (...args: Parameters<typeof client.listAgentSessions>) =>
+      api.listAgentSessions(...args),
+    createAgentProject: (
+      ...args: Parameters<typeof client.createAgentProject>
+    ) => api.createAgentProject(...args),
+    createAgentSession: (
+      ...args: Parameters<typeof client.createAgentSession>
+    ) => api.createAgentSession(...args),
+    updateAgentSession: (
+      ...args: Parameters<typeof client.updateAgentSession>
+    ) => api.updateAgentSession(...args),
+    subscribeAgentProviders: (
+      ...args: Parameters<typeof client.subscribeAgentProviders>
+    ) => api.subscribeAgentProviders(...args),
+    subscribeAgentProjects: (
+      ...args: Parameters<typeof client.subscribeAgentProjects>
+    ) => api.subscribeAgentProjects(...args),
+  },
+});
+const { agentsBunja: agents } = await import("../src/state/agents.ts");
+const { rpcSessionBunja } = await import("../src/state/rpc-session.ts");
 import { machineBunja, machineStoreBunja } from "../src/state/machine-store.ts";
 import { MachineIdScope } from "../src/state/machine-scopes.ts";
 import { MachineStorageScope } from "../src/state/machine-storage.ts";
@@ -60,7 +94,7 @@ const project: AgentProjectInfo = {
 };
 function fixture() {
   const state = createStore();
-  const store = createBunjaStore();
+
   const machines = ["a", "b"].map((id) => ({
     id,
     name: id,
@@ -75,13 +109,16 @@ function fixture() {
     removeItem() {},
   };
   const read = (id = "a") =>
-    createReadScopeFn([
-      [JotaiStoreScope, state],
-      [MachineStorageScope, storage],
-      [MachineIdScope, id],
-    ], () => {
-      throw new Error("unexpected scope");
-    });
+    createReadScopeFn(
+      [
+        [JotaiStoreScope, state],
+        [MachineStorageScope, storage],
+        [MachineIdScope, id],
+      ],
+      () => {
+        throw new Error("unexpected scope");
+      },
+    );
   const requests: ReturnType<typeof deferred<ListAgentSessionsRes>>[] = [];
   const creations: ReturnType<typeof deferred<AgentProjectInfo>>[] = [];
   const sessionCreations: ReturnType<typeof deferred<AgentSessionInfo>>[] = [];
@@ -89,24 +126,29 @@ function fixture() {
   const providers: ReturnType<typeof stream<AgentProvidersTableEvent>>[] = [];
   const projects: ReturnType<typeof stream<AgentProjectsTableEvent>>[] = [];
   const transports: string[] = [];
-  const session = bunja(() => {
-    const machine = bunja.use(machineBunja);
-    const daemonInstanceIdAtom = atom<string | undefined>("daemon");
-    let closed = false;
-    bunja.effect(() => () => {
-      closed = true;
-      state.set(daemonInstanceIdAtom, undefined);
-    });
-    return {
-      daemonInstanceIdAtom,
-      webTransport: () => {
-        assert(!closed, "cleanup must not call disposed RPC dependency");
-        transports.push(machine.machineId!);
-        return Promise.resolve({} as WebTransport);
-      },
-    };
+  const session = rpcSessionBunja;
+  const store = createBunjaStore({
+    overrides: [
+      override(session, () => {
+        const machine = bunja.use(machineBunja);
+        const daemonInstanceIdAtom = atom<string | undefined>("daemon");
+        let closed = false;
+        bunja.effect(() => () => {
+          closed = true;
+          state.set(daemonInstanceIdAtom, undefined);
+        });
+        return rpcSessionStub({
+          daemonInstanceIdAtom,
+          webTransport: () => {
+            assert(!closed, "cleanup must not call disposed RPC dependency");
+            transports.push(machine.machineId!);
+            return Promise.resolve({} as WebTransport);
+          },
+        });
+      }),
+    ],
   });
-  const agents = createAgentsBunja(session, {
+  api = {
     listAgentSessions: () => {
       const request = deferred<ListAgentSessionsRes>();
       requests.push(request);
@@ -137,7 +179,7 @@ function fixture() {
       projects.push(result);
       return result.iterator;
     },
-  });
+  };
   return {
     state,
     store,
@@ -231,10 +273,10 @@ test("machine scopes stay isolated while selection switches and old requests com
   const oldProject = a.value.addProject("/old");
   await flush();
   // Changing the scoped machine credentials replaces its subscription lifetime.
-  machines.updateMachine(
-    "a",
-    (machine) => ({ ...machine, clientSecret: "replacement" }),
-  );
+  machines.updateMachine("a", (machine) => ({
+    ...machine,
+    clientSecret: "replacement",
+  }));
   await flush();
   assert(f.providers[0].returns() === 1 && f.requests.length === 3);
   f.requests[0].resolve({ rows: [], catalogRevision: 0 });
