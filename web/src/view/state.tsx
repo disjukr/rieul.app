@@ -40,6 +40,17 @@ export const layoutBunja = bunja(() => {
     | ReturnType<typeof globalThis.setTimeout>
     | undefined;
 
+  let stopActiveResize: (() => void) | undefined;
+
+  bunja.effect(() => () => {
+    stopActiveResize?.();
+    if (machinePanelTransitionTimeout !== undefined) {
+      globalThis.clearTimeout(machinePanelTransitionTimeout);
+      machinePanelTransitionTimeout = undefined;
+    }
+    store.set(machinePanelTransitioningAtom, false);
+  });
+
   function clampMachinePanelWidth(width: number) {
     const maxByViewport = Math.max(
       machinePanelMinWidth,
@@ -53,10 +64,9 @@ export const layoutBunja = bunja(() => {
     );
   }
 
-  function startMachinePanelResize(
-    event: ReactPointerEvent<HTMLDivElement>,
-  ) {
+  function startMachinePanelResize(event: ReactPointerEvent<HTMLDivElement>) {
     event.preventDefault();
+    stopActiveResize?.();
     store.set(machinePanelTransitioningAtom, false);
     const initialX = event.clientX;
     const initialWidth = store.get(machinePanelWidthAtom);
@@ -69,13 +79,12 @@ export const layoutBunja = bunja(() => {
     function resize(moveEvent: PointerEvent) {
       store.set(
         machinePanelWidthAtom,
-        clampMachinePanelWidth(
-          initialWidth + moveEvent.clientX - initialX,
-        ),
+        clampMachinePanelWidth(initialWidth + moveEvent.clientX - initialX),
       );
     }
 
     function stopResize() {
+      stopActiveResize = undefined;
       document.body.style.cursor = previousCursor;
       document.body.style.userSelect = previousUserSelect;
       globalThis.removeEventListener("pointermove", resize);
@@ -83,6 +92,7 @@ export const layoutBunja = bunja(() => {
       globalThis.removeEventListener("pointercancel", stopResize);
     }
 
+    stopActiveResize = stopResize;
     globalThis.addEventListener("pointermove", resize);
     globalThis.addEventListener("pointerup", stopResize);
     globalThis.addEventListener("pointercancel", stopResize);
@@ -95,17 +105,15 @@ export const layoutBunja = bunja(() => {
     if (event.key === "ArrowLeft") {
       event.preventDefault();
       store.set(machinePanelTransitioningAtom, false);
-      store.set(
-        machinePanelWidthAtom,
-        (width) => clampMachinePanelWidth(width - step),
+      store.set(machinePanelWidthAtom, (width) =>
+        clampMachinePanelWidth(width - step),
       );
     }
     if (event.key === "ArrowRight") {
       event.preventDefault();
       store.set(machinePanelTransitioningAtom, false);
-      store.set(
-        machinePanelWidthAtom,
-        (width) => clampMachinePanelWidth(width + step),
+      store.set(machinePanelWidthAtom, (width) =>
+        clampMachinePanelWidth(width + step),
       );
     }
     if (event.key === "Home") {
@@ -116,10 +124,8 @@ export const layoutBunja = bunja(() => {
     if (event.key === "End") {
       event.preventDefault();
       store.set(machinePanelTransitioningAtom, false);
-      store.set(
-        machinePanelWidthAtom,
-        (width) =>
-          clampMachinePanelWidth(Math.max(width, machinePanelMaxWidth)),
+      store.set(machinePanelWidthAtom, (width) =>
+        clampMachinePanelWidth(Math.max(width, machinePanelMaxWidth)),
       );
     }
   }

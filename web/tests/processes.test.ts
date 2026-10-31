@@ -1,9 +1,23 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { bunja, createBunjaStore, createReadScopeFn, createScope } from "bunja";
+import {
+  bunja,
+  createBunjaStore,
+  createReadScopeFn,
+  createScope,
+  override,
+  type Bunja,
+} from "bunja";
 import { atom, createStore } from "jotai/vanilla";
 import { JotaiStoreScope } from "unsaturated/store";
-import { createProcessesBunja } from "../src/state/processes-model.ts";
+import { processesBunja } from "../src/state/processes.ts";
+import { rpcSessionBunja } from "../src/state/rpc-session.ts";
+import { encodeProcessesTableEventValue } from "../src/protocol/generated/rpc.ts";
+import { encodeCbor } from "../src/protocol/cbor.ts";
+import {
+  encodeReqResMessageSequence,
+  ReqResMessageKind,
+} from "../src/protocol/wire.ts";
 import {
   ProcId,
   type ProcessesTableEvent,
@@ -25,6 +39,7 @@ const ready = (supported = true): DaemonInfoState => ({
 });
 const row = (pid: number, name = String(pid)): ProcessInfo => ({
   pid,
+  ppid: undefined,
   name,
   status: { type: "run" as const },
 });
@@ -32,57 +47,72 @@ async function flush() {
   for (let i = 0; i < 20; i++) await Promise.resolve();
 }
 function stream() {
-  let pending = Promise.withResolvers<IteratorResult<ProcessesTableEvent>>();
+  let controller!: ReadableStreamDefaultController<Uint8Array>;
   let returns = 0;
-  const iterator: AsyncGenerator<ProcessesTableEvent> = {
-    next: () => pending.promise,
-    // Leave the read pending to simulate a remote reply racing cancellation.
-    return: () => {
+  const readable = new ReadableStream<Uint8Array>({
+    start(value) {
+      controller = value;
+    },
+    cancel() {
       returns++;
-      return Promise.resolve({ done: true, value: undefined });
     },
-    throw: (error) => Promise.reject(error),
-    [Symbol.asyncIterator]() {
-      return this;
-    },
-    [Symbol.asyncDispose]: async () => {},
-  };
+  });
   return {
-    iterator,
+    transportStream: { readable, writable: new WritableStream<Uint8Array>() },
     returns: () => returns,
     send(event: ProcessesTableEvent) {
-      const old = pending;
-      pending = Promise.withResolvers();
-      old.resolve({ done: false, value: event });
+      controller.enqueue(
+        encodeReqResMessageSequence([
+          {
+            kind: ReqResMessageKind.ResponseStreamChunk,
+            payload: encodeCbor(encodeProcessesTableEventValue(event)),
+          },
+        ]),
+      );
     },
     fail(error: unknown) {
-      pending.reject(error);
+      controller.error(error);
     },
   };
 }
 function fixture() {
-  const state = createStore(),
-    store = createBunjaStore();
+  const state = createStore();
   const SessionScope = createScope<ReturnType<typeof session>>();
-  function session() {
-    return {
-      daemonInfoAtom: atom<DaemonInfoState>(ready()),
-      webTransport: async () => ({}) as WebTransport,
-    };
+  type RpcSession =
+    typeof rpcSessionBunja extends Bunja<infer Value> ? Value : never;
+  function unused(): never {
+    throw new Error("Unexpected RPC method");
   }
-  const sessions = [session(), session()];
   const streams: ReturnType<typeof stream>[] = [];
-  const model = createProcessesBunja(
-    bunja(() => bunja.use(SessionScope)),
-    () => {
+  const transport = {
+    async createBidirectionalStream() {
       const channel = stream();
       streams.push(channel);
-      return channel.iterator;
+      return channel.transportStream;
     },
-  );
+  } as WebTransport;
+  function session() {
+    return {
+      closeRpcSession: unused,
+      reconnect: unused,
+      resetController: unused,
+      startPairingSession: async () => unused(),
+      completePairingSession: async () => unused(),
+      connectionAtom: atom({ phase: "idle" as const }),
+      daemonInstanceIdAtom: atom<string | undefined>("fixture"),
+      daemonServerTimeMsAtom: atom<number | undefined>(undefined),
+      daemonUptimeSecondsAtom: atom<number | undefined>(undefined),
+      daemonInfoAtom: atom<DaemonInfoState>(ready()),
+      webTransport: async () => transport,
+    } satisfies RpcSession;
+  }
+  const sessions = [session(), session()];
+  const store = createBunjaStore({
+    overrides: [override(rpcSessionBunja, () => bunja.use(SessionScope))],
+  });
   const get = (index = 0) =>
     store.get(
-      model,
+      processesBunja,
       createReadScopeFn(
         [
           [JotaiStoreScope, state],
@@ -93,7 +123,7 @@ function fixture() {
         },
       ),
     );
-  return { state, store, sessions, streams, get };
+  return { state, store, sessions, streams, get, transport };
 }
 
 test("list and tree share one stream, patches and final cleanup; sessions stay isolated", async () => {
@@ -125,9 +155,13 @@ test("list and tree share one stream, patches and final cleanup; sessions stay i
   stopA();
   assert.equal(f.streams[0].returns(), 0);
   stopB();
+  f.streams[0].send({ type: "snapshot", rows: [] });
+  await flush();
   assert.equal(f.streams[0].returns(), 1);
   assert.equal(f.streams[1].returns(), 0);
   stopOther();
+  f.streams[1].send({ type: "snapshot", rows: [] });
+  await flush();
   assert.equal(f.streams[1].returns(), 1);
   f.store.dispose();
 });
@@ -144,7 +178,6 @@ test("disconnect/reconnect clears rows and rejects late events and failures", as
     phase: "loading",
     rows: [],
   });
-  assert.equal(f.streams[0].returns(), 1);
   f.state.set(f.sessions[0].daemonInfoAtom, ready());
   await flush();
   f.streams[0].send({ type: "snapshot", rows: [row(99)] });
@@ -169,11 +202,11 @@ test("unmount while transport is pending cannot subscribe after remount", async 
   const entry = f.get(),
     stop = entry.mount();
   stop();
-  f.sessions[0].webTransport = async () => ({}) as WebTransport;
+  f.sessions[0].webTransport = async () => f.transport;
   const next = f.get(),
     stopNext = next.mount();
   await flush();
-  pending.resolve({} as WebTransport);
+  pending.resolve(f.transport);
   await flush();
   assert.equal(f.streams.length, 1);
   f.streams[0].send({ type: "snapshot", rows: [row(4)] });

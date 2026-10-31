@@ -1,6 +1,6 @@
-import { bunja } from "bunja";
+import { bunja, createBunjaStore, override } from "bunja";
 import {
-  BunjaStoreProvider,
+  BunjaStoreContext,
   createScopeFromContext,
   useBunja,
 } from "bunja/react";
@@ -8,67 +8,89 @@ import { createContext, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { atom, useAtomValue } from "jotai";
 import { JotaiProvider } from "unsaturated/store";
-import { createProcessesBunja } from "../../src/state/processes-model.ts";
-import type { DaemonInfoState } from "../../src/state/rpc-session.ts";
+import { processesBunja } from "../../src/state/processes.ts";
+import { rpcSessionBunja } from "../../src/state/rpc-session.ts";
+import { encodeProcessesTableEventValue } from "../../src/protocol/generated/rpc.ts";
+import { encodeCbor } from "../../src/protocol/cbor.ts";
 import {
-  ProcId,
-  type ProcessesTableEvent,
-} from "../../src/protocol/generated/rpc.ts";
+  encodeReqResMessageSequence,
+  ReqResMessageKind,
+} from "../../src/protocol/wire.ts";
+import type { DaemonInfoState } from "../../src/state/rpc-session.ts";
+import { ProcId } from "../../src/protocol/generated/rpc.ts";
 const MachineContext = createContext("a");
 const MachineScope = createScopeFromContext(MachineContext);
 const diagnostics = { starts: 0, stops: 0 };
 Object.assign(window, { processesFixture: diagnostics });
-const session = bunja(() => {
-  const id = bunja.use(MachineScope);
-  return {
-    daemonInfoAtom: atom<DaemonInfoState>({
-      phase: "ready",
-      receivedAtMs: 0,
-      daemonInfo: {
-        supportedProcIds: [ProcId.SubscribeProcesses],
-        version: "fixture",
-        os: "fixture",
-        instanceId: id,
-        startedAtMs: 0,
-        serverTimeMs: 0,
-      },
-    }),
-    webTransport: async () => ({ id }) as unknown as WebTransport,
-  };
-});
-const model = createProcessesBunja(session, (transport) => {
-  diagnostics.starts++;
-  const id = (transport as unknown as { id: string }).id;
-  let first = true;
-  const pending = Promise.withResolvers<IteratorResult<ProcessesTableEvent>>();
-  return {
-    next: async () => {
-      if (!first) return pending.promise;
-      first = false;
+function unused(): never {
+  throw new Error("Unexpected RPC method");
+}
+const store = createBunjaStore({
+  overrides: [
+    override(rpcSessionBunja, () => {
+      const id = bunja.use(MachineScope);
       return {
-        done: false as const,
-        value: {
-          type: "snapshot" as const,
-          rows: [{ pid: 1, name: id, status: { type: "run" as const } }],
-        },
+        closeRpcSession: unused,
+        reconnect: unused,
+        resetController: unused,
+        startPairingSession: async () => unused(),
+        completePairingSession: async () => unused(),
+        connectionAtom: atom({ phase: "idle" as const }),
+        daemonInstanceIdAtom: atom<string | undefined>(id),
+        daemonServerTimeMsAtom: atom<number | undefined>(undefined),
+        daemonUptimeSecondsAtom: atom<number | undefined>(undefined),
+        daemonInfoAtom: atom<DaemonInfoState>({
+          phase: "ready",
+          receivedAtMs: 0,
+          daemonInfo: {
+            supportedProcIds: [ProcId.SubscribeProcesses],
+            version: "fixture",
+            os: "fixture",
+            instanceId: id,
+            startedAtMs: 0,
+            serverTimeMs: 0,
+          },
+        }),
+        webTransport: async () =>
+          ({
+            async createBidirectionalStream() {
+              diagnostics.starts++;
+              let timer: ReturnType<typeof setInterval>;
+              const readable = new ReadableStream<Uint8Array>({
+                start(controller) {
+                  const send = () =>
+                    controller.enqueue(
+                      encodeReqResMessageSequence([
+                        {
+                          kind: ReqResMessageKind.ResponseStreamChunk,
+                          payload: encodeCbor(
+                            encodeProcessesTableEventValue({
+                              type: "snapshot",
+                              rows: [
+                                { pid: 1, name: id, status: { type: "run" } },
+                              ],
+                            }),
+                          ),
+                        },
+                      ]),
+                    );
+                  send();
+                  timer = setInterval(send, 10);
+                },
+                cancel() {
+                  clearInterval(timer);
+                  diagnostics.stops++;
+                },
+              });
+              return { readable, writable: new WritableStream<Uint8Array>() };
+            },
+          }) as WebTransport,
       };
-    },
-    return: async () => {
-      diagnostics.stops++;
-      pending.resolve({ done: true, value: undefined });
-      return { done: true as const, value: undefined };
-    },
-    throw: async (error: unknown) => {
-      throw error;
-    },
-    [Symbol.asyncIterator]() {
-      return this;
-    },
-    [Symbol.asyncDispose]: async () => {},
-  };
+    }),
+  ],
 });
 function Consumer({ name }: { name: string }) {
-  const { stateAtom } = useBunja(model);
+  const { stateAtom } = useBunja(processesBunja);
   const state = useAtomValue(stateAtom);
   return (
     <output aria-label={name}>
@@ -95,8 +117,8 @@ function Fixture() {
 }
 createRoot(document.getElementById("root")!).render(
   <JotaiProvider>
-    <BunjaStoreProvider>
+    <BunjaStoreContext value={store}>
       <Fixture />
-    </BunjaStoreProvider>
+    </BunjaStoreContext>
   </JotaiProvider>,
 );
