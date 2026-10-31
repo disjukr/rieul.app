@@ -15,8 +15,9 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "noEmit": true,
-    "jsx": "react-jsx",
-    "types": ["react", "react-dom"]
+    "jsx": "preserve",
+    "types": ["vite/client"],
+    "jsxImportSource": "@solidjs/web"
   },
   "include": ["src"],
   "exclude": ["src/tools"]

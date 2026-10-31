@@ -7,7 +7,5 @@ onlyBuiltDependencies:
   - "@napi-rs/canvas"
   - sharp
 
-# panecake uses the public atom/scope APIs shared by the app.
-overrides:
-  panecake>jotai: 3.0.1
-  panecake>bunja: 4.0.0-alpha.1
+# Bunja core is used with the app-local Solid v2 binding.
+autoInstallPeers: false

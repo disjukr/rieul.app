@@ -16,31 +16,24 @@
     "desktop:dev:macos": "node ../pairing/scripts/dev.mjs --config ../tmp/dev/rieul.yaml --show"
   },
   "dependencies": {
-    "@base-ui/react": "1.6.0",
-    "@dnd-kit/core": "6.3.1",
     "@unocss/reset": "66.7.0",
     "@xterm/addon-fit": "0.10.0",
     "@xterm/xterm": "5.5.0",
     "bunja": "4.0.0-alpha.1",
     "class-variance-authority": "0.7.1",
     "jotai": "3.0.1",
-    "lucide-react": "0.468.0",
     "marked": "18.0.5",
     "monaco-editor": "0.55.1",
-    "panecake": "0.0.1",
     "pdfjs-dist": "5.7.284",
-    "react": "19.2.6",
-    "react-dom": "19.2.6",
-    "unsaturated": "0.0.3"
+    "solid-js": "2.0.0-rc.20",
+    "@solidjs/web": "2.0.0-rc.20"
   },
   "devDependencies": {
     "@resvg/resvg-js": "2.6.2",
-    "@types/react": "19.2.14",
-    "@types/react-dom": "19.2.3",
-    "@vitejs/plugin-react": "4.7.0",
     "rollup-plugin-visualizer": "6.0.11",
     "typescript": "5.9.3",
     "unocss": "66.7.0",
-    "vite": "6.4.2"
+    "vite": "8.3.5",
+    "@solidjs/vite-plugin": "3.0.0-next.54"
   }
 }

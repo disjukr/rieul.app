@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { defineConfig } from "vite";
-import react from "@vitejs/plugin-react";
+import solid from "@solidjs/vite-plugin";
 import { visualizer } from "rollup-plugin-visualizer";
 import UnoCSS from "unocss/vite";
 import { resolve } from "node:path";
@@ -10,7 +10,21 @@ const devAllowedHosts = readDevAllowedHosts();
 export default defineConfig({
   plugins: [
     UnoCSS(),
-    react(),
+    solid(),
+    {
+      name: "verify-react-free-runtime",
+      generateBundle() {
+        const reactModules = [...this.getModuleIds()].filter((id) =>
+          /[/\\]node_modules[/\\](?:\.pnpm[/\\][^/\\]+[/\\]node_modules[/\\])?(?:react|react-dom)(?:[/\\]|$)/.test(
+            id,
+          ),
+        );
+        if (reactModules.length)
+          this.error(
+            `React runtime remains in the Solid build:\n${reactModules.join("\n")}`,
+          );
+      },
+    },
     visualizer({
       filename: "dist/bundle-stats.html",
       gzipSize: true,
@@ -23,7 +37,7 @@ export default defineConfig({
     port: 5173,
   },
   build: {
-    rollupOptions: {
+    rolldownOptions: {
       input: {
         app: resolve(import.meta.dirname, "index.html"),
       },

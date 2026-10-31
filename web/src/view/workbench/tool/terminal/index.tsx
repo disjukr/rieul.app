@@ -1,10 +1,16 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { useAtomValue } from "jotai";
-import { useBunja } from "bunja/react";
+import {
+  createEffect,
+  createSignal,
+  createMemo,
+  Show,
+  onCleanup,
+} from "solid-js";
+import { useAtomValue } from "../../../../solid/jotai.tsx";
+import { useBunja } from "../../../../solid/bunja.tsx";
 import type { FitAddon } from "@xterm/addon-fit";
 import type { Terminal as XTerm } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
-import { HardDrive, KeyRound, Loader2 } from "lucide-react";
+import { HardDrive, KeyRound, Loader2 } from "../../../../solid/icons.tsx";
 import {
   attachTerminalSession,
   closeTerminalSession,
@@ -29,7 +35,6 @@ import {
   type WorkbenchTerminalSessionSnapshot,
 } from "../../../../state/workbench.ts";
 import { Button } from "../../../ui/button.tsx";
-
 const terminalToolClassName = [
   "grid [grid-template-rows:minmax(0,1fr)_auto_auto]",
   "w-full h-full min-w-0 min-h-0 overflow-hidden",
@@ -93,15 +98,17 @@ const terminalStatusNoticeClassName = [
 ].join(" ");
 const terminalNoticeButtonClassName =
   "!h-[1.5rem] !min-h-[1.5rem] !rounded-[4px] !border-[#38465a] !bg-[#111827] !px-[6px] !leading-none !text-[#d0d5dd] hover:!bg-[#172033]";
-
 interface TerminalRuntime {
   terminal: XTerm;
   fitAddon: FitAddon;
-  inputDisposable: { dispose: () => void };
-  replayQueryDisposables: Array<{ dispose: () => void }>;
+  inputDisposable: {
+    dispose: () => void;
+  };
+  replayQueryDisposables: Array<{
+    dispose: () => void;
+  }>;
   resizeObserver: ResizeObserver;
 }
-
 interface TerminalStatus {
   phase:
     | "idle"
@@ -113,99 +120,111 @@ interface TerminalStatus {
     | "error";
   message: string;
 }
-
 interface TerminalNotice {
   actionLabel: string;
   presentation: "banner" | "overlay";
   message: string;
   title: string;
 }
-
 interface OpenTerminalOptions {
   cwd?: string;
   existingSessionId?: string;
   launch?: TerminalLaunchSpec;
   title?: string;
 }
-
 export function TerminalTool() {
   const machineStore = useBunja(machineStoreBunja);
   const machineModal = useBunja(machineModalBunja);
   const rpcSession = useBunja(rpcSessionBunja);
   const tabState = useBunja(workbenchTabBunja);
-  const machine = useAtomValue(machineStore.selectedAtom);
-  const isPaired = useAtomValue(machineStore.selectedIsPairedAtom);
-  const daemonInstanceId = useAtomValue(rpcSession.daemonInstanceIdAtom);
-  const tab = useAtomValue(tabState.tabAtom);
-  const focused = useAtomValue(tabState.focusedAtom);
-  const hostRef = useRef<HTMLDivElement>(null);
-  const machineRef = useRef<Machine | undefined>(undefined);
-  const activeRef = useRef(false);
-  const runtimeRef = useRef<TerminalRuntime | undefined>(undefined);
-  const terminalSessionIdRef = useRef<string | undefined>(undefined);
-  const attachIdRef = useRef<string | undefined>(undefined);
-  const primaryAttachIdRef = useRef<string | undefined>(undefined);
-  const latestSeqRef = useRef<number | undefined>(undefined);
-  const stopAttachRef = useRef<(() => void) | undefined>(undefined);
-  const generationRef = useRef(0);
-  const inputQueueRef = useRef<Promise<void>>(Promise.resolve());
-  const takeControlPromiseRef = useRef<Promise<void> | undefined>(undefined);
-  const replayOutputUntilSeqRef = useRef<number | undefined>(undefined);
-  const suppressReplayGeneratedInputRef = useRef(false);
-  const replayWriteDepthRef = useRef(0);
-  const persistedSessionSnapshotKeyRef = useRef<string | undefined>(undefined);
-  const terminalSessionFinishedRef = useRef(false);
-  const xtermReadyPromiseRef = useRef<
-    Promise<TerminalRuntime | undefined> | undefined
-  >(undefined);
-  const lastSizeRef = useRef<{ cols: number; rows: number } | undefined>(
-    undefined,
+  const machine = useAtomValue(() => machineStore().selectedAtom);
+  const isPaired = useAtomValue(() => machineStore().selectedIsPairedAtom);
+  const daemonInstanceId = useAtomValue(
+    () => rpcSession().daemonInstanceIdAtom,
   );
-  const [status, setStatus] = useState<TerminalStatus>({
+  const tab = useAtomValue(() => tabState().tabAtom);
+  const focused = useAtomValue(() => tabState().focusedAtom);
+  const [hostElement, setHostElement] = createSignal<HTMLDivElement>();
+  const machineRef = { current: undefined as Machine | undefined };
+  const activeRef = { current: false };
+  const runtimeRef = { current: undefined as TerminalRuntime | undefined };
+  const terminalSessionIdRef = { current: undefined as string | undefined };
+  const attachIdRef = { current: undefined as string | undefined };
+  const primaryAttachIdRef = { current: undefined as string | undefined };
+  const latestSeqRef = { current: undefined as number | undefined };
+  const stopAttachRef = { current: undefined as (() => void) | undefined };
+  const generationRef = { current: 0 };
+  const inputQueueRef = { current: Promise.resolve() as Promise<void> };
+  const takeControlPromiseRef = {
+    current: undefined as Promise<void> | undefined,
+  };
+  const replayOutputUntilSeqRef = { current: undefined as number | undefined };
+  const suppressReplayGeneratedInputRef = { current: false };
+  const replayWriteDepthRef = { current: 0 };
+  const persistedSessionSnapshotKeyRef = {
+    current: undefined as string | undefined,
+  };
+  const terminalSessionFinishedRef = { current: false };
+  const xtermReadyPromiseRef = {
+    current: undefined as Promise<TerminalRuntime | undefined> | undefined,
+  };
+  const lastSizeRef = {
+    current: undefined as
+      | {
+          cols: number;
+          rows: number;
+        }
+      | undefined,
+  };
+  const [status, setStatus] = createSignal<TerminalStatus>({
     phase: "waiting",
     message: "Waiting for terminal",
   });
-  const [terminalDimensions, setTerminalDimensions] = useState({
+  const [terminalDimensions, setTerminalDimensions] = createSignal({
     cols: 80,
     rows: 24,
   });
-  const [sessionInfo, setSessionInfo] = useState<TerminalSessionInfo>();
-
-  useEffect(() => {
-    machineRef.current = machine;
-  }, [machine]);
-
-  useLayoutEffect(() => {
-    activeRef.current = focused;
-  }, [focused]);
-
-  useEffect(() => {
-    if (!focused) return;
-    fitTerminal();
-    void takeCurrentControl();
-  }, [focused]);
-
-  useEffect(() => {
-    if (!sessionInfo) {
-      persistedSessionSnapshotKeyRef.current = undefined;
-      return;
-    }
-
-    const snapshot: WorkbenchTerminalSessionSnapshot = {
-      lastKnownCwd: sessionInfo.lastKnownCwd,
-      lastKnownTitle: sessionInfo.lastKnownTitle,
-      launch: sessionInfo.launch,
-    };
-    const snapshotKey = terminalSessionSnapshotKey(snapshot);
-    if (persistedSessionSnapshotKeyRef.current === snapshotKey) return;
-    persistedSessionSnapshotKeyRef.current = snapshotKey;
-    tabState.setTerminalSessionSnapshot(snapshot);
-  }, [sessionInfo, tabState]);
-
-  useEffect(() => {
-    const host = hostRef.current;
+  const [sessionInfo, setSessionInfo] = createSignal<TerminalSessionInfo>();
+  createEffect(
+    () => [machine()],
+    () => {
+      machineRef.current = machine();
+    },
+  );
+  createEffect(
+    () => [focused()],
+    () => {
+      activeRef.current = focused();
+    },
+  );
+  createEffect(
+    () => [focused()],
+    () => {
+      if (!focused()) return;
+      fitTerminal();
+      void takeCurrentControl();
+    },
+  );
+  createEffect(
+    () => [sessionInfo(), tabState()],
+    () => {
+      if (!sessionInfo()) {
+        persistedSessionSnapshotKeyRef.current = undefined;
+        return;
+      }
+      const snapshot: WorkbenchTerminalSessionSnapshot = {
+        lastKnownCwd: sessionInfo()!.lastKnownCwd,
+        lastKnownTitle: sessionInfo()!.lastKnownTitle,
+        launch: sessionInfo()!.launch,
+      };
+      const snapshotKey = terminalSessionSnapshotKey(snapshot);
+      if (persistedSessionSnapshotKeyRef.current === snapshotKey) return;
+      persistedSessionSnapshotKeyRef.current = snapshotKey;
+      tabState().setTerminalSessionSnapshot(snapshot);
+    },
+  );
+  createEffect(hostElement, (host) => {
     if (!host) return;
-
     let disposed = false;
     const readyPromise = setupXtermRuntime(host).then((runtime) => {
       if (disposed || !runtime) {
@@ -216,7 +235,6 @@ export function TerminalTool() {
       return runtime;
     });
     xtermReadyPromiseRef.current = readyPromise;
-
     return () => {
       disposed = true;
       stopCurrentAttach();
@@ -224,8 +242,7 @@ export function TerminalTool() {
       runtimeRef.current = undefined;
       xtermReadyPromiseRef.current = undefined;
     };
-  }, []);
-
+  });
   async function setupXtermRuntime(
     host: HTMLDivElement,
   ): Promise<TerminalRuntime | undefined> {
@@ -234,7 +251,6 @@ export function TerminalTool() {
       import("@xterm/addon-fit"),
     ]);
     if (!host.isConnected) return undefined;
-
     const terminal = new Terminal({
       cursorBlink: true,
       fontFamily: "Cascadia Mono, CaskaydiaCove Nerd Font, Consolas, monospace",
@@ -255,7 +271,6 @@ export function TerminalTool() {
     const size = terminalSize(terminal);
     lastSizeRef.current = size;
     setTerminalDimensions(size);
-
     const inputDisposable = terminal.onData((data) => queueTerminalInput(data));
     const replayQueryDisposables = installReplayQueryHandlers(
       terminal,
@@ -275,7 +290,6 @@ export function TerminalTool() {
       resizeObserver,
     };
   }
-
   function disposeTerminalRuntime(runtime: TerminalRuntime | undefined) {
     runtime?.inputDisposable.dispose();
     for (const disposable of runtime?.replayQueryDisposables ?? []) {
@@ -284,89 +298,80 @@ export function TerminalTool() {
     runtime?.resizeObserver.disconnect();
     runtime?.terminal.dispose();
   }
-
-  useEffect(() => {
-    if (!machine || !isPaired) {
-      stopCurrentAttach();
-      terminalSessionIdRef.current = undefined;
-      attachIdRef.current = undefined;
-      primaryAttachIdRef.current = undefined;
-      takeControlPromiseRef.current = undefined;
-      replayOutputUntilSeqRef.current = undefined;
-      suppressReplayGeneratedInputRef.current = false;
-      replayWriteDepthRef.current = 0;
-      latestSeqRef.current = undefined;
-      setSessionInfo(undefined);
-      setStatus({ phase: "idle", message: "Terminal idle" });
-      return;
-    }
-
-    if (!daemonInstanceId) {
-      stopCurrentAttach();
-      terminalSessionIdRef.current = undefined;
-      attachIdRef.current = undefined;
-      primaryAttachIdRef.current = undefined;
-      takeControlPromiseRef.current = undefined;
-      replayOutputUntilSeqRef.current = undefined;
-      suppressReplayGeneratedInputRef.current = false;
-      replayWriteDepthRef.current = 0;
-      latestSeqRef.current = undefined;
-      setSessionInfo(undefined);
-      setStatus({ phase: "waiting", message: "Waiting for terminal" });
-      return;
-    }
-
-    void openTerminal({
-      cwd: tab?.terminalLastKnownCwd,
-      existingSessionId: tab?.terminalSessionId,
-      launch: tab?.terminalLaunch,
-      title: tab?.terminalLastKnownTitle ?? tab?.title,
-    });
-    return () => stopCurrentAttach();
-  }, [
-    machine?.id,
-    machine?.baseUrl,
-    machine?.clientId,
-    machine?.clientSecret,
-    isPaired,
-    daemonInstanceId,
-    tab?.id,
-  ]);
-
+  createEffect(
+    () => [
+      machine()?.id,
+      machine()?.baseUrl,
+      machine()?.clientId,
+      machine()?.clientSecret,
+      isPaired(),
+      daemonInstanceId(),
+      tab()?.id,
+    ],
+    () => {
+      if (!machine() || !isPaired()) {
+        stopCurrentAttach();
+        terminalSessionIdRef.current = undefined;
+        attachIdRef.current = undefined;
+        primaryAttachIdRef.current = undefined;
+        takeControlPromiseRef.current = undefined;
+        replayOutputUntilSeqRef.current = undefined;
+        suppressReplayGeneratedInputRef.current = false;
+        replayWriteDepthRef.current = 0;
+        latestSeqRef.current = undefined;
+        setSessionInfo(undefined);
+        setStatus({ phase: "idle", message: "Terminal idle" });
+        return;
+      }
+      if (!daemonInstanceId()) {
+        stopCurrentAttach();
+        terminalSessionIdRef.current = undefined;
+        attachIdRef.current = undefined;
+        primaryAttachIdRef.current = undefined;
+        takeControlPromiseRef.current = undefined;
+        replayOutputUntilSeqRef.current = undefined;
+        suppressReplayGeneratedInputRef.current = false;
+        replayWriteDepthRef.current = 0;
+        latestSeqRef.current = undefined;
+        setSessionInfo(undefined);
+        setStatus({ phase: "waiting", message: "Waiting for terminal" });
+        return;
+      }
+      void openTerminal({
+        cwd: tab()?.terminalLastKnownCwd,
+        existingSessionId: tab()?.terminalSessionId,
+        launch: tab()?.terminalLaunch,
+        title: tab()?.terminalLastKnownTitle ?? tab()?.title,
+      });
+      return () => stopCurrentAttach();
+    },
+  );
   async function openTerminal(options: OpenTerminalOptions) {
     const currentMachine = machineRef.current;
     if (!currentMachine) return;
-
-    const generation = generationRef.current + 1;
-    generationRef.current = generation;
     stopCurrentAttach();
+    const generation = generationRef.current;
     terminalSessionIdRef.current = undefined;
     attachIdRef.current = undefined;
     primaryAttachIdRef.current = undefined;
     takeControlPromiseRef.current = undefined;
     replayOutputUntilSeqRef.current = undefined;
-    suppressReplayGeneratedInputRef.current = options.existingSessionId !==
-      undefined;
+    suppressReplayGeneratedInputRef.current =
+      options.existingSessionId !== undefined;
     replayWriteDepthRef.current = 0;
     latestSeqRef.current = undefined;
     terminalSessionFinishedRef.current = false;
     persistedSessionSnapshotKeyRef.current = undefined;
     setSessionInfo(undefined);
     resetTerminalIfReady();
-
     try {
       if (options.existingSessionId) {
         terminalSessionIdRef.current = options.existingSessionId;
         setStatus({ phase: "waiting", message: "Waiting for terminal" });
-        await attachTerminal(
-          options.existingSessionId,
-          generation,
-        );
+        await attachTerminal(options.existingSessionId, generation);
         return;
       }
-
       setStatus({ phase: "waiting", message: "Waiting for terminal" });
-
       if (!options.launch?.command) {
         setStatus({
           phase: "error",
@@ -377,36 +382,28 @@ export function TerminalTool() {
         runtime?.terminal.writeln("Open a terminal from the machine panel.");
         return;
       }
-
       const size = terminalStartupSize();
-      const transportPromise = rpcSession.webTransport();
+      const transportPromise = rpcSession().webTransport();
       const runtimePromise = terminalRuntime();
       const transport = await transportPromise;
-      const session = await createTerminalSession(
-        transport,
-        {
-          cols: size.cols,
-          cwd: options.cwd,
-          rows: size.rows,
-          launch: options.launch,
-          title: options.title,
-        },
-      );
+      const session = await createTerminalSession(transport, {
+        cols: size.cols,
+        cwd: options.cwd,
+        rows: size.rows,
+        launch: options.launch,
+        title: options.title,
+      });
       if (generationRef.current !== generation) {
-        void closeTerminalSession(
-          transport,
-          { terminalSessionId: session.terminalSessionId },
-        ).catch(() => {});
+        void closeTerminalSession(transport, {
+          terminalSessionId: session.terminalSessionId,
+        }).catch(() => {});
         return;
       }
       terminalSessionIdRef.current = session.terminalSessionId;
-      tabState.setTerminalSessionId(session.terminalSessionId);
+      tabState().setTerminalSessionId(session.terminalSessionId);
       setSessionInfo(session);
       await runtimePromise;
-      await attachTerminal(
-        session.terminalSessionId,
-        generation,
-      );
+      await attachTerminal(session.terminalSessionId, generation);
     } catch (err) {
       if (generationRef.current !== generation) return;
       if (options.existingSessionId && isTerminalSessionNotFoundError(err)) {
@@ -420,35 +417,27 @@ export function TerminalTool() {
       setStatus({ phase: "error", message: errorMessage(err) });
     }
   }
-
-  async function attachTerminal(
-    terminalSessionId: string,
-    generation: number,
-  ) {
+  async function attachTerminal(terminalSessionId: string, generation: number) {
+    const session = rpcSession();
     const runtime = await terminalRuntime();
-    if (!runtime) return;
+    if (!runtime || generationRef.current !== generation) return;
     const size = activeRef.current
       ? terminalSize(runtime.terminal)
-      : sessionInfo ?? terminalDimensions;
+      : (sessionInfo() ?? terminalDimensions());
     let cancelled = false;
-    let iterator: AsyncGenerator<TerminalEvent> | undefined;
+    const attachment: { iterator?: AsyncGenerator<TerminalEvent> } = {};
     stopAttachRef.current = () => {
       cancelled = true;
-      void iterator?.return(undefined);
+      void attachment.iterator?.return(undefined);
     };
-
-    const transport = await rpcSession.webTransport();
-    if (cancelled) return;
-    iterator = attachTerminalSession(
-      transport,
-      {
-        terminalSessionId,
-        afterSeq: latestSeqRef.current,
-        viewportCols: size.cols,
-        viewportRows: size.rows,
-      },
-    );
-
+    const transport = await session.webTransport();
+    if (cancelled || generationRef.current !== generation) return;
+    const iterator = (attachment.iterator = attachTerminalSession(transport, {
+      terminalSessionId,
+      afterSeq: latestSeqRef.current,
+      viewportCols: size.cols,
+      viewportRows: size.rows,
+    }));
     for await (const event of iterator) {
       if (cancelled || generationRef.current !== generation) return;
       handleTerminalEvent(event);
@@ -464,7 +453,6 @@ export function TerminalTool() {
       });
     }
   }
-
   async function terminalRuntime(): Promise<TerminalRuntime | undefined> {
     const runtime = runtimeRef.current;
     if (runtime) return runtime;
@@ -472,18 +460,15 @@ export function TerminalTool() {
     if (!promise) return undefined;
     return await promise;
   }
-
   function resetTerminalIfReady() {
     runtimeRef.current?.terminal.reset();
   }
-
   function terminalStartupSize() {
     const runtime = runtimeRef.current;
-    if (!runtime) return lastSizeRef.current ?? terminalDimensions;
+    if (!runtime) return lastSizeRef.current ?? terminalDimensions();
     fitTerminal();
     return terminalSize(runtime.terminal);
   }
-
   function handleTerminalEvent(event: TerminalEvent) {
     switch (event.type) {
       case "attached":
@@ -503,12 +488,12 @@ export function TerminalTool() {
           return;
         }
         setStatus({
-          phase: event.primaryAttachId === event.attachId
-            ? "attached"
-            : "viewing",
-          message: event.primaryAttachId === event.attachId
-            ? "Terminal attached"
-            : "Terminal attached in view mode",
+          phase:
+            event.primaryAttachId === event.attachId ? "attached" : "viewing",
+          message:
+            event.primaryAttachId === event.attachId
+              ? "Terminal attached"
+              : "Terminal attached in view mode",
         });
         if (activeRef.current) void takeCurrentControl();
         return;
@@ -531,24 +516,28 @@ export function TerminalTool() {
       case "controlChanged":
         primaryAttachIdRef.current = event.primaryAttachId;
         setStatus({
-          phase: event.primaryAttachId === attachIdRef.current
-            ? "attached"
-            : "viewing",
-          message: event.primaryAttachId === attachIdRef.current
-            ? "Terminal attached"
-            : "Another view has control",
+          phase:
+            event.primaryAttachId === attachIdRef.current
+              ? "attached"
+              : "viewing",
+          message:
+            event.primaryAttachId === attachIdRef.current
+              ? "Terminal attached"
+              : "Another view has control",
         });
         return;
       case "pseudoTerminalResized":
         setTerminalDimensions({ cols: event.cols, rows: event.rows });
         setSessionInfo((current) =>
-          current ? { ...current, cols: event.cols, rows: event.rows } : current
+          current
+            ? { ...current, cols: event.cols, rows: event.rows }
+            : current,
         );
         return;
       case "sessionExited":
         terminalSessionFinishedRef.current = true;
         setSessionInfo((current) =>
-          current ? { ...current, exit: event.exit } : current
+          current ? { ...current, exit: event.exit } : current,
         );
         return;
       case "sessionClosed":
@@ -566,17 +555,16 @@ export function TerminalTool() {
         return;
       case "workingDirectoryChanged":
         setSessionInfo((current) =>
-          current ? { ...current, lastKnownCwd: event.cwd } : current
+          current ? { ...current, lastKnownCwd: event.cwd } : current,
         );
         return;
       case "titleChanged":
         setSessionInfo((current) =>
-          current ? { ...current, lastKnownTitle: event.title } : current
+          current ? { ...current, lastKnownTitle: event.title } : current,
         );
         return;
     }
   }
-
   function queueTerminalInput(data: string) {
     const encoder = new TextEncoder();
     const bytes = encoder.encode(data);
@@ -588,7 +576,8 @@ export function TerminalTool() {
           terminalSessionFinishedRef.current ||
           !currentMachine ||
           !terminalSessionIdRef.current
-        ) return;
+        )
+          return;
         if (!(await ensureCurrentControl())) return;
         const terminalSessionId = terminalSessionIdRef.current;
         const attachId = attachIdRef.current;
@@ -596,26 +585,24 @@ export function TerminalTool() {
           !terminalSessionId ||
           !attachId ||
           primaryAttachIdRef.current !== attachId
-        ) return;
-        await writeTerminalInput(
-          await rpcSession.webTransport(),
-          [
-            { type: "writeTerminalInputStart", terminalSessionId, attachId },
-            { type: "writeTerminalInputChunk", bytes },
-          ],
-        );
+        )
+          return;
+        await writeTerminalInput(await rpcSession().webTransport(), [
+          { type: "writeTerminalInputStart", terminalSessionId, attachId },
+          { type: "writeTerminalInputChunk", bytes },
+        ]);
       })
       .catch((err) => {
         if (isStalePrimaryAttachError(err)) return;
         setStatus({ phase: "error", message: errorMessage(err) });
       });
   }
-
   function isSuppressibleReplayOutput(seq: number) {
-    return replayOutputUntilSeqRef.current !== undefined &&
-      seq <= replayOutputUntilSeqRef.current;
+    return (
+      replayOutputUntilSeqRef.current !== undefined &&
+      seq <= replayOutputUntilSeqRef.current
+    );
   }
-
   function writeTerminalOutput(
     bytes: Uint8Array,
     suppressGeneratedInput: boolean,
@@ -626,7 +613,6 @@ export function TerminalTool() {
       terminal.write(bytes);
       return;
     }
-
     replayWriteDepthRef.current += 1;
     try {
       terminal.write(bytes, () => {
@@ -643,12 +629,10 @@ export function TerminalTool() {
       throw err;
     }
   }
-
   function isLivePrimaryAttach() {
     const attachId = attachIdRef.current;
     return attachId !== undefined && primaryAttachIdRef.current === attachId;
   }
-
   async function ensureCurrentControl() {
     if (isLivePrimaryAttach()) return true;
     if (terminalSessionFinishedRef.current || !activeRef.current) return false;
@@ -658,8 +642,8 @@ export function TerminalTool() {
     await takeControlPromiseRef.current;
     return isLivePrimaryAttach();
   }
-
   async function takeCurrentControl() {
+    const generation = generationRef.current;
     const currentMachine = machineRef.current;
     const runtime = runtimeRef.current;
     const terminalSessionId = terminalSessionIdRef.current;
@@ -671,15 +655,15 @@ export function TerminalTool() {
       !runtime ||
       !terminalSessionId ||
       !attachId
-    ) return;
+    )
+      return;
     const size = terminalSize(runtime.terminal);
     const previous = lastSizeRef.current;
     lastSizeRef.current = size;
     setTerminalDimensions(size);
-
     try {
       const response = await takeTerminalControl(
-        await rpcSession.webTransport(),
+        await rpcSession().webTransport(),
         {
           terminalSessionId,
           attachId,
@@ -687,28 +671,30 @@ export function TerminalTool() {
           viewportRows: size.rows,
         },
       );
+      if (generationRef.current !== generation) return;
       primaryAttachIdRef.current = response.primaryAttachId;
       setStatus({
         phase: "attached",
-        message: previous?.cols !== size.cols || previous?.rows !== size.rows
-          ? `${size.cols}x${size.rows}`
-          : "Terminal attached",
+        message:
+          previous?.cols !== size.cols || previous?.rows !== size.rows
+            ? `${size.cols}x${size.rows}`
+            : "Terminal attached",
       });
       setSessionInfo((current) =>
         current
           ? {
-            ...current,
-            cols: size.cols,
-            rows: size.rows,
-            primaryAttachId: response.primaryAttachId,
-          }
-          : current
+              ...current,
+              cols: size.cols,
+              rows: size.rows,
+              primaryAttachId: response.primaryAttachId,
+            }
+          : current,
       );
     } catch (err) {
+      if (generationRef.current !== generation) return;
       setStatus({ phase: "error", message: errorMessage(err) });
     }
   }
-
   function fitTerminal() {
     const runtime = runtimeRef.current;
     if (!runtime) return;
@@ -719,12 +705,11 @@ export function TerminalTool() {
       // xterm fit can fail while the pane is hidden or not yet measurable.
     }
   }
-
   function stopCurrentAttach() {
+    generationRef.current++;
     stopAttachRef.current?.();
     stopAttachRef.current = undefined;
   }
-
   function clearTerminalSessionReference() {
     terminalSessionIdRef.current = undefined;
     attachIdRef.current = undefined;
@@ -734,24 +719,23 @@ export function TerminalTool() {
     suppressReplayGeneratedInputRef.current = false;
     replayWriteDepthRef.current = 0;
     latestSeqRef.current = undefined;
-    tabState.setTerminalSessionId(undefined);
+    tabState().setTerminalSessionId(undefined);
   }
-
   async function openNewTerminalSession() {
-    const exitedSessionId = sessionInfo?.exit
-      ? sessionInfo.terminalSessionId
+    const exitedSessionId = sessionInfo()?.exit
+      ? sessionInfo()!.terminalSessionId
       : undefined;
-    const launch = sessionInfo?.launch ?? tab?.terminalLaunch;
-    const cwd = sessionInfo?.lastKnownCwd ?? tab?.terminalLastKnownCwd;
-    const title = sessionInfo?.lastKnownTitle ?? tab?.terminalLastKnownTitle ??
-      tab?.title;
-
+    const launch = sessionInfo()?.launch ?? tab()?.terminalLaunch;
+    const cwd = sessionInfo()?.lastKnownCwd ?? tab()?.terminalLastKnownCwd;
+    const title =
+      sessionInfo()?.lastKnownTitle ??
+      tab()?.terminalLastKnownTitle ??
+      tab()?.title;
     if (exitedSessionId) {
       try {
-        await closeTerminalSession(
-          await rpcSession.webTransport(),
-          { terminalSessionId: exitedSessionId },
-        );
+        await closeTerminalSession(await rpcSession().webTransport(), {
+          terminalSessionId: exitedSessionId,
+        });
       } catch (err) {
         if (!isTerminalSessionNotFoundError(err)) {
           setStatus({ phase: "error", message: errorMessage(err) });
@@ -759,7 +743,6 @@ export function TerminalTool() {
         }
       }
     }
-
     clearTerminalSessionReference();
     void openTerminal({
       cwd,
@@ -767,118 +750,116 @@ export function TerminalTool() {
       title,
     });
   }
-
-  if (!machine) {
-    return (
-      <section className={emptyWorkspaceClassName}>
-        <HardDrive size={28} />
-        <h2>No machine selected</h2>
-      </section>
-    );
-  }
-
-  if (!isPaired) {
-    return (
-      <section className={emptyWorkspaceClassName}>
-        <KeyRound size={28} />
-        <h2>Pairing required</h2>
-        <Button
-          onClick={() => machineModal.openPairMachineModal(machine.id)}
-        >
-          <KeyRound size={16} />
-          Pair
-        </Button>
-      </section>
-    );
-  }
-
-  const terminalNotice = terminalNoticeFromState(status, sessionInfo);
-  const canOpenNewTerminal = Boolean(
-    sessionInfo?.launch.command ?? tab?.terminalLaunch?.command,
+  const terminalNotice = createMemo(() =>
+    terminalNoticeFromState(status(), sessionInfo()),
   );
-
+  const canOpenNewTerminal = createMemo(() =>
+    Boolean(sessionInfo()?.launch.command ?? tab()?.terminalLaunch?.command),
+  );
   return (
-    <section className={terminalToolClassName}>
-      <div className={terminalSurfaceClassName}>
-        <div ref={hostRef} className={terminalHostClassName} />
-        {status.phase === "waiting"
-          ? (
-            <div className={terminalWaitingNoticeClassName}>
-              <div>
-                <Loader2 size={16} className="animate-spin" />
-                <span>{status.message}</span>
+    <Show
+      when={machine()}
+      fallback={
+        <section class={emptyWorkspaceClassName}>
+          <HardDrive size={28} />
+          <h2>No machine selected</h2>
+        </section>
+      }
+    >
+      <Show
+        when={isPaired()}
+        fallback={
+          <section class={emptyWorkspaceClassName}>
+            <KeyRound size={28} />
+            <h2>Pairing required</h2>
+            <Button
+              onClick={() => machineModal().openPairMachineModal(machine()!.id)}
+            >
+              <KeyRound size={16} />
+              Pair
+            </Button>
+          </section>
+        }
+      >
+        <section class={terminalToolClassName}>
+          <div class={terminalSurfaceClassName}>
+            <div
+              ref={(element) => {
+                setHostElement(element);
+                onCleanup(() => setHostElement(undefined));
+              }}
+              class={terminalHostClassName}
+            />
+            {status().phase === "waiting" ? (
+              <div class={terminalWaitingNoticeClassName}>
+                <div>
+                  <Loader2 size={16} className="animate-spin" />
+                  <span>{status().message}</span>
+                </div>
               </div>
-            </div>
-          )
-          : null}
-        {terminalNotice?.presentation === "overlay"
-          ? (
-            <div className={terminalOverlayNoticeClassName}>
-              <div>
-                <h2>{terminalNotice.title}</h2>
-                <p>{terminalNotice.message}</p>
-                {canOpenNewTerminal
-                  ? (
+            ) : null}
+            {terminalNotice()?.presentation === "overlay" ? (
+              <div class={terminalOverlayNoticeClassName}>
+                <div>
+                  <h2>{terminalNotice()!.title}</h2>
+                  <p>{terminalNotice()!.message}</p>
+                  {canOpenNewTerminal() ? (
                     <Button
                       className={terminalNoticeButtonClassName}
                       onClick={() => void openNewTerminalSession()}
                     >
-                      {terminalNotice.actionLabel}
+                      {terminalNotice()!.actionLabel}
                     </Button>
-                  )
-                  : null}
+                  ) : null}
+                </div>
               </div>
-            </div>
-          )
-          : null}
-      </div>
-      {terminalNotice?.presentation === "banner"
-        ? (
-          <div className={terminalStatusNoticeClassName}>
-            <strong>{terminalNotice.title}</strong>
-            <span>{terminalNotice.message}</span>
-            {canOpenNewTerminal
-              ? (
+            ) : null}
+          </div>
+          {terminalNotice()?.presentation === "banner" ? (
+            <div class={terminalStatusNoticeClassName}>
+              <strong>{terminalNotice()!.title}</strong>
+              <span>{terminalNotice()!.message}</span>
+              {canOpenNewTerminal() ? (
                 <Button
                   className={terminalNoticeButtonClassName}
                   onClick={() => void openNewTerminalSession()}
                 >
-                  {terminalNotice.actionLabel}
+                  {terminalNotice()!.actionLabel}
                 </Button>
-              )
-              : null}
+              ) : null}
+            </div>
+          ) : null}
+          <div class={terminalFooterClassName}>
+            <div class={terminalFooterDetailsClassName}>
+              <strong>{terminalLaunchName(sessionInfo())}</strong>
+              {sessionInfo()?.lastKnownCwd ? (
+                <span>{sessionInfo()!.lastKnownCwd}</span>
+              ) : null}
+            </div>
+            <span class={terminalFooterSizeClassName}>
+              {sessionInfo()?.cols ?? terminalDimensions().cols}
+              {" x "}
+              {sessionInfo()?.rows ?? terminalDimensions().rows}
+            </span>
           </div>
-        )
-        : null}
-      <div className={terminalFooterClassName}>
-        <div className={terminalFooterDetailsClassName}>
-          <strong>{terminalLaunchName(sessionInfo)}</strong>
-          {sessionInfo?.lastKnownCwd
-            ? <span>{sessionInfo.lastKnownCwd}</span>
-            : null}
-        </div>
-        <span className={terminalFooterSizeClassName}>
-          {sessionInfo?.cols ?? terminalDimensions.cols}
-          {" x "}
-          {sessionInfo?.rows ?? terminalDimensions.rows}
-        </span>
-      </div>
-    </section>
+        </section>
+      </Show>
+    </Show>
   );
 }
-
-function terminalSize(terminal: XTerm): { cols: number; rows: number } {
+function terminalSize(terminal: XTerm): {
+  cols: number;
+  rows: number;
+} {
   return {
     cols: Math.max(1, terminal.cols || 80),
     rows: Math.max(1, terminal.rows || 24),
   };
 }
-
 function terminalLaunchName(sessionInfo: TerminalSessionInfo | undefined) {
   if (!sessionInfo?.launch.command) return "Terminal";
   return commandName(sessionInfo.launch.command);
 }
-
 function terminalNoticeFromState(
   status: TerminalStatus,
   sessionInfo: TerminalSessionInfo | undefined,
@@ -917,13 +898,11 @@ function terminalNoticeFromState(
   }
   return undefined;
 }
-
 function terminalExitMessage(exit: TerminalExit): string {
   if (exit.code !== undefined) return `Process exited with code ${exit.code}.`;
   if (exit.signal) return `Process exited after signal ${exit.signal}.`;
   return "Process exited.";
 }
-
 function terminalSessionClosedMessage(
   reason: TerminalSessionCloseReason,
 ): string {
@@ -933,7 +912,6 @@ function terminalSessionClosedMessage(
   if (reason.type === "failed") return reason.message;
   return humanizeCode(reason.type, "The terminal session was closed.");
 }
-
 function terminalSessionSnapshotKey(
   snapshot: WorkbenchTerminalSessionSnapshot,
 ): string {
@@ -944,27 +922,22 @@ function terminalSessionSnapshotKey(
     snapshot.lastKnownTitle,
   ]);
 }
-
 function commandName(command: string): string {
   const normalized = command.replaceAll("\\", "/");
   const segments = normalized.split("/").filter(Boolean);
   return segments[segments.length - 1] ?? command;
 }
-
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
-
 function isStalePrimaryAttachError(err: unknown): boolean {
   return err instanceof RpcError && err.code === "notPrimaryAttach";
 }
-
 function installTerminalClipboardShortcuts(terminal: XTerm) {
   terminal.attachCustomKeyEventHandler((event) => {
     if (event.type !== "keydown") return true;
     const modifierPressed = event.ctrlKey || event.metaKey;
     if (!modifierPressed || event.altKey) return true;
-
     const key = event.key.toLowerCase();
     if (key === "c" && terminal.hasSelection()) {
       event.preventDefault();
@@ -979,37 +952,30 @@ function installTerminalClipboardShortcuts(terminal: XTerm) {
     return true;
   });
 }
-
 async function copyTerminalSelection(terminal: XTerm) {
   const selection = terminal.getSelection();
   if (!selection) return;
   await navigator.clipboard.writeText(selection);
 }
-
 async function pasteClipboardToTerminal(terminal: XTerm) {
   const text = await navigator.clipboard.readText();
   if (!text) return;
   terminal.paste(text);
 }
-
 function installReplayQueryHandlers(
   terminal: XTerm,
   shouldSuppress: () => boolean,
-): Array<{ dispose: () => void }> {
+): Array<{
+  dispose: () => void;
+}> {
   const consumeReplayQuery = () => shouldSuppress();
   return [
-    terminal.parser.registerCsiHandler(
-      { final: "n" },
-      consumeReplayQuery,
-    ),
+    terminal.parser.registerCsiHandler({ final: "n" }, consumeReplayQuery),
     terminal.parser.registerCsiHandler(
       { prefix: "?", final: "n" },
       consumeReplayQuery,
     ),
-    terminal.parser.registerCsiHandler(
-      { final: "c" },
-      consumeReplayQuery,
-    ),
+    terminal.parser.registerCsiHandler({ final: "c" }, consumeReplayQuery),
     terminal.parser.registerCsiHandler(
       { prefix: ">", final: "c" },
       consumeReplayQuery,
@@ -1020,11 +986,9 @@ function installReplayQueryHandlers(
     ),
   ];
 }
-
 function isTerminalSessionNotFoundError(err: unknown): boolean {
   return err instanceof RpcError && err.code === "notFound";
 }
-
 function humanizeCode(code: string, fallback: string): string {
   const words = code
     .replaceAll(/([a-z0-9])([A-Z])/g, "$1 $2")
@@ -1034,7 +998,6 @@ function humanizeCode(code: string, fallback: string): string {
   if (!words) return fallback;
   return `${capitalize(words)}.`;
 }
-
 function capitalize(text: string): string {
   return text.length === 0 ? text : text[0]!.toUpperCase() + text.slice(1);
 }
