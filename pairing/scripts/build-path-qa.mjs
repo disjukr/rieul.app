@@ -11,10 +11,15 @@ await mkdir(pairing, { recursive: true });
 for (const name of [
   "src",
   "scripts/build.ts",
+  "scripts/solid-plugin.ts",
+  "scripts/solid-preload.ts",
+  "scripts/runtime-preload.ts",
   "package.json",
   "tsconfig.json",
   "bunfig.toml",
-  "native/bin/rieul_pairing_windows.dll",
+  process.platform === "win32"
+    ? "native/bin/rieul_pairing_windows.dll"
+    : "native/bin/librieul_pairing_macos.dylib",
   "assets",
 ])
   await cp(path.join(root, name), path.join(pairing, name), {
@@ -40,7 +45,12 @@ await new Promise((resolve, reject) => {
     code === 0 ? resolve() : reject(new Error(`Path QA build exited ${code}`)),
   );
 });
-for (const name of ["dist/host.js", "dist/main.js", "dist/assets/icon.ico"])
+for (const name of [
+  "dist/host.js",
+  "dist/main.js",
+  "dist/runtime-preload.js",
+  "dist/assets/icon.ico",
+])
   await stat(path.join(pairing, name));
 console.log(
   JSON.stringify({ fixture, actualBuild: true, spaceAndUnicodePath: true }),
