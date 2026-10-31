@@ -45,6 +45,7 @@ interface DatagramPing {
 }
 
 interface ManagedRpcSession {
+  generation: number;
   authenticatedClientId?: string;
   datagrams: DatagramRuntime;
   credentialRenewalStarted: boolean;
@@ -350,6 +351,7 @@ function createRpcSessionController(
   ): Promise<ManagedRpcSession> {
     const session = manageRpcSession(
       await openWebTransport(machine),
+      generation,
       setDatagramRtt,
     );
     if (closed || generation !== sessionGeneration) {
@@ -384,9 +386,16 @@ function createRpcSessionController(
 
   async function renewCredential(session: ManagedRpcSession): Promise<void> {
     const machine = currentMachine();
-    if (closed || !machine?.clientId || !machine.clientSecret) return;
+    if (
+      closed ||
+      session.generation !== sessionGeneration ||
+      !machine?.clientId ||
+      !machine.clientSecret
+    )
+      return;
     try {
       const renewal = await renewClientCredential(session.transport);
+      if (closed || session.generation !== sessionGeneration) return;
       if (
         currentMachine()?.clientId === session.authenticatedClientId &&
         currentMachine()?.clientSecret === machine.clientSecret
@@ -572,9 +581,11 @@ function createRpcSessionController(
 
 function manageRpcSession(
   transport: WebTransport,
+  generation: number,
   onDatagramRtt: (rttMs: number) => void,
 ): ManagedRpcSession {
   const managed = {
+    generation,
     authenticatedClientId: undefined,
     datagrams: startDatagramRuntime(transport, onDatagramRtt),
     credentialRenewalStarted: false,

@@ -17,15 +17,19 @@ import type { DaemonInfo } from "../src/protocol/generated/rpc.ts";
 import { rpcSessionStub } from "./helpers/rpc-session.ts";
 let open: typeof protocol.openWebTransport;
 let getInfo: typeof client.getDaemonInfo;
+let renew: typeof client.renewClientCredential;
 mock.module("../src/protocol/client.ts", {
   namedExports: {
     ...protocol,
+    authenticateWebTransport: async () => {},
     openWebTransport: (...args: Parameters<typeof open>) => open(...args),
   },
 });
 mock.module("../src/protocol/generated/client.ts", {
   namedExports: {
     ...client,
+    renewClientCredential: (...args: Parameters<typeof renew>) =>
+      renew(...args),
     getDaemonInfo: (...args: Parameters<typeof getInfo>) => getInfo(...args),
   },
 });
@@ -306,4 +310,40 @@ test("daemon info arriving after transport close cannot restore ready state", as
   await flush();
   assert.equal(f.state.get(entry.value.daemonInfoAtom).phase, "idle");
   assert.equal(f.state.get(entry.value.connectionAtom).phase, "offline");
+});
+
+test("credential renewal from a replaced RPC session cannot overwrite its successor", async (t) => {
+  const old = Promise.withResolvers<{
+    clientCredentialExpiresAtUnix: number;
+  }>();
+  let first = true;
+  renew = () => {
+    if (first) {
+      first = false;
+      return old.promise;
+    }
+    return Promise.resolve({ clientCredentialExpiresAtUnix: 200 });
+  };
+  open = async () => transport();
+  getInfo = async () => info("current");
+  const f = fixture(),
+    machines = f.store.get(machineStoreBunja, f.read).value;
+  machines.setMachineCredentials("a", {
+    clientId: "client",
+    clientSecret: "secret",
+    clientCredentialExpiresAtUnix: 0,
+  });
+  const entry = f.store.get(rpcSessionBunja, f.read),
+    stop = entry.mount();
+  t.after(() => {
+    stop();
+    f.store.dispose();
+  });
+  await flush();
+  entry.value.reconnect();
+  await flush();
+  assert.equal(machines.findMachine("a")?.clientCredentialExpiresAtUnix, 200);
+  old.resolve({ clientCredentialExpiresAtUnix: 100 });
+  await flush();
+  assert.equal(machines.findMachine("a")?.clientCredentialExpiresAtUnix, 200);
 });
