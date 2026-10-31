@@ -1,12 +1,10 @@
-import { createContext } from "react";
-import type React from "react";
-import type { Atom } from "jotai";
+import { createContext, type Accessor } from "solid-js";
+import type { Atom } from "jotai/vanilla";
 import type { FsEntry } from "../../../../protocol/generated/rpc.ts";
 import type {
   ExplorerLocation,
   ExplorerSpecialLocation,
 } from "../../../../state/explorer.ts";
-
 export interface FilesExplorerState {
   currentPathAtom: Atom<string | undefined>;
   displayPathAtom: Atom<string | undefined>;
@@ -29,20 +27,15 @@ export interface FilesExplorerState {
   refresh: () => void;
   selectEntry: (entry: FsEntry) => void;
 }
-
 export interface FilesActions {
   goBack: () => void;
   goUp: () => void;
   navigate: (path?: string) => void;
   openEntry: (entry: FsEntry) => void;
-  openEntryMenu: (
-    entry: FsEntry,
-    event: React.MouseEvent<HTMLDivElement>,
-  ) => void;
-  openFolderMenu: (event: React.MouseEvent<HTMLDivElement>) => void;
+  openEntryMenu: (entry: FsEntry, event: MouseEvent) => void;
+  openFolderMenu: (event: MouseEvent) => void;
   selectEntry: (entry: FsEntry) => void;
 }
-
 export interface FilesRenameState {
   draftName: string;
   entryPath?: string;
@@ -52,7 +45,6 @@ export interface FilesRenameState {
   commitRename: (entry: FsEntry) => void;
   updateDraftName: (value: string) => void;
 }
-
 export interface FilesCreateFileState {
   draftName: string;
   error?: string;
@@ -62,48 +54,47 @@ export interface FilesCreateFileState {
   commitCreate: () => void;
   updateDraftName: (value: string) => void;
 }
-
-export const FilesExplorerContext = createContext<
-  FilesExplorerState | undefined
->(
-  undefined,
-);
-export const FilesActionsContext = createContext<FilesActions | undefined>(
-  undefined,
-);
-export const FilesRenameContext = createContext<FilesRenameState | undefined>(
-  undefined,
-);
-export const FilesCreateFileContext = createContext<
-  FilesCreateFileState | undefined
->(
-  undefined,
-);
-
+export const FilesExplorerContext =
+  createContext<Accessor<FilesExplorerState | undefined>>();
+export const FilesActionsContext =
+  createContext<Accessor<FilesActions | undefined>>();
+export const FilesRenameContext =
+  createContext<Accessor<FilesRenameState | undefined>>();
+export const FilesCreateFileContext =
+  createContext<Accessor<FilesCreateFileState | undefined>>();
 export function requireFilesExplorer(
-  explorer: FilesExplorerState | undefined,
-): FilesExplorerState {
-  if (!explorer) throw new Error("Files explorer context is not provided.");
-  return explorer;
+  explorer: Accessor<FilesExplorerState | undefined>,
+): Accessor<FilesExplorerState> {
+  return () => {
+    const value = explorer();
+    if (!value) throw new Error("Files explorer context is not provided.");
+    return value;
+  };
 }
-
 export function requireFilesActions(
-  actions: FilesActions | undefined,
-): FilesActions {
-  if (!actions) throw new Error("Files actions context is not provided.");
-  return actions;
+  actions: Accessor<FilesActions | undefined>,
+): Accessor<FilesActions> {
+  return () => {
+    const value = actions();
+    if (!value) throw new Error("Files actions context is not provided.");
+    return value;
+  };
 }
-
 export function requireFilesRenameState(
-  state: FilesRenameState | undefined,
-): FilesRenameState {
-  if (!state) throw new Error("Files rename context is not provided.");
-  return state;
+  state: Accessor<FilesRenameState | undefined>,
+): Accessor<FilesRenameState> {
+  return () => {
+    const value = state();
+    if (!value) throw new Error("Files rename context is not provided.");
+    return value;
+  };
 }
-
 export function requireFilesCreateFileState(
-  state: FilesCreateFileState | undefined,
-): FilesCreateFileState {
-  if (!state) throw new Error("Files create-file context is not provided.");
-  return state;
+  state: Accessor<FilesCreateFileState | undefined>,
+): Accessor<FilesCreateFileState> {
+  return () => {
+    const value = state();
+    if (!value) throw new Error("Files create-file context is not provided.");
+    return value;
+  };
 }

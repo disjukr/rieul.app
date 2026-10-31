@@ -1,9 +1,9 @@
-import { useBunja } from "bunja/react";
-import { useAtom } from "jotai";
+import { createMemo } from "solid-js";
+import { useBunja } from "../../../../../../../solid/bunja.tsx";
+import { useAtom } from "../../../../../../../solid/jotai.tsx";
 import { formatSize } from "../../../../../../../state/explorer.ts";
 import { fileViewerImpls, isFileViewerImpl } from "../impl/index.ts";
 import { fileViewerBunja } from "../state.tsx";
-
 const fileViewerFooterClassName = [
   "flex items-center justify-between gap-[12px] h-[2rem] min-h-[2rem] box-border",
   "border-t border-t-[#d8dde7] bg-[#fbfcfe] text-[#667085]",
@@ -17,20 +17,18 @@ const fileViewerImplSelectClassName = [
   "disabled:text-[#98a2b3] disabled:bg-[#f4f6fa]",
 ].join(" ");
 const fileViewerFooterSizeClassName = "flex-[0_0_auto]";
-
 export function FileViewerFooter() {
   const viewer = useBunja(fileViewerBunja);
-  const [impl, setImpl] = useAtom(viewer.implAtom);
-  const disabled = impl === undefined;
-
+  const [impl, setImpl] = useAtom(() => viewer().implAtom);
+  const disabled = createMemo(() => impl() === undefined);
   return (
-    <div className={fileViewerFooterClassName}>
-      <label className={fileViewerImplControlClassName}>
+    <div class={fileViewerFooterClassName}>
+      <label class={fileViewerImplControlClassName}>
         <span>View</span>
         <select
-          className={fileViewerImplSelectClassName}
-          value={impl ?? "text"}
-          disabled={disabled}
+          class={fileViewerImplSelectClassName}
+          value={impl() ?? "text"}
+          disabled={disabled()}
           aria-label="File viewer"
           onChange={(event) => {
             const value = event.currentTarget.value;
@@ -38,14 +36,12 @@ export function FileViewerFooter() {
           }}
         >
           {Object.entries(fileViewerImpls).map(([id, viewerImpl]) => (
-            <option key={id} value={id}>
-              {viewerImpl.label}
-            </option>
+            <option value={id}>{viewerImpl.label}</option>
           ))}
         </select>
       </label>
-      <span className={fileViewerFooterSizeClassName}>
-        {formatSize(viewer.fsEntry.size)}
+      <span class={fileViewerFooterSizeClassName}>
+        {formatSize(viewer().fsEntry.size)}
       </span>
     </div>
   );

@@ -1,12 +1,11 @@
-import { type ComponentType, lazy, type LazyExoticComponent } from "react";
-
+import { type Component, lazy } from "solid-js";
 export interface FileViewerImpl {
   label: string;
   viewerName: string;
-  Component: LazyExoticComponent<ComponentType>;
+  Component: Component;
 }
-
-export const fileViewerImpls = {
+export type FileViewerImplId = "markdown" | "pdf" | "text" | "hex" | "image";
+export const fileViewerImpls: Record<FileViewerImplId, FileViewerImpl> = {
   markdown: {
     label: "Markdown",
     viewerName: "markdown viewer",
@@ -34,14 +33,9 @@ export const fileViewerImpls = {
   },
 } as const satisfies Record<string, FileViewerImpl>;
 
-export type FileViewerImplId = keyof typeof fileViewerImpls;
-
-export function getFileViewerImpl(
-  impl: FileViewerImplId,
-): FileViewerImpl {
+export function getFileViewerImpl(impl: FileViewerImplId): FileViewerImpl {
   return fileViewerImpls[impl];
 }
-
 export function isFileViewerImpl(value: string): value is FileViewerImplId {
   return Object.hasOwn(fileViewerImpls, value);
 }

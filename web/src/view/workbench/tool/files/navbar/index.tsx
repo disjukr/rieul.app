@@ -1,6 +1,6 @@
-import { useContext } from "react";
-import { ArrowLeft, ArrowUp } from "lucide-react";
-import { useAtomValue } from "jotai";
+import { createMemo, useContext } from "solid-js";
+import { ArrowLeft, ArrowUp } from "../../../../../solid/icons.tsx";
+import { useAtomValue } from "../../../../../solid/jotai.tsx";
 import {
   FilesActionsContext,
   FilesExplorerContext,
@@ -9,7 +9,6 @@ import {
 } from "../context.tsx";
 import { Button } from "../../../../ui/button.tsx";
 import { PathCrumbs } from "./path-crumbs.tsx";
-
 const pathToolbarClassName = [
   "grid [grid-template-columns:auto_minmax(0,1fr)] gap-[6px]",
   "relative items-center h-[29px] min-h-[29px] box-border overflow-visible",
@@ -23,23 +22,23 @@ const pathToolbarButtonClassName = [
   "!w-[23px] !min-w-[23px] !h-[23px] !min-h-0 !box-border !rounded-[6px] !p-0",
   "!border-transparent !bg-white/28 hover:!bg-white/5",
 ].join(" ");
-
 export function FilesNavbar() {
   const explorer = requireFilesExplorer(useContext(FilesExplorerContext));
   const actions = requireFilesActions(useContext(FilesActionsContext));
-  const currentPath = useAtomValue(explorer.currentPathAtom);
-  const displayPath = useAtomValue(explorer.displayPathAtom);
-  const history = useAtomValue(explorer.historyAtom);
-  const specialLocation = useAtomValue(explorer.specialLocationAtom);
-  const canGoBack = history.length > 0;
-  const canGoUp = currentPath !== undefined && !specialLocation;
-
+  const currentPath = useAtomValue(() => explorer().currentPathAtom);
+  const displayPath = useAtomValue(() => explorer().displayPathAtom);
+  const history = useAtomValue(() => explorer().historyAtom);
+  const specialLocation = useAtomValue(() => explorer().specialLocationAtom);
+  const canGoBack = createMemo(() => history().length > 0);
+  const canGoUp = createMemo(
+    () => currentPath() !== undefined && !specialLocation(),
+  );
   return (
-    <div className={pathToolbarClassName}>
-      <div className={pathToolbarButtonGroupClassName}>
+    <div class={pathToolbarClassName}>
+      <div class={pathToolbarButtonGroupClassName}>
         <Button
-          onClick={actions.goBack}
-          disabled={!canGoBack}
+          onClick={actions().goBack}
+          disabled={!canGoBack()}
           title="Back"
           aria-label="Back"
           className={pathToolbarButtonClassName}
@@ -47,8 +46,8 @@ export function FilesNavbar() {
           <ArrowLeft size={12} />
         </Button>
         <Button
-          onClick={actions.goUp}
-          disabled={!canGoUp}
+          onClick={actions().goUp}
+          disabled={!canGoUp()}
           title="Up"
           aria-label="Up"
           className={pathToolbarButtonClassName}
@@ -56,7 +55,7 @@ export function FilesNavbar() {
           <ArrowUp size={12} />
         </Button>
       </div>
-      <PathCrumbs path={displayPath} onNavigate={actions.navigate} />
+      <PathCrumbs path={displayPath()} onNavigate={actions().navigate} />
     </div>
   );
 }

@@ -1,15 +1,14 @@
-import { useBunja } from "bunja/react";
-import { FileText } from "lucide-react";
+import { createMemo } from "solid-js";
+import { useBunja } from "../../../../../../solid/bunja.tsx";
+import { FileText } from "../../../../../../solid/icons.tsx";
 import { displayName, formatSize } from "../../../../../../state/explorer.ts";
 import { Button } from "../../../../../ui/button.tsx";
 import { fileViewerBunja } from "./state.tsx";
-
 interface BigFileWarningProps {
   onCancel: () => void;
   onConfirm: () => void;
   viewerName: string;
 }
-
 const bigFileWarningClassName = [
   "grid place-items-center w-full h-full min-w-0 min-h-0",
   "overflow-auto bg-white p-[24px]",
@@ -34,36 +33,29 @@ const bigFileWarningCopyClassName = [
 ].join(" ");
 const bigFileWarningActionsClassName =
   "[grid-column:1/-1] flex justify-end gap-[8px]";
-
-export function BigFileWarning(
-  { onCancel, onConfirm, viewerName }: BigFileWarningProps,
-) {
+export function BigFileWarning(props: BigFileWarningProps) {
   const viewer = useBunja(fileViewerBunja);
-  const fsEntry = viewer.fsEntry;
-  const sizeLabel = fsEntry.size === undefined
-    ? "Unknown size"
-    : formatSize(fsEntry.size);
-
+  const fsEntry = createMemo(() => viewer().fsEntry);
+  const sizeLabel = createMemo(() =>
+    fsEntry().size === undefined ? "Unknown size" : formatSize(fsEntry().size),
+  );
   return (
-    <section className={bigFileWarningClassName}>
-      <div className={bigFileWarningPanelClassName}>
-        <div className={bigFileWarningIconClassName}>
+    <section class={bigFileWarningClassName}>
+      <div class={bigFileWarningPanelClassName}>
+        <div class={bigFileWarningIconClassName}>
           <FileText size={24} />
         </div>
-        <div className={bigFileWarningCopyClassName}>
-          <h2>{displayName(fsEntry)}</h2>
+        <div class={bigFileWarningCopyClassName}>
+          <h2>{displayName(fsEntry())}</h2>
           <p>
-            This file is <strong>{sizeLabel}</strong>. Do you want to open it
-            {" "}
-            with the {viewerName}?
+            This file is <strong>{sizeLabel()}</strong>. Do you want to open it{" "}
+            with the {props.viewerName}?
           </p>
-          <p>{fsEntry.path}</p>
+          <p>{fsEntry().path}</p>
         </div>
-        <div className={bigFileWarningActionsClassName}>
-          <Button onClick={onCancel}>
-            Cancel
-          </Button>
-          <Button onClick={onConfirm}>
+        <div class={bigFileWarningActionsClassName}>
+          <Button onClick={props.onCancel}>Cancel</Button>
+          <Button onClick={props.onConfirm}>
             <FileText size={16} />
             Open
           </Button>

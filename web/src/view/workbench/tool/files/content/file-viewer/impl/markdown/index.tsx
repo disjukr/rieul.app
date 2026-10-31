@@ -1,7 +1,7 @@
-import { useContext, useEffect, useMemo, useState } from "react";
+import { createMemo, createSignal, createEffect, useContext } from "solid-js";
 import { marked } from "marked";
-import { useBunja } from "bunja/react";
-import { useAtomValue } from "jotai";
+import { useBunja } from "../../../../../../../../solid/bunja.tsx";
+import { useAtomValue } from "../../../../../../../../solid/jotai.tsx";
 import type { FsEntry } from "../../../../../../../../protocol/generated/rpc.ts";
 import { readFileBytes } from "../../read-file-bytes.ts";
 import {
@@ -10,7 +10,6 @@ import {
 } from "../../../../context.tsx";
 import { BigFileWarning } from "../../big-file-warning.tsx";
 import { fileViewerBunja } from "../../state.tsx";
-
 const inlineOpenLimitBytes = 1024 * 1024;
 const fileViewerStatusClassName = [
   "flex items-center justify-center gap-[8px] min-w-0 min-h-0",
@@ -46,12 +45,18 @@ const markdownContentClassName = [
   "[&_th]:border [&_th]:border-[#d8dde7] [&_th]:bg-[#fbfcfe]",
   "[&_th]:px-[8px] [&_th]:py-[6px] [&_th]:text-left",
 ].join(" ");
-
 type MarkdownReadState =
-  | { phase: "loading" }
-  | { phase: "ready"; text: string }
-  | { phase: "error"; message: string };
-
+  | {
+      phase: "loading";
+    }
+  | {
+      phase: "ready";
+      text: string;
+    }
+  | {
+      phase: "error";
+      message: string;
+    };
 const allowedMarkdownTags = new Set([
   "a",
   "blockquote",
@@ -89,115 +94,124 @@ const removedMarkdownTags = new Set([
   "script",
   "style",
 ]);
-
 const markdownViewerName = "markdown viewer";
-
 export default function MarkdownFileViewer() {
   const actions = requireFilesActions(useContext(FilesActionsContext));
   const viewer = useBunja(fileViewerBunja);
-  const fsEntry = viewer.fsEntry;
-  const viewerState = useAtomValue(viewer.stateAtom);
-  const machine = useAtomValue(viewer.machineAtom);
-  const webTransport = viewer.webTransport;
-  const requiresConfirmation = fsEntry.size === undefined ||
-    fsEntry.size > inlineOpenLimitBytes;
-  const [confirmedFsEntryPath, setConfirmedFsEntryPath] = useState<
+  const fsEntry = createMemo(() => viewer().fsEntry);
+  const viewerState = useAtomValue(() => viewer().stateAtom);
+  const machine = useAtomValue(() => viewer().machineAtom);
+  const webTransport = createMemo(() => viewer().webTransport);
+  const requiresConfirmation = createMemo(() => {
+    const size = fsEntry().size;
+    return size === undefined || size > inlineOpenLimitBytes;
+  });
+  const [confirmedFsEntryPath, setConfirmedFsEntryPath] = createSignal<
     string | undefined
   >();
-  const confirmed = !requiresConfirmation ||
-    confirmedFsEntryPath === fsEntry.path;
-  const [state, setState] = useState<MarkdownReadState>({
+  const confirmed = createMemo(
+    () => !requiresConfirmation() || confirmedFsEntryPath() === fsEntry().path,
+  );
+  const [state, setState] = createSignal<MarkdownReadState>({
     phase: "loading",
   });
-  const html = useMemo(() => {
-    if (state.phase !== "ready") return "";
-    return renderMarkdown(state.text);
-  }, [state]);
+  const errorMessage = createMemo(() => {
+    const value = state();
+    return value.phase === "error" ? value.message : "";
+  });
 
-  useEffect(() => {
-    if (!confirmed || !machine || viewerState.phase !== "ready") return;
-
-    let cancelled = false;
-    setState({ phase: "loading" });
-    void (async () => {
-      try {
-        const bytes = hasCompleteInitialBytes(fsEntry, viewerState.initialBytes)
-          ? viewerState.initialBytes
-          : await readFileBytes(await webTransport(), fsEntry.path);
-        if (cancelled) return;
-        setState({
-          phase: "ready",
-          text: decodeMarkdownFile(bytes),
-        });
-      } catch (err) {
-        if (!cancelled) {
+  const html = createMemo(() => {
+    const current = state();
+    return current.phase === "ready" ? renderMarkdown(current.text) : "";
+  });
+  createEffect(
+    () => ({
+      confirmed: confirmed(),
+      machine: machine(),
+      viewerState: viewerState(),
+      fsEntry: fsEntry(),
+      webTransport: webTransport(),
+    }),
+    ({
+      confirmed: currentConfirmed,
+      machine: currentMachine,
+      viewerState: currentViewerState,
+      fsEntry: currentFsEntry,
+      webTransport: currentWebTransport,
+    }) => {
+      if (
+        !currentConfirmed ||
+        !currentMachine ||
+        currentViewerState.phase !== "ready"
+      )
+        return;
+      let cancelled = false;
+      setState({ phase: "loading" });
+      void (async () => {
+        try {
+          const bytes = hasCompleteInitialBytes(
+            currentFsEntry,
+            currentViewerState.initialBytes,
+          )
+            ? currentViewerState.initialBytes
+            : await readFileBytes(
+                await currentWebTransport(),
+                currentFsEntry.path,
+              );
+          if (cancelled) return;
           setState({
-            phase: "error",
-            message: err instanceof Error ? err.message : String(err),
+            phase: "ready",
+            text: decodeMarkdownFile(bytes),
           });
+        } catch (err) {
+          if (!cancelled) {
+            setState({
+              phase: "error",
+              message: err instanceof Error ? err.message : String(err),
+            });
+          }
         }
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [confirmed, fsEntry, fsEntry.path, machine, webTransport, viewerState]);
-
-  if (!machine) {
-    return (
-      <div className={`${fileViewerStatusClassName} error`}>
-        <span>No machine selected</span>
-      </div>
-    );
-  }
-
-  if (viewerState.phase !== "ready") return null;
-
-  if (!confirmed) {
-    return (
-      <BigFileWarning
-        onCancel={actions.goBack}
-        onConfirm={() => setConfirmedFsEntryPath(fsEntry.path)}
-        viewerName={markdownViewerName}
-      />
-    );
-  }
-
-  if (state.phase === "loading") {
-    return (
-      <div className={fileViewerStatusClassName}>
-        <span>Loading markdown</span>
-      </div>
-    );
-  }
-
-  if (state.phase === "error") {
-    return (
-      <div className={`${fileViewerStatusClassName} error`}>
-        <span>{state.message}</span>
-      </div>
-    );
-  }
-
+      })();
+      return () => {
+        cancelled = true;
+      };
+    },
+  );
   return (
-    <article
-      className={markdownContentClassName}
-      dangerouslySetInnerHTML={{ __html: html }}
-    />
+    <>
+      {!machine() ? (
+        <div class={`${fileViewerStatusClassName} error`}>
+          <span>No machine selected</span>
+        </div>
+      ) : viewerState().phase !== "ready" ? null : !confirmed() ? (
+        <BigFileWarning
+          onCancel={actions().goBack}
+          onConfirm={() => setConfirmedFsEntryPath(fsEntry().path)}
+          viewerName={markdownViewerName}
+        />
+      ) : state().phase === "loading" ? (
+        <div class={fileViewerStatusClassName}>
+          <span>Loading markdown</span>
+        </div>
+      ) : state().phase === "error" ? (
+        <div class={`${fileViewerStatusClassName} error`}>
+          <span>{errorMessage()}</span>
+        </div>
+      ) : (
+        <article class={markdownContentClassName} innerHTML={html()} />
+      )}
+    </>
   );
 }
-
 function hasCompleteInitialBytes(
   fsEntry: FsEntry,
   initialBytes: Uint8Array,
 ): boolean {
   return fsEntry.size !== undefined && fsEntry.size <= initialBytes.byteLength;
 }
-
 function decodeMarkdownFile(bytes: Uint8Array): string {
   return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
 }
-
 function renderMarkdown(markdown: string): string {
   const html = marked.parse(markdown, { async: false });
   if (typeof html !== "string") {
@@ -205,14 +219,12 @@ function renderMarkdown(markdown: string): string {
   }
   return sanitizeMarkdownHtml(html);
 }
-
 function sanitizeMarkdownHtml(html: string): string {
   const template = document.createElement("template");
   template.innerHTML = html;
   sanitizeMarkdownChildren(template.content);
   return template.innerHTML;
 }
-
 function sanitizeMarkdownChildren(parent: Node) {
   for (const child of Array.from(parent.childNodes)) {
     if (child.nodeType === Node.COMMENT_NODE) {
@@ -220,14 +232,12 @@ function sanitizeMarkdownChildren(parent: Node) {
       continue;
     }
     if (child.nodeType !== Node.ELEMENT_NODE) continue;
-
     const element = child as Element;
     const tagName = element.tagName.toLowerCase();
     if (removedMarkdownTags.has(tagName)) {
       element.remove();
       continue;
     }
-
     sanitizeMarkdownChildren(element);
     if (!allowedMarkdownTags.has(tagName)) {
       element.replaceWith(...Array.from(element.childNodes));
@@ -236,7 +246,6 @@ function sanitizeMarkdownChildren(parent: Node) {
     sanitizeMarkdownAttributes(element, tagName);
   }
 }
-
 function sanitizeMarkdownAttributes(element: Element, tagName: string) {
   for (const attribute of Array.from(element.attributes)) {
     if (attribute.name === "href" && tagName === "a") {
@@ -244,21 +253,21 @@ function sanitizeMarkdownAttributes(element: Element, tagName: string) {
     }
     element.removeAttribute(attribute.name);
   }
-
   if (tagName === "a" && element.hasAttribute("href")) {
     element.setAttribute("target", "_blank");
     element.setAttribute("rel", "noreferrer noopener");
   }
 }
-
 function isSafeMarkdownUrl(value: string): boolean {
   const trimmed = value.trim();
   if (trimmed.startsWith("#")) return true;
   try {
     const url = new URL(trimmed, globalThis.location.href);
-    return url.protocol === "http:" ||
+    return (
+      url.protocol === "http:" ||
       url.protocol === "https:" ||
-      url.protocol === "mailto:";
+      url.protocol === "mailto:"
+    );
   } catch {
     return false;
   }

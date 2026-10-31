@@ -1,4 +1,4 @@
-import { ArrowUpRight, X } from "lucide-react";
+import { ArrowUpRight, X } from "../../../../../../solid/icons.tsx";
 import type { FsEntry } from "../../../../../../protocol/generated/rpc.ts";
 import {
   displayName,
@@ -8,7 +8,6 @@ import {
 } from "../../../../../../state/explorer.ts";
 import { Button } from "../../../../../ui/button.tsx";
 import { EntryIcon } from "./entry-icon.tsx";
-
 const inspectorClassName = [
   "inspector min-w-0 overflow-auto rounded-[8px] border border-white/52",
   "[@container_workbench-tab-page_(max-width:980px)]:hidden",
@@ -70,65 +69,56 @@ const entryPropertiesBodyClassName = [
   "[&_dd]:min-w-0 [&_dd]:mt-0 [&_dd]:mx-0 [&_dd]:mb-[8px]",
   "[&_dd]:[overflow-wrap:anywhere] [&_dd]:text-[#303642] [&_dd]:text-[14px]",
 ].join(" ");
-
 interface InspectorProps {
   entry?: FsEntry;
   currentPath?: string;
   onOpenEntry: (entry: FsEntry) => void;
 }
-
 interface EntryPropertiesModalProps {
   entry: FsEntry;
   onClose: () => void;
 }
-
 interface EntryDetailsProps {
   entry?: FsEntry;
   currentPath?: string;
   onOpenEntry?: (entry: FsEntry) => void;
 }
-
-export function Inspector(
-  { entry, currentPath, onOpenEntry }: InspectorProps,
-) {
+export function Inspector(props: InspectorProps) {
   return (
-    <aside className={inspectorClassName}>
-      <div className={inspectorTitleClassName}>
+    <aside class={inspectorClassName}>
+      <div class={inspectorTitleClassName}>
         <span>Selection</span>
-        <span className={inspectorTitleMetaClassName}>Files</span>
+        <span class={inspectorTitleMetaClassName}>Files</span>
       </div>
       <EntryDetails
-        entry={entry}
-        currentPath={currentPath}
-        onOpenEntry={onOpenEntry}
+        entry={props.entry}
+        currentPath={props.currentPath}
+        onOpenEntry={props.onOpenEntry}
       />
     </aside>
   );
 }
-
-export function EntryPropertiesModal(
-  { entry, onClose }: EntryPropertiesModalProps,
-) {
+export function EntryPropertiesModal(props: EntryPropertiesModalProps) {
   return (
     <div
-      className={modalBackdropClassName}
+      class={modalBackdropClassName}
       onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose();
+        if (event.target === event.currentTarget) props.onClose();
       }}
     >
       <section
-        className={machineModalClassName}
+        class={machineModalClassName}
         role="dialog"
         aria-modal="true"
         aria-labelledby="entry-properties-title"
       >
-        <header className={modalHeadClassName}>
+        <header class={modalHeadClassName}>
           <div>
             <span>File</span>
             <h2 id="entry-properties-title">Properties</h2>
           </div>
           <Button
-            onClick={onClose}
+            onClick={props.onClose}
             title="Close"
             aria-label="Close properties modal"
             className={iconButtonClassName}
@@ -137,72 +127,73 @@ export function EntryPropertiesModal(
           </Button>
         </header>
 
-        <div className={entryPropertiesBodyClassName}>
-          <EntryDetails entry={entry} />
+        <div class={entryPropertiesBodyClassName}>
+          <EntryDetails entry={props.entry} />
         </div>
       </section>
     </div>
   );
 }
-
-function EntryDetails(
-  { entry, currentPath, onOpenEntry }: EntryDetailsProps,
-) {
-  if (!entry) {
-    return (
-      <div className={detailsClassName}>
-        <div className={detailsSummaryClassName}>
-          <span className={detailsIconClassName} aria-hidden="true" />
-          <div className="min-w-0">
-            <div className={detailsTitleClassName}>No selection</div>
-            <div className={detailsMetaClassName}>{currentPath ?? "Files"}</div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
+function EntryDetails(props: EntryDetailsProps) {
   return (
-    <div className={detailsClassName}>
-      <div className={detailsSummaryClassName}>
-        <span className={detailsIconClassName}>
-          <EntryIcon entry={entry} />
-        </span>
-        <div className="grid min-w-0 max-w-full gap-[3px]">
-          <div className={detailsTitleClassName}>{displayName(entry)}</div>
-          <div className={detailsMetaClassName}>
-            {summaryLine(entry)}
+    <>
+      {!props.entry ? (
+        <div class={detailsClassName}>
+          <div class={detailsSummaryClassName}>
+            <span class={detailsIconClassName} aria-hidden="true" />
+            <div class="min-w-0">
+              <div class={detailsTitleClassName}>No selection</div>
+              <div class={detailsMetaClassName}>
+                {props.currentPath ?? "Files"}
+              </div>
+            </div>
           </div>
         </div>
-        {onOpenEntry
-          ? (
-            <button
-              type="button"
-              className={objectActionButtonClassName}
-              onClick={() => onOpenEntry(entry)}
-            >
-              <ArrowUpRight size={11} />
-              Open
-            </button>
-          )
-          : null}
-      </div>
-      <div className={detailsSectionTitleClassName}>Info</div>
-      <dl className={detailsListClassName}>
-        <DetailRow label="Source" value="Machine" />
-        <DetailRow label="Parent" value={parentName(entry.path)} />
-        <DetailRow label="Kind" value={kindLabel(entry.kind)} />
-        <DetailRow label="Path" value={entry.path} />
-        <DetailRow label="Modified" value={formatDate(entry.modifiedAtMs)} />
-        <DetailRow
-          label="Access"
-          value={entry.readonly ? "Read only" : "Writable"}
-        />
-      </dl>
-    </div>
+      ) : (
+        <div class={detailsClassName}>
+          <div class={detailsSummaryClassName}>
+            <span class={detailsIconClassName}>
+              <EntryIcon entry={props.entry} />
+            </span>
+            <div class="grid min-w-0 max-w-full gap-[3px]">
+              <div class={detailsTitleClassName}>
+                {displayName(props.entry)}
+              </div>
+              <div class={detailsMetaClassName}>{summaryLine(props.entry)}</div>
+            </div>
+            {props.onOpenEntry ? (
+              <button
+                type="button"
+                class={objectActionButtonClassName}
+                onClick={() => {
+                  if (props.entry) props.onOpenEntry?.(props.entry);
+                }}
+              >
+                <ArrowUpRight size={11} />
+                Open
+              </button>
+            ) : null}
+          </div>
+          <div class={detailsSectionTitleClassName}>Info</div>
+          <dl class={detailsListClassName}>
+            <DetailRow label="Source" value="Machine" />
+            <DetailRow label="Parent" value={parentName(props.entry.path)} />
+            <DetailRow label="Kind" value={kindLabel(props.entry.kind)} />
+            <DetailRow label="Path" value={props.entry.path} />
+            <DetailRow
+              label="Modified"
+              value={formatDate(props.entry.modifiedAtMs)}
+            />
+            <DetailRow
+              label="Access"
+              value={props.entry.readonly ? "Read only" : "Writable"}
+            />
+          </dl>
+        </div>
+      )}
+    </>
   );
 }
-
 function summaryLine(entry: FsEntry) {
   const parts = [kindLabel(entry.kind)];
   const size = formatSize(entry.size);
@@ -210,7 +201,6 @@ function summaryLine(entry: FsEntry) {
   parts.push(entry.readonly ? "Read only" : "Writable");
   return parts.join(" · ");
 }
-
 function parentName(path: string): string {
   const normalized = path.replace(/\/+$/, "");
   const slashIndex = normalized.lastIndexOf("/");
@@ -219,17 +209,11 @@ function parentName(path: string): string {
   const parentSlashIndex = parentPath.lastIndexOf("/");
   return parentPath.slice(parentSlashIndex + 1) || "/";
 }
-
-function DetailRow(
-  { label, value }: {
-    label: string;
-    value: string;
-  },
-) {
+function DetailRow(props: { label: string; value: string }) {
   return (
     <div>
-      <dt>{label}</dt>
-      <dd title={value}>{value}</dd>
+      <dt>{props.label}</dt>
+      <dd title={props.value}>{props.value}</dd>
     </div>
   );
 }

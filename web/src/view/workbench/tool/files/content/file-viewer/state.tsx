@@ -1,9 +1,9 @@
-import { createContext } from "react";
+import { createContext, type Accessor } from "solid-js";
 import { bunja } from "bunja";
-import { createScopeFromContext } from "bunja/react";
-import { atom } from "jotai";
-import { atomWithStorage } from "jotai/utils";
-import { JotaiStoreScope } from "unsaturated/store";
+import { createScopeFromContext } from "../../../../../../solid/bunja.tsx";
+import { atom } from "jotai/vanilla";
+import { atomWithStorage } from "jotai/vanilla/utils";
+import { JotaiStoreScope } from "../../../../../../state/jotai-store.ts";
 import {
   type FsEntry,
   FsEntryKind,
@@ -14,17 +14,23 @@ import { rpcSessionBunja } from "../../../../../../state/rpc-session.ts";
 import { WorkbenchTabIdScope } from "../../../../../../state/workbench-scopes.ts";
 import { type FileViewerImplId, isFileViewerImpl } from "./impl/index.ts";
 import { detectFileViewerImpl } from "./impl-detector/index.ts";
-
 type FileViewerState =
-  | { phase: "detecting" }
-  | { phase: "error"; message: string }
-  | { phase: "ready"; initialBytes: Uint8Array; impl: FileViewerImplId };
-
-export const FsEntryContext = createContext<FsEntry | undefined>(undefined);
-export const FsEntryPathContext = createContext<string | undefined>(undefined);
+  | {
+      phase: "detecting";
+    }
+  | {
+      phase: "error";
+      message: string;
+    }
+  | {
+      phase: "ready";
+      initialBytes: Uint8Array;
+      impl: FileViewerImplId;
+    };
+export const FsEntryContext = createContext<Accessor<FsEntry | undefined>>();
+export const FsEntryPathContext = createContext<Accessor<string | undefined>>();
 const FsEntryScope = createScopeFromContext(FsEntryContext);
-const FsEntryPathScope = createScopeFromContext(FsEntryPathContext);
-
+export const FsEntryPathScope = createScopeFromContext(FsEntryPathContext);
 export const fileViewerBunja = bunja(() => {
   const machine = bunja.use(machineBunja);
   const rpcSession = bunja.use(rpcSessionBunja);
@@ -38,7 +44,6 @@ export const fileViewerBunja = bunja(() => {
       ? fsEntryContext
       : fsEntryFromPath(fsEntryPath);
   const store = bunja.use(JotaiStoreScope);
-
   const stateAtom = atom<FileViewerState>({ phase: "detecting" });
   const persistedSelectedImplAtom = atomWithStorage<string | undefined>(
     fileViewerSelectedImplStorageKey(machine.machineId, tabId, fsEntry.path),
@@ -61,7 +66,6 @@ export const fileViewerBunja = bunja(() => {
     (get) => {
       const selectedImpl = get(selectedImplAtom);
       if (selectedImpl) return selectedImpl;
-
       const state = get(stateAtom);
       return state.phase === "ready" ? state.impl : undefined;
     },
@@ -69,10 +73,8 @@ export const fileViewerBunja = bunja(() => {
       set(selectedImplAtom, impl);
     },
   );
-
   bunja.effect(() => {
     const currentMachine = store.get(machine.machineAtom);
-
     let cancelled = false;
     store.set(stateAtom, { phase: "detecting" });
     void (async () => {
@@ -97,12 +99,10 @@ export const fileViewerBunja = bunja(() => {
         });
       }
     });
-
     return () => {
       cancelled = true;
     };
   });
-
   return {
     fsEntry,
     implAtom,
@@ -112,22 +112,23 @@ export const fileViewerBunja = bunja(() => {
     webTransport: rpcSession.webTransport,
   };
 });
-
-export function requireFsEntry(fsEntry: FsEntry | undefined): FsEntry {
-  if (!fsEntry) throw new Error("FsEntry context is not provided.");
-  return fsEntry;
+export function requireFsEntry(
+  fsEntry: Accessor<FsEntry | undefined>,
+): Accessor<FsEntry> {
+  return () => {
+    const value = fsEntry();
+    if (!value) throw new Error("FsEntry context is not provided.");
+    return value;
+  };
 }
-
 function requireFsEntryPath(path: string | undefined): string {
   if (!path) throw new Error("FsEntry path context is not provided.");
   return path;
 }
-
 function requireWorkbenchTabId(tabId: string | undefined): string {
   if (!tabId) throw new Error("Workbench tab id context is not provided.");
   return tabId;
 }
-
 function fsEntryFromPath(path: string): FsEntry {
   return {
     kind: FsEntryKind.File,
@@ -136,7 +137,6 @@ function fsEntryFromPath(path: string): FsEntry {
     readonly: false,
   };
 }
-
 function fileBasename(path: string): string {
   const slashIndex = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
   return path.slice(slashIndex + 1) || path;

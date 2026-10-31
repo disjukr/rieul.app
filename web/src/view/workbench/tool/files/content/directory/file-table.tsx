@@ -1,4 +1,4 @@
-import React from "react";
+import { createEffect, For } from "solid-js";
 import {
   type FsEntry,
   FsEntryKind,
@@ -11,17 +11,13 @@ import {
 } from "../../../../../../state/explorer.ts";
 import { EntryIcon } from "./entry-icon.tsx";
 import { className } from "../../../../../class-name.ts";
-
 interface FileTableProps {
   rows: FsEntry[];
   selectedPath?: string;
   onSelect: (entry: FsEntry) => void;
   onOpen: (entry: FsEntry) => void;
-  onContextMenu: (
-    entry: FsEntry,
-    event: React.MouseEvent<HTMLDivElement>,
-  ) => void;
-  onFolderContextMenu: (event: React.MouseEvent<HTMLDivElement>) => void;
+  onContextMenu: (entry: FsEntry, event: MouseEvent) => void;
+  onFolderContextMenu: (event: MouseEvent) => void;
   createDraftName: string;
   createError?: string;
   createIsCreating: boolean;
@@ -37,7 +33,6 @@ interface FileTableProps {
   onRenameCommit: (entry: FsEntry) => void;
   onRenameDraftChange: (value: string) => void;
 }
-
 const fileTableClassName = [
   "file-table relative grid",
   "[grid-template-columns:minmax(220px,1fr)_minmax(96px,130px)_minmax(88px,120px)_minmax(140px,190px)]",
@@ -71,10 +66,8 @@ const fileCellBaseClassName = [
   "px-[8px] text-[12.5px] text-ellipsis whitespace-nowrap",
 ].join(" ");
 const fileFirstColumnClassName = "pl-[10px]";
-const fileNameCellClassName =
-  `${fileCellBaseClassName} ${fileFirstColumnClassName} name gap-[7px]`;
-const fileMetaCellClassName =
-  `${fileCellBaseClassName} font-500 text-rieul-text-3`;
+const fileNameCellClassName = `${fileCellBaseClassName} ${fileFirstColumnClassName} name gap-[7px]`;
+const fileMetaCellClassName = `${fileCellBaseClassName} font-500 text-rieul-text-3`;
 const fileNameClassName =
   "min-w-0 overflow-hidden text-ellipsis whitespace-nowrap leading-[1.38]";
 const fileNameInputClassName = [
@@ -105,70 +98,45 @@ const newFileEntry: FsEntry = {
   path: "",
   readonly: false,
 };
-
-export function FileTable(
-  {
-    rows,
-    selectedPath,
-    onSelect,
-    onOpen,
-    onContextMenu,
-    onFolderContextMenu,
-    createDraftName,
-    createError,
-    createIsCreating,
-    createIsEditing,
-    onCreateCancel,
-    onCreateCommit,
-    onCreateDraftChange,
-    renameDraftName,
-    renameError,
-    renameIsSaving,
-    renamingPath,
-    onRenameCancel,
-    onRenameCommit,
-    onRenameDraftChange,
-  }: FileTableProps,
-) {
-  function openFolderContextMenu(event: React.MouseEvent<HTMLDivElement>) {
+export function FileTable(props: FileTableProps) {
+  function openFolderContextMenu(event: MouseEvent) {
     const target = event.target;
     if (!(target instanceof Element)) return;
     if (target.closest("[data-file-table-row], [data-file-table-head]")) {
       return;
     }
-    onFolderContextMenu(event);
+    props.onFolderContextMenu(event);
   }
-
   return (
     <div
-      className={fileTableClassName}
+      class={fileTableClassName}
       role="grid"
       aria-label="Files"
       onContextMenu={openFolderContextMenu}
     >
       <div
-        className={`${fileHeadClassName} ${fileFirstColumnClassName} name`}
+        class={`${fileHeadClassName} ${fileFirstColumnClassName} name`}
         role="columnheader"
         data-file-table-head
       >
         Name
       </div>
       <div
-        className={`${fileHeadClassName} kind`}
+        class={`${fileHeadClassName} kind`}
         role="columnheader"
         data-file-table-head
       >
         Kind
       </div>
       <div
-        className={`${fileHeadClassName} size`}
+        class={`${fileHeadClassName} size`}
         role="columnheader"
         data-file-table-head
       >
         Size
       </div>
       <div
-        className={className(
+        class={className(
           fileHeadClassName,
           "modified",
           hideInNarrowContainerClassName,
@@ -178,62 +146,55 @@ export function FileTable(
       >
         Modified
       </div>
-      {rows.length === 0 && !createIsEditing
-        ? <div className={tableEmptyClassName}>No rows</div>
-        : (
-          rows.map((entry) => {
-            const renaming = entry.path === renamingPath;
-            const selected = entry.path === selectedPath;
+      {props.rows.length === 0 && !props.createIsEditing ? (
+        <div class={tableEmptyClassName}>No rows</div>
+      ) : (
+        <For each={props.rows}>
+          {(entry) => {
+            const renaming = () => entry.path === props.renamingPath;
+            const selected = () => entry.path === props.selectedPath;
             return (
               <div
-                key={entry.path}
-                className={className(
-                  fileRowClassName,
-                  selected && "selected",
-                )}
+                class={className(fileRowClassName, selected() && "selected")}
                 role="row"
-                aria-selected={selected}
-                tabIndex={0}
-                onClick={() => onSelect(entry)}
-                onDoubleClick={() => onOpen(entry)}
-                onContextMenu={(event) => onContextMenu(entry, event)}
+                aria-selected={selected() ? "true" : "false"}
+                tabindex={0}
+                onClick={() => props.onSelect(entry)}
+                onDblClick={() => props.onOpen(entry)}
+                onContextMenu={(event) => props.onContextMenu(entry, event)}
                 onKeyDown={(event) => {
                   if (event.key !== "Enter") return;
                   event.preventDefault();
-                  onOpen(entry);
+                  props.onOpen(entry);
                 }}
                 data-file-table-row
               >
-                <span className={fileNameCellClassName}>
+                <span class={fileNameCellClassName}>
                   <EntryIcon entry={entry} />
-                  {renaming
-                    ? (
-                      <NameInput
-                        disabled={renameIsSaving}
-                        error={renameError}
-                        value={renameDraftName}
-                        onCancel={onRenameCancel}
-                        onChange={onRenameDraftChange}
-                        onCommit={() => onRenameCommit(entry)}
-                      />
-                    )
-                    : (
-                      <span className={fileNameClassName}>
-                        {displayName(entry)}
-                      </span>
-                    )}
-                  {entry.readonly
-                    ? <span className={readonlyClassName}>readonly</span>
-                    : null}
+                  {renaming() ? (
+                    <NameInput
+                      disabled={props.renameIsSaving}
+                      error={props.renameError}
+                      value={props.renameDraftName}
+                      onCancel={props.onRenameCancel}
+                      onChange={props.onRenameDraftChange}
+                      onCommit={() => props.onRenameCommit(entry)}
+                    />
+                  ) : (
+                    <span class={fileNameClassName}>{displayName(entry)}</span>
+                  )}
+                  {entry.readonly ? (
+                    <span class={readonlyClassName}>readonly</span>
+                  ) : null}
                 </span>
-                <span className={`${fileMetaCellClassName} kind`}>
+                <span class={`${fileMetaCellClassName} kind`}>
                   {kindLabel(entry.kind)}
                 </span>
-                <span className={`${fileMetaCellClassName} size`}>
+                <span class={`${fileMetaCellClassName} size`}>
                   {formatSize(entry.size)}
                 </span>
                 <span
-                  className={className(
+                  class={className(
                     fileMetaCellClassName,
                     "modified",
                     hideInNarrowContainerClassName,
@@ -243,46 +204,44 @@ export function FileTable(
                 </span>
               </div>
             );
-          })
-        )}
-      {createIsEditing
-        ? (
-          <div
-            className={className(fileRowClassName, "selected")}
-            role="row"
-            aria-selected="true"
-            data-file-table-row
-          >
-            <span className={fileNameCellClassName}>
-              <EntryIcon entry={newFileEntry} />
-              <NameInput
-                disabled={createIsCreating}
-                error={createError}
-                value={createDraftName}
-                onCancel={onCreateCancel}
-                onChange={onCreateDraftChange}
-                onCommit={onCreateCommit}
-              />
-            </span>
-            <span className={`${fileMetaCellClassName} kind`}>
-              {kindLabel(FsEntryKind.File)}
-            </span>
-            <span className={`${fileMetaCellClassName} size`} />
-            <span
-              className={className(
-                fileMetaCellClassName,
-                "modified",
-                hideInNarrowContainerClassName,
-              )}
+          }}
+        </For>
+      )}
+      {props.createIsEditing ? (
+        <div
+          class={className(fileRowClassName, "selected")}
+          role="row"
+          aria-selected="true"
+          data-file-table-row
+        >
+          <span class={fileNameCellClassName}>
+            <EntryIcon entry={newFileEntry} />
+            <NameInput
+              disabled={props.createIsCreating}
+              error={props.createError}
+              value={props.createDraftName}
+              onCancel={props.onCreateCancel}
+              onChange={props.onCreateDraftChange}
+              onCommit={props.onCreateCommit}
             />
-          </div>
-        )
-        : null}
-      <div className={tableBottomPaddingClassName} aria-hidden="true" />
+          </span>
+          <span class={`${fileMetaCellClassName} kind`}>
+            {kindLabel(FsEntryKind.File)}
+          </span>
+          <span class={`${fileMetaCellClassName} size`} />
+          <span
+            class={className(
+              fileMetaCellClassName,
+              "modified",
+              hideInNarrowContainerClassName,
+            )}
+          />
+        </div>
+      ) : null}
+      <div class={tableBottomPaddingClassName} aria-hidden="true" />
     </div>
   );
 }
-
 interface NameInputProps {
   disabled: boolean;
   error?: string;
@@ -291,45 +250,45 @@ interface NameInputProps {
   onChange: (value: string) => void;
   onCommit: () => void;
 }
-
-function NameInput(
-  { disabled, error, value, onCancel, onChange, onCommit }: NameInputProps,
-) {
-  const inputRef = React.useRef<HTMLInputElement>(null);
-
-  React.useEffect(() => {
-    const input = inputRef.current;
-    if (!input) return;
-    input.focus();
-    input.select();
-  }, []);
-
+function NameInput(props: NameInputProps) {
+  const inputRef = { current: null as HTMLInputElement | null };
+  createEffect(
+    () => ({}),
+    ({}) => {
+      const input = inputRef.current;
+      if (!input) return;
+      input.focus();
+      input.select();
+    },
+  );
   return (
-    <span className="inline-flex min-w-0 max-w-full flex-[1_1_auto] self-center">
+    <span class="inline-flex min-w-0 max-w-full flex-[1_1_auto] self-center">
       <input
-        ref={inputRef}
-        className={fileNameInputClassName}
-        disabled={disabled}
-        value={value}
-        onBlur={onCommit}
-        onChange={(event) => onChange(event.currentTarget.value)}
+        ref={(element) => (inputRef.current = element)}
+        class={fileNameInputClassName}
+        disabled={props.disabled}
+        value={props.value}
+        onBlur={props.onCommit}
+        onInput={(event) => props.onChange(event.currentTarget.value)}
         onClick={(event) => event.stopPropagation()}
-        onDoubleClick={(event) => event.stopPropagation()}
+        onDblClick={(event) => event.stopPropagation()}
         onKeyDown={(event) => {
           if (event.key === "Escape") {
             event.preventDefault();
             event.stopPropagation();
-            onCancel();
+            props.onCancel();
             return;
           }
           if (event.key === "Enter") {
             event.preventDefault();
             event.stopPropagation();
-            onCommit();
+            props.onCommit();
           }
         }}
       />
-      {error ? <span className={fileRenameErrorClassName}>{error}</span> : null}
+      {props.error ? (
+        <span class={fileRenameErrorClassName}>{props.error}</span>
+      ) : null}
     </span>
   );
 }

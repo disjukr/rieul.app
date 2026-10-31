@@ -1,5 +1,5 @@
-import { useContext } from "react";
-import { useAtomValue } from "jotai";
+import { useContext } from "solid-js";
+import { useAtomValue } from "../../../../../../solid/jotai.tsx";
 import type { FsEntry } from "../../../../../../protocol/generated/rpc.ts";
 import { displayName } from "../../../../../../state/explorer.ts";
 import {
@@ -14,7 +14,6 @@ import {
 } from "../../context.tsx";
 import { FileTable } from "./file-table.tsx";
 import { Inspector } from "./entry-details.tsx";
-
 const directoryContentClassName = [
   "grid [grid-template-rows:minmax(0,1fr)_auto]",
   "w-full h-full min-w-0 min-h-0 overflow-hidden",
@@ -33,7 +32,6 @@ const explorerFooterClassName = [
   "[&_span]:min-w-0 [&_span]:overflow-hidden [&_span]:text-ellipsis [&_span]:whitespace-nowrap",
 ].join(" ");
 const footerSelectionClassName = "text-rieul-text-3";
-
 export function DirectoryContent() {
   const actions = requireFilesActions(useContext(FilesActionsContext));
   const createFile = requireFilesCreateFileState(
@@ -41,61 +39,62 @@ export function DirectoryContent() {
   );
   const explorer = requireFilesExplorer(useContext(FilesExplorerContext));
   const rename = requireFilesRenameState(useContext(FilesRenameContext));
-  const currentPath = useAtomValue(explorer.currentPathAtom);
-  const rows = useAtomValue(explorer.visibleRowsAtom);
-  const selectedEntry = useAtomValue(explorer.selectedEntryAtom);
-  const selectedPath = useAtomValue(explorer.selectedPathAtom);
-
+  const currentPath = useAtomValue(() => explorer().currentPathAtom);
+  const rows = useAtomValue(() => explorer().visibleRowsAtom);
+  const selectedEntry = useAtomValue(() => explorer().selectedEntryAtom);
+  const selectedPath = useAtomValue(() => explorer().selectedPathAtom);
   return (
-    <div className={directoryContentClassName}>
-      <div className={browserLayoutClassName}>
+    <div class={directoryContentClassName}>
+      <div class={browserLayoutClassName}>
         <FileTable
-          rows={rows}
-          selectedPath={selectedPath}
-          onSelect={actions.selectEntry}
-          onOpen={actions.openEntry}
-          onContextMenu={actions.openEntryMenu}
-          onFolderContextMenu={actions.openFolderMenu}
-          createDraftName={createFile.draftName}
-          createError={createFile.error}
-          createIsCreating={createFile.isCreating}
-          createIsEditing={createFile.isEditing}
-          onCreateCancel={createFile.cancelCreate}
-          onCreateCommit={createFile.commitCreate}
-          onCreateDraftChange={createFile.updateDraftName}
-          renameDraftName={rename.draftName}
-          renamingPath={rename.entryPath}
-          renameError={rename.error}
-          renameIsSaving={rename.isRenaming}
-          onRenameCancel={rename.cancelRename}
-          onRenameCommit={rename.commitRename}
-          onRenameDraftChange={rename.updateDraftName}
+          rows={rows()}
+          selectedPath={selectedPath()}
+          onSelect={actions().selectEntry}
+          onOpen={actions().openEntry}
+          onContextMenu={actions().openEntryMenu}
+          onFolderContextMenu={actions().openFolderMenu}
+          createDraftName={createFile().draftName}
+          createError={createFile().error}
+          createIsCreating={createFile().isCreating}
+          createIsEditing={createFile().isEditing}
+          onCreateCancel={createFile().cancelCreate}
+          onCreateCommit={createFile().commitCreate}
+          onCreateDraftChange={createFile().updateDraftName}
+          renameDraftName={rename().draftName}
+          renamingPath={rename().entryPath}
+          renameError={rename().error}
+          renameIsSaving={rename().isRenaming}
+          onRenameCancel={rename().cancelRename}
+          onRenameCommit={rename().commitRename}
+          onRenameDraftChange={rename().updateDraftName}
         />
         <Inspector
-          entry={selectedEntry}
-          currentPath={currentPath}
-          onOpenEntry={actions.openEntry}
+          entry={selectedEntry()}
+          currentPath={currentPath()}
+          onOpenEntry={actions().openEntry}
         />
       </div>
-      <DirectoryFooter rowCount={rows.length} selectedEntry={selectedEntry} />
+      <DirectoryFooter
+        rowCount={rows().length}
+        selectedEntry={selectedEntry()}
+      />
     </div>
   );
 }
-
 export { EntryPropertiesModal } from "./entry-details.tsx";
-
 interface DirectoryFooterProps {
   rowCount: number;
   selectedEntry?: FsEntry;
 }
-
-function DirectoryFooter({ rowCount, selectedEntry }: DirectoryFooterProps) {
+function DirectoryFooter(props: DirectoryFooterProps) {
   return (
-    <div className={explorerFooterClassName}>
-      <span className={footerSelectionClassName}>
-        {selectedEntry ? displayName(selectedEntry) : "No selection"}
+    <div class={explorerFooterClassName}>
+      <span class={footerSelectionClassName}>
+        {props.selectedEntry
+          ? displayName(props.selectedEntry)
+          : "No selection"}
       </span>
-      <span>{rowCount} items</span>
+      <span>{props.rowCount} items</span>
     </div>
   );
 }
