@@ -76,3 +76,28 @@ test("file rename keeps one focused input while typing and path editor submits i
     "/next/folder",
   );
 });
+
+test("tooltip describes its actual focused trigger and restores existing ARIA description on Escape", async ({
+  page,
+}) => {
+  await page.goto("/tests/fixtures/controls.html");
+  const trigger = page.getByRole("button", {
+    name: "Tooltip trigger",
+    exact: true,
+  });
+  await trigger.focus();
+  const tooltip = page.getByRole("tooltip");
+  await expect(tooltip).toHaveText("Fixture tooltip");
+  const id = await tooltip.getAttribute("id");
+  await expect(trigger).toHaveAttribute(
+    "aria-describedby",
+    `existing-description ${id}`,
+  );
+  await page.keyboard.press("Escape");
+  await expect(tooltip).toHaveCount(0);
+  await expect(trigger).toHaveAttribute(
+    "aria-describedby",
+    "existing-description",
+  );
+  await expect(trigger).toBeFocused();
+});

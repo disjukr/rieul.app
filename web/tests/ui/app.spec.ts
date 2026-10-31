@@ -192,6 +192,19 @@ test("pane split and close preserve the controlled workbench layout", async ({
     .getByRole("button", { name: "Pane actions", exact: true })
     .last()
     .click();
+  await expect
+    .poll(() =>
+      page.getByRole("menu").evaluate((menu) => {
+        const rect = menu.getBoundingClientRect();
+        return (
+          rect.left >= 0 &&
+          rect.top >= 0 &&
+          rect.right <= innerWidth &&
+          rect.bottom <= innerHeight
+        );
+      }),
+    )
+    .toBe(true);
   await page.getByRole("menuitem", { name: "Close pane", exact: true }).click();
   await expect(
     page.getByRole("button", { name: "Pane actions", exact: true }),

@@ -1,5 +1,6 @@
 import { createSignal, Show } from "solid-js";
 import { render } from "@solidjs/web";
+import { AppTooltip } from "../../src/view/ui/tooltip.tsx";
 import { ModalDialog } from "../../src/view/ui/dialog.tsx";
 import {
   FloatingMenu,
@@ -27,6 +28,12 @@ function Fixture() {
   };
   return (
     <>
+      <span id="existing-description" hidden>
+        Existing description
+      </span>
+      <AppTooltip label="Fixture tooltip">
+        <button aria-describedby="existing-description">Tooltip trigger</button>
+      </AppTooltip>
       <button onClick={() => setDialog(true)}>Open dialog</button>
       <button
         ref={(element) => (anchorRef.current = element)}
