@@ -32,6 +32,20 @@ export default defineConfig({
       template: "flamegraph",
     }),
   ],
+  // Discover fixture dependencies before serving parallel browser tests. Late
+  // discovery otherwise reloads live pages and invalidates lifetime assertions.
+  optimizeDeps: {
+    entries: ["index.html", "tests/fixtures/*.html"],
+    // Workers load through new URL(), outside the HTML import scanner. Discover
+    // their dependencies up front so opening an editor cannot reload other tabs.
+    include: [
+      "monaco-editor/esm/vs/editor/editor.worker.js",
+      "monaco-editor/esm/vs/language/css/css.worker.js",
+      "monaco-editor/esm/vs/language/html/html.worker.js",
+      "monaco-editor/esm/vs/language/json/json.worker.js",
+      "monaco-editor/esm/vs/language/typescript/ts.worker.js",
+    ],
+  },
   server: {
     allowedHosts: devAllowedHosts,
     port: 5173,
