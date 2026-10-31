@@ -21,7 +21,7 @@
     "@unocss/reset": "66.7.0",
     "@xterm/addon-fit": "0.10.0",
     "@xterm/xterm": "5.5.0",
-    "bunja": "3.0.0",
+    "bunja": "4.0.0-alpha.1",
     "class-variance-authority": "0.7.1",
     "jotai": "2.20.0",
     "lucide-react": "0.468.0",

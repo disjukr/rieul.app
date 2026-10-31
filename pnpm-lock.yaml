@@ -57,8 +57,8 @@ importers:
         specifier: 5.5.0
         version: 5.5.0
       bunja:
-        specifier: 3.0.0
-        version: 3.0.0(@types/react@19.2.14)(react@19.2.6)
+        specifier: 4.0.0-alpha.1
+        version: 4.0.0-alpha.1(@types/react@19.2.14)(react@19.2.6)
       class-variance-authority:
         specifier: 0.7.1
         version: 0.7.1
@@ -88,7 +88,7 @@ importers:
         version: 19.2.6(react@19.2.6)
       unsaturated:
         specifier: 0.0.0
-        version: 0.0.0(bunja@3.0.0(@types/react@19.2.14)(react@19.2.6))(jotai@2.20.0(@babel/core@7.29.7)(@babel/template@7.29.7)(@types/react@19.2.14)(react@19.2.6))(react@19.2.6)
+        version: 0.0.0(bunja@4.0.0-alpha.1(@types/react@19.2.14)(react@19.2.6))(jotai@2.20.0(@babel/core@7.29.7)(@babel/template@7.29.7)(@types/react@19.2.14)(react@19.2.6))(react@19.2.6)
     devDependencies:
       '@resvg/resvg-js':
         specifier: 2.6.2
@@ -1456,8 +1456,9 @@ packages:
       solid-js:
         optional: true
 
-  bunja@3.0.0:
-    resolution: {integrity: sha512-ZKu2bgpwC5l3JnR8tl2mDNvDVVaiq0Zvdtxuyjb3n+F+05OYzicFkA4bqhmB34wYA8Rs7aT2ebbqCUDJCNDCmA==}
+  bunja@4.0.0-alpha.1:
+    resolution: {integrity: sha512-Rx6E2tUbACQfwcVZQ0+2zcxiGAEqVyOU19Boj0VR35A2e5YMCE0c4OohG3QJ1mqbuTLI25qJ64yZl/5U2kCPww==}
+    engines: {node: '>=22.18.0'}
     peerDependencies:
       '@types/react': '*'
       react: '>=18'
@@ -3452,7 +3453,7 @@ snapshots:
       '@types/react': 19.2.14
       react: 19.2.6
 
-  bunja@3.0.0(@types/react@19.2.14)(react@19.2.6):
+  bunja@4.0.0-alpha.1(@types/react@19.2.14)(react@19.2.6):
     optionalDependencies:
       '@types/react': 19.2.14
       react: 19.2.6
@@ -4244,9 +4245,9 @@ snapshots:
       picomatch: 4.0.7
       webpack-virtual-modules: 0.6.2
 
-  unsaturated@0.0.0(bunja@3.0.0(@types/react@19.2.14)(react@19.2.6))(jotai@2.20.0(@babel/core@7.29.7)(@babel/template@7.29.7)(@types/react@19.2.14)(react@19.2.6))(react@19.2.6):
+  unsaturated@0.0.0(bunja@4.0.0-alpha.1(@types/react@19.2.14)(react@19.2.6))(jotai@2.20.0(@babel/core@7.29.7)(@babel/template@7.29.7)(@types/react@19.2.14)(react@19.2.6))(react@19.2.6):
     dependencies:
-      bunja: 3.0.0(@types/react@19.2.14)(react@19.2.6)
+      bunja: 4.0.0-alpha.1(@types/react@19.2.14)(react@19.2.6)
       jotai: 2.20.0(@babel/core@7.29.7)(@babel/template@7.29.7)(@types/react@19.2.14)(react@19.2.6)
       react: 19.2.6
 
