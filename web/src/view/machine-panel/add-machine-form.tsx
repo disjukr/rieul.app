@@ -1,5 +1,4 @@
-import React, { FormEvent } from "react";
-import { Plus } from "lucide-react";
+import { Plus } from "../../solid/icons.tsx";
 import { Button } from "../ui/button.tsx";
 
 const machineModalFormClassName = [
@@ -20,35 +19,30 @@ interface AddMachineFormProps {
   baseUrl: string;
   error: string;
   machineName: string;
-  machineNameInputRef: React.RefObject<HTMLInputElement | null>;
+  machineNameInputRef: { current: HTMLInputElement | null };
   showCancel: boolean;
   onBaseUrlChange: (value: string) => void;
   onCancel: () => void;
   onMachineNameChange: (value: string) => void;
-  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onSubmit: (event: SubmitEvent & { currentTarget: HTMLFormElement }) => void;
 }
 
-export function AddMachineForm(
-  {
-    baseUrl,
-    error,
-    machineName,
-    machineNameInputRef,
-    showCancel,
-    onBaseUrlChange,
-    onCancel,
-    onMachineNameChange,
-    onSubmit,
-  }: AddMachineFormProps,
-) {
+export function AddMachineForm(componentProps: AddMachineFormProps) {
   return (
-    <form className={machineModalFormClassName} onSubmit={onSubmit}>
+    <form
+      class={machineModalFormClassName}
+      onSubmit={(event) => componentProps.onSubmit(event)}
+    >
       <label>
         <span>Name</span>
         <input
-          ref={machineNameInputRef}
-          value={machineName}
-          onChange={(event) => onMachineNameChange(event.target.value)}
+          ref={(el) => {
+            componentProps.machineNameInputRef.current = el;
+          }}
+          value={componentProps.machineName}
+          onInput={(event) =>
+            componentProps.onMachineNameChange(event.target.value)
+          }
           placeholder="Local daemon"
           aria-label="Machine name"
         />
@@ -56,21 +50,21 @@ export function AddMachineForm(
       <label>
         <span>URL</span>
         <input
-          value={baseUrl}
-          onChange={(event) => onBaseUrlChange(event.target.value)}
+          value={componentProps.baseUrl}
+          onInput={(event) =>
+            componentProps.onBaseUrlChange(event.target.value)
+          }
           placeholder="https://host:9012"
           aria-label="Machine URL"
         />
       </label>
-      {error ? <div className={fieldErrorClassName}>{error}</div> : null}
-      <div className={modalActionsClassName}>
-        {showCancel
-          ? (
-            <Button onClick={onCancel}>
-              Cancel
-            </Button>
-          )
-          : null}
+      {componentProps.error ? (
+        <div class={fieldErrorClassName}>{componentProps.error}</div>
+      ) : null}
+      <div class={modalActionsClassName}>
+        {componentProps.showCancel ? (
+          <Button onClick={() => componentProps.onCancel()}>Cancel</Button>
+        ) : null}
         <Button
           type="submit"
           className="border-rieul-chrome bg-rieul-chrome px-[12px] !text-rieul-inverse hover:border-rieul-chrome hover:bg-rieul-chrome-muted hover:!text-rieul-inverse"

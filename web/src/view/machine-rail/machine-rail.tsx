@@ -1,5 +1,4 @@
-import React from "react";
-import { Plus } from "lucide-react";
+import { Plus } from "../../solid/icons.tsx";
 import type { Machine } from "../../state/machines.ts";
 import { className } from "../class-name.ts";
 import { AppTooltip } from "../ui/tooltip.tsx";
@@ -10,7 +9,7 @@ interface MachineRailProps {
   selectedId?: string;
   onAddMachine: () => void;
   onContextMenu: (
-    event: React.MouseEvent<HTMLButtonElement>,
+    event: MouseEvent & { currentTarget: HTMLButtonElement },
     machine: Machine,
   ) => void;
   onSelectMachine: (machineId: string) => void;
@@ -52,41 +51,32 @@ const railActionClassName = [
   "hover:rounded-[13px] hover:bg-[var(--rieul-accent)] hover:text-[var(--rieul-text-inverse)]",
 ].join(" ");
 const railActionFrameClassName = "grid h-[48px] w-full place-items-center";
-export function MachineRail(
-  {
-    machines,
-    projectLogoUrl,
-    selectedId,
-    onAddMachine,
-    onContextMenu,
-    onSelectMachine,
-  }: MachineRailProps,
-) {
+export function MachineRail(componentProps: MachineRailProps) {
   return (
     <>
-      <aside className={machineRailClassName} aria-label="Machine switcher">
-        <div className={railBrandClassName} title="rieul">
-          <img src={projectLogoUrl} alt="rieul" />
+      <aside class={machineRailClassName} aria-label="Machine switcher">
+        <div class={railBrandClassName} title="rieul">
+          <img src={componentProps.projectLogoUrl} alt="rieul" />
         </div>
 
-        <nav className={railListClassName} aria-label="Machines">
-          {machines.map((machine) => (
-            <div key={machine.id} className={railItemFrameClassName}>
+        <nav class={railListClassName} aria-label="Machines">
+          {componentProps.machines.map((machine) => (
+            <div class={railItemFrameClassName}>
               <AppTooltip label={machine.name}>
                 <button
                   type="button"
-                  className={className(
+                  class={className(
                     railMachineClassName,
-                    machine.id === selectedId && "active",
+                    machine.id === componentProps.selectedId && "active",
                   )}
-                  onClick={() =>
-                    onSelectMachine(machine.id)}
+                  onClick={() => componentProps.onSelectMachine(machine.id)}
                   onContextMenu={(event) =>
-                    onContextMenu(event, machine)}
+                    componentProps.onContextMenu(event, machine)
+                  }
                   aria-label={machine.name}
                 >
-                  <span className={railIndicatorClassName} />
-                  <span className={machineAvatarClassName}>
+                  <span class={railIndicatorClassName} />
+                  <span class={machineAvatarClassName}>
                     {machineInitials(machine.name)}
                   </span>
                 </button>
@@ -95,11 +85,11 @@ export function MachineRail(
           ))}
         </nav>
 
-        <div className={railActionFrameClassName}>
+        <div class={railActionFrameClassName}>
           <button
             type="button"
-            className={railActionClassName}
-            onClick={onAddMachine}
+            class={railActionClassName}
+            onClick={() => componentProps.onAddMachine()}
             title="Add machine"
             aria-label="Add machine"
           >

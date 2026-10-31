@@ -1,16 +1,7 @@
-import {
-  type ComponentPropsWithoutRef,
-  type CSSProperties,
-  type MouseEventHandler,
-  type ReactNode,
-  type RefObject,
-  useEffect,
-  useMemo,
-} from "react";
-import { Menu } from "@base-ui/react/menu";
+import { Portal, type JSX } from "@solidjs/web";
 import { cva, type VariantProps } from "class-variance-authority";
+import { createEffect, omit, type Accessor } from "solid-js";
 import { className as joinClassName } from "../class-name.ts";
-
 const menuVariants = cva([
   "grid gap-[2px] border border-[var(--rieul-border-light)]",
   "bg-[var(--rieul-bg-primary)] rounded-[var(--rieul-radius-sm)] p-0",
@@ -65,24 +56,22 @@ export interface FloatingMenuPosition {
 }
 
 export interface FloatingMenuProps {
+  "aria-label"?: string;
   align?: "start" | "center" | "end";
-  anchorRef?: RefObject<Element | null>;
-  children: ReactNode;
+  anchorRef?: { current: Element | null };
+  children: JSX.Element;
   className?: string;
-  menuRef?: RefObject<HTMLDivElement | null>;
+  menuRef?: { current: HTMLDivElement | null };
   position?: FloatingMenuPosition;
-  role?: string;
+  role?: JSX.HTMLAttributes<HTMLDivElement>["role"];
   strategy?: "absolute" | "fixed";
-  style?: CSSProperties;
-  onMouseDown?: MouseEventHandler<HTMLDivElement>;
+  style?: JSX.CSSProperties;
+  onMouseDown?: (event: MouseEvent & { currentTarget: HTMLDivElement }) => void;
 }
 
-export interface FloatingMenuItemProps extends
-  Omit<
-    ComponentPropsWithoutRef<typeof Menu.Item>,
-    "className"
-  >,
-  VariantProps<typeof menuItemVariants> {
+export interface FloatingMenuItemProps
+  extends Omit<JSX.ButtonHTMLAttributes<HTMLButtonElement>, "className">,
+    VariantProps<typeof menuItemVariants> {
   className?: string;
   type?: "button";
 }
@@ -92,89 +81,128 @@ export interface FloatingMenuSize {
   width: number;
 }
 
-export function FloatingMenu(
-  {
-    align = "start",
-    anchorRef,
-    children,
-    className,
-    menuRef,
-    position,
-    role = "menu",
-    strategy = "fixed",
-    style,
-    onMouseDown,
-  }: FloatingMenuProps,
-) {
-  const virtualAnchor = useMemo(
-    () => position ? virtualAnchorFromPosition(position) : undefined,
-    [position],
-  );
-  const anchor = virtualAnchor ?? anchorRef;
-  const popup = (
-    <Menu.Popup
-      ref={menuRef}
-      className={joinClassName(
-        menuVariants(),
-        className,
-      )}
-      role={role}
-      style={{ maxHeight: position?.maxHeight, ...style }}
-      finalFocus={false}
-      onMouseDown={(event) => {
-        event.stopPropagation();
-        onMouseDown?.(event);
-      }}
-    >
-      {children}
-    </Menu.Popup>
-  );
-
-  return (
-    <Menu.Root open modal={false}>
-      <Menu.Portal>
-        <Menu.Positioner
-          anchor={anchor}
-          align={align}
-          className={menuPositionerVariants({ strategy })}
-          collisionPadding={viewportMargin}
-          positionMethod={strategy}
-          side="bottom"
-        >
-          {popup}
-        </Menu.Positioner>
-      </Menu.Portal>
-    </Menu.Root>
-  );
-}
-
-function virtualAnchorFromPosition(position: FloatingMenuPosition) {
-  return {
-    getBoundingClientRect() {
-      return new DOMRect(position.left, position.top, 0, 0);
+export function FloatingMenu(props: FloatingMenuProps) {
+  let popup!: HTMLDivElement;
+  createEffect(
+    () => true,
+    () => {
+      const previous = document.activeElement;
+      if (props.menuRef) props.menuRef.current = popup;
+      (
+        popup.querySelector<HTMLElement>("[role=menuitem]:not(:disabled)") ??
+        popup
+      ).focus();
+      return () => {
+        if (
+          previous instanceof HTMLElement &&
+          previous.isConnected &&
+          (document.activeElement === document.body ||
+            popup.contains(document.activeElement))
+        )
+          previous.focus();
+      };
     },
+  );
+  const position = () => {
+    if (props.position) return props.position;
+    const rect = props.anchorRef?.current?.getBoundingClientRect();
+    return {
+      left: rect
+        ? props.align === "end"
+          ? rect.right - (popup?.offsetWidth ?? 0)
+          : rect.left
+        : 0,
+      top: rect?.bottom ?? 0,
+    };
   };
-}
+  function keydown(event: KeyboardEvent) {
+    const items = [
+      ...popup.querySelectorAll<HTMLButtonElement>(
+        "[role=menuitem]:not(:disabled)",
+      ),
+    ];
+    const index = items.indexOf(document.activeElement as HTMLButtonElement);
+    let next = -1;
+    if (event.key === "ArrowDown") next = (index + 1) % items.length;
+    if (event.key === "ArrowUp")
+      next = (index - 1 + items.length) % items.length;
+    if (event.key === "Home") next = 0;
+    if (event.key === "End") next = items.length - 1;
+    if (event.key.length === 1 && !event.ctrlKey && !event.metaKey)
+      next =
+        Array.from(
+          { length: items.length },
+          (_, offset) => (index + offset + 1) % items.length,
+        ).find((i) =>
+          items[i].textContent
+            ?.trim()
+            .toLowerCase()
+            .startsWith(event.key.toLowerCase()),
+        ) ?? -1;
 
-export function FloatingMenuItem(
-  { className, tone, type: _type = "button", ...props }: FloatingMenuItemProps,
-) {
+    if (next >= 0) {
+      event.preventDefault();
+      items[next]?.focus();
+    }
+  }
   return (
-    <Menu.Item
-      {...props}
+    <Portal>
+      <div
+        ref={popup}
+        role={props.role ?? "menu"}
+        aria-label={props["aria-label"]}
+        tabindex={-1}
+        class={joinClassName(
+          menuVariants(),
+          menuPositionerVariants({ strategy: props.strategy }),
+          props.className,
+        )}
+        style={{
+          position: props.strategy ?? "fixed",
+          left: `${position().left}px`,
+          top: `${position().top}px`,
+          "max-height":
+            position().maxHeight === undefined
+              ? undefined
+              : `${position().maxHeight}px`,
+          ...props.style,
+        }}
+        onClick={(event) => event.stopPropagation()}
+        onKeyDown={keydown}
+        onMouseDown={(event) => {
+          event.stopPropagation();
+          props.onMouseDown?.(event);
+        }}
+      >
+        {props.children}
+      </div>
+    </Portal>
+  );
+}
+export function FloatingMenuItem(props: FloatingMenuItemProps) {
+  const rest = omit(props, "className", "tone", "type");
+  return (
+    <button
+      {...rest}
+      type="button"
       role={props.role ?? "menuitem"}
-      className={joinClassName(
-        menuItemVariants({ tone }),
-        className,
+      tabindex={-1}
+      class={joinClassName(
+        menuItemVariants({ tone: props.tone }),
+        "focus:bg-[var(--rieul-bg-menu-hover)] hover:bg-[var(--rieul-bg-menu-hover)] disabled:opacity-48",
+        props.className,
       )}
     />
   );
 }
 
 export function floatingMenuHeight(itemCount: number): number {
-  return menuBorderSize + menuPaddingBlock +
+  return (
+    menuBorderSize +
+    menuPaddingBlock +
     itemCount * floatingMenuItemHeightPx +
-    Math.max(0, itemCount - 1) * menuItemGap;
+    Math.max(0, itemCount - 1) * menuItemGap
+  );
 }
 
 export function clampFloatingMenuPosition(
@@ -197,11 +225,10 @@ export function rightAlignedFloatingMenuPosition(
   { itemCount, width }: FloatingMenuSize,
   gap = 0,
 ): FloatingMenuPosition {
-  return clampFloatingMenuPosition(
-    rect.right - width,
-    rect.bottom + gap,
-    { itemCount, width },
-  );
+  return clampFloatingMenuPosition(rect.right - width, rect.bottom + gap, {
+    itemCount,
+    width,
+  });
 }
 
 export function floatingMenuPositionFromRect(
@@ -220,11 +247,11 @@ export function floatingMenuPositionFromRect(
     width,
     globalThis.innerWidth,
   );
-  const belowMaxHeight = globalThis.innerHeight - rect.bottom - gap -
-    viewportMargin;
+  const belowMaxHeight =
+    globalThis.innerHeight - rect.bottom - gap - viewportMargin;
   const aboveMaxHeight = rect.top - gap - viewportMargin;
-  const openAbove = belowMaxHeight < minHeight &&
-    aboveMaxHeight > belowMaxHeight;
+  const openAbove =
+    belowMaxHeight < minHeight && aboveMaxHeight > belowMaxHeight;
   const availableHeight = openAbove ? aboveMaxHeight : belowMaxHeight;
   const maxMenuHeight = Math.max(
     Math.min(minHeight, Math.max(0, availableHeight)),
@@ -238,13 +265,13 @@ export function floatingMenuPositionFromRect(
 }
 
 export function useFloatingMenuDismiss(
-  open: boolean,
-  menuRef: RefObject<HTMLElement | null>,
+  open: Accessor<boolean>,
+  menuRef: { current: HTMLElement | null },
   onClose: () => void,
   options?: { closeOnScroll?: boolean },
 ) {
-  useEffect(() => {
-    if (!open) return;
+  createEffect(open, (isOpen) => {
+    if (!isOpen) return;
 
     function closeOnPointer(event: MouseEvent) {
       const target = event.target;
@@ -253,7 +280,7 @@ export function useFloatingMenuDismiss(
     }
 
     function closeOnEscape(event: KeyboardEvent) {
-      if (event.key === "Escape") onClose();
+      if (event.key === "Escape" || event.key === "Tab") onClose();
     }
 
     function closeOnResize() {
@@ -266,21 +293,25 @@ export function useFloatingMenuDismiss(
       onClose();
     }
 
-    globalThis.addEventListener("mousedown", closeOnPointer);
+    // Effects can mount before the opening click finishes bubbling.
+    const install = globalThis.setTimeout(() => {
+      globalThis.addEventListener("click", closeOnPointer);
+    }, 0);
     globalThis.addEventListener("keydown", closeOnEscape);
     globalThis.addEventListener("resize", closeOnResize);
     if (options?.closeOnScroll) {
       globalThis.addEventListener("scroll", closeOnScroll, true);
     }
     return () => {
-      globalThis.removeEventListener("mousedown", closeOnPointer);
+      globalThis.clearTimeout(install);
+      globalThis.removeEventListener("click", closeOnPointer);
       globalThis.removeEventListener("keydown", closeOnEscape);
       globalThis.removeEventListener("resize", closeOnResize);
       if (options?.closeOnScroll) {
         globalThis.removeEventListener("scroll", closeOnScroll, true);
       }
     };
-  }, [menuRef, onClose, open, options?.closeOnScroll]);
+  });
 }
 
 function clampViewportPosition(

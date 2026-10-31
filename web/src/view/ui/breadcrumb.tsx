@@ -1,9 +1,10 @@
-import type { ReactNode } from "react";
-import { ChevronRight } from "lucide-react";
+import type { JSX } from "@solidjs/web";
+
+import { ChevronRight } from "../../solid/icons.tsx";
 import { className as joinClassName } from "../class-name.ts";
 
 export interface BreadcrumbItem {
-  label: ReactNode;
+  label: JSX.Element;
   muted?: boolean;
   onClick?: () => void;
   title?: string;
@@ -33,14 +34,14 @@ const breadcrumbClassName = [
 ].join(" ");
 const breadcrumbMutedClassName = "text-[var(--rieul-text-tertiary)]";
 
-export function Breadcrumb({ ariaLabel, className, items }: BreadcrumbProps) {
+export function Breadcrumb(componentProps: BreadcrumbProps) {
   return (
     <nav
-      className={joinClassName(breadcrumbClassName, className)}
-      aria-label={ariaLabel}
+      class={joinClassName(breadcrumbClassName, componentProps.className)}
+      aria-label={componentProps.ariaLabel}
     >
-      {items.map((item, index) => (
-        <BreadcrumbPart key={index} item={item} showSeparator={index > 0} />
+      {componentProps.items.map((item, index) => (
+        <BreadcrumbPart item={item} showSeparator={index > 0} />
       ))}
     </nav>
   );
@@ -51,24 +52,28 @@ interface BreadcrumbPartProps {
   showSeparator: boolean;
 }
 
-function BreadcrumbPart({ item, showSeparator }: BreadcrumbPartProps) {
+function BreadcrumbPart(componentProps: BreadcrumbPartProps) {
   return (
     <>
-      {showSeparator ? <ChevronRight size={12} /> : null}
-      {item.onClick
-        ? (
-          <button type="button" onClick={item.onClick} title={item.title}>
-            {item.label}
-          </button>
-        )
-        : (
-          <span
-            className={item.muted ? breadcrumbMutedClassName : undefined}
-            title={item.title}
-          >
-            {item.label}
-          </span>
-        )}
+      {componentProps.showSeparator ? <ChevronRight size={12} /> : null}
+      {componentProps.item.onClick ? (
+        <button
+          type="button"
+          onClick={() => componentProps.item.onClick?.()}
+          title={componentProps.item.title}
+        >
+          {componentProps.item.label}
+        </button>
+      ) : (
+        <span
+          class={
+            componentProps.item.muted ? breadcrumbMutedClassName : undefined
+          }
+          title={componentProps.item.title}
+        >
+          {componentProps.item.label}
+        </span>
+      )}
     </>
   );
 }

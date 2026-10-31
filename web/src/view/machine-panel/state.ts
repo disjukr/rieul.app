@@ -1,5 +1,5 @@
 import { bunja } from "bunja";
-import { JotaiStoreScope } from "unsaturated/store";
+import { JotaiStoreScope } from "../../state/jotai-store.ts";
 import type { AvailableShellInfo } from "../../protocol/generated/rpc.ts";
 import { machineMenuBunja } from "../../state/machine-menu.ts";
 import { machineStoreBunja } from "../../state/machine-store.ts";
@@ -24,7 +24,7 @@ export const machinePanelBunja = bunja(() => {
   const workbench = bunja.use(workbenchBunja);
 
   function openMachineTitleMenu(
-    event: React.MouseEvent<HTMLButtonElement>,
+    event: MouseEvent & { currentTarget: HTMLButtonElement },
     machine: Machine,
   ) {
     event.preventDefault();
@@ -42,18 +42,15 @@ export const machinePanelBunja = bunja(() => {
   }
 
   function openTerminalShell(shell?: AvailableShellInfo) {
-    const selectedShell = shell ??
-      store.get(terminalShells.defaultShellAtom);
+    const selectedShell = shell ?? store.get(terminalShells.defaultShellAtom);
     if (!selectedShell) return;
-    workbench.openTerminalTab(
-      {
-        launch: {
-          command: selectedShell.command,
-          args: selectedShell.args,
-        },
-        title: selectedShell.name,
+    workbench.openTerminalTab({
+      launch: {
+        command: selectedShell.command,
+        args: selectedShell.args,
       },
-    );
+      title: selectedShell.name,
+    });
   }
 
   function openFilesView(filesView: WorkbenchFilesView) {

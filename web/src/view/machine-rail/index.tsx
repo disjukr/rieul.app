@@ -1,103 +1,109 @@
-import React, { useEffect } from "react";
-import { useAtomValue } from "jotai";
-import { useBunja } from "bunja/react";
+import { createEffect } from "solid-js";
+
+import { useBunja } from "../../solid/bunja.tsx";
+import { useAtomValue } from "../../solid/jotai.tsx";
+import { machineMenuBunja } from "../../state/machine-menu.ts";
+import { machineModalBunja } from "../../state/machine-modal.ts";
+import { machineStoreBunja } from "../../state/machine-store.ts";
 import {
   MachineBaseUrlContext,
   MachineIdContext,
 } from "../../state/machine.tsx";
-import { machineMenuBunja } from "../../state/machine-menu.ts";
-import { machineModalBunja } from "../../state/machine-modal.ts";
-import { machineStoreBunja } from "../../state/machine-store.ts";
 import type { Machine } from "../../state/machines.ts";
 import { rpcSessionBunja } from "../../state/rpc-session.ts";
 import type { MachineMenuState } from "../../state/types.ts";
 import { MachineContextMenu } from "./machine-context-menu.tsx";
 import { MachineRail } from "./machine-rail.tsx";
 
-const projectLogoUrl = new URL(
-  "../../assets/rieul.svg",
-  import.meta.url,
-).href;
+const projectLogoUrl = new URL("../../assets/rieul.svg", import.meta.url).href;
 
 export function MachineRailRegion() {
   const machineStore = useBunja(machineStoreBunja);
   const machineMenuState = useBunja(machineMenuBunja);
   const machineModal = useBunja(machineModalBunja);
-  const machines = useAtomValue(machineStore.machinesAtom);
-  const selectedId = useAtomValue(machineStore.selectedIdAtom);
-  const machineMenu = useAtomValue(machineMenuState.machineMenuAtom);
-  const menuMachine = useAtomValue(machineMenuState.menuMachineAtom);
+  const machines = useAtomValue(() => machineStore().machinesAtom);
+  const selectedId = useAtomValue(() => machineStore().selectedIdAtom);
+  const machineMenu = useAtomValue(() => machineMenuState().machineMenuAtom);
+  const menuMachine = useAtomValue(() => machineMenuState().menuMachineAtom);
 
-  useEffect(() => {
-    if (!machineMenu) return;
+  createEffect(
+    () => ({
+      machineMenuSnapshot: machineMenu(),
+      machineMenuStateSnapshot: machineMenuState(),
+    }),
+    ({ machineMenuSnapshot, machineMenuStateSnapshot }) => {
+      if (!machineMenuSnapshot) return;
 
-    function closeMenu() {
-      machineMenuState.closeMachineMenu();
-    }
+      function closeMenu() {
+        machineMenuStateSnapshot.closeMachineMenu();
+      }
 
-    function closeMenuOnEscape(event: KeyboardEvent) {
-      if (event.key === "Escape") closeMenu();
-    }
+      function closeMenuOnEscape(event: KeyboardEvent) {
+        if (event.key === "Escape") closeMenu();
+      }
 
-    globalThis.addEventListener("mousedown", closeMenu);
-    globalThis.addEventListener("keydown", closeMenuOnEscape);
-    return () => {
-      globalThis.removeEventListener("mousedown", closeMenu);
-      globalThis.removeEventListener("keydown", closeMenuOnEscape);
-    };
-  }, [machineMenuState, machineMenu]);
+      globalThis.addEventListener("mousedown", closeMenu);
+      globalThis.addEventListener("keydown", closeMenuOnEscape);
+      return () => {
+        globalThis.removeEventListener("mousedown", closeMenu);
+        globalThis.removeEventListener("keydown", closeMenuOnEscape);
+      };
+    },
+  );
 
   function openAddMachineModal() {
-    machineModal.openAddMachineModal();
+    machineModal().openAddMachineModal();
   }
 
   function openMachineContextMenu(
-    event: React.MouseEvent<HTMLButtonElement>,
+    event: MouseEvent & { currentTarget: HTMLButtonElement },
     machine: Machine,
   ) {
     event.preventDefault();
     event.stopPropagation();
-    machineMenuState.openMachineMenu(machine.id, event.clientX, event.clientY);
+    machineMenuState().openMachineMenu(
+      machine.id,
+      event.clientX,
+      event.clientY,
+    );
   }
 
   function openConfigMachineModal(machine: Machine) {
-    machineModal.openConfigMachineModal(machine.id);
+    machineModal().openConfigMachineModal(machine.id);
   }
 
   function openPairMachineModal(machine: Machine) {
-    machineModal.openPairMachineModal(machine.id);
+    machineModal().openPairMachineModal(machine.id);
   }
 
   function openDeleteMachineModal(machine: Machine) {
-    machineModal.openDeleteMachineModal(machine.id);
+    machineModal().openDeleteMachineModal(machine.id);
   }
 
   return (
     <>
       <MachineRail
-        machines={machines}
+        machines={machines()}
         projectLogoUrl={projectLogoUrl}
-        selectedId={selectedId}
+        selectedId={selectedId()}
         onAddMachine={openAddMachineModal}
         onContextMenu={openMachineContextMenu}
-        onSelectMachine={machineMenuState.selectMachine}
+        onSelectMachine={(event) => machineMenuState().selectMachine(event)}
       />
 
-      {machineMenu && menuMachine
-        ? (
-          <MachineIdContext value={menuMachine.id}>
-            <MachineBaseUrlContext value={menuMachine.baseUrl}>
-              <MachineContextMenuHost
-                machine={menuMachine}
-                menu={machineMenu}
-                onConfigure={openConfigMachineModal}
-                onDelete={openDeleteMachineModal}
-                onPair={openPairMachineModal}
-              />
-            </MachineBaseUrlContext>
-          </MachineIdContext>
-        )
-        : null}
+      {machineMenu() && menuMachine() ? (
+        <MachineIdContext value={() => menuMachine()!.id}>
+          <MachineBaseUrlContext value={() => menuMachine()!.baseUrl}>
+            <MachineContextMenuHost
+              machine={menuMachine()!}
+              menu={machineMenu()!}
+              onConfigure={openConfigMachineModal}
+              onDelete={openDeleteMachineModal}
+              onPair={openPairMachineModal}
+            />
+          </MachineBaseUrlContext>
+        </MachineIdContext>
+      ) : null}
     </>
   );
 }
@@ -110,33 +116,31 @@ interface MachineContextMenuHostProps {
   onPair: (machine: Machine) => void;
 }
 
-function MachineContextMenuHost(
-  { machine, menu, onConfigure, onDelete, onPair }: MachineContextMenuHostProps,
-) {
+function MachineContextMenuHost(componentProps: MachineContextMenuHostProps) {
   const machineMenuState = useBunja(machineMenuBunja);
   const machineStore = useBunja(machineStoreBunja);
   const rpcSession = useBunja(rpcSessionBunja);
 
   function reconnectMachine() {
-    machineMenuState.closeMachineMenu();
-    machineStore.selectMachine(machine.id);
-    void rpcSession.reconnect();
+    machineMenuState().closeMachineMenu();
+    machineStore().selectMachine(componentProps.machine.id);
+    void rpcSession().reconnect();
   }
 
   function unpairMachine() {
-    machineMenuState.closeMachineMenu();
-    machineStore.clearMachineCredentials(machine.id);
-    machineStore.selectMachine(machine.id);
-    rpcSession.resetController();
+    machineMenuState().closeMachineMenu();
+    machineStore().clearMachineCredentials(componentProps.machine.id);
+    machineStore().selectMachine(componentProps.machine.id);
+    rpcSession().resetController();
   }
 
   return (
     <MachineContextMenu
-      machine={machine}
-      menu={menu}
-      onConfigure={onConfigure}
-      onDelete={onDelete}
-      onPair={onPair}
+      machine={componentProps.machine}
+      menu={componentProps.menu}
+      onConfigure={(event) => componentProps.onConfigure(event)}
+      onDelete={(event) => componentProps.onDelete(event)}
+      onPair={(event) => componentProps.onPair(event)}
       onReconnect={reconnectMachine}
       onUnpair={unpairMachine}
     />

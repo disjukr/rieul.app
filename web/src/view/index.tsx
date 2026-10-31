@@ -1,13 +1,15 @@
-import React, { PropsWithChildren, useEffect, useRef } from "react";
-import { useAtomValue } from "jotai";
-import { useBunja } from "bunja/react";
-import { MachineModalHost } from "./machine-panel/index.tsx";
-import { MachineBaseUrlContext, MachineIdContext } from "../state/machine.tsx";
+import type { JSX } from "@solidjs/web";
+import { createEffect } from "solid-js";
+
+import { useBunja } from "../solid/bunja.tsx";
+import { useAtomValue } from "../solid/jotai.tsx";
 import { machineStoreBunja } from "../state/machine-store.ts";
+import { MachineBaseUrlContext, MachineIdContext } from "../state/machine.tsx";
+import { className } from "./class-name.ts";
+import { MachineModalHost } from "./machine-panel/index.tsx";
 import { layoutBunja } from "./state.tsx";
 import { TopBarRegion } from "./top-bar/index.tsx";
 import { WorkbenchRegion } from "./workbench/index.tsx";
-import { className } from "./class-name.ts";
 
 const appShellClassName = [
   "app-shell relative isolate grid h-full min-h-0 overflow-hidden bg-rieul-canvas",
@@ -72,78 +74,83 @@ export default function View() {
 }
 
 interface LayoutProps {
-  children: React.ReactNode;
+  children: JSX.Element;
 }
-function Layout({ children }: LayoutProps) {
+function Layout(componentProps: LayoutProps) {
   const layout = useBunja(layoutBunja);
-  const shellRef = useRef<HTMLElement | null>(null);
+  const shellRef = { current: null as HTMLElement | null | null };
   const machinePanelCollapsed = useAtomValue(
-    layout.machinePanelCollapsedAtom,
+    () => layout().machinePanelCollapsedAtom,
   );
   const machinePanelTransitioning = useAtomValue(
-    layout.machinePanelTransitioningAtom,
+    () => layout().machinePanelTransitioningAtom,
   );
-  const machinePanelWidth = useAtomValue(layout.machinePanelWidthAtom);
+  const machinePanelWidth = useAtomValue(() => layout().machinePanelWidthAtom);
 
-  useEffect(() => {
-    if (!globalThis.matchMedia("(max-width: 680px)").matches) return;
-    const shell = shellRef.current;
-    if (!shell) return;
-    const target = shell;
+  createEffect(
+    () => [],
+    () => {
+      if (!globalThis.matchMedia("(max-width: 680px)").matches) return;
+      const shell = shellRef.current;
+      if (!shell) return;
+      const target = shell;
 
-    function resetMobileRailPosition() {
-      target.scrollLeft = 0;
-    }
+      function resetMobileRailPosition() {
+        target.scrollLeft = 0;
+      }
 
-    resetMobileRailPosition();
-    const timeout = globalThis.setTimeout(resetMobileRailPosition, 80);
-    return () => globalThis.clearTimeout(timeout);
-  }, []);
+      resetMobileRailPosition();
+      const timeout = globalThis.setTimeout(resetMobileRailPosition, 80);
+      return () => globalThis.clearTimeout(timeout);
+    },
+  );
 
   return (
     <main
-      ref={shellRef}
-      className={className(
+      ref={(el) => {
+        shellRef.current = el;
+      }}
+      class={className(
         appShellClassName,
-        machinePanelCollapsed && "machine-panel-collapsed",
-        machinePanelTransitioning && "machine-panel-transitioning",
+        machinePanelCollapsed() && "machine-panel-collapsed",
+        machinePanelTransitioning() && "machine-panel-transitioning",
       )}
-      style={{
-        "--rail-width": machinePanelCollapsed
-          ? "64px"
-          : `${machinePanelWidth}px`,
-        "--rail-open-section-width": `${Math.max(machinePanelWidth - 24, 0)}px`,
-      } as React.CSSProperties}
+      style={
+        {
+          "--rail-width": machinePanelCollapsed()
+            ? "64px"
+            : `${machinePanelWidth()}px`,
+          "--rail-open-section-width": `${Math.max(machinePanelWidth() - 24, 0)}px`,
+        } as JSX.CSSProperties
+      }
     >
-      <div className={mobileRailSnapAnchorClassName} aria-hidden="true" />
-      {machinePanelCollapsed ? null : (
+      <div class={mobileRailSnapAnchorClassName} aria-hidden="true" />
+      {machinePanelCollapsed() ? null : (
         <div
-          className={appRailResizerClassName}
+          class={appRailResizerClassName}
           role="separator"
           aria-label="Resize app rail"
           aria-orientation="vertical"
-          aria-valuemin={layout.machinePanelMinWidth}
-          aria-valuemax={layout.machinePanelMaxWidth}
-          aria-valuenow={machinePanelWidth}
-          tabIndex={0}
-          onPointerDown={layout.startMachinePanelResize}
-          onKeyDown={layout.resizeMachinePanelWithKeyboard}
+          aria-valuemin={layout().machinePanelMinWidth}
+          aria-valuemax={layout().machinePanelMaxWidth}
+          aria-valuenow={machinePanelWidth()}
+          tabindex={0}
+          onPointerDown={(event) => layout().startMachinePanelResize(event)}
+          onKeyDown={(event) => layout().resizeMachinePanelWithKeyboard(event)}
         />
       )}
-      {children}
+      {componentProps.children}
     </main>
   );
 }
 
-function SelectedMachineIdProvider(
-  { children }: PropsWithChildren,
-) {
+function SelectedMachineIdProvider(componentProps: { children?: JSX.Element }) {
   const machineStore = useBunja(machineStoreBunja);
-  const selected = useAtomValue(machineStore.selectedAtom);
+  const selected = useAtomValue(() => machineStore().selectedAtom);
   return (
-    <MachineIdContext value={selected?.id}>
-      <MachineBaseUrlContext value={selected?.baseUrl}>
-        {children}
+    <MachineIdContext value={() => selected()?.id}>
+      <MachineBaseUrlContext value={() => selected()?.baseUrl}>
+        {componentProps.children}
       </MachineBaseUrlContext>
     </MachineIdContext>
   );

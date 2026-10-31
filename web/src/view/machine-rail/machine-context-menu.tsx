@@ -1,4 +1,11 @@
-import { KeyRound, RefreshCw, Settings, Trash2, Unlink } from "lucide-react";
+import { createMemo } from "solid-js";
+import {
+  KeyRound,
+  RefreshCw,
+  Settings,
+  Trash2,
+  Unlink,
+} from "../../solid/icons.tsx";
 import type { Machine } from "../../state/machines.ts";
 import { FloatingMenu, FloatingMenuItem } from "../ui/floating-menu.tsx";
 
@@ -17,54 +24,47 @@ interface MachineContextMenuProps {
   onUnpair: (machine: Machine) => void;
 }
 
-export function MachineContextMenu(
-  {
-    machine,
-    menu,
-    onConfigure,
-    onDelete,
-    onPair,
-    onReconnect,
-    onUnpair,
-  }: MachineContextMenuProps,
-) {
-  const isPaired = Boolean(machine.clientId && machine.clientSecret);
+export function MachineContextMenu(componentProps: MachineContextMenuProps) {
+  const isPaired = createMemo(() =>
+    Boolean(
+      componentProps.machine.clientId && componentProps.machine.clientSecret,
+    ),
+  );
 
   return (
     <FloatingMenu
       className="z-[30] w-[176px]"
-      position={{ left: menu.x, top: menu.y }}
+      position={{ left: componentProps.menu.x, top: componentProps.menu.y }}
     >
-      <FloatingMenuItem
-        onClick={onReconnect}
-      >
+      <FloatingMenuItem onClick={() => componentProps.onReconnect()}>
         <RefreshCw size={15} />
         Reconnect
       </FloatingMenuItem>
       <FloatingMenuItem
-        onClick={() => onConfigure(machine)}
+        onClick={() => componentProps.onConfigure(componentProps.machine)}
       >
         <Settings size={15} />
         Configure
       </FloatingMenuItem>
-      {!isPaired
-        ? (
-          <FloatingMenuItem
-            onClick={() => onPair(machine)}
-          >
-            <KeyRound size={15} />
-            Pair
-          </FloatingMenuItem>
-        )
-        : (
-          <FloatingMenuItem
-            onClick={() => onUnpair(machine)}
-          >
-            <Unlink size={15} />
-            Unpair
-          </FloatingMenuItem>
-        )}
-      <FloatingMenuItem tone="danger" onClick={() => onDelete(machine)}>
+      {!isPaired() ? (
+        <FloatingMenuItem
+          onClick={() => componentProps.onPair(componentProps.machine)}
+        >
+          <KeyRound size={15} />
+          Pair
+        </FloatingMenuItem>
+      ) : (
+        <FloatingMenuItem
+          onClick={() => componentProps.onUnpair(componentProps.machine)}
+        >
+          <Unlink size={15} />
+          Unpair
+        </FloatingMenuItem>
+      )}
+      <FloatingMenuItem
+        tone="danger"
+        onClick={() => componentProps.onDelete(componentProps.machine)}
+      >
         <Trash2 size={15} />
         Delete
       </FloatingMenuItem>

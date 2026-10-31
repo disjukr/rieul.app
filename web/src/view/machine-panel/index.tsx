@@ -1,6 +1,7 @@
-import { FormEvent, useEffect, useRef, useState } from "react";
-import { useAtomValue, useSetAtom } from "jotai";
-import { useBunja } from "bunja/react";
+import { Show, createEffect, createMemo, createSignal } from "solid-js";
+
+import { useBunja } from "../../solid/bunja.tsx";
+import { useAtomValue, useSetAtom } from "../../solid/jotai.tsx";
 import { machineModalBunja } from "../../state/machine-modal.ts";
 import { machineStoreBunja } from "../../state/machine-store.ts";
 import { normalizeMachineUrl } from "../../state/machines.ts";
@@ -15,62 +16,82 @@ interface MachineAddFormContainerProps {
 
 export function MachinePanelRegion() {
   const machinePanel = useBunja(machinePanelBunja);
-  const selected = useAtomValue(machinePanel.machineAtom);
-  const connection = useAtomValue(machinePanel.connectionAtom);
+  const selected = useAtomValue(() => machinePanel().machineAtom);
+  const connection = useAtomValue(() => machinePanel().connectionAtom);
   const machinePanelCollapsed = useAtomValue(
-    machinePanel.machinePanelCollapsedAtom,
+    () => machinePanel().machinePanelCollapsedAtom,
   );
-  const machinePanelWidth = useAtomValue(machinePanel.machinePanelWidthAtom);
+  const machinePanelWidth = useAtomValue(
+    () => machinePanel().machinePanelWidthAtom,
+  );
 
   return (
     <MachinePanel
-      connection={connection}
-      machine={selected}
-      machinePanelCollapsed={machinePanelCollapsed}
-      machinePanelMaxWidth={machinePanel.machinePanelMaxWidth}
-      machinePanelMinWidth={machinePanel.machinePanelMinWidth}
-      machinePanelWidth={machinePanelWidth}
-      onOpenMachineMenu={machinePanel.openMachineTitleMenu}
-      onResizeKeyDown={machinePanel.resizeMachinePanelWithKeyboard}
-      onResizePointerDown={machinePanel.startMachinePanelResize}
+      connection={connection()}
+      machine={selected()}
+      machinePanelCollapsed={machinePanelCollapsed()}
+      machinePanelMaxWidth={machinePanel().machinePanelMaxWidth}
+      machinePanelMinWidth={machinePanel().machinePanelMinWidth}
+      machinePanelWidth={machinePanelWidth()}
+      onOpenMachineMenu={(event, machine) =>
+        machinePanel().openMachineTitleMenu(event, machine)
+      }
+      onResizeKeyDown={(event) =>
+        machinePanel().resizeMachinePanelWithKeyboard(event)
+      }
+      onResizePointerDown={(event) =>
+        machinePanel().startMachinePanelResize(event)
+      }
     />
   );
 }
 
 export function MachineAddFormContainer(
-  { showCancel }: MachineAddFormContainerProps,
+  componentProps: MachineAddFormContainerProps,
 ) {
   const machineModal = useBunja(machineModalBunja);
   const machineStore = useBunja(machineStoreBunja);
-  const machineName = useAtomValue(machineModal.machineNameAtom);
-  const baseUrl = useAtomValue(machineModal.baseUrlAtom);
-  const machineFormError = useAtomValue(machineModal.machineFormErrorAtom);
-  const machineModalMode = useAtomValue(machineModal.machineModalModeAtom);
-  const machines = useAtomValue(machineStore.machinesAtom);
-  const machineNameInputRef = useRef<HTMLInputElement>(null);
+  const machineName = useAtomValue(() => machineModal().machineNameAtom);
+  const baseUrl = useAtomValue(() => machineModal().baseUrlAtom);
+  const machineFormError = useAtomValue(
+    () => machineModal().machineFormErrorAtom,
+  );
+  const machineModalMode = useAtomValue(
+    () => machineModal().machineModalModeAtom,
+  );
+  const machines = useAtomValue(() => machineStore().machinesAtom);
+  const machineNameInputRef = { current: null as HTMLInputElement | null };
 
-  useEffect(() => {
-    if (globalThis.matchMedia("(max-width: 680px)").matches) return;
-    if (machines.length === 0 && !machineModalMode) {
-      machineNameInputRef.current?.focus();
-    }
-  }, [machineModalMode, machines.length]);
+  createEffect(
+    () => ({
+      machinesSnapshot: machines(),
+      machineModalModeSnapshot: machineModalMode(),
+    }),
+    ({ machinesSnapshot, machineModalModeSnapshot }) => {
+      if (globalThis.matchMedia("(max-width: 680px)").matches) return;
+      if (machinesSnapshot.length === 0 && !machineModalModeSnapshot) {
+        machineNameInputRef.current?.focus();
+      }
+    },
+  );
 
-  function addMachine(event: FormEvent<HTMLFormElement>) {
+  function addMachine(event: SubmitEvent & { currentTarget: HTMLFormElement }) {
     event.preventDefault();
-    machineModal.addMachine();
+    machineModal().addMachine();
   }
 
   return (
     <AddMachineForm
-      baseUrl={baseUrl}
-      error={machineFormError}
-      machineName={machineName}
+      baseUrl={baseUrl()}
+      error={machineFormError()}
+      machineName={machineName()}
       machineNameInputRef={machineNameInputRef}
-      showCancel={showCancel}
-      onBaseUrlChange={machineModal.updateBaseUrlDraft}
-      onCancel={machineModal.closeMachineModal}
-      onMachineNameChange={machineModal.updateMachineNameDraft}
+      showCancel={componentProps.showCancel}
+      onBaseUrlChange={(event) => machineModal().updateBaseUrlDraft(event)}
+      onCancel={() => machineModal().closeMachineModal()}
+      onMachineNameChange={(event) =>
+        machineModal().updateMachineNameDraft(event)
+      }
       onSubmit={addMachine}
     />
   );
@@ -79,191 +100,254 @@ export function MachineAddFormContainer(
 export function MachineModalHost() {
   const machineStore = useBunja(machineStoreBunja);
   const machineModal = useBunja(machineModalBunja);
-  const machines = useAtomValue(machineStore.machinesAtom);
+  const machines = useAtomValue(() => machineStore().machinesAtom);
   const pendingPairMachineId = useAtomValue(
-    machineStore.pendingPairMachineIdAtom,
+    () => machineStore().pendingPairMachineIdAtom,
   );
-  const selected = useAtomValue(machineStore.selectedAtom);
-  const machineName = useAtomValue(machineModal.machineNameAtom);
-  const baseUrl = useAtomValue(machineModal.baseUrlAtom);
-  const configNameDraft = useAtomValue(machineModal.configNameDraftAtom);
-  const configUrlDraft = useAtomValue(machineModal.configUrlDraftAtom);
-  const machineModalMode = useAtomValue(machineModal.machineModalModeAtom);
-  const machineFormError = useAtomValue(machineModal.machineFormErrorAtom);
-  const pairingCode = useAtomValue(machineModal.pairingCodeAtom);
+  const selected = useAtomValue(() => machineStore().selectedAtom);
+  const machineName = useAtomValue(() => machineModal().machineNameAtom);
+  const baseUrl = useAtomValue(() => machineModal().baseUrlAtom);
+  const configNameDraft = useAtomValue(
+    () => machineModal().configNameDraftAtom,
+  );
+  const configUrlDraft = useAtomValue(() => machineModal().configUrlDraftAtom);
+  const machineModalMode = useAtomValue(
+    () => machineModal().machineModalModeAtom,
+  );
+  const machineFormError = useAtomValue(
+    () => machineModal().machineFormErrorAtom,
+  );
+  const pairingCode = useAtomValue(() => machineModal().pairingCodeAtom);
   const pairingConfirmationCode = useAtomValue(
-    machineModal.pairingConfirmationCodeAtom,
+    () => machineModal().pairingConfirmationCodeAtom,
   );
   const pairingCodeExpiresAtUnix = useAtomValue(
-    machineModal.pairingCodeExpiresAtUnixAtom,
+    () => machineModal().pairingCodeExpiresAtUnixAtom,
   );
   const isRequestingPairingCode = useAtomValue(
-    machineModal.isRequestingPairingCodeAtom,
+    () => machineModal().isRequestingPairingCodeAtom,
   );
-  const isPairing = useAtomValue(machineModal.isPairingAtom);
-  const modalTitle = useAtomValue(machineModal.modalTitleAtom);
-  const setConfigNameDraft = useSetAtom(machineModal.configNameDraftAtom);
-  const setConfigUrlDraft = useSetAtom(machineModal.configUrlDraftAtom);
-  const setPairingCode = useSetAtom(machineModal.pairingCodeAtom);
-  const machineNameInputRef = useRef<HTMLInputElement>(null);
-  const configNameInputRef = useRef<HTMLInputElement>(null);
-  const pairingCodeInputRef = useRef<HTMLInputElement>(null);
-  const daemonUrlQueryHandledRef = useRef(false);
-  const [nowMs, setNowMs] = useState(() => Date.now());
+  const isPairing = useAtomValue(() => machineModal().isPairingAtom);
+  const modalTitle = useAtomValue(() => machineModal().modalTitleAtom);
+  const setConfigNameDraft = useSetAtom(
+    () => machineModal().configNameDraftAtom,
+  );
+  const setConfigUrlDraft = useSetAtom(() => machineModal().configUrlDraftAtom);
+  const setPairingCode = useSetAtom(() => machineModal().pairingCodeAtom);
+  const machineNameInputRef = { current: null as HTMLInputElement | null };
+  const configNameInputRef = { current: null as HTMLInputElement | null };
+  const pairingCodeInputRef = { current: null as HTMLInputElement | null };
+  const daemonUrlQueryHandledRef = { current: false as boolean };
+  const [nowMs, setNowMs] = createSignal((() => Date.now())());
 
-  useEffect(() => {
-    if (daemonUrlQueryHandledRef.current) return;
-    daemonUrlQueryHandledRef.current = true;
+  createEffect(
+    () => ({
+      machineModalSnapshot: machineModal(),
+      machinesSnapshot: machines(),
+      machineStoreSnapshot: machineStore(),
+    }),
+    ({ machineModalSnapshot, machinesSnapshot, machineStoreSnapshot }) => {
+      if (daemonUrlQueryHandledRef.current) return;
+      daemonUrlQueryHandledRef.current = true;
 
-    const currentUrl = new URL(globalThis.location.href);
-    const daemonUrl = currentUrl.searchParams.get("daemonUrl")?.trim();
-    if (!daemonUrl) return;
+      const currentUrl = new URL(globalThis.location.href);
+      const daemonUrl = currentUrl.searchParams.get("daemonUrl")?.trim();
+      if (!daemonUrl) return;
 
-    currentUrl.searchParams.delete("daemonUrl");
-    globalThis.history.replaceState(
-      globalThis.history.state,
-      "",
-      currentUrl,
-    );
+      currentUrl.searchParams.delete("daemonUrl");
+      globalThis.history.replaceState(globalThis.history.state, "", currentUrl);
 
-    let normalizedDaemonUrl: string;
-    try {
-      normalizedDaemonUrl = normalizeMachineUrl(daemonUrl);
-    } catch {
-      machineModal.openAddMachineModalFromUrl(daemonUrl);
-      return;
-    }
-
-    const existingMachine = machines.find((machine) =>
-      machine.baseUrl === normalizedDaemonUrl
-    );
-    if (existingMachine) {
-      machineStore.selectMachine(existingMachine.id);
-      return;
-    }
-    machineModal.openAddMachineModalFromUrl(normalizedDaemonUrl);
-  }, [machineModal, machineStore, machines]);
-
-  useEffect(() => {
-    if (!pendingPairMachineId) return;
-    machineStore.clearPendingPairMachine(pendingPairMachineId);
-    machineModal.openPairMachineModal(pendingPairMachineId);
-  }, [machineModal, machineStore, pendingPairMachineId]);
-
-  useEffect(() => {
-    if (machineModalMode === "add") {
-      machineNameInputRef.current?.focus();
-      return;
-    }
-    if (machineModalMode === "pair") {
-      if (pairingCodeExpiresAtUnix !== undefined) {
-        pairingCodeInputRef.current?.focus();
+      let normalizedDaemonUrl: string;
+      try {
+        normalizedDaemonUrl = normalizeMachineUrl(daemonUrl);
+      } catch {
+        machineModalSnapshot.openAddMachineModalFromUrl(daemonUrl);
+        return;
       }
-      return;
-    }
-    if (machineModalMode === "config") {
-      configNameInputRef.current?.focus();
-      configNameInputRef.current?.select();
-    }
-  }, [machineModalMode, pairingCodeExpiresAtUnix]);
 
-  useEffect(() => {
-    if (!machineModalMode || machines.length === 0) return;
-
-    function closeOnEscape(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        machineModal.closeMachineModal();
+      const existingMachine = machinesSnapshot.find(
+        (machine) => machine.baseUrl === normalizedDaemonUrl,
+      );
+      if (existingMachine) {
+        machineStoreSnapshot.selectMachine(existingMachine.id);
+        return;
       }
-    }
+      machineModalSnapshot.openAddMachineModalFromUrl(normalizedDaemonUrl);
+    },
+  );
 
-    globalThis.addEventListener("keydown", closeOnEscape);
-    return () => globalThis.removeEventListener("keydown", closeOnEscape);
-  }, [machineModal, machineModalMode, machines.length]);
+  createEffect(
+    () => ({
+      pendingPairMachineIdSnapshot: pendingPairMachineId(),
+      machineStoreSnapshot: machineStore(),
+      machineModalSnapshot: machineModal(),
+    }),
+    ({
+      pendingPairMachineIdSnapshot,
+      machineStoreSnapshot,
+      machineModalSnapshot,
+    }) => {
+      if (!pendingPairMachineIdSnapshot) return;
+      machineStoreSnapshot.clearPendingPairMachine(
+        pendingPairMachineIdSnapshot!,
+      );
+      machineModalSnapshot.openPairMachineModal(pendingPairMachineIdSnapshot!);
+    },
+  );
 
-  useEffect(() => {
-    if (machineModalMode !== "pair") return;
-    setNowMs(Date.now());
-    const interval = globalThis.setInterval(() => {
+  createEffect(
+    () => ({
+      machineModalModeSnapshot: machineModalMode(),
+      pairingCodeExpiresAtUnixSnapshot: pairingCodeExpiresAtUnix(),
+    }),
+    ({ machineModalModeSnapshot, pairingCodeExpiresAtUnixSnapshot }) => {
+      if (machineModalModeSnapshot === "add") {
+        machineNameInputRef.current?.focus();
+        return;
+      }
+      if (machineModalModeSnapshot === "pair") {
+        if (pairingCodeExpiresAtUnixSnapshot !== undefined) {
+          pairingCodeInputRef.current?.focus();
+        }
+        return;
+      }
+      if (machineModalModeSnapshot === "config") {
+        configNameInputRef.current?.focus();
+        configNameInputRef.current?.select();
+      }
+    },
+  );
+
+  createEffect(
+    () => ({
+      machineModalModeSnapshot: machineModalMode(),
+      machinesSnapshot: machines(),
+      machineModalSnapshot: machineModal(),
+    }),
+    ({ machineModalModeSnapshot, machinesSnapshot, machineModalSnapshot }) => {
+      if (!machineModalModeSnapshot || machinesSnapshot.length === 0) return;
+
+      function closeOnEscape(event: KeyboardEvent) {
+        if (event.key === "Escape") {
+          machineModalSnapshot.closeMachineModal();
+        }
+      }
+
+      globalThis.addEventListener("keydown", closeOnEscape);
+      return () => globalThis.removeEventListener("keydown", closeOnEscape);
+    },
+  );
+
+  createEffect(
+    () => ({ machineModalModeSnapshot: machineModalMode() }),
+    ({ machineModalModeSnapshot }) => {
+      if (machineModalModeSnapshot !== "pair") return;
       setNowMs(Date.now());
-    }, 1_000);
-    return () => globalThis.clearInterval(interval);
-  }, [machineModalMode]);
+      const interval = globalThis.setInterval(() => {
+        setNowMs(Date.now());
+      }, 1_000);
+      return () => globalThis.clearInterval(interval);
+    },
+  );
 
-  useEffect(() => {
-    if (
-      machineModalMode !== "pair" || !selected || isPairing ||
-      !pairingCodeExpiresAtUnix
-    ) {
-      return;
-    }
-    const expiresAtMs = pairingCodeExpiresAtUnix * 1_000;
-    const delayMs = Math.max(0, expiresAtMs - Date.now() + 250);
-    const timeout = globalThis.setTimeout(() => {
-      machineModal.requestSelectedPairingCode();
-    }, delayMs);
-    return () => globalThis.clearTimeout(timeout);
-  }, [
-    isPairing,
-    machineModal,
-    machineModalMode,
-    pairingCodeExpiresAtUnix,
-    selected?.id,
-  ]);
+  createEffect(
+    () => ({
+      machineModalModeSnapshot: machineModalMode(),
+      selectedSnapshot: selected(),
+      isPairingSnapshot: isPairing(),
+      pairingCodeExpiresAtUnixSnapshot: pairingCodeExpiresAtUnix(),
+      machineModalSnapshot: machineModal(),
+    }),
+    ({
+      machineModalModeSnapshot,
+      selectedSnapshot,
+      isPairingSnapshot,
+      pairingCodeExpiresAtUnixSnapshot,
+      machineModalSnapshot,
+    }) => {
+      if (
+        machineModalModeSnapshot !== "pair" ||
+        !selectedSnapshot ||
+        isPairingSnapshot ||
+        !pairingCodeExpiresAtUnixSnapshot
+      ) {
+        return;
+      }
+      const expiresAtMs = pairingCodeExpiresAtUnixSnapshot! * 1_000;
+      const delayMs = Math.max(0, expiresAtMs - Date.now() + 250);
+      const timeout = globalThis.setTimeout(() => {
+        machineModalSnapshot.requestSelectedPairingCode();
+      }, delayMs);
+      return () => globalThis.clearTimeout(timeout);
+    },
+  );
 
-  if (!machineModalMode) return null;
-
-  function addMachine(event: FormEvent<HTMLFormElement>) {
+  function addMachine(event: SubmitEvent & { currentTarget: HTMLFormElement }) {
     event.preventDefault();
-    machineModal.addMachine();
+    machineModal().addMachine();
   }
 
-  function saveMachineConfig(event: FormEvent<HTMLFormElement>) {
+  function saveMachineConfig(
+    event: SubmitEvent & { currentTarget: HTMLFormElement },
+  ) {
     event.preventDefault();
-    machineModal.saveMachineConfig();
+    machineModal().saveMachineConfig();
   }
 
-  async function pairSelected(event: FormEvent<HTMLFormElement>) {
+  async function pairSelected(
+    event: SubmitEvent & { currentTarget: HTMLFormElement },
+  ) {
     event.preventDefault();
-    await machineModal.pairSelected();
+    await machineModal().pairSelected();
   }
 
-  const pairingCodeExpiresInSeconds = pairingCodeExpiresAtUnix === undefined
-    ? undefined
-    : Math.max(
-      0,
-      Math.ceil((pairingCodeExpiresAtUnix * 1_000 - nowMs) / 1_000),
-    );
+  const pairingCodeExpiresInSeconds = createMemo(() =>
+    pairingCodeExpiresAtUnix() === undefined
+      ? undefined
+      : Math.max(
+          0,
+          Math.ceil((pairingCodeExpiresAtUnix()! * 1_000 - nowMs()) / 1_000),
+        ),
+  );
 
   return (
-    <MachineModal
-      baseUrl={baseUrl}
-      configNameDraft={configNameDraft}
-      configNameInputRef={configNameInputRef}
-      configUrlDraft={configUrlDraft}
-      isRequestingPairingCode={isRequestingPairingCode}
-      isPairing={isPairing}
-      machineCount={machines.length}
-      machineFormError={machineFormError}
-      machineName={machineName}
-      machineNameInputRef={machineNameInputRef}
-      mode={machineModalMode}
-      modalTitle={modalTitle}
-      pairingCode={pairingCode}
-      pairingConfirmationCode={pairingConfirmationCode}
-      pairingCodeExpiresInSeconds={pairingCodeExpiresInSeconds}
-      pairingCodeInputRef={pairingCodeInputRef}
-      selected={selected}
-      onAddMachine={addMachine}
-      onBaseUrlChange={machineModal.updateBaseUrlDraft}
-      onClose={machineModal.closeMachineModal}
-      onConfigNameChange={setConfigNameDraft}
-      onConfigUrlChange={setConfigUrlDraft}
-      onDeleteSelectedMachine={machineModal.deleteSelectedMachine}
-      onMachineNameChange={machineModal.updateMachineNameDraft}
-      onPairingCodeChange={setPairingCode}
-      onPairSelected={pairSelected}
-      onRequestPairingCode={machineModal.requestSelectedPairingCode}
-      onSaveMachineConfig={saveMachineConfig}
-    />
+    <Show when={machineModalMode()}>
+      {(mode) => (
+        <MachineModal
+          baseUrl={baseUrl()}
+          configNameDraft={configNameDraft()}
+          configNameInputRef={configNameInputRef}
+          configUrlDraft={configUrlDraft()}
+          isRequestingPairingCode={isRequestingPairingCode()}
+          isPairing={isPairing()}
+          machineCount={machines().length}
+          machineFormError={machineFormError()}
+          machineName={machineName()}
+          machineNameInputRef={machineNameInputRef}
+          mode={mode()}
+          modalTitle={modalTitle()}
+          pairingCode={pairingCode()}
+          pairingConfirmationCode={pairingConfirmationCode()}
+          pairingCodeExpiresInSeconds={pairingCodeExpiresInSeconds()}
+          pairingCodeInputRef={pairingCodeInputRef}
+          selected={selected()}
+          onAddMachine={addMachine}
+          onBaseUrlChange={(event) => machineModal().updateBaseUrlDraft(event)}
+          onClose={() => machineModal().closeMachineModal()}
+          onConfigNameChange={setConfigNameDraft}
+          onConfigUrlChange={setConfigUrlDraft}
+          onDeleteSelectedMachine={() => machineModal().deleteSelectedMachine()}
+          onMachineNameChange={(event) =>
+            machineModal().updateMachineNameDraft(event)
+          }
+          onPairingCodeChange={setPairingCode}
+          onPairSelected={pairSelected}
+          onRequestPairingCode={() =>
+            machineModal().requestSelectedPairingCode()
+          }
+          onSaveMachineConfig={saveMachineConfig}
+        />
+      )}
+    </Show>
   );
 }

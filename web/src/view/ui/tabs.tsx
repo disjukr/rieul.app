@@ -1,7 +1,14 @@
-import { Tabs } from "@base-ui/react/tabs";
+import type { JSX } from "@solidjs/web";
 import { cva } from "class-variance-authority";
+import {
+  createContext,
+  createSignal,
+  createUniqueId,
+  omit,
+  useContext,
+  type Accessor,
+} from "solid-js";
 import { className as joinClassName } from "../class-name.ts";
-
 const tabListClassName =
   "flex min-w-0 items-end overflow-visible border-b border-b-[var(--rieul-border-light)] bg-[var(--rieul-bg-header)]";
 const tabClassName = cva(
@@ -24,57 +31,114 @@ const tabClassName = cva(
     },
   },
 );
-const tabPanelClassName = "block h-full min-h-0 w-full min-w-0 overflow-hidden";
+const tabPanelClassName =
+  "block h-full min-h-0 w-full min-w-0 overflow-hidden [hidden]:hidden";
 
-export const TabsRoot = Tabs.Root;
-
-type TabsListProps =
-  & Omit<
-    React.ComponentPropsWithoutRef<typeof Tabs.List>,
-    "className"
-  >
-  & { className?: string };
-
-export function TabsList(
-  { className, ...props }: TabsListProps,
-) {
+const TabsContext = createContext<{
+  value: Accessor<string>;
+  select(value: string): void;
+  id: string;
+}>();
+export function TabsRoot(props: {
+  value?: string;
+  defaultValue?: string;
+  onValueChange?(value: string): void;
+  children?: JSX.Element;
+  className?: string;
+}) {
+  const [value, setValue] = createSignal(props.defaultValue ?? "");
+  const context = {
+    value: () => props.value ?? value(),
+    select(v: string) {
+      setValue(v);
+      props.onValueChange?.(v);
+    },
+    id: createUniqueId(),
+  };
   return (
-    <Tabs.List
-      {...props}
-      className={joinClassName(tabListClassName, className)}
+    <TabsContext value={context}>
+      <div class={props.className}>{props.children}</div>
+    </TabsContext>
+  );
+}
+export function TabsList(
+  props: JSX.HTMLAttributes<HTMLDivElement> & { className?: string },
+) {
+  const rest = omit(props, "className");
+  return (
+    <div
+      {...rest}
+      role="tablist"
+      class={joinClassName(tabListClassName, props.className)}
+      onKeyDown={(event) => {
+        const tabs = [
+          ...event.currentTarget.querySelectorAll<HTMLButtonElement>(
+            "[role=tab]:not(:disabled)",
+          ),
+        ];
+        const i = tabs.indexOf(document.activeElement as HTMLButtonElement);
+        const next =
+          event.key === "ArrowRight"
+            ? (i + 1) % tabs.length
+            : event.key === "ArrowLeft"
+              ? (i - 1 + tabs.length) % tabs.length
+              : event.key === "Home"
+                ? 0
+                : event.key === "End"
+                  ? tabs.length - 1
+                  : -1;
+        if (next >= 0) {
+          event.preventDefault();
+          tabs[next]?.focus();
+          tabs[next]?.click();
+        }
+      }}
     />
   );
 }
-
 export interface TabsTabProps
-  extends Omit<React.ComponentPropsWithoutRef<typeof Tabs.Tab>, "className"> {
+  extends Omit<JSX.ButtonHTMLAttributes<HTMLButtonElement>, "value"> {
+  value: string;
   className?: string;
   density?: "compact" | "regular";
 }
-
-export function TabsTab({ className, density, ...props }: TabsTabProps) {
+export function TabsTab(props: TabsTabProps) {
+  const context = useContext(TabsContext);
+  const rest = omit(props, "value", "className", "density");
   return (
-    <Tabs.Tab
-      {...props}
-      className={joinClassName(tabClassName({ density }), className)}
+    <button
+      {...rest}
+      type="button"
+      role="tab"
+      id={`${context.id}-tab-${props.value}`}
+      aria-controls={`${context.id}-panel-${props.value}`}
+      aria-selected={context.value() === props.value ? "true" : "false"}
+      tabindex={context.value() === props.value ? 0 : -1}
+      data-selected={context.value() === props.value ? "" : undefined}
+      class={joinClassName(
+        tabClassName({ density: props.density }),
+        props.className,
+      )}
+      onClick={() => context.select(props.value)}
     />
   );
 }
-
-type TabsPanelProps =
-  & Omit<
-    React.ComponentPropsWithoutRef<typeof Tabs.Panel>,
-    "className"
-  >
-  & { className?: string };
-
 export function TabsPanel(
-  { className, ...props }: TabsPanelProps,
+  props: JSX.HTMLAttributes<HTMLDivElement> & {
+    value: string;
+    className?: string;
+  },
 ) {
+  const context = useContext(TabsContext);
+  const rest = omit(props, "value", "className");
   return (
-    <Tabs.Panel
-      {...props}
-      className={joinClassName(tabPanelClassName, className)}
+    <div
+      {...rest}
+      role="tabpanel"
+      id={`${context.id}-panel-${props.value}`}
+      aria-labelledby={`${context.id}-tab-${props.value}`}
+      hidden={context.value() !== props.value}
+      class={joinClassName(tabPanelClassName, props.className)}
     />
   );
 }

@@ -1,4 +1,6 @@
-import type { HTMLAttributes } from "react";
+import type { JSX } from "@solidjs/web";
+import { omit } from "solid-js";
+
 import { cva, type VariantProps } from "class-variance-authority";
 import { className as joinClassName } from "../class-name.ts";
 
@@ -44,36 +46,51 @@ const surfaceHeaderVariants = cva(
 );
 
 export interface SurfaceProps
-  extends HTMLAttributes<HTMLDivElement>, VariantProps<typeof surfaceVariants> {
+  extends JSX.HTMLAttributes<HTMLDivElement>,
+    VariantProps<typeof surfaceVariants> {
+  className?: string;
 }
 
 export interface SurfaceHeaderProps
-  extends
-    HTMLAttributes<HTMLDivElement>,
+  extends JSX.HTMLAttributes<HTMLDivElement>,
     VariantProps<typeof surfaceHeaderVariants> {
+  className?: string;
 }
 
-export function Surface(
-  { border, className, radius, variant, ...props }: SurfaceProps,
-) {
+export function Surface(componentProps: SurfaceProps) {
+  const otherProps = omit(
+    componentProps,
+    "border",
+    "className",
+    "radius",
+    "variant",
+  );
+
   return (
     <div
-      {...props}
-      className={joinClassName(
-        surfaceVariants({ border, radius, variant }),
-        className,
+      {...otherProps}
+      class={joinClassName(
+        surfaceVariants({
+          border: componentProps.border,
+          radius: componentProps.radius,
+          variant: componentProps.variant,
+        }),
+        componentProps.className,
       )}
     />
   );
 }
 
-export function SurfaceHeader(
-  { className, density, ...props }: SurfaceHeaderProps,
-) {
+export function SurfaceHeader(componentProps: SurfaceHeaderProps) {
+  const otherProps = omit(componentProps, "className", "density");
+
   return (
     <div
-      {...props}
-      className={joinClassName(surfaceHeaderVariants({ density }), className)}
+      {...otherProps}
+      class={joinClassName(
+        surfaceHeaderVariants({ density: componentProps.density }),
+        componentProps.className,
+      )}
     />
   );
 }

@@ -1,5 +1,12 @@
-import React, { FormEvent } from "react";
-import { KeyRound, Loader2, RefreshCw, Settings, Trash2 } from "lucide-react";
+import { createMemo } from "solid-js";
+
+import {
+  KeyRound,
+  Loader2,
+  RefreshCw,
+  Settings,
+  Trash2,
+} from "../../solid/icons.tsx";
 import type { Machine } from "../../state/machines.ts";
 import type { MachineModalMode } from "../../state/types.ts";
 import { Button } from "../ui/button.tsx";
@@ -47,22 +54,24 @@ const confirmationCodeClassName = [
 interface MachineModalProps {
   baseUrl: string;
   configNameDraft: string;
-  configNameInputRef: React.RefObject<HTMLInputElement | null>;
+  configNameInputRef: { current: HTMLInputElement | null };
   configUrlDraft: string;
   isRequestingPairingCode: boolean;
   isPairing: boolean;
   machineCount: number;
   machineFormError: string;
   machineName: string;
-  machineNameInputRef: React.RefObject<HTMLInputElement | null>;
+  machineNameInputRef: { current: HTMLInputElement | null };
   mode: MachineModalMode;
   modalTitle: string;
   pairingCode: string;
   pairingConfirmationCode?: string;
   pairingCodeExpiresInSeconds?: number;
-  pairingCodeInputRef: React.RefObject<HTMLInputElement | null>;
+  pairingCodeInputRef: { current: HTMLInputElement | null };
   selected?: Machine;
-  onAddMachine: (event: FormEvent<HTMLFormElement>) => void;
+  onAddMachine: (
+    event: SubmitEvent & { currentTarget: HTMLFormElement },
+  ) => void;
   onBaseUrlChange: (value: string) => void;
   onClose: () => void;
   onConfigNameChange: (value: string) => void;
@@ -70,9 +79,13 @@ interface MachineModalProps {
   onDeleteSelectedMachine: () => void;
   onMachineNameChange: (value: string) => void;
   onPairingCodeChange: (value: string) => void;
-  onPairSelected: (event: FormEvent<HTMLFormElement>) => void;
+  onPairSelected: (
+    event: SubmitEvent & { currentTarget: HTMLFormElement },
+  ) => void;
   onRequestPairingCode: () => void;
-  onSaveMachineConfig: (event: FormEvent<HTMLFormElement>) => void;
+  onSaveMachineConfig: (
+    event: SubmitEvent & { currentTarget: HTMLFormElement },
+  ) => void;
 }
 
 interface PairMachineFormProps {
@@ -81,12 +94,12 @@ interface PairMachineFormProps {
   pairingCode: string;
   pairingConfirmationCode?: string;
   pairingCodeExpiresInSeconds?: number;
-  pairingCodeInputRef: React.RefObject<HTMLInputElement | null>;
+  pairingCodeInputRef: { current: HTMLInputElement | null };
   selected: Machine;
   onClose: () => void;
   onPairingCodeChange: (value: string) => void;
   onRequestPairingCode: () => void;
-  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onSubmit: (event: SubmitEvent & { currentTarget: HTMLFormElement }) => void;
 }
 
 interface PairingRestartControlProps {
@@ -103,20 +116,20 @@ interface PairingConfirmationStepProps {
 interface PairingCodeStepProps {
   pairingCode: string;
   pairingCodeExpiresInSeconds?: number;
-  pairingCodeInputRef: React.RefObject<HTMLInputElement | null>;
+  pairingCodeInputRef: { current: HTMLInputElement | null };
   onPairingCodeChange: (value: string) => void;
 }
 
 interface MachineConfigFormProps {
   configNameDraft: string;
-  configNameInputRef: React.RefObject<HTMLInputElement | null>;
+  configNameInputRef: { current: HTMLInputElement | null };
   configUrlDraft: string;
   error: string;
   selected: Machine;
   onClose: () => void;
   onConfigNameChange: (value: string) => void;
   onConfigUrlChange: (value: string) => void;
-  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onSubmit: (event: SubmitEvent & { currentTarget: HTMLFormElement }) => void;
 }
 
 interface DeleteMachineFormProps {
@@ -125,181 +138,142 @@ interface DeleteMachineFormProps {
   onDelete: () => void;
 }
 
-export function MachineModal(
-  {
-    baseUrl,
-    configNameDraft,
-    configNameInputRef,
-    configUrlDraft,
-    isRequestingPairingCode,
-    isPairing,
-    machineCount,
-    machineFormError,
-    machineName,
-    machineNameInputRef,
-    mode,
-    modalTitle,
-    pairingCode,
-    pairingConfirmationCode,
-    pairingCodeExpiresInSeconds,
-    pairingCodeInputRef,
-    selected,
-    onAddMachine,
-    onBaseUrlChange,
-    onClose,
-    onConfigNameChange,
-    onConfigUrlChange,
-    onDeleteSelectedMachine,
-    onMachineNameChange,
-    onPairingCodeChange,
-    onPairSelected,
-    onRequestPairingCode,
-    onSaveMachineConfig,
-  }: MachineModalProps,
-) {
+export function MachineModal(componentProps: MachineModalProps) {
   return (
     <ModalDialog
       eyebrow="Machine"
-      showClose={machineCount > 0 || mode === "add"}
-      title={modalTitle}
+      showClose={
+        componentProps.machineCount > 0 || componentProps.mode === "add"
+      }
+      title={componentProps.modalTitle}
       titleId="machine-modal-title"
-      onClose={onClose}
+      onClose={() => componentProps.onClose()}
     >
-      {mode === "pair" && selected
-        ? (
-          <PairMachineForm
-            isRequestingPairingCode={isRequestingPairingCode}
-            isPairing={isPairing}
-            pairingCode={pairingCode}
-            pairingConfirmationCode={pairingConfirmationCode}
-            pairingCodeExpiresInSeconds={pairingCodeExpiresInSeconds}
-            pairingCodeInputRef={pairingCodeInputRef}
-            selected={selected}
-            onClose={onClose}
-            onPairingCodeChange={onPairingCodeChange}
-            onRequestPairingCode={onRequestPairingCode}
-            onSubmit={onPairSelected}
-          />
-        )
-        : mode === "config" && selected
-        ? (
-          <MachineConfigForm
-            configNameDraft={configNameDraft}
-            configNameInputRef={configNameInputRef}
-            configUrlDraft={configUrlDraft}
-            error={machineFormError}
-            selected={selected}
-            onClose={onClose}
-            onConfigNameChange={onConfigNameChange}
-            onConfigUrlChange={onConfigUrlChange}
-            onSubmit={onSaveMachineConfig}
-          />
-        )
-        : mode === "delete" && selected
-        ? (
-          <DeleteMachineForm
-            selected={selected}
-            onClose={onClose}
-            onDelete={onDeleteSelectedMachine}
-          />
-        )
-        : (
-          <AddMachineForm
-            baseUrl={baseUrl}
-            error={machineFormError}
-            machineName={machineName}
-            machineNameInputRef={machineNameInputRef}
-            showCancel
-            onBaseUrlChange={onBaseUrlChange}
-            onCancel={onClose}
-            onMachineNameChange={onMachineNameChange}
-            onSubmit={onAddMachine}
-          />
-        )}
+      {componentProps.mode === "pair" && componentProps.selected ? (
+        <PairMachineForm
+          isRequestingPairingCode={componentProps.isRequestingPairingCode}
+          isPairing={componentProps.isPairing}
+          pairingCode={componentProps.pairingCode}
+          pairingConfirmationCode={componentProps.pairingConfirmationCode}
+          pairingCodeExpiresInSeconds={
+            componentProps.pairingCodeExpiresInSeconds
+          }
+          pairingCodeInputRef={componentProps.pairingCodeInputRef}
+          selected={componentProps.selected}
+          onClose={() => componentProps.onClose()}
+          onPairingCodeChange={(event) =>
+            componentProps.onPairingCodeChange(event)
+          }
+          onRequestPairingCode={() => componentProps.onRequestPairingCode()}
+          onSubmit={(event) => componentProps.onPairSelected(event)}
+        />
+      ) : componentProps.mode === "config" && componentProps.selected ? (
+        <MachineConfigForm
+          configNameDraft={componentProps.configNameDraft}
+          configNameInputRef={componentProps.configNameInputRef}
+          configUrlDraft={componentProps.configUrlDraft}
+          error={componentProps.machineFormError}
+          selected={componentProps.selected}
+          onClose={() => componentProps.onClose()}
+          onConfigNameChange={(event) =>
+            componentProps.onConfigNameChange(event)
+          }
+          onConfigUrlChange={(event) => componentProps.onConfigUrlChange(event)}
+          onSubmit={(event) => componentProps.onSaveMachineConfig(event)}
+        />
+      ) : componentProps.mode === "delete" && componentProps.selected ? (
+        <DeleteMachineForm
+          selected={componentProps.selected}
+          onClose={() => componentProps.onClose()}
+          onDelete={() => componentProps.onDeleteSelectedMachine()}
+        />
+      ) : (
+        <AddMachineForm
+          baseUrl={componentProps.baseUrl}
+          error={componentProps.machineFormError}
+          machineName={componentProps.machineName}
+          machineNameInputRef={componentProps.machineNameInputRef}
+          showCancel
+          onBaseUrlChange={(event) => componentProps.onBaseUrlChange(event)}
+          onCancel={() => componentProps.onClose()}
+          onMachineNameChange={(event) =>
+            componentProps.onMachineNameChange(event)
+          }
+          onSubmit={(event) => componentProps.onAddMachine(event)}
+        />
+      )}
     </ModalDialog>
   );
 }
 
-function PairMachineForm(
-  {
-    isRequestingPairingCode,
-    isPairing,
-    pairingCode,
-    pairingConfirmationCode,
-    pairingCodeExpiresInSeconds,
-    pairingCodeInputRef,
-    selected,
-    onClose,
-    onPairingCodeChange,
-    onRequestPairingCode,
-    onSubmit,
-  }: PairMachineFormProps,
-) {
-  const hasPairingCode = pairingCodeExpiresInSeconds !== undefined;
+function PairMachineForm(componentProps: PairMachineFormProps) {
+  const hasPairingCode = createMemo(
+    () => componentProps.pairingCodeExpiresInSeconds !== undefined,
+  );
   return (
-    <form className={machineModalFormClassName} onSubmit={onSubmit}>
+    <form
+      class={machineModalFormClassName}
+      onSubmit={(event) => componentProps.onSubmit(event)}
+    >
       <PairingRestartControl
-        disabled={isPairing}
-        machineName={selected.name}
-        onRequestPairingCode={onRequestPairingCode}
+        disabled={componentProps.isPairing}
+        machineName={componentProps.selected.name}
+        onRequestPairingCode={() => componentProps.onRequestPairingCode()}
       />
-      {hasPairingCode
-        ? (
-          <PairingCodeStep
-            pairingCode={pairingCode}
-            pairingCodeExpiresInSeconds={pairingCodeExpiresInSeconds}
-            pairingCodeInputRef={pairingCodeInputRef}
-            onPairingCodeChange={onPairingCodeChange}
-          />
-        )
-        : (
-          <PairingConfirmationStep
-            confirmationCode={pairingConfirmationCode}
-            isRequestingPairingCode={isRequestingPairingCode}
-          />
-        )}
-      <div className={modalActionsClassName}>
-        <Button onClick={onClose}>
-          Skip
-        </Button>
-        {hasPairingCode
-          ? (
-            <Button
-              type="submit"
-              disabled={isPairing || isRequestingPairingCode ||
-                pairingCode.length === 0}
-            >
-              {isPairing
-                ? <Loader2 size={16} className="animate-spin" />
-                : <KeyRound size={16} />}
-              Pair
-            </Button>
-          )
-          : null}
+      {hasPairingCode() ? (
+        <PairingCodeStep
+          pairingCode={componentProps.pairingCode}
+          pairingCodeExpiresInSeconds={
+            componentProps.pairingCodeExpiresInSeconds
+          }
+          pairingCodeInputRef={componentProps.pairingCodeInputRef}
+          onPairingCodeChange={(event) =>
+            componentProps.onPairingCodeChange(event)
+          }
+        />
+      ) : (
+        <PairingConfirmationStep
+          confirmationCode={componentProps.pairingConfirmationCode}
+          isRequestingPairingCode={componentProps.isRequestingPairingCode}
+        />
+      )}
+      <div class={modalActionsClassName}>
+        <Button onClick={() => componentProps.onClose()}>Skip</Button>
+        {hasPairingCode() ? (
+          <Button
+            type="submit"
+            disabled={
+              componentProps.isPairing ||
+              componentProps.isRequestingPairingCode ||
+              componentProps.pairingCode.length === 0
+            }
+          >
+            {componentProps.isPairing ? (
+              <Loader2 size={16} className="animate-spin" />
+            ) : (
+              <KeyRound size={16} />
+            )}
+            Pair
+          </Button>
+        ) : null}
       </div>
     </form>
   );
 }
 
-function PairingRestartControl(
-  {
-    disabled,
-    machineName,
-    onRequestPairingCode,
-  }: PairingRestartControlProps,
-) {
+function PairingRestartControl(componentProps: PairingRestartControlProps) {
   return (
-    <div className={pairingControlClassName}>
-      <span className="flex min-w-0 items-center gap-[0.5rem] text-rieul-text-2 text-[13px]">
-        <span className="shrink-0">Pairing to</span>
-        <strong className="min-w-0 truncate font-700 text-rieul-text">
-          {machineName}
+    <div class={pairingControlClassName}>
+      <span class="flex min-w-0 items-center gap-[0.5rem] text-rieul-text-2 text-[13px]">
+        <span class="shrink-0">Pairing to</span>
+        <strong class="min-w-0 truncate font-700 text-rieul-text">
+          {componentProps.machineName}
         </strong>
       </span>
       <Button
         className="min-w-[36px] px-[10px]"
-        disabled={disabled}
-        onClick={onRequestPairingCode}
+        disabled={componentProps.disabled}
+        onClick={() => componentProps.onRequestPairingCode()}
         title="Restart pairing"
       >
         <RefreshCw size={16} />
@@ -309,113 +283,97 @@ function PairingRestartControl(
   );
 }
 
-function PairingConfirmationStep(
-  { confirmationCode, isRequestingPairingCode }: PairingConfirmationStepProps,
-) {
+function PairingConfirmationStep(componentProps: PairingConfirmationStepProps) {
   return (
-    <section className={pairingStepClassName}>
-      <div className="grid justify-items-center gap-[0.5rem]">
-        <span className="text-rieul-text-2 text-[13px] font-600">
+    <section class={pairingStepClassName}>
+      <div class="grid justify-items-center gap-[0.5rem]">
+        <span class="text-rieul-text-2 text-[13px] font-600">
           Confirmation code
         </span>
-        <div className={confirmationCodeClassName}>
-          {confirmationCode ?? "--"}
+        <div class={confirmationCodeClassName}>
+          {componentProps.confirmationCode ?? "--"}
         </div>
       </div>
-      <p className="m-0 max-w-[320px] text-rieul-text-3 text-[14px] leading-[1.45]">
+      <p class="m-0 max-w-[320px] text-rieul-text-3 text-[14px] leading-[1.45]">
         Select this code on the daemon to reveal the pairing code.
       </p>
-      {isRequestingPairingCode
-        ? (
-          <div className="flex items-center gap-[0.5rem] text-rieul-text-2 text-[13px]">
-            <Loader2 size={14} className="animate-spin" />
-            Waiting for confirmation
-          </div>
-        )
-        : null}
+      {componentProps.isRequestingPairingCode ? (
+        <div class="flex items-center gap-[0.5rem] text-rieul-text-2 text-[13px]">
+          <Loader2 size={14} className="animate-spin" />
+          Waiting for confirmation
+        </div>
+      ) : null}
     </section>
   );
 }
 
-function PairingCodeStep(
-  {
-    pairingCode,
-    pairingCodeExpiresInSeconds,
-    pairingCodeInputRef,
-    onPairingCodeChange,
-  }: PairingCodeStepProps,
-) {
+function PairingCodeStep(componentProps: PairingCodeStepProps) {
   return (
-    <section className={pairingStepClassName}>
-      <label className="w-full">
+    <section class={pairingStepClassName}>
+      <label class="w-full">
         <span>Pairing code</span>
         <input
-          ref={pairingCodeInputRef}
-          value={pairingCode}
-          onChange={(event) =>
-            onPairingCodeChange(
+          ref={(el) => {
+            componentProps.pairingCodeInputRef.current = el;
+          }}
+          value={componentProps.pairingCode}
+          onInput={(event) =>
+            componentProps.onPairingCodeChange(
               event.target.value.replace(/\D/g, "").slice(0, 6),
-            )}
-          inputMode="numeric"
-          autoComplete="one-time-code"
-          maxLength={6}
+            )
+          }
+          inputmode="numeric"
+          autocomplete="one-time-code"
+          maxlength={6}
           placeholder="000000"
           aria-label="Pairing code"
         />
       </label>
-      {pairingCodeExpiresInSeconds !== undefined
-        ? pairingCodeExpiresInSeconds <= 0
-          ? (
-            <p className="m-0 text-rieul-danger text-[13px]">
-              Pairing code expired. Restart pairing.
-            </p>
-          )
-          : (
-            <p className="m-0 text-rieul-text-3 text-[13px]">
-              Pairing code expires in{" "}
-              {formatRemainingTime(pairingCodeExpiresInSeconds)}.
-            </p>
-          )
-        : null}
+      {componentProps.pairingCodeExpiresInSeconds !== undefined ? (
+        componentProps.pairingCodeExpiresInSeconds <= 0 ? (
+          <p class="m-0 text-rieul-danger text-[13px]">
+            Pairing code expired. Restart pairing.
+          </p>
+        ) : (
+          <p class="m-0 text-rieul-text-3 text-[13px]">
+            Pairing code expires in{" "}
+            {formatRemainingTime(componentProps.pairingCodeExpiresInSeconds)}.
+          </p>
+        )
+      ) : null}
     </section>
   );
 }
 
 function formatRemainingTime(totalSeconds: number): string {
   const seconds = Math.max(0, Math.ceil(totalSeconds));
-  const minutesPart = Math.floor(seconds / 60).toString().padStart(2, "0");
+  const minutesPart = Math.floor(seconds / 60)
+    .toString()
+    .padStart(2, "0");
   const secondsPart = (seconds % 60).toString().padStart(2, "0");
   return `${minutesPart}:${secondsPart}`;
 }
 
-function MachineConfigForm(
-  {
-    configNameDraft,
-    configNameInputRef,
-    configUrlDraft,
-    error,
-    selected,
-    onClose,
-    onConfigNameChange,
-    onConfigUrlChange,
-    onSubmit,
-  }: MachineConfigFormProps,
-) {
+function MachineConfigForm(componentProps: MachineConfigFormProps) {
   return (
     <form
-      className={machineModalFormClassName}
-      onSubmit={onSubmit}
+      class={machineModalFormClassName}
+      onSubmit={(event) => componentProps.onSubmit(event)}
     >
-      <div className={modalMachineSummaryClassName}>
-        <strong>{selected.name}</strong>
-        <span>{selected.baseUrl}</span>
+      <div class={modalMachineSummaryClassName}>
+        <strong>{componentProps.selected.name}</strong>
+        <span>{componentProps.selected.baseUrl}</span>
       </div>
       <label>
         <span>Name</span>
         <input
-          ref={configNameInputRef}
-          value={configNameDraft}
-          onChange={(event) => onConfigNameChange(event.target.value)}
+          ref={(el) => {
+            componentProps.configNameInputRef.current = el;
+          }}
+          value={componentProps.configNameDraft}
+          onInput={(event) =>
+            componentProps.onConfigNameChange(event.target.value)
+          }
           placeholder="Machine name"
           aria-label="Machine name"
         />
@@ -423,17 +381,19 @@ function MachineConfigForm(
       <label>
         <span>URL</span>
         <input
-          value={configUrlDraft}
-          onChange={(event) => onConfigUrlChange(event.target.value)}
+          value={componentProps.configUrlDraft}
+          onInput={(event) =>
+            componentProps.onConfigUrlChange(event.target.value)
+          }
           placeholder="https://host:9012"
           aria-label="Machine URL"
         />
       </label>
-      {error ? <div className={fieldErrorClassName}>{error}</div> : null}
-      <div className={modalActionsClassName}>
-        <Button onClick={onClose}>
-          Cancel
-        </Button>
+      {componentProps.error ? (
+        <div class={fieldErrorClassName}>{componentProps.error}</div>
+      ) : null}
+      <div class={modalActionsClassName}>
+        <Button onClick={() => componentProps.onClose()}>Cancel</Button>
         <Button type="submit">
           <Settings size={16} />
           Save
@@ -443,29 +403,21 @@ function MachineConfigForm(
   );
 }
 
-function DeleteMachineForm(
-  {
-    selected,
-    onClose,
-    onDelete,
-  }: DeleteMachineFormProps,
-) {
+function DeleteMachineForm(componentProps: DeleteMachineFormProps) {
   return (
-    <div className={machineModalFormClassName}>
-      <div className={modalMachineSummaryClassName}>
-        <strong>{selected.name}</strong>
-        <span>{selected.baseUrl}</span>
+    <div class={machineModalFormClassName}>
+      <div class={modalMachineSummaryClassName}>
+        <strong>{componentProps.selected.name}</strong>
+        <span>{componentProps.selected.baseUrl}</span>
       </div>
-      <p className={modalWarningClassName}>
+      <p class={modalWarningClassName}>
         This removes the machine from this browser.
       </p>
-      <div className={modalActionsClassName}>
-        <Button onClick={onClose}>
-          Cancel
-        </Button>
+      <div class={modalActionsClassName}>
+        <Button onClick={() => componentProps.onClose()}>Cancel</Button>
         <Button
           className={dangerActionClassName}
-          onClick={onDelete}
+          onClick={() => componentProps.onDelete()}
         >
           <Trash2 size={16} />
           Delete

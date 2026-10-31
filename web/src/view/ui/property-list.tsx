@@ -1,4 +1,6 @@
-import type { HTMLAttributes, ReactNode } from "react";
+import type { JSX } from "@solidjs/web";
+import { omit } from "solid-js";
+
 import { className as joinClassName } from "../class-name.ts";
 
 const propertyListClassName = [
@@ -32,64 +34,74 @@ const propertyValueClassName = [
   "leading-[1.4] text-[var(--rieul-text-primary)] [overflow-wrap:anywhere]",
 ].join(" ");
 
-export interface PropertyListProps extends HTMLAttributes<HTMLDListElement> {
+export interface PropertyListProps
+  extends JSX.HTMLAttributes<HTMLDListElement> {
+  className?: string;
 }
 
-export function PropertyList({ className, ...props }: PropertyListProps) {
+export function PropertyList(componentProps: PropertyListProps) {
+  const otherProps = omit(componentProps, "className");
+
   return (
     <dl
-      {...props}
-      className={joinClassName(propertyListClassName, className)}
+      {...otherProps}
+      class={joinClassName(propertyListClassName, componentProps.className)}
     />
   );
 }
 
-export interface PropertyListItemProps extends HTMLAttributes<HTMLDivElement> {
-  label: ReactNode;
+export interface PropertyListItemProps
+  extends JSX.HTMLAttributes<HTMLDivElement> {
+  className?: string;
+  label: JSX.Element;
   valueClassName?: string;
   variant?: "default" | "white";
 }
 
-export function PropertyListItem(
-  {
-    children,
-    className,
-    label,
-    valueClassName,
-    variant = "default",
-    ...props
-  }: PropertyListItemProps,
-) {
+export function PropertyListItem(componentProps: PropertyListItemProps) {
+  const otherProps = omit(
+    componentProps,
+    "children",
+    "className",
+    "label",
+    "valueClassName",
+    "variant",
+  );
+
   return (
     <div
-      {...props}
-      className={joinClassName(
+      {...otherProps}
+      class={joinClassName(
         propertyListItemClassName,
-        variant === "white" && propertyListItemWhiteClassName,
-        className,
+        (componentProps.variant ?? "default") === "white" &&
+          propertyListItemWhiteClassName,
+        componentProps.className,
       )}
     >
-      <dt>{label}</dt>
+      <dt>{componentProps.label}</dt>
       <dd
-        className={joinClassName(
+        class={joinClassName(
           propertyListValueCellClassName,
-          valueClassName,
+          componentProps.valueClassName,
         )}
       >
-        {children}
+        {componentProps.children}
       </dd>
     </div>
   );
 }
 
-export interface PropertyValueProps extends HTMLAttributes<HTMLElement> {
+export interface PropertyValueProps extends JSX.HTMLAttributes<HTMLElement> {
+  className?: string;
 }
 
-export function PropertyValue({ className, ...props }: PropertyValueProps) {
+export function PropertyValue(componentProps: PropertyValueProps) {
+  const otherProps = omit(componentProps, "className");
+
   return (
     <code
-      {...props}
-      className={joinClassName(propertyValueClassName, className)}
+      {...otherProps}
+      class={joinClassName(propertyValueClassName, componentProps.className)}
     />
   );
 }

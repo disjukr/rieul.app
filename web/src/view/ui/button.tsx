@@ -1,6 +1,6 @@
-import { Button as BaseButton } from "@base-ui/react/button";
-import type React from "react";
+import type { JSX } from "@solidjs/web";
 import { cva, type VariantProps } from "class-variance-authority";
+import { omit } from "solid-js";
 import { className as joinClassName } from "../class-name.ts";
 
 const buttonVariants = cva(
@@ -89,22 +89,32 @@ const buttonVariants = cva(
 );
 
 export interface ButtonProps
-  extends
-    Omit<React.ComponentPropsWithoutRef<typeof BaseButton>, "className">,
+  extends Omit<JSX.ButtonHTMLAttributes<HTMLButtonElement>, "className">,
     VariantProps<typeof buttonVariants> {
   className?: string;
 }
 
-export function Button(
-  { className, size, tone, type = "button", variant, ...props }: ButtonProps,
-) {
+export function Button(componentProps: ButtonProps) {
+  const otherProps = omit(
+    componentProps,
+    "className",
+    "size",
+    "tone",
+    "type",
+    "variant",
+  );
+
   return (
-    <BaseButton
-      {...props}
-      type={type}
-      className={joinClassName(
-        buttonVariants({ size, tone, variant }),
-        className,
+    <button
+      {...otherProps}
+      type={componentProps.type ?? "button"}
+      class={joinClassName(
+        buttonVariants({
+          size: componentProps.size,
+          tone: componentProps.tone,
+          variant: componentProps.variant,
+        }),
+        componentProps.className,
       )}
     />
   );

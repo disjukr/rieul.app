@@ -1,6 +1,10 @@
-import { useState } from "react";
-import { useAtomValue } from "jotai";
-import { useBunja } from "bunja/react";
+import { createMemo, createSignal } from "solid-js";
+
+import type {
+  AgentSessionSummary,
+  CreateAgentWorkspace,
+} from "../../protocol/generated/rpc.ts";
+import { useBunja } from "../../solid/bunja.tsx";
 import {
   Archive,
   Check,
@@ -10,11 +14,8 @@ import {
   Plus,
   RefreshCw,
   X,
-} from "lucide-react";
-import type {
-  AgentSessionSummary,
-  CreateAgentWorkspace,
-} from "../../protocol/generated/rpc.ts";
+} from "../../solid/icons.tsx";
+import { useAtomValue } from "../../solid/jotai.tsx";
 import { agentsBunja, agentSessionTitle } from "../../state/agents.ts";
 import {
   type WorkbenchAgentTabConfig,
@@ -88,51 +89,55 @@ const errorClassName =
 export function AgentRail() {
   const agents = useBunja(agentsBunja);
   const workbench = useBunja(workbenchBunja);
-  const projects = useAtomValue(agents.projectsAtom);
-  const sessions = useAtomValue(agents.sessionsAtom);
-  const availableProviders = useAtomValue(agents.availableProvidersAtom);
-  const phase = useAtomValue(agents.phaseAtom);
-  const error = useAtomValue(agents.errorAtom);
+  const projects = useAtomValue(() => agents().projectsAtom);
+  const sessions = useAtomValue(() => agents().sessionsAtom);
+  const availableProviders = useAtomValue(
+    () => agents().availableProvidersAtom,
+  );
+  const phase = useAtomValue(() => agents().phaseAtom);
+  const error = useAtomValue(() => agents().errorAtom);
   const activeAgentSessionId = useAtomValue(
-    workbench.activeAgentSessionIdAtom,
+    () => workbench().activeAgentSessionIdAtom,
   );
-  const [form, setForm] = useState<"project" | "session" | undefined>();
-  const [rootPath, setRootPath] = useState("");
-  const [providerId, setProviderId] = useState("");
-  const [workspaceValue, setWorkspaceValue] = useState("task");
-  const [submitting, setSubmitting] = useState(false);
-  const [actionError, setActionError] = useState<string>();
-  const [archivingSessionIds, setArchivingSessionIds] = useState<Set<string>>(
-    () => new Set(),
-  );
-  const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(
-    () => new Set(),
+  const [form, setForm] = createSignal<"project" | "session" | undefined>();
+  const [rootPath, setRootPath] = createSignal("");
+  const [providerId, setProviderId] = createSignal("");
+  const [workspaceValue, setWorkspaceValue] = createSignal("task");
+  const [submitting, setSubmitting] = createSignal(false);
+  const [actionError, setActionError] = createSignal<string>();
+  const [archivingSessionIds, setArchivingSessionIds] = createSignal<
+    Set<string>
+  >((() => new Set())());
+  const [collapsedProjects, setCollapsedProjects] = createSignal<Set<string>>(
+    (() => new Set())(),
   );
 
-  const effectiveProviderId = providerId ||
-    availableProviders[0]?.providerId ||
-    "";
-  const knownProjectIds = new Set(projects.map((project) => project.projectId));
-  const projectSessions = new Map<string, AgentSessionSummary[]>();
-  const standaloneSessions: AgentSessionSummary[] = [];
-  for (const session of sessions) {
-    const projectId = linkedProjectId(session);
-    if (!projectId || !knownProjectIds.has(projectId)) {
-      standaloneSessions.push(session);
-      continue;
+  const effectiveProviderId = createMemo(
+    () => providerId() || availableProviders()[0]?.providerId || "",
+  );
+  const groupedSessions = createMemo(() => {
+    const known = new Set(projects().map((project) => project.projectId));
+    const projectSessions = new Map<string, AgentSessionSummary[]>();
+    const standaloneSessions: AgentSessionSummary[] = [];
+    for (const session of sessions()) {
+      const id = linkedProjectId(session);
+      if (!id || !known.has(id)) standaloneSessions.push(session);
+      else {
+        const rows = projectSessions.get(id) ?? [];
+        rows.push(session);
+        projectSessions.set(id, rows);
+      }
     }
-    const rows = projectSessions.get(projectId) ?? [];
-    rows.push(session);
-    projectSessions.set(projectId, rows);
-  }
+    return { projectSessions, standaloneSessions };
+  });
 
   async function submitProject() {
-    const value = rootPath.trim();
-    if (!value || submitting) return;
+    const value = rootPath().trim();
+    if (!value || submitting()) return;
     setSubmitting(true);
     setActionError(undefined);
     try {
-      await agents.addProject(value);
+      await agents().addProject(value);
       setRootPath("");
       setForm(undefined);
     } catch (cause) {
@@ -143,15 +148,19 @@ export function AgentRail() {
   }
 
   async function submitSession() {
-    if (!effectiveProviderId || submitting) return;
-    const workspace: CreateAgentWorkspace = workspaceValue === "task"
-      ? { type: "task", source: { type: "empty" } }
-      : { type: "project", projectId: workspaceValue };
+    if (!effectiveProviderId() || submitting()) return;
+    const workspace: CreateAgentWorkspace =
+      workspaceValue() === "task"
+        ? { type: "task", source: { type: "empty" } }
+        : { type: "project", projectId: workspaceValue() };
     setSubmitting(true);
     setActionError(undefined);
     try {
-      const session = await agents.addSession(effectiveProviderId, workspace);
-      workbench.openAgentTab({
+      const session = await agents().addSession(
+        effectiveProviderId(),
+        workspace,
+      );
+      workbench().openAgentTab({
         sessionId: session.summary.sessionId,
         title: agentSessionTitle(session.summary),
       });
@@ -164,13 +173,13 @@ export function AgentRail() {
   }
 
   async function archiveSession(session: AgentSessionSummary) {
-    if (archivingSessionIds.has(session.sessionId)) return;
+    if (archivingSessionIds().has(session.sessionId)) return;
     setArchivingSessionIds((current) =>
-      new Set(current).add(session.sessionId)
+      new Set(current).add(session.sessionId),
     );
     setActionError(undefined);
     try {
-      await agents.archiveSession(session.sessionId);
+      await agents().archiveSession(session.sessionId);
     } catch (cause) {
       setActionError(errorMessage(cause));
     } finally {
@@ -183,75 +192,78 @@ export function AgentRail() {
   }
 
   return (
-    <aside className={railClassName} aria-label="Agent projects and sessions">
-      <section className={sectionClassName}>
-        <div className={headerClassName}>
+    <aside class={railClassName} aria-label="Agent projects and sessions">
+      <section class={sectionClassName}>
+        <div class={headerClassName}>
           <span>Projects</span>
-          <div className={headerActionsClassName}>
+          <div class={headerActionsClassName}>
             <button
               type="button"
-              className={iconButtonClassName}
+              class={iconButtonClassName}
               onClick={() =>
                 setForm((current) =>
-                  current === "project" ? undefined : "project"
-                )}
+                  current === "project" ? undefined : "project",
+                )
+              }
               aria-label="Add project"
               title="Add project"
             >
-              {form === "project" ? <X size={12} /> : <Plus size={12} />}
+              {form() === "project" ? <X size={12} /> : <Plus size={12} />}
             </button>
           </div>
         </div>
-        {form === "project"
-          ? (
-            <form
-              className={formClassName}
-              onSubmit={(event) => {
-                event.preventDefault();
-                void submitProject();
-              }}
-            >
-              <input
-                className={fieldClassName}
-                value={rootPath}
-                onChange={(event) => setRootPath(event.currentTarget.value)}
-                placeholder="Absolute project path"
-                aria-label="Project root path"
-                autoFocus
-              />
-              <div className={formActionsClassName}>
-                <button
-                  type="submit"
-                  className={iconButtonClassName}
-                  disabled={!rootPath.trim() || submitting}
-                  aria-label="Save project"
-                >
-                  {submitting
-                    ? <LoaderCircle size={12} className="animate-spin" />
-                    : <Check size={12} />}
-                </button>
-              </div>
-            </form>
-          )
-          : null}
-        <div className={className(listClassName, "max-h-[240px]")}>
-          {projects.map((project) => {
-            const children = projectSessions.get(project.projectId) ?? [];
-            const collapsed = collapsedProjects.has(project.projectId);
+        {form() === "project" ? (
+          <form
+            class={formClassName}
+            onSubmit={(event) => {
+              event.preventDefault();
+              void submitProject();
+            }}
+          >
+            <input
+              class={fieldClassName}
+              value={rootPath()}
+              onInput={(event) => setRootPath(event.currentTarget.value)}
+              placeholder="Absolute project path"
+              aria-label="Project root path"
+              autofocus
+            />
+            <div class={formActionsClassName}>
+              <button
+                type="submit"
+                class={iconButtonClassName}
+                disabled={!rootPath().trim() || submitting()}
+                aria-label="Save project"
+              >
+                {submitting() ? (
+                  <LoaderCircle size={12} className="animate-spin" />
+                ) : (
+                  <Check size={12} />
+                )}
+              </button>
+            </div>
+          </form>
+        ) : null}
+        <div class={className(listClassName, "max-h-[240px]")}>
+          {projects().map((project) => {
+            const children =
+              groupedSessions().projectSessions.get(project.projectId) ?? [];
+            const collapsed = collapsedProjects().has(project.projectId);
             return (
-              <div key={project.projectId} className="grid gap-[2px]">
+              <div class="grid gap-[2px]">
                 <button
                   type="button"
-                  className={itemButtonClassName}
+                  class={itemButtonClassName}
                   onClick={() =>
                     setCollapsedProjects((current) =>
-                      toggleSetValue(current, project.projectId)
-                    )}
+                      toggleSetValue(current, project.projectId),
+                    )
+                  }
                   title={project.title}
-                  aria-expanded={!collapsed}
+                  aria-expanded={!collapsed ? "true" : "false"}
                 >
                   <FolderKanban size={12} className="flex-none opacity-66" />
-                  <span className={itemTitleClassName}>{project.title}</span>
+                  <span class={itemTitleClassName}>{project.title}</span>
                   <ChevronRight
                     size={11}
                     className={className(
@@ -262,17 +274,15 @@ export function AgentRail() {
                 </button>
                 {!collapsed
                   ? children.map((session) => (
-                    <SessionButton
-                      key={session.sessionId}
-                      session={session}
-                      nested
-                      active={session.sessionId === activeAgentSessionId}
-                      archiving={archivingSessionIds.has(session.sessionId)}
-                      onOpen={() => openSession(workbench, session)}
-                      onArchive={() =>
-                        archiveSession(session)}
-                    />
-                  ))
+                      <SessionButton
+                        session={session}
+                        nested
+                        active={session.sessionId === activeAgentSessionId()}
+                        archiving={archivingSessionIds().has(session.sessionId)}
+                        onOpen={() => openSession(workbench(), session)}
+                        onArchive={() => archiveSession(session)}
+                      />
+                    ))
                   : null}
               </div>
             );
@@ -280,114 +290,109 @@ export function AgentRail() {
         </div>
       </section>
 
-      <section className={sessionsSectionClassName}>
+      <section class={sessionsSectionClassName}>
         <div>
-          <div className={headerClassName}>
+          <div class={headerClassName}>
             <span>Recents</span>
-            <div className={headerActionsClassName}>
+            <div class={headerActionsClassName}>
               <button
                 type="button"
-                className={iconButtonClassName}
-                onClick={() =>
-                  void agents.refreshSessions()}
-                disabled={phase === "loading"}
+                class={iconButtonClassName}
+                onClick={() => void agents().refreshSessions()}
+                disabled={phase() === "loading"}
                 aria-label="Refresh sessions"
                 title="Refresh sessions"
               >
                 <RefreshCw
                   size={11}
-                  className={phase === "loading" ? "animate-spin" : undefined}
+                  className={phase() === "loading" ? "animate-spin" : undefined}
                 />
               </button>
               <button
                 type="button"
-                className={iconButtonClassName}
+                class={iconButtonClassName}
                 onClick={() =>
                   setForm((current) =>
-                    current === "session" ? undefined : "session"
-                  )}
-                disabled={availableProviders.length === 0}
+                    current === "session" ? undefined : "session",
+                  )
+                }
+                disabled={availableProviders().length === 0}
                 aria-label="New agent session"
                 title="New agent session"
               >
-                {form === "session" ? <X size={12} /> : <Plus size={12} />}
+                {form() === "session" ? <X size={12} /> : <Plus size={12} />}
               </button>
             </div>
           </div>
-          {form === "session"
-            ? (
-              <form
-                className={formClassName}
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  void submitSession();
-                }}
+          {form() === "session" ? (
+            <form
+              class={formClassName}
+              onSubmit={(event) => {
+                event.preventDefault();
+                void submitSession();
+              }}
+            >
+              <select
+                class={fieldClassName}
+                value={effectiveProviderId()}
+                onInput={(event) => setProviderId(event.currentTarget.value)}
+                aria-label="Agent provider"
               >
-                <select
-                  className={fieldClassName}
-                  value={effectiveProviderId}
-                  onChange={(event) => setProviderId(event.currentTarget.value)}
-                  aria-label="Agent provider"
+                {availableProviders().map((provider) => (
+                  <option value={provider.providerId}>{provider.title}</option>
+                ))}
+              </select>
+              <select
+                class={fieldClassName}
+                value={workspaceValue()}
+                onInput={(event) =>
+                  setWorkspaceValue(event.currentTarget.value)
+                }
+                aria-label="Session workspace"
+              >
+                <option value="task">Task · isolated workspace</option>
+                {projects().map((project) => (
+                  <option value={project.projectId}>
+                    Project · {project.title}
+                  </option>
+                ))}
+              </select>
+              <div class={formActionsClassName}>
+                <button
+                  type="submit"
+                  class={iconButtonClassName}
+                  disabled={!effectiveProviderId() || submitting()}
+                  aria-label="Create session"
                 >
-                  {availableProviders.map((provider) => (
-                    <option
-                      key={provider.providerId}
-                      value={provider.providerId}
-                    >
-                      {provider.title}
-                    </option>
-                  ))}
-                </select>
-                <select
-                  className={fieldClassName}
-                  value={workspaceValue}
-                  onChange={(event) =>
-                    setWorkspaceValue(event.currentTarget.value)}
-                  aria-label="Session workspace"
-                >
-                  <option value="task">Task · isolated workspace</option>
-                  {projects.map((project) => (
-                    <option key={project.projectId} value={project.projectId}>
-                      Project · {project.title}
-                    </option>
-                  ))}
-                </select>
-                <div className={formActionsClassName}>
-                  <button
-                    type="submit"
-                    className={iconButtonClassName}
-                    disabled={!effectiveProviderId || submitting}
-                    aria-label="Create session"
-                  >
-                    {submitting
-                      ? <LoaderCircle size={12} className="animate-spin" />
-                      : <Check size={12} />}
-                  </button>
-                </div>
-              </form>
-            )
-            : null}
-        </div>
-        <div className={listClassName}>
-          {error || actionError
-            ? <div className={errorClassName}>{error ?? actionError}</div>
-            : null}
-          {standaloneSessions.length === 0 && !error && !actionError
-            ? (
-              <div className={emptyClassName}>
-                {availableProviders.length === 0
-                  ? "No available agent provider."
-                  : "No recent sessions."}
+                  {submitting() ? (
+                    <LoaderCircle size={12} className="animate-spin" />
+                  ) : (
+                    <Check size={12} />
+                  )}
+                </button>
               </div>
-            )
-            : null}
-          {standaloneSessions.map((session) => (
+            </form>
+          ) : null}
+        </div>
+        <div class={listClassName}>
+          {error() || actionError() ? (
+            <div class={errorClassName}>{error() ?? actionError()}</div>
+          ) : null}
+          {groupedSessions().standaloneSessions.length === 0 &&
+          !error() &&
+          !actionError() ? (
+            <div class={emptyClassName}>
+              {availableProviders().length === 0
+                ? "No available agent provider."
+                : "No recent sessions."}
+            </div>
+          ) : null}
+          {groupedSessions().standaloneSessions.map((session) => (
             <SessionButton
-              key={session.sessionId}
               session={session}
-              active={session.sessionId === activeAgentSessionId}
-              archiving={archivingSessionIds.has(session.sessionId)}
-              onOpen={() => openSession(workbench, session)}
+              active={session.sessionId === activeAgentSessionId()}
+              archiving={archivingSessionIds().has(session.sessionId)}
+              onOpen={() => openSession(workbench(), session)}
               onArchive={() => archiveSession(session)}
             />
           ))}
@@ -397,14 +402,7 @@ export function AgentRail() {
   );
 }
 
-function SessionButton({
-  session,
-  nested = false,
-  active = false,
-  archiving = false,
-  onOpen,
-  onArchive,
-}: {
+function SessionButton(componentProps: {
   session: AgentSessionSummary;
   nested?: boolean;
   active?: boolean;
@@ -412,35 +410,37 @@ function SessionButton({
   onOpen: () => void;
   onArchive: () => void;
 }) {
-  const title = agentSessionTitle(session);
+  const title = createMemo(() => agentSessionTitle(componentProps.session));
   return (
     <div
-      className={className(
+      class={className(
         sessionItemClassName,
-        nested && nestedItemButtonClassName,
-        active && "active",
+        (componentProps.nested ?? false) && nestedItemButtonClassName,
+        (componentProps.active ?? false) && "active",
       )}
     >
       <button
         type="button"
-        className={sessionOpenButtonClassName}
-        onClick={onOpen}
-        title={title}
-        aria-current={active ? "page" : undefined}
+        class={sessionOpenButtonClassName}
+        onClick={() => componentProps.onOpen()}
+        title={title()}
+        aria-current={(componentProps.active ?? false) ? "page" : undefined}
       >
-        <span className={itemTitleClassName}>{title}</span>
+        <span class={itemTitleClassName}>{title()}</span>
       </button>
       <button
         type="button"
-        className={sessionArchiveButtonClassName}
-        onClick={onArchive}
-        disabled={archiving}
-        aria-label={`Archive ${title}`}
+        class={sessionArchiveButtonClassName}
+        onClick={() => componentProps.onArchive()}
+        disabled={componentProps.archiving ?? false}
+        aria-label={`Archive ${title()}`}
         title="Archive session"
       >
-        {archiving
-          ? <LoaderCircle size={12} className="animate-spin" />
-          : <Archive size={12} />}
+        {(componentProps.archiving ?? false) ? (
+          <LoaderCircle size={12} className="animate-spin" />
+        ) : (
+          <Archive size={12} />
+        )}
       </button>
     </div>
   );

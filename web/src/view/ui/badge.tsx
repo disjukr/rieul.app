@@ -1,4 +1,6 @@
-import type { HTMLAttributes } from "react";
+import type { JSX } from "@solidjs/web";
+import { omit } from "solid-js";
+
 import { cva, type VariantProps } from "class-variance-authority";
 import { className as joinClassName } from "../class-name.ts";
 
@@ -70,7 +72,8 @@ const badgeVariants = cva(
       {
         tone: "danger",
         variant: "outline",
-        className: "border-[var(--rieul-danger-border)] text-[var(--rieul-danger)]",
+        className:
+          "border-[var(--rieul-danger-border)] text-[var(--rieul-danger)]",
       },
       {
         tone: "danger",
@@ -120,18 +123,30 @@ const badgeVariants = cva(
 );
 
 export interface BadgeProps
-  extends HTMLAttributes<HTMLSpanElement>, VariantProps<typeof badgeVariants> {
+  extends JSX.HTMLAttributes<HTMLSpanElement>,
+    VariantProps<typeof badgeVariants> {
+  className?: string;
 }
 
-export function Badge(
-  { className, size, tone, variant, ...props }: BadgeProps,
-) {
+export function Badge(componentProps: BadgeProps) {
+  const otherProps = omit(
+    componentProps,
+    "className",
+    "size",
+    "tone",
+    "variant",
+  );
+
   return (
     <span
-      {...props}
-      className={joinClassName(
-        badgeVariants({ size, tone, variant }),
-        className,
+      {...otherProps}
+      class={joinClassName(
+        badgeVariants({
+          size: componentProps.size,
+          tone: componentProps.tone,
+          variant: componentProps.variant,
+        }),
+        componentProps.className,
       )}
     />
   );

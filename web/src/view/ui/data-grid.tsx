@@ -1,4 +1,6 @@
-import type { HTMLAttributes } from "react";
+import type { JSX } from "@solidjs/web";
+import { omit } from "solid-js";
+
 import { cva, type VariantProps } from "class-variance-authority";
 import { className as joinClassName } from "../class-name.ts";
 
@@ -50,8 +52,7 @@ const dataGridRowVariants = cva(
       },
       interactive: {
         false: "",
-        true:
-          "appearance-none cursor-pointer p-0 [font-family:inherit] hover:bg-[var(--rieul-bg-hover-weak)]",
+        true: "appearance-none cursor-pointer p-0 [font-family:inherit] hover:bg-[var(--rieul-bg-hover-weak)]",
       },
       selected: {
         false: "",
@@ -82,81 +83,91 @@ const dataGridCellVariants = cva(
 );
 
 export interface DataGridProps
-  extends
-    HTMLAttributes<HTMLDivElement>,
+  extends JSX.HTMLAttributes<HTMLDivElement>,
     VariantProps<typeof dataGridVariants> {
+  className?: string;
 }
 
 export interface DataGridHeaderCellProps
-  extends
-    HTMLAttributes<HTMLDivElement>,
+  extends JSX.HTMLAttributes<HTMLDivElement>,
     VariantProps<typeof dataGridHeaderCellVariants> {
+  className?: string;
 }
 
 export interface DataGridRowProps
-  extends
-    HTMLAttributes<HTMLDivElement>,
+  extends JSX.HTMLAttributes<HTMLDivElement>,
     VariantProps<typeof dataGridRowVariants> {
+  className?: string;
 }
 
 export interface DataGridCellProps
-  extends
-    HTMLAttributes<HTMLDivElement>,
+  extends JSX.HTMLAttributes<HTMLDivElement>,
     VariantProps<typeof dataGridCellVariants> {
+  className?: string;
 }
 
-export function DataGrid(
-  { className, density, ...props }: DataGridProps,
-) {
-  return (
-    <div
-      {...props}
-      className={joinClassName(dataGridVariants({ density }), className)}
-    />
-  );
-}
+export function DataGrid(componentProps: DataGridProps) {
+  const otherProps = omit(componentProps, "className", "density");
 
-export function DataGridHeaderCell(
-  { className, density, ...props }: DataGridHeaderCellProps,
-) {
   return (
     <div
-      {...props}
-      className={joinClassName(
-        dataGridHeaderCellVariants({ density }),
-        className,
+      {...otherProps}
+      class={joinClassName(
+        dataGridVariants({ density: componentProps.density }),
+        componentProps.className,
       )}
     />
   );
 }
 
-export function DataGridRow(
-  {
-    className,
-    density,
-    interactive,
-    selected,
-    ...props
-  }: DataGridRowProps,
-) {
+export function DataGridHeaderCell(componentProps: DataGridHeaderCellProps) {
+  const otherProps = omit(componentProps, "className", "density");
+
   return (
     <div
-      {...props}
-      className={joinClassName(
-        dataGridRowVariants({ density, interactive, selected }),
-        className,
+      {...otherProps}
+      class={joinClassName(
+        dataGridHeaderCellVariants({ density: componentProps.density }),
+        componentProps.className,
       )}
     />
   );
 }
 
-export function DataGridCell(
-  { className, tone, ...props }: DataGridCellProps,
-) {
+export function DataGridRow(componentProps: DataGridRowProps) {
+  const otherProps = omit(
+    componentProps,
+    "className",
+    "density",
+    "interactive",
+    "selected",
+  );
+
   return (
     <div
-      {...props}
-      className={joinClassName(dataGridCellVariants({ tone }), className)}
+      {...otherProps}
+      class={joinClassName(
+        dataGridRowVariants({
+          density: componentProps.density,
+          interactive: componentProps.interactive,
+          selected: componentProps.selected,
+        }),
+        componentProps.className,
+      )}
+    />
+  );
+}
+
+export function DataGridCell(componentProps: DataGridCellProps) {
+  const otherProps = omit(componentProps, "className", "tone");
+
+  return (
+    <div
+      {...otherProps}
+      class={joinClassName(
+        dataGridCellVariants({ tone: componentProps.tone }),
+        componentProps.className,
+      )}
     />
   );
 }

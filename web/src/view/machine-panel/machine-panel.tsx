@@ -1,5 +1,6 @@
-import React from "react";
-import { ChevronDown, Loader2, Wifi, WifiOff } from "lucide-react";
+import { createMemo } from "solid-js";
+
+import { ChevronDown, Loader2, Wifi, WifiOff } from "../../solid/icons.tsx";
 import type { Machine } from "../../state/machines.ts";
 import type { ConnectionState } from "../../state/types.ts";
 
@@ -11,11 +12,15 @@ interface MachinePanelProps {
   machinePanelMinWidth: number;
   machinePanelWidth: number;
   onOpenMachineMenu: (
-    event: React.MouseEvent<HTMLButtonElement>,
+    event: MouseEvent & { currentTarget: HTMLButtonElement },
     machine: Machine,
   ) => void;
-  onResizeKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => void;
-  onResizePointerDown: (event: React.PointerEvent<HTMLDivElement>) => void;
+  onResizeKeyDown: (
+    event: KeyboardEvent & { currentTarget: HTMLDivElement },
+  ) => void;
+  onResizePointerDown: (
+    event: PointerEvent & { currentTarget: HTMLDivElement },
+  ) => void;
 }
 
 const machinePanelClassName = [
@@ -56,9 +61,9 @@ const machineConnectionLineClassName = [
   "ml-[6px] flex min-w-0 items-center gap-[6px]",
   "text-[12px] font-650 text-rieul-text-3",
 ].join(" ");
-const machineConnectionDotClassName = [
-  "h-[6px] w-[6px] rounded-full",
-].join(" ");
+const machineConnectionDotClassName = ["h-[6px] w-[6px] rounded-full"].join(
+  " ",
+);
 const machineContextClassName = [
   "grid content-start gap-[10px] px-[10px] py-[12px]",
   "text-[12px] text-rieul-text-3",
@@ -80,95 +85,108 @@ const machinePanelResizerClassName = [
   "max-[680px]:hidden",
 ].join(" ");
 
-export function MachinePanel(
-  {
-    connection,
-    machine,
-    machinePanelCollapsed,
-    machinePanelMaxWidth,
-    machinePanelMinWidth,
-    machinePanelWidth,
-    onOpenMachineMenu,
-    onResizeKeyDown,
-    onResizePointerDown,
-  }: MachinePanelProps,
-) {
+export function MachinePanel(componentProps: MachinePanelProps) {
   return (
     <aside
-      className={machinePanelClassName}
+      class={machinePanelClassName}
       aria-label="Machine workspace"
-      aria-hidden={machinePanelCollapsed}
-      inert={machinePanelCollapsed ? true : undefined}
+      aria-hidden={componentProps.machinePanelCollapsed ? "true" : "false"}
+      inert={componentProps.machinePanelCollapsed ? true : undefined}
     >
-      <div className={machinePanelInnerClassName}>
-        <section className={machinePanelSummaryClassName}>
-          <div className={machineTitleClassName}>
+      <div class={machinePanelInnerClassName}>
+        <section class={machinePanelSummaryClassName}>
+          <div class={machineTitleClassName}>
             <h1>
-              {machine
-                ? (
-                  <button
-                    type="button"
-                    className={[
-                      machineTitleButtonClassName,
-                      connection.phase === "idle" ? "checking" : "",
-                    ].filter(Boolean).join(" ")}
-                    onMouseDown={(event) => event.stopPropagation()}
-                    onClick={(event) => onOpenMachineMenu(event, machine)}
-                    title="Machine actions"
-                    aria-label={`${machine.name} machine actions`}
-                    tabIndex={machinePanelCollapsed ? -1 : undefined}
-                  >
-                    <span className={machineTitleTextClassName}>
-                      {machine.name}
-                    </span>
-                    <MachineTitleStatus connection={connection} />
-                    <ChevronDown size={16} />
-                  </button>
-                )
-                : "No machine"}
+              {componentProps.machine ? (
+                <button
+                  type="button"
+                  class={[
+                    machineTitleButtonClassName,
+                    componentProps.connection.phase === "idle"
+                      ? "checking"
+                      : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" ")}
+                  onMouseDown={(event) => event.stopPropagation()}
+                  onClick={(event) =>
+                    componentProps.onOpenMachineMenu(
+                      event,
+                      componentProps.machine!,
+                    )
+                  }
+                  title="Machine actions"
+                  aria-label={`${componentProps.machine.name} machine actions`}
+                  tabindex={
+                    componentProps.machinePanelCollapsed ? -1 : undefined
+                  }
+                >
+                  <span class={machineTitleTextClassName}>
+                    {componentProps.machine.name}
+                  </span>
+                  <MachineTitleStatus connection={componentProps.connection} />
+                  <ChevronDown size={16} />
+                </button>
+              ) : (
+                "No machine"
+              )}
             </h1>
-            <MachineConnectionLine connection={connection} machine={machine} />
+            <MachineConnectionLine
+              connection={componentProps.connection}
+              machine={componentProps.machine}
+            />
           </div>
         </section>
 
-        <MachineContext machine={machine} connection={connection} />
+        <MachineContext
+          machine={componentProps.machine}
+          connection={componentProps.connection}
+        />
       </div>
       <div
-        className={machinePanelResizerClassName}
+        class={machinePanelResizerClassName}
         role="separator"
         aria-label="Resize machine panel"
         aria-orientation="vertical"
-        aria-valuemin={machinePanelMinWidth}
-        aria-valuemax={machinePanelMaxWidth}
-        aria-valuenow={machinePanelWidth}
-        tabIndex={machinePanelCollapsed ? -1 : 0}
-        onPointerDown={onResizePointerDown}
-        onKeyDown={onResizeKeyDown}
+        aria-valuemin={componentProps.machinePanelMinWidth}
+        aria-valuemax={componentProps.machinePanelMaxWidth}
+        aria-valuenow={componentProps.machinePanelWidth}
+        tabindex={componentProps.machinePanelCollapsed ? -1 : 0}
+        onPointerDown={(event) => componentProps.onResizePointerDown(event)}
+        onKeyDown={(event) => componentProps.onResizeKeyDown(event)}
       />
     </aside>
   );
 }
 
 function MachineContext(
-  { connection, machine }: MachineTitleStatusProps & { machine?: Machine },
+  componentProps: MachineTitleStatusProps & { machine?: Machine },
 ) {
   return (
-    <div className={machineContextClassName} aria-label="Machine context">
-      <ContextRow label="Target" value={machine?.name ?? "No machine"} />
-      <ContextRow label="Transport" value={connectionTransport(connection)} />
+    <div class={machineContextClassName} aria-label="Machine context">
+      <ContextRow
+        label="Target"
+        value={componentProps.machine?.name ?? "No machine"}
+      />
+      <ContextRow
+        label="Transport"
+        value={connectionTransport(componentProps.connection)}
+      />
       <ContextRow
         label="Endpoint"
-        value={machine?.baseUrl.replace(/^https?:\/\//, "") ?? "-"}
+        value={
+          componentProps.machine?.baseUrl.replace(/^https?:\/\//, "") ?? "-"
+        }
       />
     </div>
   );
 }
 
-function ContextRow({ label, value }: { label: string; value: string }) {
+function ContextRow(componentProps: { label: string; value: string }) {
   return (
-    <div className={machineContextRowClassName}>
-      <span className={machineContextLabelClassName}>{label}</span>
-      <span className={machineContextValueClassName}>{value}</span>
+    <div class={machineContextRowClassName}>
+      <span class={machineContextLabelClassName}>{componentProps.label}</span>
+      <span class={machineContextValueClassName}>{componentProps.value}</span>
     </div>
   );
 }
@@ -185,26 +203,30 @@ function connectionTransport(connection: ConnectionState): string {
 }
 
 function MachineConnectionLine(
-  { connection, machine }: MachineTitleStatusProps & { machine?: Machine },
+  componentProps: MachineTitleStatusProps & { machine?: Machine },
 ) {
-  const text = !machine
-    ? "No target"
-    : connection.phase === "reachable"
-    ? "Connected"
-    : connection.phase === "idle"
-    ? "Connecting"
-    : "Offline";
-  const tone = !machine
-    ? "bg-rieul-muted"
-    : connection.phase === "reachable"
-    ? "bg-rieul-success"
-    : connection.phase === "idle"
-    ? "bg-rieul-warning"
-    : "bg-rieul-danger";
+  const text = createMemo(() =>
+    !componentProps.machine
+      ? "No target"
+      : componentProps.connection.phase === "reachable"
+        ? "Connected"
+        : componentProps.connection.phase === "idle"
+          ? "Connecting"
+          : "Offline",
+  );
+  const tone = createMemo(() =>
+    !componentProps.machine
+      ? "bg-rieul-muted"
+      : componentProps.connection.phase === "reachable"
+        ? "bg-rieul-success"
+        : componentProps.connection.phase === "idle"
+          ? "bg-rieul-warning"
+          : "bg-rieul-danger",
+  );
   return (
-    <div className={machineConnectionLineClassName}>
-      <span className={`${machineConnectionDotClassName} ${tone}`} />
-      <span>{text}</span>
+    <div class={machineConnectionLineClassName}>
+      <span class={`${machineConnectionDotClassName} ${tone()}`} />
+      <span>{text()}</span>
     </div>
   );
 }
@@ -213,31 +235,28 @@ interface MachineTitleStatusProps {
   connection: ConnectionState;
 }
 
-function MachineTitleStatus({ connection }: MachineTitleStatusProps) {
-  switch (connection.phase) {
-    case "reachable":
-      return (
+function MachineTitleStatus(props: MachineTitleStatusProps) {
+  return (
+    <>
+      {props.connection.phase === "reachable" ? (
         <Wifi
           size={14}
           className={`${machineTitleStatusIconClassName} text-rieul-success`}
           aria-label="Connected"
         />
-      );
-    case "idle":
-      return (
+      ) : props.connection.phase === "idle" ? (
         <Loader2
           size={14}
           className={`${machineTitleStatusIconClassName} animate-spin text-rieul-warning`}
           aria-label="Connecting"
         />
-      );
-    case "offline":
-      return (
+      ) : (
         <WifiOff
           size={14}
           className={`${machineTitleStatusIconClassName} text-rieul-danger`}
           aria-label="Unconnected"
         />
-      );
-  }
+      )}
+    </>
+  );
 }

@@ -1,35 +1,61 @@
-import type { ReactElement, ReactNode } from "react";
-import { Tooltip } from "@base-ui/react/tooltip";
-import { cva } from "class-variance-authority";
-import { className as joinClassName } from "../class-name.ts";
-
-const tooltipPopupVariants = cva([
-  "z-[40] rounded-[var(--rieul-radius-md)] bg-[var(--rieul-bg-inverse)] text-[var(--rieul-text-inverse)]",
-  "px-[9px] py-[6px] text-[12px] font-650 leading-none",
-  "shadow-[var(--rieul-shadow-tooltip)]",
-]);
-const tooltipArrowClassName = "fill-[var(--rieul-bg-inverse)]";
-
+import { Portal, type JSX } from "@solidjs/web";
+import { createEffect, createSignal, createUniqueId } from "solid-js";
 interface AppTooltipProps {
-  children: ReactElement;
+  children: JSX.Element;
   className?: string;
-  label: ReactNode;
+  label: JSX.Element;
 }
-
-export function AppTooltip({ children, className, label }: AppTooltipProps) {
+export function AppTooltip(props: AppTooltipProps) {
+  const [open, setOpen] = createSignal(false);
+  const [position, setPosition] = createSignal({ left: 0, top: 0 });
+  const id = createUniqueId();
+  let anchor!: HTMLSpanElement;
+  createEffect(open, (visible) => {
+    if (!visible) return;
+    const trigger =
+      anchor.querySelector<HTMLElement>("button, a[href], input, [tabindex]") ??
+      anchor.firstElementChild;
+    if (!trigger) return;
+    const previous = trigger.getAttribute("aria-describedby");
+    trigger.setAttribute(
+      "aria-describedby",
+      [previous, id].filter(Boolean).join(" "),
+    );
+    return () => {
+      if (previous === null) trigger.removeAttribute("aria-describedby");
+      else trigger.setAttribute("aria-describedby", previous);
+    };
+  });
+  function show() {
+    const rect = (anchor.firstElementChild ?? anchor).getBoundingClientRect();
+    setPosition({ left: rect.right + 12, top: rect.top + rect.height / 2 });
+    setOpen(true);
+  }
   return (
-    <Tooltip.Root>
-      <Tooltip.Trigger render={children} />
-      <Tooltip.Portal>
-        <Tooltip.Positioner side="right" align="center" sideOffset={12}>
-          <Tooltip.Popup
-            className={joinClassName(tooltipPopupVariants(), className)}
+    <span
+      ref={anchor}
+      class="contents"
+      onMouseEnter={show}
+      onMouseLeave={() => setOpen(false)}
+      onFocusIn={show}
+      onFocusOut={() => setOpen(false)}
+      onKeyDown={(event) => {
+        if (event.key === "Escape") setOpen(false);
+      }}
+    >
+      {props.children}
+      {open() ? (
+        <Portal>
+          <span
+            id={id}
+            role="tooltip"
+            class={`fixed z-[140] -translate-y-1/2 rounded-[var(--rieul-radius-md)] bg-[var(--rieul-bg-inverse)] text-[var(--rieul-text-inverse)] px-[9px] py-[6px] text-[12px] font-650 pointer-events-none ${props.className ?? ""}`}
+            style={{ left: `${position().left}px`, top: `${position().top}px` }}
           >
-            <Tooltip.Arrow className={tooltipArrowClassName} />
-            {label}
-          </Tooltip.Popup>
-        </Tooltip.Positioner>
-      </Tooltip.Portal>
-    </Tooltip.Root>
+            {props.label}
+          </span>
+        </Portal>
+      ) : null}
+    </span>
   );
 }

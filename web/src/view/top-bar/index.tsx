@@ -1,7 +1,7 @@
-import { useAtomValue } from "jotai";
-import { useBunja } from "bunja/react";
-import { machineStoreBunja } from "../../state/machine-store.ts";
+import { useBunja } from "../../solid/bunja.tsx";
+import { useAtomValue } from "../../solid/jotai.tsx";
 import { machineModalBunja } from "../../state/machine-modal.ts";
+import { machineStoreBunja } from "../../state/machine-store.ts";
 import { rpcSessionBunja } from "../../state/rpc-session.ts";
 import { terminalShellsBunja } from "../../state/terminal-shells.ts";
 import { workbenchBunja } from "../../state/workbench.ts";
@@ -18,72 +18,75 @@ export function TopBarRegion() {
   const rpcSession = useBunja(rpcSessionBunja);
   const terminalShellsState = useBunja(terminalShellsBunja);
   const workbench = useBunja(workbenchBunja);
-  const selected = useAtomValue(machineStore.selectedAtom);
-  const machines = useAtomValue(machineStore.machinesAtom);
-  const selectedId = useAtomValue(machineStore.selectedIdAtom);
-  const connection = useAtomValue(machinePanel.connectionAtom);
-  const daemonInfo = useAtomValue(rpcSession.daemonInfoAtom);
-  const activeTool = useAtomValue(workbench.activeToolAtom);
-  const panes = useAtomValue(workbench.panesAtom);
-  const terminalShells = useAtomValue(terminalShellsState.terminalShellsAtom);
+  const selected = useAtomValue(() => machineStore().selectedAtom);
+  const machines = useAtomValue(() => machineStore().machinesAtom);
+  const selectedId = useAtomValue(() => machineStore().selectedIdAtom);
+  const connection = useAtomValue(() => machinePanel().connectionAtom);
+  const daemonInfo = useAtomValue(() => rpcSession().daemonInfoAtom);
+  const activeTool = useAtomValue(() => workbench().activeToolAtom);
+  const panes = useAtomValue(() => workbench().panesAtom);
+  const terminalShells = useAtomValue(
+    () => terminalShellsState().terminalShellsAtom,
+  );
   const machinePanelCollapsed = useAtomValue(
-    layout.machinePanelCollapsedAtom,
+    () => layout().machinePanelCollapsedAtom,
   );
 
   function reconnectMachine(machineId: string) {
-    machineStore.selectMachine(machineId);
-    void rpcSession.reconnect();
+    machineStore().selectMachine(machineId);
+    void rpcSession().reconnect();
   }
 
   function configureMachine(machineId: string) {
-    machineModal.openConfigMachineModal(machineId);
+    machineModal().openConfigMachineModal(machineId);
   }
 
   function unpairMachine(machineId: string) {
-    machineStore.clearMachineCredentials(machineId);
-    machineStore.selectMachine(machineId);
-    rpcSession.resetController();
+    machineStore().clearMachineCredentials(machineId);
+    machineStore().selectMachine(machineId);
+    rpcSession().resetController();
   }
 
   function deleteMachine(machineId: string) {
-    machineModal.openDeleteMachineModal(machineId);
+    machineModal().openDeleteMachineModal(machineId);
   }
 
   function addMachine() {
-    machineModal.openAddMachineModal();
+    machineModal().openAddMachineModal();
   }
 
   return (
     <AppTopbar
-      connection={connection}
-      daemonInfo={daemonInfo}
+      connection={connection()}
+      daemonInfo={daemonInfo()}
       agentRail={<AgentRail />}
-      activeTool={activeTool}
-      machine={selected}
-      machinePanelCollapsed={machinePanelCollapsed}
-      machines={machines}
-      panes={panes}
-      selectedMachineId={selectedId}
-      terminalShells={terminalShells}
+      activeTool={activeTool()}
+      machine={selected()}
+      machinePanelCollapsed={machinePanelCollapsed()}
+      machines={machines()}
+      panes={panes()}
+      selectedMachineId={selectedId()}
+      terminalShells={terminalShells()}
       onAddMachine={addMachine}
-      onOpenAgentTab={workbench.openAgentTab}
-      onOpenDaemonTab={workbench.openDaemonTab}
-      onOpenFilesTab={workbench.openFilesTab}
-      onOpenProcessesTab={workbench.openProcessesTab}
-      onOpenTerminalTab={workbench.openTerminalTab}
-      onOpenWindowsTab={workbench.openWindowsTab}
-      onSelectTab={workbench.selectTab}
+      onOpenAgentTab={(event) => workbench().openAgentTab(event)}
+      onOpenDaemonTab={() => workbench().openDaemonTab()}
+      onOpenFilesTab={(event) => workbench().openFilesTab(event)}
+      onOpenProcessesTab={() => workbench().openProcessesTab()}
+      onOpenTerminalTab={(event) => workbench().openTerminalTab(event)}
+      onOpenWindowsTab={() => workbench().openWindowsTab()}
+      onSelectTab={(paneId, tabId) => workbench().selectTab(paneId, tabId)}
       onConfigureMachine={configureMachine}
       onDeleteMachine={deleteMachine}
       onReconnectMachine={reconnectMachine}
-      onSelectMachine={machineStore.selectMachine}
-      onToggleMachinePanel={layout.toggleMachinePanel}
+      onSelectMachine={(event) => machineStore().selectMachine(event)}
+      onToggleMachinePanel={() => layout().toggleMachinePanel()}
       onUnpairMachine={unpairMachine}
       onUpdateMachineIcon={(machineId, icon) =>
-        machineStore.updateMachine(machineId, (machine) => ({
+        machineStore().updateMachine(machineId, (machine) => ({
           ...machine,
           icon,
-        }))}
+        }))
+      }
     />
   );
 }

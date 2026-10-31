@@ -1,3 +1,6 @@
+import { Dynamic, type JSX } from "@solidjs/web";
+import { createMemo, createSignal } from "solid-js";
+import type { AvailableShellInfo } from "../../protocol/generated/rpc.ts";
 import {
   Activity,
   AppWindow,
@@ -22,17 +25,7 @@ import {
   Terminal,
   Trash2,
   Unlink,
-} from "lucide-react";
-import {
-  type KeyboardEvent,
-  type MouseEvent,
-  type ReactNode,
-  type RefObject,
-  useCallback,
-  useRef,
-  useState,
-} from "react";
-import type { AvailableShellInfo } from "../../protocol/generated/rpc.ts";
+} from "../../solid/icons.tsx";
 import { type Machine, type MachineIconName } from "../../state/machines.ts";
 import type { DaemonInfoState } from "../../state/rpc-session.ts";
 import type { ConnectionState } from "../../state/types.ts";
@@ -65,9 +58,7 @@ const globalTopbarClassName = [
   "max-[680px]:items-stretch max-[680px]:justify-start max-[680px]:gap-[14px]",
   "max-[680px]:px-[14px] max-[680px]:py-[14px]",
 ].join(" ");
-const globalTopbarLeftClassName = [
-  "app-rail-section grid min-w-0",
-].join(" ");
+const globalTopbarLeftClassName = ["app-rail-section grid min-w-0"].join(" ");
 const globalTopbarCenterClassName = "min-w-0 pointer-events-none hidden";
 const globalTopbarRightClassName =
   "app-rail-section grid min-w-0 content-start gap-[12px]";
@@ -246,7 +237,7 @@ const machineIconOptions: {
 
 interface AppTopbarProps {
   activeTool: WorkbenchTool;
-  agentRail: ReactNode;
+  agentRail: JSX.Element;
   connection?: ConnectionState;
   daemonInfo: DaemonInfoState;
   machine?: Machine;
@@ -284,92 +275,63 @@ interface MachineMenuState {
   source?: "desktop" | "mobile";
 }
 
-export function AppTopbar(
-  {
-    activeTool,
-    agentRail,
-    connection,
-    daemonInfo,
-    machine,
-    machinePanelCollapsed,
-    machines,
-    panes,
-    selectedMachineId,
-    terminalShells,
-    onAddMachine,
-    onOpenAgentTab,
-    onOpenDaemonTab,
-    onOpenFilesTab,
-    onOpenProcessesTab,
-    onOpenTerminalTab,
-    onOpenWindowsTab,
-    onSelectTab,
-    onConfigureMachine,
-    onDeleteMachine,
-    onReconnectMachine,
-    onSelectMachine,
-    onToggleMachinePanel,
-    onUnpairMachine,
-    onUpdateMachineIcon,
-  }: AppTopbarProps,
-) {
-  const toolMenuRef = useRef<HTMLDivElement | null>(null);
-  const machineMenuRef = useRef<HTMLDivElement | null>(null);
-  const [toolMenu, setToolMenu] = useState<ToolMenuState | undefined>();
-  const [machineMenu, setMachineMenu] = useState<
+export function AppTopbar(componentProps: AppTopbarProps) {
+  const toolMenuRef = { current: null as HTMLDivElement | null | null };
+  const machineMenuRef = { current: null as HTMLDivElement | null | null };
+  const [toolMenu, setToolMenu] = createSignal<ToolMenuState | undefined>();
+  const [machineMenu, setMachineMenu] = createSignal<
     MachineMenuState | undefined
   >();
-  const defaultTerminalShell =
-    terminalShells.find((shell) => shell.isDefault) ?? terminalShells[0];
-  const openToolTab: Record<WorkbenchTool, () => void> = {
-    agent: onOpenAgentTab,
-    daemon: onOpenDaemonTab,
-    files: onOpenFilesTab,
-    processes: onOpenProcessesTab,
+  const defaultTerminalShell = createMemo(
+    () =>
+      componentProps.terminalShells.find((shell) => shell.isDefault) ??
+      componentProps.terminalShells[0],
+  );
+  const openToolTab = createMemo(() => ({
+    agent: componentProps.onOpenAgentTab,
+    daemon: componentProps.onOpenDaemonTab,
+    files: componentProps.onOpenFilesTab,
+    processes: componentProps.onOpenProcessesTab,
     terminal: openDefaultTerminal,
-    windows: onOpenWindowsTab,
-  };
-  const closeToolMenu = useCallback(() => {
+    windows: componentProps.onOpenWindowsTab,
+  }));
+  const closeToolMenu = () => {
     setToolMenu(undefined);
-  }, []);
+  };
   useFloatingMenuDismiss(
-    toolMenu !== undefined,
+    () => toolMenu() !== undefined,
     toolMenuRef,
     closeToolMenu,
     { closeOnScroll: true },
   );
-  const closeMachineMenu = useCallback(() => {
+  const closeMachineMenu = () => {
     setMachineMenu(undefined);
-  }, []);
+  };
   useFloatingMenuDismiss(
-    machineMenu !== undefined,
+    () => machineMenu() !== undefined,
     machineMenuRef,
     closeMachineMenu,
     { closeOnScroll: true },
   );
 
-  const tabTargets = tabTargetsForPanes(panes);
+  const tabTargets = createMemo(() => tabTargetsForPanes(componentProps.panes));
 
-  function openToolMenu(
-    tool: WorkbenchTool,
-    target: HTMLElement,
-  ) {
+  function openToolMenu(tool: WorkbenchTool, target: HTMLElement) {
     const rect = target.getBoundingClientRect();
     setMachineMenu(undefined);
     setToolMenu({
       tool,
-      position: clampFloatingMenuPosition(
-        rect.right + 8,
-        rect.top,
-        { itemCount: 4, width: 244 },
-      ),
+      position: clampFloatingMenuPosition(rect.right + 8, rect.top, {
+        itemCount: 4,
+        width: 244,
+      }),
     });
   }
 
   function openMachineMenu(
     kind: "connection" | "actions",
     target: HTMLElement,
-    machineId = selectedMachineId,
+    machineId = componentProps.selectedMachineId,
     source: MachineMenuState["source"] = "desktop",
   ) {
     const rect = target.getBoundingClientRect();
@@ -378,34 +340,28 @@ export function AppTopbar(
     setMachineMenu({
       kind,
       machineId,
-      position: clampFloatingMenuPosition(
-        rect.right + 8,
-        rect.top,
-        {
-          itemCount: kind === "connection" ? 7 : source === "mobile" ? 18 : 12,
-          width,
-        },
-      ),
+      position: clampFloatingMenuPosition(rect.right + 8, rect.top, {
+        itemCount: kind === "connection" ? 7 : source === "mobile" ? 18 : 12,
+        width,
+      }),
       source,
     });
   }
 
   function selectLatestToolTab(tool: WorkbenchTool) {
-    const latest = latestTabTarget(tabTargets, tool);
+    const latest = latestTabTarget(tabTargets(), tool);
     if (!latest) {
-      openToolTab[tool]();
+      openToolTab()[tool]();
       revealWorkbenchOnMobile();
       return;
     }
-    onSelectTab(latest.paneId, latest.tab.id);
+    componentProps.onSelectTab(latest.paneId, latest.tab.id);
     revealWorkbenchOnMobile();
   }
 
   function runMachineAction(
     machineId: string | undefined,
-    action: (
-      machineId: string,
-    ) => void,
+    action: (machineId: string) => void,
   ) {
     if (!machineId) return;
     closeMachineMenu();
@@ -425,48 +381,56 @@ export function AppTopbar(
   }
 
   function openDefaultTerminal() {
-    const shell = defaultTerminalShell;
+    const shell = defaultTerminalShell();
     closeToolMenu();
     if (!shell) {
-      onOpenTerminalTab();
+      componentProps.onOpenTerminalTab();
       revealWorkbenchOnMobile();
       return;
     }
-    onOpenTerminalTab(terminalTabConfigForShell(shell));
+    componentProps.onOpenTerminalTab(terminalTabConfigForShell(shell));
     revealWorkbenchOnMobile();
   }
 
   function openTerminalForShell(shell: AvailableShellInfo) {
     closeToolMenu();
-    onOpenTerminalTab(terminalTabConfigForShell(shell));
+    componentProps.onOpenTerminalTab(terminalTabConfigForShell(shell));
     revealWorkbenchOnMobile();
   }
 
   function openConnectionMenu(target: HTMLElement) {
-    if (machineMenu?.kind === "connection") {
+    if (machineMenu()?.kind === "connection") {
       closeMachineMenu();
       return;
     }
     openMachineMenu("connection", target);
   }
 
-  function openActionsMenu(target: HTMLElement, machineId = selectedMachineId) {
+  function openActionsMenu(
+    target: HTMLElement,
+    machineId = componentProps.selectedMachineId,
+  ) {
     openMachineMenu("actions", target, machineId);
   }
 
   function openMobileMachineMenu(target: HTMLElement) {
-    openMachineMenu("actions", target, selectedMachineId, "mobile");
+    openMachineMenu(
+      "actions",
+      target,
+      componentProps.selectedMachineId,
+      "mobile",
+    );
   }
 
   function openToolTabFromMenu(tool: WorkbenchTool) {
     closeToolMenu();
-    openToolTab[tool]();
+    openToolTab()[tool]();
     revealWorkbenchOnMobile();
   }
 
   function openFilesOption(filesView: "roots" | "home" | "trash") {
     closeToolMenu();
-    onOpenFilesTab({ filesView });
+    componentProps.onOpenFilesTab({ filesView });
     revealWorkbenchOnMobile();
   }
 
@@ -485,7 +449,7 @@ export function AppTopbar(
   }
 
   function onToolNameKeyDown(
-    event: KeyboardEvent<HTMLButtonElement>,
+    event: KeyboardEvent & { currentTarget: HTMLButtonElement },
     tool: WorkbenchTool,
   ) {
     if (event.key === "ArrowDown") {
@@ -495,142 +459,139 @@ export function AppTopbar(
   }
 
   function menuMachine() {
-    return machines.find((item) => item.id === machineMenu?.machineId) ??
-      machine;
+    return (
+      componentProps.machines.find(
+        (item) => item.id === machineMenu()?.machineId,
+      ) ?? componentProps.machine
+    );
   }
 
-  function deviceName(targetMachine = machine) {
+  function deviceName(targetMachine = componentProps.machine) {
     return targetMachine?.name ?? "No machine";
   }
 
-  function isPaired(targetMachine = machine) {
+  function isPaired(targetMachine = componentProps.machine) {
     return Boolean(targetMachine?.clientId && targetMachine?.clientSecret);
   }
 
   function connectionIcon() {
     return (
       <span
-        className={className(
+        class={className(
           statusDotClassName,
-          connection?.phase === "reachable"
+          componentProps.connection?.phase === "reachable"
             ? "bg-rieul-success"
-            : connection?.phase === "idle"
-            ? "bg-rieul-warning"
-            : "bg-rieul-danger",
+            : componentProps.connection?.phase === "idle"
+              ? "bg-rieul-warning"
+              : "bg-rieul-danger",
         )}
       />
     );
   }
 
   function connectionPopoverPosition() {
-    return machineMenu?.kind === "connection"
-      ? machineMenu.position
+    return machineMenu()?.kind === "connection"
+      ? machineMenu()!.position
       : undefined;
   }
 
   function actionsPopoverPosition() {
-    return machineMenu?.kind === "actions" ? machineMenu.position : undefined;
+    return machineMenu()?.kind === "actions"
+      ? machineMenu()!.position
+      : undefined;
   }
 
   function openMachineLauncherContextMenu(
-    event: MouseEvent<HTMLButtonElement>,
+    event: MouseEvent & { currentTarget: HTMLButtonElement },
     machineId: string,
   ) {
     event.preventDefault();
     event.stopPropagation();
-    onSelectMachine(machineId);
+    componentProps.onSelectMachine(machineId);
     openActionsMenu(event.currentTarget, machineId);
   }
 
   function onMachineLauncherKeyDown(
-    event: KeyboardEvent<HTMLButtonElement>,
+    event: KeyboardEvent & { currentTarget: HTMLButtonElement },
     machineId: string,
   ) {
     if (
-      event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10")
+      event.key !== "ContextMenu" &&
+      !(event.shiftKey && event.key === "F10")
     ) {
       return;
     }
     event.preventDefault();
-    onSelectMachine(machineId);
+    componentProps.onSelectMachine(machineId);
     openActionsMenu(event.currentTarget, machineId);
   }
 
   function selectMachineIcon(machineId: string, icon: MachineIconName) {
-    onUpdateMachineIcon(machineId, icon);
+    componentProps.onUpdateMachineIcon(machineId, icon);
     closeMachineMenu();
   }
 
   function selectMachineFromMenu(machineId: string) {
-    onSelectMachine(machineId);
+    componentProps.onSelectMachine(machineId);
     closeMachineMenu();
   }
 
   function addMachineFromMenu() {
     closeMachineMenu();
-    onAddMachine();
+    componentProps.onAddMachine();
   }
 
   function renderToolMenu() {
-    if (!toolMenu) return null;
+    if (!toolMenu()) return null;
     return (
       <FloatingMenu
         className={topbarMenuClassName}
         menuRef={toolMenuRef}
-        position={toolMenu.position}
+        position={toolMenu()!.position}
       >
-        <div className={topbarMenuHeaderClassName}>
-          New {toolMenuTitle(toolMenu.tool)}
+        <div class={topbarMenuHeaderClassName}>
+          New {toolMenuTitle(toolMenu()!.tool)}
         </div>
-        {toolMenu.tool === "files"
-          ? (
-            <>
-              <FloatingMenuItem onClick={() => openFilesOption("roots")}>
-                <Folder size={14} />
-                Root
-              </FloatingMenuItem>
-              <FloatingMenuItem onClick={() => openFilesOption("home")}>
-                <Folder size={14} />
-                Home
-              </FloatingMenuItem>
-              <FloatingMenuItem onClick={() => openFilesOption("trash")}>
-                <Trash2 size={14} />
-                Trash
-              </FloatingMenuItem>
-            </>
-          )
-          : toolMenu.tool === "terminal"
-          ? (
-            terminalShells.length === 0
-              ? (
-                <FloatingMenuItem
-                  disabled
-                >
-                  <Terminal size={14} />
-                  No shells available
-                </FloatingMenuItem>
-              )
-              : terminalShells.map((shell) => (
-                <FloatingMenuItem
-                  key={shell.shellId}
-                  onClick={() => openTerminalForShell(shell)}
-                >
-                  <Terminal size={14} />
-                  <span>{shell.name}</span>
-                  {shell.isDefault
-                    ? <span className={topbarMenuMetaClassName}>Default</span>
-                    : null}
-                </FloatingMenuItem>
-              ))
-          )
-          : (
-            <FloatingMenuItem
-              onClick={() => openToolTabFromMenu(toolMenu.tool)}
-            >
-              <ToolIcon tool={toolMenu.tool} size={14} />
-              New {toolMenuTitle(toolMenu.tool)} Tab
+        {toolMenu()!.tool === "files" ? (
+          <>
+            <FloatingMenuItem onClick={() => openFilesOption("roots")}>
+              <Folder size={14} />
+              Root
             </FloatingMenuItem>
-          )}
+            <FloatingMenuItem onClick={() => openFilesOption("home")}>
+              <Folder size={14} />
+              Home
+            </FloatingMenuItem>
+            <FloatingMenuItem onClick={() => openFilesOption("trash")}>
+              <Trash2 size={14} />
+              Trash
+            </FloatingMenuItem>
+          </>
+        ) : toolMenu()!.tool === "terminal" ? (
+          componentProps.terminalShells.length === 0 ? (
+            <FloatingMenuItem disabled>
+              <Terminal size={14} />
+              No shells available
+            </FloatingMenuItem>
+          ) : (
+            componentProps.terminalShells.map((shell) => (
+              <FloatingMenuItem onClick={() => openTerminalForShell(shell)}>
+                <Terminal size={14} />
+                <span>{shell.name}</span>
+                {shell.isDefault ? (
+                  <span class={topbarMenuMetaClassName}>Default</span>
+                ) : null}
+              </FloatingMenuItem>
+            ))
+          )
+        ) : (
+          <FloatingMenuItem
+            onClick={() => openToolTabFromMenu(toolMenu()!.tool)}
+          >
+            <ToolIcon tool={toolMenu()!.tool} size={14} />
+            New {toolMenuTitle(toolMenu()!.tool)} Tab
+          </FloatingMenuItem>
+        )}
       </FloatingMenu>
     );
   }
@@ -640,49 +601,54 @@ export function AppTopbar(
     if (!position) return null;
     const targetMachine = menuMachine();
     const machineId = targetMachine?.id;
-    const mobileMenu = machineMenu?.source === "mobile";
-    const otherMachines = machines.filter((item) => item.id !== machineId);
+    const mobileMenu = machineMenu()?.source === "mobile";
+    const otherMachines = componentProps.machines.filter(
+      (item) => item.id !== machineId,
+    );
     return (
       <FloatingMenu
-        className={mobileMenu
-          ? mobileMachineMenuClassName
-          : machineMenuClassName}
+        className={
+          mobileMenu ? mobileMachineMenuClassName : machineMenuClassName
+        }
         menuRef={machineMenuRef}
         position={position}
       >
-        <div className={machineMenuHeaderClassName}>
+        <div class={machineMenuHeaderClassName}>
           {deviceName(targetMachine)}
         </div>
         <FloatingMenuItem
           disabled={!machineId}
-          onClick={() => runMachineAction(machineId, onReconnectMachine)}
+          onClick={() =>
+            runMachineAction(machineId, componentProps.onReconnectMachine)
+          }
         >
           <RefreshCw size={15} />
           Reconnect
         </FloatingMenuItem>
         <FloatingMenuItem
           disabled={!machineId}
-          onClick={() => runMachineAction(machineId, onConfigureMachine)}
+          onClick={() =>
+            runMachineAction(machineId, componentProps.onConfigureMachine)
+          }
         >
           <Settings size={15} />
           Configure
         </FloatingMenuItem>
-        <div className={machineMenuDividerClassName} aria-hidden="true" />
+        <div class={machineMenuDividerClassName} aria-hidden="true" />
         <FloatingMenuItem
           disabled={!machineId || !isPaired(targetMachine)}
-          onClick={() => runMachineAction(machineId, onUnpairMachine)}
+          onClick={() =>
+            runMachineAction(machineId, componentProps.onUnpairMachine)
+          }
         >
           <Unlink size={15} />
           Unpair
         </FloatingMenuItem>
-        <div className={machineMenuDividerClassName} aria-hidden="true" />
-        <div className={machineMenuHeaderClassName}>
-          Icon
-        </div>
-        <div className={iconPickerMenuClassName} role="group">
+        <div class={machineMenuDividerClassName} aria-hidden="true" />
+        <div class={machineMenuHeaderClassName}>Icon</div>
+        <div class={iconPickerMenuClassName} role="group">
           {machineIconOptions.map(({ icon: Icon, label, name }) => (
             <FloatingMenuItem
-              key={name}
               className={iconPickerItemClassName}
               disabled={!machineId}
               onClick={() => machineId && selectMachineIcon(machineId, name)}
@@ -693,45 +659,39 @@ export function AppTopbar(
             </FloatingMenuItem>
           ))}
         </div>
-        <div className={machineMenuDividerClassName} aria-hidden="true" />
-        {mobileMenu
-          ? (
-            <>
-              <div className={machineMenuHeaderClassName}>
-                Other Devices
-              </div>
-              {otherMachines.length === 0
-                ? (
-                  <FloatingMenuItem disabled>
-                    <Monitor size={15} />
-                    No Other Devices
-                  </FloatingMenuItem>
-                )
-                : otherMachines.map((item) => (
-                  <FloatingMenuItem
-                    key={item.id}
-                    onClick={() => selectMachineFromMenu(item.id)}
-                  >
-                    <MachineIcon name={item.icon} size={15} />
-                    <span>{item.name}</span>
-                  </FloatingMenuItem>
-                ))}
-              <FloatingMenuItem onClick={addMachineFromMenu}>
-                <Plus size={15} />
-                Add Machine
+        <div class={machineMenuDividerClassName} aria-hidden="true" />
+        {mobileMenu ? (
+          <>
+            <div class={machineMenuHeaderClassName}>Other Devices</div>
+            {otherMachines.length === 0 ? (
+              <FloatingMenuItem disabled>
+                <Monitor size={15} />
+                No Other Devices
               </FloatingMenuItem>
-              <div
-                className={machineMenuDividerClassName}
-                aria-hidden="true"
-              />
-            </>
-          )
-          : null}
+            ) : (
+              otherMachines.map((item) => (
+                <FloatingMenuItem
+                  onClick={() => selectMachineFromMenu(item.id)}
+                >
+                  <MachineIcon name={item.icon} size={15} />
+                  <span>{item.name}</span>
+                </FloatingMenuItem>
+              ))
+            )}
+            <FloatingMenuItem onClick={addMachineFromMenu}>
+              <Plus size={15} />
+              Add Machine
+            </FloatingMenuItem>
+            <div class={machineMenuDividerClassName} aria-hidden="true" />
+          </>
+        ) : null}
         <FloatingMenuItem
           tone="danger"
           className={machineMenuDangerItemClassName}
           disabled={!machineId}
-          onClick={() => runMachineAction(machineId, onDeleteMachine)}
+          onClick={() =>
+            runMachineAction(machineId, componentProps.onDeleteMachine)
+          }
         >
           <Trash2 size={15} />
           Delete
@@ -740,15 +700,14 @@ export function AppTopbar(
     );
   }
 
-  const connectionPosition = connectionPopoverPosition();
-
   function renderConnectionPopover() {
+    const connectionPosition = connectionPopoverPosition();
     if (!connectionPosition) return null;
     return (
       <ConnectionPopover
-        connection={connection}
-        daemonInfo={daemonInfo}
-        machine={machine}
+        connection={componentProps.connection}
+        daemonInfo={componentProps.daemonInfo}
+        machine={componentProps.machine}
         menuRef={machineMenuRef}
         position={connectionPosition}
       />
@@ -756,17 +715,17 @@ export function AppTopbar(
   }
 
   function canOpenMachineMenu() {
-    return Boolean(machine);
+    return Boolean(componentProps.machine);
   }
 
   function renderConnectionStatusButton() {
     return (
       <button
         type="button"
-        className={railStatusButtonClassName}
+        class={railStatusButtonClassName}
         aria-haspopup="dialog"
-        aria-expanded={machineMenu?.kind === "connection"}
-        aria-label={`Connection: ${connectionDetail(connection, daemonInfo)}`}
+        aria-expanded={machineMenu()?.kind === "connection" ? "true" : "false"}
+        aria-label={`Connection: ${connectionDetail(componentProps.connection, componentProps.daemonInfo)}`}
         disabled={!canOpenMachineMenu()}
         onClick={(event) => openConnectionMenu(event.currentTarget)}
         onKeyDown={(event) => {
@@ -784,16 +743,15 @@ export function AppTopbar(
   function renderToolLaunchers() {
     return topbarTools.map(({ icon: Icon, label, tool }) => (
       <div
-        key={tool}
-        className={className(
+        class={className(
           "group",
           toolSplitClassName,
-          activeTool === tool && "active",
+          componentProps.activeTool === tool && "active",
         )}
       >
         <button
           type="button"
-          className={toolNameButtonClassName}
+          class={toolNameButtonClassName}
           aria-haspopup="menu"
           aria-label={label}
           onClick={() => selectLatestToolTab(tool)}
@@ -805,62 +763,62 @@ export function AppTopbar(
           title={label}
         >
           <Icon size={13} />
-          <span className={toolNameLabelClassName}>{label}</span>
+          <span class={toolNameLabelClassName}>{label}</span>
         </button>
-        {hasToolMenu(tool)
-          ? (
-            <button
-              type="button"
-              className={toolMenuButtonClassName}
-              aria-label={`${label} menu`}
-              aria-haspopup="menu"
-              aria-expanded={toolMenu?.tool === tool}
-              onClick={(event) => {
-                event.stopPropagation();
-                openToolMenu(tool, event.currentTarget);
-              }}
-              title={`${label} menu`}
-            >
-              <MoreHorizontal size={14} />
-            </button>
-          )
-          : null}
+        {hasToolMenu(tool) ? (
+          <button
+            type="button"
+            class={toolMenuButtonClassName}
+            aria-label={`${label} menu`}
+            aria-haspopup="menu"
+            aria-expanded={toolMenu()?.tool === tool ? "true" : "false"}
+            onClick={(event) => {
+              event.stopPropagation();
+              openToolMenu(tool, event.currentTarget);
+            }}
+            title={`${label} menu`}
+          >
+            <MoreHorizontal size={14} />
+          </button>
+        ) : null}
       </div>
     ));
   }
 
   function renderMachineLaunchers() {
     return (
-      <nav className={railMachineListClassName} aria-label="Machines">
-        {machines.map((item) => (
+      <nav class={railMachineListClassName} aria-label="Machines">
+        {componentProps.machines.map((item) => (
           <button
-            key={item.id}
             type="button"
-            className={className(
+            class={className(
               railMachineButtonClassName,
-              item.id === selectedMachineId && "active",
+              item.id === componentProps.selectedMachineId && "active",
             )}
-            onClick={() => onSelectMachine(item.id)}
+            onClick={() => componentProps.onSelectMachine(item.id)}
             onContextMenu={(event) =>
-              openMachineLauncherContextMenu(event, item.id)}
+              openMachineLauncherContextMenu(event, item.id)
+            }
             onKeyDown={(event) => onMachineLauncherKeyDown(event, item.id)}
             title={item.name}
             aria-label={item.name}
             aria-haspopup="menu"
-            aria-current={item.id === selectedMachineId ? "true" : undefined}
+            aria-current={
+              item.id === componentProps.selectedMachineId ? "true" : undefined
+            }
           >
             <MachineIcon name={item.icon} size={18} />
-            <span className={railMachineIconDotClassName} />
+            <span class={railMachineIconDotClassName} />
           </button>
         ))}
         <button
           type="button"
-          className={railAddMachineButtonClassName}
-          onClick={onAddMachine}
+          class={railAddMachineButtonClassName}
+          onClick={() => componentProps.onAddMachine()}
           title="Add machine"
           aria-label="Add machine"
         >
-          <Plus size={17} strokeWidth={2.2} />
+          <Plus size={17} stroke-width={2.2} />
         </button>
       </nav>
     );
@@ -870,10 +828,14 @@ export function AppTopbar(
     return (
       <button
         type="button"
-        className={mobileMachineButtonClassName}
+        class={mobileMachineButtonClassName}
         aria-haspopup="menu"
-        aria-expanded={machineMenu?.kind === "actions" &&
-          machineMenu.source === "mobile"}
+        aria-expanded={
+          machineMenu()?.kind === "actions" &&
+          machineMenu()!.source === "mobile"
+            ? "true"
+            : "false"
+        }
         aria-label="Device management"
         onClick={(event) => openMobileMachineMenu(event.currentTarget)}
         onKeyDown={(event) => {
@@ -883,58 +845,64 @@ export function AppTopbar(
         }}
         title="Device management"
       >
-        <MachineIcon name={machine?.icon} size={18} />
-        <span className={railMachineIconDotClassName} />
+        <MachineIcon name={componentProps.machine?.icon} size={18} />
+        <span class={railMachineIconDotClassName} />
       </button>
     );
   }
 
   return (
     <>
-      <header className={globalTopbarClassName}>
-        <div className={globalTopbarLeftClassName}>
-          <div className={railBrandRowClassName}>
+      <header class={globalTopbarClassName}>
+        <div class={globalTopbarLeftClassName}>
+          <div class={railBrandRowClassName}>
             <div
-              className={className(topbarBrandClassName, "app-rail-expanded")}
+              class={className(topbarBrandClassName, "app-rail-expanded")}
               aria-label="Rieul"
             >
               <img src={projectLogoUrl} alt="" aria-hidden="true" />
             </div>
-            <div className={railMachineNameClassName}>
-              {deviceName()}
-            </div>
-            <div className={railBrandActionsClassName}>
+            <div class={railMachineNameClassName}>{deviceName()}</div>
+            <div class={railBrandActionsClassName}>
               {renderConnectionStatusButton()}
               <button
                 type="button"
-                className={globalIconButtonClassName}
-                onClick={onToggleMachinePanel}
-                title={machinePanelCollapsed
-                  ? "Expand sidebar"
-                  : "Collapse sidebar"}
-                aria-label={machinePanelCollapsed
-                  ? "Expand sidebar"
-                  : "Collapse sidebar"}
-                aria-pressed={machinePanelCollapsed}
+                class={globalIconButtonClassName}
+                onClick={() => componentProps.onToggleMachinePanel()}
+                title={
+                  componentProps.machinePanelCollapsed
+                    ? "Expand sidebar"
+                    : "Collapse sidebar"
+                }
+                aria-label={
+                  componentProps.machinePanelCollapsed
+                    ? "Expand sidebar"
+                    : "Collapse sidebar"
+                }
+                aria-pressed={
+                  componentProps.machinePanelCollapsed ? "true" : "false"
+                }
               >
-                {machinePanelCollapsed
-                  ? <PanelLeftOpen size={12} />
-                  : <PanelLeftClose size={12} />}
+                {componentProps.machinePanelCollapsed ? (
+                  <PanelLeftOpen size={12} />
+                ) : (
+                  <PanelLeftClose size={12} />
+                )}
               </button>
             </div>
           </div>
         </div>
-        <div className={topbarLeftDividerClassName} aria-hidden="true" />
+        <div class={topbarLeftDividerClassName} aria-hidden="true" />
         {renderMachineLaunchers()}
-        <div className={topbarLeftDividerClassName} aria-hidden="true" />
+        <div class={topbarLeftDividerClassName} aria-hidden="true" />
         {renderMobileMachineButton()}
-        <div className={globalTopbarCenterClassName} aria-hidden="true" />
-        <div className={globalTopbarRightClassName}>
-          <nav className={toolSwitcherClassName} aria-label="Workbench tools">
+        <div class={globalTopbarCenterClassName} aria-hidden="true" />
+        <div class={globalTopbarRightClassName}>
+          <nav class={toolSwitcherClassName} aria-label="Workbench tools">
             {renderToolLaunchers()}
           </nav>
         </div>
-        {agentRail}
+        {componentProps.agentRail}
       </header>
       {renderToolMenu()}
       {renderConnectionPopover()}
@@ -943,63 +911,77 @@ export function AppTopbar(
   );
 }
 
-function ConnectionPopover(
-  { connection, daemonInfo, machine, menuRef, position }: {
-    connection?: ConnectionState;
-    daemonInfo: DaemonInfoState;
-    machine?: Machine;
-    menuRef: RefObject<HTMLDivElement | null>;
-    position?: FloatingMenuPosition;
-  },
-) {
-  const daemon = daemonInfo.phase === "ready"
-    ? daemonInfo.daemonInfo
-    : undefined;
+function ConnectionPopover(componentProps: {
+  connection?: ConnectionState;
+  daemonInfo: DaemonInfoState;
+  machine?: Machine;
+  menuRef: { current: HTMLDivElement | null };
+  position?: FloatingMenuPosition;
+}) {
+  const daemon = createMemo(() =>
+    componentProps.daemonInfo.phase === "ready"
+      ? componentProps.daemonInfo.daemonInfo
+      : undefined,
+  );
   return (
     <FloatingMenu
       className={connectionPopoverClassName}
-      menuRef={menuRef}
-      position={position}
+      menuRef={componentProps.menuRef}
+      position={componentProps.position}
       role="dialog"
+      aria-label={`${componentProps.machine?.name ?? "Machine"} connection`}
     >
-      <div className={popoverHeaderClassName}>
-        <div className={popoverTitleClassName}>
-          {connection?.phase === "reachable"
-            ? <CheckCircle2 size={14} className="text-rieul-success" />
-            : <Radio size={14} className="text-rieul-text-3" />}
-          <span>{machine?.name ?? "No machine"}</span>
+      <div class={popoverHeaderClassName}>
+        <div class={popoverTitleClassName}>
+          {componentProps.connection?.phase === "reachable" ? (
+            <CheckCircle2 size={14} className="text-rieul-success" />
+          ) : (
+            <Radio size={14} className="text-rieul-text-3" />
+          )}
+          <span>{componentProps.machine?.name ?? "No machine"}</span>
         </div>
-        <div className={popoverMetaClassName}>
-          {connectionDetail(connection, daemonInfo)}
+        <div class={popoverMetaClassName}>
+          {connectionDetail(
+            componentProps.connection,
+            componentProps.daemonInfo,
+          )}
         </div>
       </div>
       <ConnectionRow
         label="Transport"
-        value={connection?.phase === "reachable" ? "WebTransport" : "-"}
+        value={
+          componentProps.connection?.phase === "reachable"
+            ? "WebTransport"
+            : "-"
+        }
       />
       <ConnectionRow
         label="Endpoint"
-        value={machine?.baseUrl.replace(/^https?:\/\//, "") ?? "-"}
+        value={
+          componentProps.machine?.baseUrl.replace(/^https?:\/\//, "") ?? "-"
+        }
       />
-      <ConnectionRow label="OS" value={daemon?.os ?? "-"} />
-      <ConnectionRow label="Version" value={daemon?.version ?? "-"} />
+      <ConnectionRow label="OS" value={daemon()?.os ?? "-"} />
+      <ConnectionRow label="Version" value={daemon()?.version ?? "-"} />
       <ConnectionRow
         label="Instance"
-        value={daemon?.instanceId ?? daemonInfo.phase}
+        value={daemon()?.instanceId ?? componentProps.daemonInfo.phase}
       />
       <ConnectionRow
         label="RPC"
-        value={daemon ? `${daemon.supportedProcIds.length} procedures` : "-"}
+        value={
+          daemon() ? `${daemon()!.supportedProcIds.length} procedures` : "-"
+        }
       />
     </FloatingMenu>
   );
 }
 
-function ConnectionRow({ label, value }: { label: string; value: string }) {
+function ConnectionRow(componentProps: { label: string; value: string }) {
   return (
-    <div className={popoverRowClassName}>
-      <span className={popoverLabelClassName}>{label}</span>
-      <span className={popoverValueClassName}>{value}</span>
+    <div class={popoverRowClassName}>
+      <span class={popoverLabelClassName}>{componentProps.label}</span>
+      <span class={popoverValueClassName}>{componentProps.value}</span>
     </div>
   );
 }
@@ -1009,9 +991,8 @@ function connectionDetail(
   daemonInfo: DaemonInfoState,
 ): string {
   if (connection?.phase === "reachable") {
-    const rtt = connection.rttMs === undefined
-      ? "live"
-      : `${connection.rttMs} ms`;
+    const rtt =
+      connection.rttMs === undefined ? "live" : `${connection.rttMs} ms`;
     return daemonInfo.phase === "ready"
       ? `Daemon ready · ${rtt}`
       : `Transport ready · daemon ${daemonInfo.phase}`;
@@ -1030,7 +1011,7 @@ function tabTargetsForPanes(panes: WorkbenchPane[]): ToolTabTarget[] {
     pane.tabs.map((tab) => ({
       paneId: pane.id,
       tab,
-    }))
+    })),
   );
 }
 
@@ -1045,26 +1026,28 @@ function latestTabTarget(
   return undefined;
 }
 
-function ToolIcon(
-  { size, tool }: { size: number; tool: WorkbenchTool },
-) {
-  if (tool === "terminal") return <Terminal size={size} />;
-  if (tool === "agent") return <Bot size={size} />;
-  if (tool === "windows") return <AppWindow size={size} />;
-  if (tool === "processes") return <Activity size={size} />;
-  if (tool === "files") return <Folder size={size} />;
-  return <Radio size={size} />;
+function ToolIcon(props: { size: number; tool: WorkbenchTool }) {
+  const icons = {
+    terminal: Terminal,
+    agent: Bot,
+    windows: AppWindow,
+    processes: Activity,
+    files: Folder,
+    daemon: Radio,
+  };
+  return <Dynamic component={icons[props.tool]} size={props.size} />;
 }
 
 function hasToolMenu(tool: WorkbenchTool): boolean {
   return tool === "files" || tool === "terminal";
 }
 
-function MachineIcon(
-  { name = "monitor", size }: { name?: MachineIconName; size: number },
-) {
-  const option = machineIconOptions.find((item) => item.name === name) ??
-    machineIconOptions[0];
-  const Icon = option.icon;
-  return <Icon size={size} />;
+function MachineIcon(componentProps: { name?: MachineIconName; size: number }) {
+  const option = createMemo(
+    () =>
+      machineIconOptions.find(
+        (item) => item.name === (componentProps.name ?? "monitor"),
+      ) ?? machineIconOptions[0],
+  );
+  return <Dynamic component={option().icon} size={componentProps.size} />;
 }

@@ -1,9 +1,6 @@
-import {
-  type MouseEvent as ReactMouseEvent,
-  useEffect,
-  useRef,
-  useState,
-} from "react";
+import { createEffect, createMemo, createSignal } from "solid-js";
+
+import type { AvailableShellInfo } from "../../protocol/generated/rpc.ts";
 import {
   Activity,
   AppWindow,
@@ -14,8 +11,7 @@ import {
   Info,
   Terminal,
   Trash2,
-} from "lucide-react";
-import type { AvailableShellInfo } from "../../protocol/generated/rpc.ts";
+} from "../../solid/icons.tsx";
 import type {
   WorkbenchFilesView,
   WorkbenchTool,
@@ -133,36 +129,33 @@ interface ToolMenuProps {
   onSelect: (tool: WorkbenchTool) => void;
 }
 
-export function ToolMenu(
-  {
-    activeTool,
-    terminalShells,
-    onOpenFilesView,
-    onOpenTerminalShell,
-    onSelect,
-  }: ToolMenuProps,
-) {
-  const hasTerminalShells = terminalShells.length > 0;
-  const [filesMenuOpen, setFilesMenuOpen] = useState(false);
-  const [filesMenuPosition, setFilesMenuPosition] = useState<
+export function ToolMenu(componentProps: ToolMenuProps) {
+  const hasTerminalShells = createMemo(
+    () => componentProps.terminalShells.length > 0,
+  );
+  const [filesMenuOpen, setFilesMenuOpen] = createSignal(false);
+  const [filesMenuPosition, setFilesMenuPosition] = createSignal<
     FloatingMenuPosition | undefined
   >(undefined);
-  const [shellMenuOpen, setShellMenuOpen] = useState(false);
-  const [shellMenuPosition, setShellMenuPosition] = useState<
+  const [shellMenuOpen, setShellMenuOpen] = createSignal(false);
+  const [shellMenuPosition, setShellMenuPosition] = createSignal<
     FloatingMenuPosition | undefined
   >(undefined);
-  const filesMenuRef = useRef<HTMLDivElement>(null);
-  const shellMenuRef = useRef<HTMLDivElement>(null);
-  useFloatingMenuDismiss(filesMenuOpen, filesMenuRef, closeFilesMenu, {
+  const filesMenuRef = { current: null as HTMLDivElement | null };
+  const shellMenuRef = { current: null as HTMLDivElement | null };
+  useFloatingMenuDismiss(() => filesMenuOpen(), filesMenuRef, closeFilesMenu, {
     closeOnScroll: true,
   });
-  useFloatingMenuDismiss(shellMenuOpen, shellMenuRef, closeShellMenu, {
+  useFloatingMenuDismiss(() => shellMenuOpen(), shellMenuRef, closeShellMenu, {
     closeOnScroll: true,
   });
 
-  useEffect(() => {
-    if (!hasTerminalShells) closeShellMenu();
-  }, [hasTerminalShells]);
+  createEffect(
+    () => ({ hasTerminalShellsSnapshot: hasTerminalShells() }),
+    ({ hasTerminalShellsSnapshot }) => {
+      if (!hasTerminalShellsSnapshot) closeShellMenu();
+    },
+  );
 
   function closeShellMenu() {
     setShellMenuOpen(false);
@@ -174,8 +167,10 @@ export function ToolMenu(
     setFilesMenuPosition(undefined);
   }
 
-  function toggleFilesMenu(event: ReactMouseEvent<HTMLButtonElement>) {
-    if (filesMenuOpen) {
+  function toggleFilesMenu(
+    event: MouseEvent & { currentTarget: HTMLButtonElement },
+  ) {
+    if (filesMenuOpen()) {
       closeFilesMenu();
       return;
     }
@@ -192,16 +187,18 @@ export function ToolMenu(
     setFilesMenuOpen(true);
   }
 
-  function toggleShellMenu(event: ReactMouseEvent<HTMLButtonElement>) {
-    if (!hasTerminalShells) return;
-    if (shellMenuOpen) {
+  function toggleShellMenu(
+    event: MouseEvent & { currentTarget: HTMLButtonElement },
+  ) {
+    if (!hasTerminalShells()) return;
+    if (shellMenuOpen()) {
       closeShellMenu();
       return;
     }
     setShellMenuPosition(
       shellMenuPositionFromRect(
         event.currentTarget.getBoundingClientRect(),
-        terminalShells.length,
+        componentProps.terminalShells.length,
       ),
     );
     setShellMenuOpen(true);
@@ -209,180 +206,181 @@ export function ToolMenu(
 
   function openShellTerminal(shell: AvailableShellInfo) {
     closeShellMenu();
-    onOpenTerminalShell(shell);
+    componentProps.onOpenTerminalShell(shell);
   }
 
   function openDefaultTerminal() {
     closeShellMenu();
-    onOpenTerminalShell();
+    componentProps.onOpenTerminalShell();
   }
 
   function openFilesView(filesView: WorkbenchFilesView) {
     closeFilesMenu();
-    onOpenFilesView(filesView);
+    componentProps.onOpenFilesView(filesView);
   }
 
   return (
-    <nav className={toolMenuClassName} aria-label="Workspace tools">
+    <nav class={toolMenuClassName} aria-label="Workspace tools">
       {tools.map(({ id, label, disabled, Icon }) =>
-        id === "files"
-          ? (
-            <div
-              key={id}
-              className={toolItemRowClassName}
-              ref={filesMenuRef}
+        id === "files" ? (
+          <div
+            class={toolItemRowClassName}
+            ref={(el) => {
+              filesMenuRef.current = el;
+            }}
+          >
+            <button
+              type="button"
+              class={className(
+                terminalMainButtonClassName,
+                componentProps.activeTool === id && "active",
+              )}
+              onClick={() => openFilesView("home")}
+              disabled={disabled}
+              aria-current={
+                componentProps.activeTool === id ? "page" : undefined
+              }
             >
-              <button
-                type="button"
-                className={className(
-                  terminalMainButtonClassName,
-                  activeTool === id && "active",
-                )}
-                onClick={() => openFilesView("home")}
-                disabled={disabled}
-                aria-current={activeTool === id ? "page" : undefined}
+              <Icon size={17} />
+              <span>{label}</span>
+            </button>
+            <button
+              type="button"
+              class={className(
+                terminalDropdownButtonClassName,
+                (componentProps.activeTool === id || filesMenuOpen()) &&
+                  "active",
+              )}
+              onClick={toggleFilesMenu}
+              disabled={disabled}
+              aria-label="Open files view menu"
+              aria-haspopup="menu"
+              aria-expanded={filesMenuOpen() ? "true" : "false"}
+              title="Open files view"
+            >
+              <ChevronDown size={14} />
+            </button>
+            {filesMenuOpen() ? (
+              <FloatingMenu
+                className="z-[80] w-[176px]"
+                menuRef={filesMenuRef}
+                position={filesMenuPosition()}
               >
-                <Icon size={17} />
-                <span>{label}</span>
-              </button>
+                <FloatingMenuItem onClick={() => openFilesView("roots")}>
+                  <HardDrive size={15} />
+                  Root
+                </FloatingMenuItem>
+                <FloatingMenuItem onClick={() => openFilesView("home")}>
+                  <Home size={15} />
+                  Home
+                </FloatingMenuItem>
+                <FloatingMenuItem onClick={() => openFilesView("trash")}>
+                  <Trash2 size={15} />
+                  Trash
+                </FloatingMenuItem>
+              </FloatingMenu>
+            ) : null}
+          </div>
+        ) : id === "terminal" ? (
+          <div
+            class={
+              hasTerminalShells()
+                ? toolItemRowClassName
+                : toolItemFrameClassName
+            }
+            ref={(el) => {
+              shellMenuRef.current = el;
+            }}
+          >
+            <button
+              type="button"
+              class={className(
+                hasTerminalShells()
+                  ? terminalMainButtonClassName
+                  : toolItemClassName,
+                componentProps.activeTool === id && "active",
+              )}
+              onClick={() => {
+                openDefaultTerminal();
+              }}
+              disabled={disabled}
+              aria-current={
+                componentProps.activeTool === id ? "page" : undefined
+              }
+            >
+              <Icon size={17} />
+              <span>{label}</span>
+            </button>
+            {hasTerminalShells() ? (
               <button
                 type="button"
-                className={className(
+                class={className(
                   terminalDropdownButtonClassName,
-                  (activeTool === id || filesMenuOpen) && "active",
+                  (componentProps.activeTool === id || shellMenuOpen()) &&
+                    "active",
                 )}
-                onClick={toggleFilesMenu}
+                onClick={toggleShellMenu}
                 disabled={disabled}
-                aria-label="Open files view menu"
+                aria-label="Open terminal shell menu"
                 aria-haspopup="menu"
-                aria-expanded={filesMenuOpen}
-                title="Open files view"
+                aria-expanded={shellMenuOpen() ? "true" : "false"}
+                title="Open terminal shell"
               >
                 <ChevronDown size={14} />
               </button>
-              {filesMenuOpen
-                ? (
-                  <FloatingMenu
-                    className="z-[80] w-[176px]"
-                    position={filesMenuPosition}
-                  >
-                    <FloatingMenuItem onClick={() => openFilesView("roots")}>
-                      <HardDrive size={15} />
-                      Root
-                    </FloatingMenuItem>
-                    <FloatingMenuItem onClick={() => openFilesView("home")}>
-                      <Home size={15} />
-                      Home
-                    </FloatingMenuItem>
-                    <FloatingMenuItem onClick={() => openFilesView("trash")}>
-                      <Trash2 size={15} />
-                      Trash
-                    </FloatingMenuItem>
-                  </FloatingMenu>
-                )
-                : null}
-            </div>
-          )
-          : id === "terminal"
-          ? (
-            <div
-              key={id}
-              className={hasTerminalShells
-                ? toolItemRowClassName
-                : toolItemFrameClassName}
-              ref={shellMenuRef}
-            >
-              <button
-                type="button"
-                className={className(
-                  hasTerminalShells
-                    ? terminalMainButtonClassName
-                    : toolItemClassName,
-                  activeTool === id && "active",
-                )}
-                onClick={() => {
-                  openDefaultTerminal();
-                }}
-                disabled={disabled}
-                aria-current={activeTool === id ? "page" : undefined}
+            ) : null}
+            {hasTerminalShells() && shellMenuOpen() ? (
+              <FloatingMenu
+                className="z-[80] w-[260px] overflow-x-hidden overflow-y-auto"
+                menuRef={shellMenuRef}
+                position={shellMenuPosition()}
               >
-                <Icon size={17} />
-                <span>{label}</span>
-              </button>
-              {hasTerminalShells
-                ? (
-                  <button
-                    type="button"
+                {componentProps.terminalShells.map((shell) => (
+                  <FloatingMenuItem
                     className={className(
-                      terminalDropdownButtonClassName,
-                      (activeTool === id || shellMenuOpen) && "active",
+                      shellMenuItemClassName,
+                      shell.isDefault && shellMenuDefaultItemClassName,
                     )}
-                    onClick={toggleShellMenu}
-                    disabled={disabled}
-                    aria-label="Open terminal shell menu"
-                    aria-haspopup="menu"
-                    aria-expanded={shellMenuOpen}
-                    title="Open terminal shell"
+                    onClick={() => openShellTerminal(shell)}
+                    title={`${shell.name} (${commandName(shell.command)})`}
                   >
-                    <ChevronDown size={14} />
-                  </button>
-                )
-                : null}
-              {hasTerminalShells && shellMenuOpen
-                ? (
-                  <FloatingMenu
-                    className="z-[80] w-[260px] overflow-x-hidden overflow-y-auto"
-                    position={shellMenuPosition}
-                  >
-                    {terminalShells.map((shell) => (
-                      <FloatingMenuItem
-                        key={shell.shellId}
-                        className={className(
-                          shellMenuItemClassName,
-                          shell.isDefault && shellMenuDefaultItemClassName,
-                        )}
-                        onClick={() => openShellTerminal(shell)}
-                        title={`${shell.name} (${commandName(shell.command)})`}
-                      >
-                        <span className={shellMenuItemLabelClassName}>
-                          <span className={shellMenuShellNameClassName}>
-                            {shell.name}
-                          </span>
-                          {shell.isDefault
-                            ? (
-                              <span className={shellMenuDefaultBadgeClassName}>
-                                Default
-                              </span>
-                            )
-                            : null}
+                    <span class={shellMenuItemLabelClassName}>
+                      <span class={shellMenuShellNameClassName}>
+                        {shell.name}
+                      </span>
+                      {shell.isDefault ? (
+                        <span class={shellMenuDefaultBadgeClassName}>
+                          Default
                         </span>
-                        <small className={shellMenuCommandClassName}>
-                          {commandName(shell.command)}
-                        </small>
-                      </FloatingMenuItem>
-                    ))}
-                  </FloatingMenu>
-                )
-                : null}
-            </div>
-          )
-          : (
-            <div key={id} className={toolItemFrameClassName}>
-              <button
-                type="button"
-                className={className(
-                  toolItemClassName,
-                  activeTool === id && "active",
-                )}
-                onClick={() => onSelect(id)}
-                disabled={disabled}
-                aria-current={activeTool === id ? "page" : undefined}
-              >
-                <Icon size={17} />
-                <span>{label}</span>
-              </button>
-            </div>
-          )
+                      ) : null}
+                    </span>
+                    <small class={shellMenuCommandClassName}>
+                      {commandName(shell.command)}
+                    </small>
+                  </FloatingMenuItem>
+                ))}
+              </FloatingMenu>
+            ) : null}
+          </div>
+        ) : (
+          <div class={toolItemFrameClassName}>
+            <button
+              type="button"
+              class={className(
+                toolItemClassName,
+                componentProps.activeTool === id && "active",
+              )}
+              onClick={() => componentProps.onSelect(id)}
+              disabled={disabled}
+              aria-current={
+                componentProps.activeTool === id ? "page" : undefined
+              }
+            >
+              <Icon size={17} />
+              <span>{label}</span>
+            </button>
+          </div>
+        ),
       )}
     </nav>
   );
