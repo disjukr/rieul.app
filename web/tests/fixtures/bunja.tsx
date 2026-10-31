@@ -1,11 +1,10 @@
 import { type Bunja, bunja } from "bunja";
-import { useState } from "react";
-import { createRoot } from "react-dom/client";
-import { useAtomValue } from "jotai";
-import { BunjaStoreProvider, useBunja } from "bunja/react";
-import { JotaiProvider } from "unsaturated/store";
+import { createSignal, createEffect, For } from "solid-js";
+import { render } from "@solidjs/web";
+import { useAtomValue, JotaiProvider } from "../../src/solid/jotai.tsx";
+import { BunjaProvider, useBunja } from "../../src/solid/bunja.tsx";
 import { machineStoreBunja } from "../../src/state/machine-store.ts";
-import { MachineStorageContext } from "../../src/state/machine-storage.ts";
+import { MachineStorageContext } from "../../src/solid/scopes.ts";
 function domain() {
   const data = new Map<string, string>();
   const result = {
@@ -41,48 +40,53 @@ const fixtureMachineBunja = bunja(() => {
   });
   return state;
 });
-function Consumer({ name }: { name: string }) {
+function Consumer(props: { name: string }) {
   const state = useBunja(fixtureMachineBunja);
-  diagnostics.lastStore = state;
-  const machines = useAtomValue(state.machinesAtom);
+  createEffect(state, (current) => {
+    diagnostics.lastStore = current;
+  });
+  const machines = useAtomValue(() => state().machinesAtom);
   return (
     <section>
-      <output aria-label={name}>{machines.length}</output>
+      <output aria-label={props.name}>{machines().length}</output>
       <button
         onClick={() =>
-          state.addMachine({
+          state().addMachine({
             id: crypto.randomUUID(),
             name: "Fixture",
             baseUrl: "https://fixture.invalid:9012",
           })
         }
       >
-        Add from {name}
+        Add from {props.name}
       </button>
     </section>
   );
 }
 function Fixture() {
-  const [count, setCount] = useState(2);
-  const [selected, setSelected] = useState(0);
+  const [count, setCount] = createSignal(2);
+  const [selected, setSelected] = createSignal(0);
   return (
     <>
       <button onClick={() => setCount(1)}>One consumer</button>
       <button onClick={() => setCount(0)}>Unmount all</button>
       <button onClick={() => setCount(2)}>Remount</button>
       <button onClick={() => setSelected(1)}>Replace domain</button>
-      <MachineStorageContext value={domains[selected].storage}>
-        {["one", "two"].slice(0, count).map((name) => (
-          <Consumer key={name} name={name} />
-        ))}
+      <MachineStorageContext value={() => domains[selected()].storage}>
+        <For each={["one", "two"].slice(0, count())}>
+          {(name) => <Consumer name={name} />}
+        </For>
       </MachineStorageContext>
     </>
   );
 }
-createRoot(document.getElementById("root")!).render(
-  <JotaiProvider>
-    <BunjaStoreProvider>
-      <Fixture />
-    </BunjaStoreProvider>
-  </JotaiProvider>,
+render(
+  () => (
+    <JotaiProvider>
+      <BunjaProvider>
+        <Fixture />
+      </BunjaProvider>
+    </JotaiProvider>
+  ),
+  document.getElementById("root")!,
 );

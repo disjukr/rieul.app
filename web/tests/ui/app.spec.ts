@@ -72,7 +72,7 @@ test("scoped machine selection survives switching and navigation reload", async 
     page.getByRole("button", { name: "Fixture B", exact: true }),
   ).toHaveAttribute("aria-current", "true");
 });
-test("React consumers share writers, retain them on partial unmount, reload and replace storage scope", async ({
+test("Solid consumers share writers, retain them on partial unmount, reload and replace storage scope", async ({
   page,
 }) => {
   await page.goto("/tests/fixtures/bunja.html");
@@ -91,7 +91,7 @@ test("React consumers share writers, retain them on partial unmount, reload and 
   expect(await writes()).toEqual([4, 0]);
   await page.getByRole("button", { name: "Unmount all", exact: true }).click();
   await expect(page.getByLabel("one")).toHaveCount(0);
-  // React's Bunja adapter delays final cleanup by one timer tick.
+  // The Bunja adapter delays final cleanup by one timer tick.
   await expect
     .poll(() =>
       page.evaluate(
@@ -166,7 +166,7 @@ test("Jotai observes child mount writes and isolates Provider stores", async ({
   await expect(page.getByLabel("second", { exact: true })).toHaveText("0");
 });
 
-test("panecake split and close preserve the controlled workbench layout", async ({
+test("pane split and close preserve the controlled workbench layout", async ({
   page,
 }) => {
   const errors: string[] = [];
@@ -196,5 +196,46 @@ test("panecake split and close preserve the controlled workbench layout", async 
   await expect(
     page.getByRole("button", { name: "Pane actions", exact: true }),
   ).toHaveCount(1);
+  expect(errors).toEqual([]);
+});
+
+test("Solid atom bridge releases replaced atoms and stores and ignores stale writes", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.goto("/tests/fixtures/jotai.html");
+  const result = page.getByLabel("replacement", { exact: true });
+  const metrics = () =>
+    page.evaluate(
+      () =>
+        (
+          window as unknown as {
+            atomFixture: { mounts: number; cleanups: number };
+          }
+        ).atomFixture,
+    );
+  await expect(result).toHaveText("10");
+  await expect.poll(metrics).toEqual({ mounts: 1, cleanups: 0 });
+  await page.getByRole("button", { name: "Replace atom", exact: true }).click();
+  await expect(result).toHaveText("20");
+  await expect.poll(metrics).toEqual({ mounts: 2, cleanups: 1 });
+  await page
+    .getByRole("button", { name: "Write stale atom", exact: true })
+    .click();
+  await expect(result).toHaveText("20");
+  await page
+    .getByRole("button", { name: "Replace store", exact: true })
+    .click();
+  await expect.poll(metrics).toEqual({ mounts: 3, cleanups: 2 });
+  await page
+    .getByRole("button", { name: "Write old store", exact: true })
+    .click();
+  await expect(result).toHaveText("20");
+  await page
+    .getByRole("button", { name: "Remove reader", exact: true })
+    .click();
+  await expect(result).toHaveCount(0);
+  await expect.poll(metrics).toEqual({ mounts: 3, cleanups: 3 });
   expect(errors).toEqual([]);
 });
