@@ -8,11 +8,6 @@ overrides:
   panecake>jotai: 3.0.1
   panecake>bunja: 4.0.0-alpha.1
 
-patchedDependencies:
-  unsaturated@0.0.0:
-    hash: 4b6a9549020add87d1e4ae0be264fa1049269a978054b3762de6aac9eea260f0
-    path: patches/unsaturated@0.0.0.patch
-
 importers:
 
   .:
@@ -96,8 +91,8 @@ importers:
         specifier: 19.2.6
         version: 19.2.6(react@19.2.6)
       unsaturated:
-        specifier: 0.0.0
-        version: 0.0.0(patch_hash=4b6a9549020add87d1e4ae0be264fa1049269a978054b3762de6aac9eea260f0)(bunja@4.0.0-alpha.1(@types/react@19.2.14)(react@19.2.6))(jotai@3.0.1(@types/react@19.2.14)(react@19.2.6))(react@19.2.6)
+        specifier: 0.0.3
+        version: 0.0.3(bunja@4.0.0-alpha.1(@types/react@19.2.14)(react@19.2.6))(jotai@3.0.1(@types/react@19.2.14)(react@19.2.6))(react@19.2.6)
     devDependencies:
       '@resvg/resvg-js':
         specifier: 2.6.2
@@ -1227,6 +1222,9 @@ packages:
     cpu: [x64]
     os: [win32]
 
+  '@standard-schema/spec@1.1.0':
+    resolution: {integrity: sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w==}
+
   '@tybys/wasm-util@0.10.4':
     resolution: {integrity: sha512-W3c4gRigFS0T/Ma4qIYF3GDAc5AQdHb1yL5znJT1Zv1YaD9Kitx656wBjvr19qbiosmZT8lWDM5BEMynUqX65A==}
 
@@ -2200,10 +2198,10 @@ packages:
     resolution: {integrity: sha512-5uKD0nqiYVzlmCRs01Fhs2BdkEgBS3SAVP6ndrBsuK42iC2+JHyxM05Rm9G8+5mkmRtzMZGY8Ct5+mliZxU/Ww==}
     engines: {node: '>=18.12.0'}
 
-  unsaturated@0.0.0:
-    resolution: {integrity: sha512-osVvKethRMqHweNr9RdZQx2RgMZTDsoCWheXBeLGk1jmFG1wJGGCqG9RSxUp7ekHc05sww1RAbRU22vmg9fNMQ==}
+  unsaturated@0.0.3:
+    resolution: {integrity: sha512-Xf7sZcvk6qlvOQ13AZL7W/ht1egDPn/q0tCN5+Y35nn956h8fqxzs5tUQt7qJ8OORv5oj5OcKw4iVvSZOMfehw==}
     peerDependencies:
-      bunja: '>=2.0.0'
+      bunja: '>=3.0.0'
       jotai: '>=2.0.0'
       react: '>=18.0.0'
 
@@ -3103,6 +3101,8 @@ snapshots:
 
   '@rollup/rollup-win32-x64-msvc@4.65.0':
     optional: true
+
+  '@standard-schema/spec@1.1.0': {}
 
   '@tybys/wasm-util@0.10.4':
     dependencies:
@@ -4225,8 +4225,9 @@ snapshots:
       picomatch: 4.0.7
       webpack-virtual-modules: 0.6.2
 
-  unsaturated@0.0.0(patch_hash=4b6a9549020add87d1e4ae0be264fa1049269a978054b3762de6aac9eea260f0)(bunja@4.0.0-alpha.1(@types/react@19.2.14)(react@19.2.6))(jotai@3.0.1(@types/react@19.2.14)(react@19.2.6))(react@19.2.6):
+  unsaturated@0.0.3(bunja@4.0.0-alpha.1(@types/react@19.2.14)(react@19.2.6))(jotai@3.0.1(@types/react@19.2.14)(react@19.2.6))(react@19.2.6):
     dependencies:
+      '@standard-schema/spec': 1.1.0
       bunja: 4.0.0-alpha.1(@types/react@19.2.14)(react@19.2.6)
       jotai: 3.0.1(@types/react@19.2.14)(react@19.2.6)
       react: 19.2.6

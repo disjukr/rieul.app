@@ -31,7 +31,7 @@
     "pdfjs-dist": "5.7.284",
     "react": "19.2.6",
     "react-dom": "19.2.6",
-    "unsaturated": "0.0.0"
+    "unsaturated": "0.0.3"
   },
   "devDependencies": {
     "@resvg/resvg-js": "2.6.2",

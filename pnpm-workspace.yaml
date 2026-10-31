@@ -7,9 +7,6 @@ onlyBuiltDependencies:
   - "@napi-rs/canvas"
   - sharp
 
-patchedDependencies:
-  unsaturated@0.0.0: patches/unsaturated@0.0.0.patch
-
 # panecake uses the public atom/scope APIs shared by the app.
 overrides:
   panecake>jotai: 3.0.1
