@@ -75,6 +75,9 @@ test("terminal initializes after conditional host insertion and disposes on sele
   page,
 }) => {
   const errors: string[] = [];
+  page.on("console", (message) => {
+    if (message.type() === "error") errors.push(message.text());
+  });
   page.on("pageerror", (error) => {
     errors.push(error.message);
   });
@@ -113,6 +116,9 @@ test("late xterm import cannot initialize a removed host and remount creates one
   page,
 }) => {
   const errors: string[] = [];
+  page.on("console", (message) => {
+    if (message.type() === "error") errors.push(message.text());
+  });
   page.on("pageerror", (error) => {
     errors.push(error.message);
   });
@@ -141,6 +147,9 @@ test("late terminal creation after unmount closes the orphan session without upd
   page,
 }) => {
   const errors: string[] = [];
+  page.on("console", (message) => {
+    if (message.type() === "error") errors.push(message.text());
+  });
   page.on("pageerror", (error) => errors.push(error.message));
   await fixture(page, false, "?late-create");
   const rpc = () =>
@@ -176,6 +185,9 @@ test("terminal session persistence and title updates do not restart the current 
   page,
 }) => {
   const errors: string[] = [];
+  page.on("console", (message) => {
+    if (message.type() === "error") errors.push(message.text());
+  });
   page.on("pageerror", (error) => errors.push(error.message));
   await fixture(page, false, "?late-create");
   const rpc = () =>

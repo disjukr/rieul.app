@@ -3,8 +3,12 @@ import { atom } from "jotai/vanilla";
 import { createSignal, Show } from "solid-js";
 import { render } from "@solidjs/web";
 import { BunjaProvider, useBunja } from "../../src/solid/bunja.tsx";
-import { JotaiProvider } from "../../src/solid/jotai.tsx";
+import { JotaiProvider, useAtomValue } from "../../src/solid/jotai.tsx";
 import { MachineStorageContext } from "../../src/solid/scopes.ts";
+import {
+  MachineIdContext,
+  MachineBaseUrlContext,
+} from "../../src/state/machine.tsx";
 import { machineStoreBunja } from "../../src/state/machine-store.ts";
 import { rpcSessionBunja } from "../../src/state/rpc-session.ts";
 import { JotaiStoreScope } from "../../src/state/jotai-store.ts";
@@ -187,6 +191,7 @@ const overrides = [
 ];
 function Fixture() {
   const machines = useBunja(machineStoreBunja);
+  const selected = useAtomValue(() => machines().selectedAtom);
   const [shown, setShown] = createSignal(true);
   function selectMachine() {
     if (!machines().findMachine("fixture"))
@@ -210,9 +215,13 @@ function Fixture() {
       <button onClick={() => completeCreate()}>Resolve pending creation</button>
       <button onClick={() => setShown(true)}>Remount terminal</button>
       <div style={{ width: "640px", height: "480px" }}>
-        <Show when={shown()}>
-          <TerminalTool />
-        </Show>
+        <MachineIdContext value={() => selected()?.id}>
+          <MachineBaseUrlContext value={() => selected()?.baseUrl}>
+            <Show when={shown()}>
+              <TerminalTool />
+            </Show>
+          </MachineBaseUrlContext>
+        </MachineIdContext>
       </div>
     </>
   );
