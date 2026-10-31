@@ -1,7 +1,7 @@
 import { bunja } from "bunja";
-import { atom, type PrimitiveAtom } from "jotai";
-import { atomWithStorage } from "jotai/utils";
-import { type JotaiStore, JotaiStoreScope } from "unsaturated/store";
+import { atom, type PrimitiveAtom } from "jotai/vanilla";
+import { atomWithStorage } from "jotai/vanilla/utils";
+import { type JotaiStore, JotaiStoreScope } from "./jotai-store.ts";
 import { isInvalidCredentialsError } from "../protocol/client.ts";
 import {
   subscribeDirectory,

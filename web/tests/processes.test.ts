@@ -9,7 +9,7 @@ import {
   type Bunja,
 } from "bunja";
 import { atom, createStore } from "jotai/vanilla";
-import { JotaiStoreScope } from "unsaturated/store";
+import { JotaiStoreScope } from "../src/state/jotai-store.ts";
 import { processesBunja } from "../src/state/processes.ts";
 import { rpcSessionBunja } from "../src/state/rpc-session.ts";
 import { encodeProcessesTableEventValue } from "../src/protocol/generated/rpc.ts";

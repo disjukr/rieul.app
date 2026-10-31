@@ -8,7 +8,7 @@ import {
   type Bunja,
 } from "bunja";
 import { atom, createStore } from "jotai/vanilla";
-import { JotaiStoreScope } from "unsaturated/store";
+import { JotaiStoreScope } from "../src/state/jotai-store.ts";
 import { terminalShellsBunja } from "../src/state/terminal-shells.ts";
 import { rpcSessionBunja } from "../src/state/rpc-session.ts";
 import { encodeAvailableShellsTableEventValue } from "../src/protocol/generated/rpc.ts";

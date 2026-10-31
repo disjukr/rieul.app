@@ -1,11 +1,7 @@
-import type {
-  KeyboardEvent as ReactKeyboardEvent,
-  PointerEvent as ReactPointerEvent,
-} from "react";
 import { bunja } from "bunja";
-import { atom } from "jotai";
-import { atomWithStorage } from "jotai/utils";
-import { JotaiStoreScope } from "unsaturated/store";
+import { atom } from "jotai/vanilla";
+import { atomWithStorage } from "jotai/vanilla/utils";
+import { JotaiStoreScope } from "../state/jotai-store.ts";
 
 const machinePanelMinWidth = 176;
 const machinePanelMaxWidth = 320;
@@ -64,7 +60,7 @@ export const layoutBunja = bunja(() => {
     );
   }
 
-  function startMachinePanelResize(event: ReactPointerEvent<HTMLDivElement>) {
+  function startMachinePanelResize(event: PointerEvent) {
     event.preventDefault();
     stopActiveResize?.();
     store.set(machinePanelTransitioningAtom, false);
@@ -98,9 +94,7 @@ export const layoutBunja = bunja(() => {
     globalThis.addEventListener("pointercancel", stopResize);
   }
 
-  function resizeMachinePanelWithKeyboard(
-    event: ReactKeyboardEvent<HTMLDivElement>,
-  ) {
+  function resizeMachinePanelWithKeyboard(event: KeyboardEvent) {
     const step = event.shiftKey ? 40 : 16;
     if (event.key === "ArrowLeft") {
       event.preventDefault();

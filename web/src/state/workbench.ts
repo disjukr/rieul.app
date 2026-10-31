@@ -1,8 +1,8 @@
 import { bunja } from "bunja";
-import { atom } from "jotai";
-import { atomWithStorage } from "jotai/utils";
-import { createLayout, layoutReducer, type LayoutState } from "panecake";
-import { JotaiStoreScope } from "unsaturated/store";
+import { atom } from "jotai/vanilla";
+import { atomWithStorage } from "jotai/vanilla/utils";
+import { createLayout, layoutReducer, type LayoutState } from "./layout.ts";
+import { JotaiStoreScope } from "./jotai-store.ts";
 import type { TerminalLaunchSpec } from "../protocol/generated/rpc.ts";
 import { copyExplorerNavigationState } from "./explorer.ts";
 import { copyFileViewerState } from "./file-viewer.ts";

@@ -2,8 +2,8 @@ import { test, mock } from "node:test";
 import assert from "node:assert/strict";
 import { bunja, createBunjaStore, createReadScopeFn, override } from "bunja";
 import { atom, createStore } from "jotai/vanilla";
-import { nowBunja } from "unsaturated/now";
-import { JotaiStoreScope } from "unsaturated/store";
+import { nowBunja } from "../src/state/now.ts";
+import { JotaiStoreScope } from "../src/state/jotai-store.ts";
 import * as protocol from "../src/protocol/client.ts";
 import * as client from "../src/protocol/generated/client.ts";
 import { machineBunja, machineStoreBunja } from "../src/state/machine-store.ts";
@@ -35,13 +35,9 @@ mock.module("../src/protocol/generated/client.ts", {
 });
 const { rpcSessionBunja } = await import("../src/state/rpc-session.ts");
 const { machineModalBunja } = await import("../src/state/machine-modal.ts");
-const { fileViewerBunja, FsEntryPathContext } = await import(
+const { fileViewerBunja, FsEntryPathScope: pathScope } = await import(
   "../src/view/workbench/tool/files/content/file-viewer/state.tsx"
 );
-const { scopeContextMap } = await import("bunja/react");
-const pathScope = [...scopeContextMap].find(
-  ([, context]) => context === FsEntryPathContext,
-)![0];
 async function flush() {
   for (let i = 0; i < 40; i++) await Promise.resolve();
 }

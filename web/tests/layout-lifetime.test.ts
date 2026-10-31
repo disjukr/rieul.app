@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import type { PointerEvent } from "react";
 import { createBunjaStore, createReadScopeFn } from "bunja";
 import { createStore } from "jotai/vanilla";
-import { JotaiStoreScope } from "unsaturated/store";
+import { JotaiStoreScope } from "../src/state/jotai-store.ts";
 import { layoutBunja } from "../src/view/state.tsx";
 
 test("layout shares drag ownership and releases listeners and transition timer on final unmount", (t) => {

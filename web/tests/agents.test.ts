@@ -1,7 +1,7 @@
 import { test, mock } from "node:test";
 import { bunja, createBunjaStore, createReadScopeFn, override } from "bunja";
-import { atom, createStore } from "jotai";
-import { JotaiStoreScope } from "unsaturated/store";
+import { atom, createStore } from "jotai/vanilla";
+import { JotaiStoreScope } from "../src/state/jotai-store.ts";
 import * as client from "../src/protocol/generated/client.ts";
 import { rpcSessionStub } from "./helpers/rpc-session.ts";
 let api: Pick<

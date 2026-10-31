@@ -1,21 +1,19 @@
-import { createRoot } from "react-dom/client";
-import { BunjaStoreProvider } from "bunja/react";
-import { JotaiProvider } from "unsaturated/store";
+import { render } from "@solidjs/web";
+import { BunjaProvider } from "./solid/bunja";
+import { JotaiProvider } from "./solid/jotai";
+import "./solid/scopes";
 import "@unocss/reset/tailwind.css";
 import "virtual:uno.css";
 import View from "./view/index.tsx";
 
-const rootHost = globalThis as typeof globalThis & {
-  __rieulReactRoot?: ReturnType<typeof createRoot>;
-};
-const reactRoot = rootHost.__rieulReactRoot ??= createRoot(
+const dispose = render(
+  () => (
+    <JotaiProvider>
+      <BunjaProvider>
+        <View />
+      </BunjaProvider>
+    </JotaiProvider>
+  ),
   document.getElementById("root")!,
 );
-
-reactRoot.render(
-  <JotaiProvider>
-    <BunjaStoreProvider>
-      <View />
-    </BunjaStoreProvider>
-  </JotaiProvider>,
-);
+if (import.meta.hot) import.meta.hot.dispose(dispose);

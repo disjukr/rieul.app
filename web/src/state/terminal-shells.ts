@@ -1,6 +1,6 @@
 import { bunja } from "bunja";
-import { atom } from "jotai";
-import { JotaiStoreScope } from "unsaturated/store";
+import { atom } from "jotai/vanilla";
+import { JotaiStoreScope } from "./jotai-store.ts";
 import { subscribeAvailableShells } from "../protocol/generated/client.ts";
 import type {
   AvailableShellInfo,

@@ -1,6 +1,6 @@
 import { bunja } from "bunja";
-import { atom } from "jotai";
-import { JotaiStoreScope } from "unsaturated/store";
+import { atom } from "jotai/vanilla";
+import { JotaiStoreScope } from "./jotai-store.ts";
 import { loadMachines, Machine, saveMachines } from "./machines.ts";
 import { MachineIdScope } from "./machine-scopes.ts";
 import { type MachineStorage, MachineStorageScope } from "./machine-storage.ts";

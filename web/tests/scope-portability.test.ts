@@ -5,9 +5,14 @@ import { fileURLToPath } from "node:url";
 const exec = promisify(execFile);
 
 test("machine and workbench identities can be imported without any React adapter", async () => {
-  const modules = ["machine-scopes.ts", "workbench-scopes.ts"].map(
-    (name) => new URL(`../src/state/${name}`, import.meta.url).href,
-  );
+  const modules = [
+    "machine-scopes.ts",
+    "workbench-scopes.ts",
+    "machine-storage.ts",
+    "jotai-store.ts",
+    "now.ts",
+    "machine-store.ts",
+  ].map((name) => new URL(`../src/state/${name}`, import.meta.url).href);
   // Reject framework imports rather than relying on a React-free environment
   // that could accidentally resolve React through a transitive dependency.
   const source = `
@@ -20,6 +25,7 @@ test("machine and workbench identities can be imported without any React adapter
     } });
     const machine = await import(${JSON.stringify(modules[0])});
     const workbench = await import(${JSON.stringify(modules[1])});
+    for (const url of ${JSON.stringify(modules.slice(2))}) await import(url);
     const model = bunja(() => ({ machine: bunja.use(machine.MachineIdScope), baseUrl: bunja.use(machine.MachineBaseUrlScope), pane: bunja.use(workbench.WorkbenchPaneIdScope), tab: bunja.use(workbench.WorkbenchTabIdScope) }));
     const store = createBunjaStore();
     const read = createReadScopeFn([[machine.MachineIdScope, "machine"], [machine.MachineBaseUrlScope, "https://fixture.invalid"], [workbench.WorkbenchPaneIdScope, "pane"], [workbench.WorkbenchTabIdScope, "tab"]], () => { throw new Error("missing scope"); });

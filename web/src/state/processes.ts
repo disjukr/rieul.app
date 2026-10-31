@@ -1,6 +1,6 @@
 import { bunja } from "bunja";
 import { atom } from "jotai/vanilla";
-import { JotaiStoreScope } from "unsaturated/store";
+import { JotaiStoreScope } from "./jotai-store.ts";
 import { subscribeProcesses } from "../protocol/generated/client.ts";
 import {
   ProcId,

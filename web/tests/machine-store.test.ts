@@ -8,8 +8,8 @@ const readScopes = (pairs: ScopeValuePairs) =>
   createReadScopeFn(pairs, () => {
     throw new Error("unexpected scope");
   });
-import { createStore } from "jotai";
-import { JotaiStoreScope } from "unsaturated/store";
+import { createStore } from "jotai/vanilla";
+import { JotaiStoreScope } from "../src/state/jotai-store.ts";
 import { machineStoreBunja } from "../src/state/machine-store.ts";
 import {
   type MachineStorage,

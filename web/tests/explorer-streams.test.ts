@@ -2,8 +2,8 @@ import type { StreamState } from "../src/state/types.ts";
 import { after, test, mock } from "node:test";
 import assert from "node:assert/strict";
 import { bunja, createBunjaStore, createReadScopeFn, override } from "bunja";
-import { createStore, type Atom } from "jotai";
-import { JotaiStoreScope } from "unsaturated/store";
+import { createStore, type Atom } from "jotai/vanilla";
+import { JotaiStoreScope } from "../src/state/jotai-store.ts";
 import * as client from "../src/protocol/generated/client.ts";
 import { rpcSessionStub } from "./helpers/rpc-session.ts";
 let subscribe: (
