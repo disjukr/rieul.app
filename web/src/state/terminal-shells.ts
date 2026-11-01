@@ -1,6 +1,14 @@
+import {
+  createSignal,
+  createMemo,
+  createEffect,
+  createRoot,
+  getOwner,
+  runWithOwner,
+  latest,
+  untrack,
+} from "solid-js";
 import { bunja } from "bunja";
-import { atom } from "jotai/vanilla";
-import { JotaiStoreScope } from "./jotai-store.ts";
 import { subscribeAvailableShells } from "../protocol/generated/client.ts";
 import type {
   AvailableShellInfo,
@@ -9,36 +17,32 @@ import type {
 import { machineBunja } from "./machine-store.ts";
 import type { Machine } from "./machines.ts";
 import { rpcSessionBunja } from "./rpc-session.ts";
-
 export const terminalShellsBunja = bunja(() => {
-  const store = bunja.use(JotaiStoreScope);
   const machines = bunja.use(machineBunja);
   const rpcSession = bunja.use(rpcSessionBunja);
-
-  const terminalShellsAtom = atom<AvailableShellInfo[]>([]);
-  const defaultShellAtom = atom((get) => {
-    const shells = get(terminalShellsAtom);
+  const [terminalShells, setTerminalShells] = createSignal<
+    AvailableShellInfo[]
+  >([]);
+  const defaultShell = createMemo(() => {
+    const shells = terminalShells();
     return shells.find((item) => item.isDefault) ?? shells[0];
   });
-  const terminalShellsSubscriptionKeyAtom = atom((get) =>
+  const subscriptionKey = createMemo(() =>
     terminalShellsSubscriptionKey(
-      get(machines.machineAtom),
-      get(machines.isPairedAtom),
-      get(rpcSession.daemonInstanceIdAtom),
+      machines.machine(),
+      machines.isPaired(),
+      rpcSession.daemonInstanceId(),
     ),
   );
-
+  const owner = getOwner();
   bunja.effect(() => {
     let stopCurrent: (() => void) | undefined;
-
     function start() {
       stopCurrent?.();
       stopCurrent = undefined;
-      store.set(terminalShellsAtom, []);
-
-      const machine = store.get(machines.machineAtom);
-      if (!machine || !store.get(machines.isPairedAtom)) return;
-
+      setTerminalShells([]);
+      const machine = untrack(() => latest(machines.machine));
+      if (!machine || !untrack(() => latest(machines.isPaired))) return;
       let cancelled = false;
       let iterator: AsyncGenerator<AvailableShellsTableEvent> | undefined;
       stopCurrent = () => {
@@ -53,34 +57,32 @@ export const terminalShellsBunja = bunja(() => {
           for await (const event of iterator) {
             if (cancelled) break;
             if (event.type === "snapshot") {
-              store.set(terminalShellsAtom, event.rows);
+              setTerminalShells(event.rows);
             } else {
-              store.set(
-                terminalShellsAtom,
-                applyShellPatch(store.get(terminalShellsAtom), event),
-              );
+              setTerminalShells((current) => applyShellPatch(current, event));
             }
           }
         } catch {
-          if (!cancelled) store.set(terminalShellsAtom, []);
+          if (!cancelled) setTerminalShells([]);
         }
       })();
     }
-
-    const unsubscribe = store.sub(terminalShellsSubscriptionKeyAtom, start);
-    start();
+    const dispose = runWithOwner(owner, () =>
+      createRoot((dispose) => {
+        createEffect(subscriptionKey, () => start());
+        return dispose;
+      }),
+    );
     return () => {
-      unsubscribe();
+      dispose();
       stopCurrent?.();
     };
   });
-
   return {
-    defaultShellAtom,
-    terminalShellsAtom,
+    defaultShell,
+    terminalShells,
   };
 });
-
 function terminalShellsSubscriptionKey(
   machine: Machine | undefined,
   isPaired: boolean,
@@ -95,10 +97,14 @@ function terminalShellsSubscriptionKey(
     daemonInstanceId,
   ].join("\n");
 }
-
 function applyShellPatch(
   current: AvailableShellInfo[],
-  event: Extract<AvailableShellsTableEvent, { type: "patch" }>,
+  event: Extract<
+    AvailableShellsTableEvent,
+    {
+      type: "patch";
+    }
+  >,
 ): AvailableShellInfo[] {
   const removeIds = new Set(event.removes.map((item) => item.shellId));
   const retained = current.filter((shell) => !removeIds.has(shell.shellId));

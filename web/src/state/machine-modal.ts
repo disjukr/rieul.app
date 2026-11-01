@@ -1,41 +1,54 @@
+import {
+  createSignal,
+  createMemo,
+  createEffect,
+  createRoot,
+  getOwner,
+  runWithOwner,
+  onFlush,
+  latest,
+  untrack,
+} from "solid-js";
 import { bunja } from "bunja";
-import { atom } from "jotai/vanilla";
-import { JotaiStoreScope } from "./jotai-store.ts";
 import { machineMenuBunja } from "./machine-menu.ts";
 import { machineBunja, machineStoreBunja } from "./machine-store.ts";
 import { Machine, normalizeMachineUrl } from "./machines.ts";
 import { rpcSessionBunja } from "./rpc-session.ts";
 import { MachineModalMode } from "./types.ts";
-
 export const machineModalBunja = bunja(() => {
-  const store = bunja.use(JotaiStoreScope);
   const machines = bunja.use(machineStoreBunja);
   const machineState = bunja.use(machineBunja);
   const menu = bunja.use(machineMenuBunja);
   const rpcSession = bunja.use(rpcSessionBunja);
-
-  const machineNameAtom = atom("");
-  const machineNameEditedAtom = atom(false);
-  const baseUrlAtom = atom("");
-  const configNameDraftAtom = atom("");
-  const configUrlDraftAtom = atom("");
-  const machineModalModeAtom = atom<MachineModalMode | undefined>(undefined);
-  const machineFormErrorAtom = atom("");
-  const pairingCodeAtom = atom("");
-  const pairingConfirmationCodeAtom = atom<string | undefined>(undefined);
-  const pairingCodeExpiresAtUnixAtom = atom<number | undefined>(undefined);
-  const isRequestingPairingCodeAtom = atom(false);
-  const isPairingAtom = atom(false);
-  const modalTitleAtom = atom((get) =>
-    machineModalTitle(get(machineModalModeAtom)),
-  );
+  const [machineName, setMachineName] = createSignal("");
+  const [machineNameEdited, setMachineNameEdited] = createSignal(false);
+  const [baseUrl, setBaseUrl] = createSignal("");
+  const [configNameDraft, setConfigNameDraft] = createSignal("");
+  const [configUrlDraft, setConfigUrlDraft] = createSignal("");
+  const [machineModalMode, setMachineModalMode] = createSignal<
+    MachineModalMode | undefined
+  >(undefined);
+  const [machineFormError, setMachineFormError] = createSignal("");
+  const [pairingCode, setPairingCode] = createSignal("");
+  const [pairingConfirmationCode, setPairingConfirmationCode] = createSignal<
+    string | undefined
+  >(undefined);
+  const [pairingCodeExpiresAtUnix, setPairingCodeExpiresAtUnix] = createSignal<
+    number | undefined
+  >(undefined);
+  const [isRequestingPairingCode, setIsRequestingPairingCode] =
+    createSignal(false);
+  const [isPairing, setIsPairing] = createSignal(false);
+  const modalTitle = createMemo(() => machineModalTitle(machineModalMode()));
   let pairingRequestSerial = 0;
   let active = false;
+  let pairingInFlight = false;
+  const owner = getOwner();
   bunja.effect(() => {
     active = true;
     function consumePendingPair() {
       if (!active) return;
-      const machineId = store.get(machines.pendingPairMachineIdAtom);
+      const machineId = untrack(() => latest(machines.pendingPairMachineId));
       if (!machineId) return;
       if (!machines.findMachine(machineId)) {
         machines.clearPendingPairMachine(machineId);
@@ -43,140 +56,138 @@ export const machineModalBunja = bunja(() => {
       }
       // Selection changes the UI's scope. An old instance must not start a
       // request on its previous RPC session; the new instance consumes on mount.
-      if (store.get(machines.selectedIdAtom) !== machineId) {
+      if (untrack(() => latest(machines.selectedId)) !== machineId) {
         machines.selectMachine(machineId);
       }
       if (machineState.machineId !== machineId) return;
       machines.clearPendingPairMachine(machineId);
       openPairMachineModal(machineId);
     }
-    const unsubscribe = store.sub(
-      machines.pendingPairMachineIdAtom,
-      consumePendingPair,
+    const dispose = runWithOwner(owner, () =>
+      createRoot((dispose) => {
+        createEffect(machines.pendingPairMachineId, () => {
+          // Consume a queued command after this reaction, never write its
+          // observed source from the effect callback itself.
+          onFlush(consumePendingPair);
+        });
+        return dispose;
+      }),
     );
-    consumePendingPair();
     return () => {
       active = false;
-      unsubscribe();
+      dispose();
       pairingRequestSerial++;
     };
   });
-
   function addMachine() {
-    store.set(machineFormErrorAtom, "");
+    setMachineFormError("");
     let normalizedBaseUrl;
     try {
-      normalizedBaseUrl = normalizeMachineUrl(store.get(baseUrlAtom));
+      normalizedBaseUrl = normalizeMachineUrl(untrack(() => latest(baseUrl)));
     } catch (err) {
-      store.set(machineFormErrorAtom, errorMessage(err));
+      setMachineFormError(errorMessage(err));
       return;
     }
-
     const machine: Machine = {
       id: crypto.randomUUID(),
       name:
-        store.get(machineNameAtom).trim() ||
+        untrack(() => latest(machineName)).trim() ||
         inferMachineNameFromUrl(normalizedBaseUrl),
       baseUrl: normalizedBaseUrl,
     };
     machines.addMachine(machine);
-    store.set(machineNameAtom, "");
-    store.set(machineNameEditedAtom, false);
-    store.set(baseUrlAtom, "");
+    setMachineName("");
+    setMachineNameEdited(false);
+    setBaseUrl("");
     resetPairingCode();
     machines.requestPairingForMachine(machine.id);
   }
-
   function closeMachineModal() {
     if (
-      store.get(machines.machinesAtom).length === 0 &&
-      store.get(machineModalModeAtom) !== "add"
+      untrack(() => latest(machines.machines)).length === 0 &&
+      untrack(() => latest(machineModalMode)) !== "add"
     )
       return;
-    store.set(machineNameAtom, "");
-    store.set(machineNameEditedAtom, false);
-    store.set(baseUrlAtom, "");
-    store.set(machineModalModeAtom, undefined);
-    store.set(machineFormErrorAtom, "");
+    setMachineName("");
+    setMachineNameEdited(false);
+    setBaseUrl("");
+    setMachineModalMode(undefined);
+    setMachineFormError("");
     cancelPairingRequest();
     resetPairingCode();
   }
-
   function openAddMachineModal() {
     menu.closeMachineMenu();
-    store.set(machineNameAtom, "");
-    store.set(machineNameEditedAtom, false);
-    store.set(baseUrlAtom, "");
-    store.set(machineFormErrorAtom, "");
+    setMachineName("");
+    setMachineNameEdited(false);
+    setBaseUrl("");
+    setMachineFormError("");
     cancelPairingRequest();
     resetPairingCode();
-    if (store.get(machines.machinesAtom).length === 0) {
-      store.set(machineModalModeAtom, undefined);
+    if (untrack(() => latest(machines.machines)).length === 0) {
+      setMachineModalMode(undefined);
       return;
     }
-    store.set(machineModalModeAtom, "add");
+    setMachineModalMode("add");
   }
-
   function openAddMachineModalFromUrl(daemonUrl: string) {
     menu.closeMachineMenu();
-    store.set(machineNameAtom, inferMachineNameFromUrl(daemonUrl));
-    store.set(machineNameEditedAtom, false);
-    store.set(baseUrlAtom, daemonUrl);
-    store.set(machineFormErrorAtom, "");
+    setMachineName(inferMachineNameFromUrl(daemonUrl));
+    setMachineNameEdited(false);
+    setBaseUrl(daemonUrl);
+    setMachineFormError("");
     cancelPairingRequest();
     resetPairingCode();
-    store.set(machineModalModeAtom, "add");
+    setMachineModalMode("add");
   }
-
   function openConfigMachineModal(machineId: string) {
     const machine = machines.findMachine(machineId);
     if (!machine) return;
     machines.selectMachine(machine.id);
-    store.set(configNameDraftAtom, machine.name);
-    store.set(configUrlDraftAtom, machine.baseUrl);
-    store.set(machineFormErrorAtom, "");
+    setConfigNameDraft(machine.name);
+    setConfigUrlDraft(machine.baseUrl);
+    setMachineFormError("");
     cancelPairingRequest();
     resetPairingCode();
     menu.closeMachineMenu();
-    store.set(machineModalModeAtom, "config");
+    setMachineModalMode("config");
   }
-
   function openPairMachineModal(machineId: string) {
     const machine = machines.findMachine(machineId);
     if (!machine) return;
     machines.selectMachine(machine.id);
     cancelPairingRequest();
     resetPairingCode();
-    store.set(machineFormErrorAtom, "");
+    setMachineFormError("");
     menu.closeMachineMenu();
-    store.set(machineModalModeAtom, "pair");
+    setMachineModalMode("pair");
     requestPairingCode(machine);
   }
-
   function openDeleteMachineModal(machineId: string) {
     const machine = machines.findMachine(machineId);
     if (!machine) return;
     machines.selectMachine(machine.id);
-    store.set(machineFormErrorAtom, "");
+    setMachineFormError("");
     cancelPairingRequest();
     resetPairingCode();
     menu.closeMachineMenu();
-    store.set(machineModalModeAtom, "delete");
+    setMachineModalMode("delete");
   }
-
   function saveMachineConfig() {
-    const selected = store.get(machines.selectedAtom);
+    const selected = untrack(() => latest(machines.selected));
     if (!selected) return;
-    const name = store.get(configNameDraftAtom).trim();
+    const name = untrack(() => latest(configNameDraft)).trim();
     if (!name) {
-      store.set(machineFormErrorAtom, "Name is required");
+      setMachineFormError("Name is required");
       return;
     }
     let normalizedBaseUrl;
     try {
-      normalizedBaseUrl = normalizeMachineUrl(store.get(configUrlDraftAtom));
+      normalizedBaseUrl = normalizeMachineUrl(
+        untrack(() => latest(configUrlDraft)),
+      );
     } catch (err) {
-      store.set(machineFormErrorAtom, errorMessage(err));
+      setMachineFormError(errorMessage(err));
       return;
     }
     machines.updateMachine(selected.id, (machine) => ({
@@ -184,121 +195,120 @@ export const machineModalBunja = bunja(() => {
       name,
       baseUrl: normalizedBaseUrl,
     }));
-    store.set(machineFormErrorAtom, "");
-    store.set(machineModalModeAtom, undefined);
+    setMachineFormError("");
+    setMachineModalMode(undefined);
   }
-
   function deleteSelectedMachine() {
     const deleted = machines.deleteSelectedMachine();
     if (!deleted) return;
-    store.set(machineFormErrorAtom, "");
+    setMachineFormError("");
     cancelPairingRequest();
     resetPairingCode();
-    store.set(machineModalModeAtom, undefined);
+    setMachineModalMode(undefined);
   }
-
   async function pairSelected() {
-    const selected = store.get(machines.selectedAtom);
-    if (!selected || store.get(isPairingAtom)) return;
-    const code = store.get(pairingCodeAtom).trim();
+    const selected = untrack(() => latest(machines.selected));
+    if (!selected || pairingInFlight) return;
+    const code = untrack(() => latest(pairingCode)).trim();
     if (!code) return;
     const serial = pairingRequestSerial;
-    store.set(isPairingAtom, true);
-    store.set(machineFormErrorAtom, "");
+    pairingInFlight = true;
+    setIsPairing(true);
+    setMachineFormError("");
     try {
       const credentials = await rpcSession.completePairingSession(code);
       if (!isCurrentPairingRequest(selected, serial)) return;
       machines.setMachineCredentials(selected.id, credentials);
       resetPairingCode();
-      store.set(machineModalModeAtom, undefined);
+      setMachineModalMode(undefined);
     } catch (err) {
       if (isCurrentPairingRequest(selected, serial)) {
-        store.set(machineFormErrorAtom, errorMessage(err));
+        setMachineFormError(errorMessage(err));
       }
     } finally {
-      if (active && serial === pairingRequestSerial)
-        store.set(isPairingAtom, false);
+      if (active && serial === pairingRequestSerial) {
+        pairingInFlight = false;
+        setIsPairing(false);
+      }
     }
   }
-
   function requestPairingCode(machine: Machine) {
     const serial = ++pairingRequestSerial;
     const confirmationCode = createPairingConfirmationCode();
     const clientLabel = browserClientLabel();
-    store.set(machineFormErrorAtom, "");
+    setMachineFormError("");
     resetPairingCode();
-    store.set(pairingConfirmationCodeAtom, confirmationCode);
-    store.set(isRequestingPairingCodeAtom, true);
+    setPairingConfirmationCode(confirmationCode);
+    setIsRequestingPairingCode(true);
     void (async () => {
       try {
         const { pairingCodeExpiresAtUnix } =
           await rpcSession.startPairingSession(confirmationCode, clientLabel);
         if (!isCurrentPairingRequest(machine, serial)) return;
-        store.set(pairingCodeExpiresAtUnixAtom, pairingCodeExpiresAtUnix);
+        setPairingCodeExpiresAtUnix(pairingCodeExpiresAtUnix);
       } catch (err) {
         if (!isCurrentPairingRequest(machine, serial)) return;
-        store.set(machineFormErrorAtom, errorMessage(err));
+        setMachineFormError(errorMessage(err));
       } finally {
         if (active && serial === pairingRequestSerial) {
-          store.set(isRequestingPairingCodeAtom, false);
+          setIsRequestingPairingCode(false);
         }
       }
     })();
   }
-
   function requestSelectedPairingCode() {
-    const selected = store.get(machines.selectedAtom);
+    const selected = untrack(() => latest(machines.selected));
     if (!selected) return;
     requestPairingCode(selected);
   }
-
   function cancelPairingRequest() {
     pairingRequestSerial++;
-    store.set(isPairingAtom, false);
-    store.set(isRequestingPairingCodeAtom, false);
+    pairingInFlight = false;
+    setIsPairing(false);
+    setIsRequestingPairingCode(false);
   }
-
   function resetPairingCode() {
-    store.set(pairingCodeAtom, "");
-    store.set(pairingConfirmationCodeAtom, undefined);
-    store.set(pairingCodeExpiresAtUnixAtom, undefined);
+    setPairingCode("");
+    setPairingConfirmationCode(undefined);
+    setPairingCodeExpiresAtUnix(undefined);
   }
-
   function isCurrentPairingRequest(machine: Machine, serial: number) {
     return (
       active &&
       serial === pairingRequestSerial &&
-      store.get(machineModalModeAtom) === "pair" &&
-      store.get(machines.selectedAtom)?.id === machine.id &&
+      untrack(() => latest(machineModalMode)) === "pair" &&
+      untrack(() => latest(machines.selected))?.id === machine.id &&
       !!machines.findMachine(machine.id)
     );
   }
-
   function updateMachineNameDraft(value: string) {
-    store.set(machineNameAtom, value);
-    store.set(machineNameEditedAtom, value.trim().length > 0);
+    setMachineName(value);
+    setMachineNameEdited(value.trim().length > 0);
   }
-
   function updateBaseUrlDraft(value: string) {
-    store.set(baseUrlAtom, value);
-    if (!store.get(machineNameEditedAtom)) {
-      store.set(machineNameAtom, inferMachineNameFromUrl(value));
+    setBaseUrl(value);
+    if (!untrack(() => latest(machineNameEdited))) {
+      setMachineName(inferMachineNameFromUrl(value));
     }
   }
-
   return {
-    machineNameAtom,
-    baseUrlAtom,
-    configNameDraftAtom,
-    configUrlDraftAtom,
-    machineModalModeAtom,
-    machineFormErrorAtom,
-    pairingCodeAtom,
-    pairingConfirmationCodeAtom,
-    pairingCodeExpiresAtUnixAtom,
-    isRequestingPairingCodeAtom,
-    isPairingAtom,
-    modalTitleAtom,
+    machineName,
+    setMachineName,
+    baseUrl,
+    setBaseUrl,
+    configNameDraft,
+    setConfigNameDraft,
+    configUrlDraft,
+    setConfigUrlDraft,
+    machineModalMode,
+    machineFormError,
+    pairingCode,
+    setPairingCode,
+    pairingConfirmationCode,
+    pairingCodeExpiresAtUnix,
+    isRequestingPairingCode,
+    isPairing,
+    modalTitle,
     addMachine,
     closeMachineModal,
     openAddMachineModal,
@@ -314,7 +324,6 @@ export const machineModalBunja = bunja(() => {
     updateBaseUrlDraft,
   };
 });
-
 function machineModalTitle(mode?: MachineModalMode): string {
   switch (mode) {
     case "pair":
@@ -328,7 +337,6 @@ function machineModalTitle(mode?: MachineModalMode): string {
       return "Add machine";
   }
 }
-
 export function inferMachineNameFromUrl(raw: string): string {
   try {
     const hostname = new URL(normalizeMachineUrl(raw)).hostname;
@@ -341,17 +349,14 @@ export function inferMachineNameFromUrl(raw: string): string {
     return "";
   }
 }
-
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
-
 function createPairingConfirmationCode(): string {
   const bytes = new Uint8Array(1);
   crypto.getRandomValues(bytes);
   return (bytes[0] % 100).toString().padStart(2, "0");
 }
-
 function browserClientLabel(): string {
   return globalThis.navigator?.userAgent.trim() || "web";
 }

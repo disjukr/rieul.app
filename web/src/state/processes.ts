@@ -1,6 +1,13 @@
+import {
+  createSignal,
+  createEffect,
+  createRoot,
+  getOwner,
+  runWithOwner,
+  latest,
+  untrack,
+} from "solid-js";
 import { bunja } from "bunja";
-import { atom } from "jotai/vanilla";
-import { JotaiStoreScope } from "./jotai-store.ts";
 import { subscribeProcesses } from "../protocol/generated/client.ts";
 import {
   ProcId,
@@ -8,26 +15,26 @@ import {
   type ProcessesTableEvent,
 } from "../protocol/generated/rpc.ts";
 import { rpcSessionBunja } from "./rpc-session.ts";
-
 interface ProcessesState {
   message?: string;
   phase: "loading" | "ready" | "error" | "unsupported";
   rows: ProcessInfo[];
 }
-
 export const processesBunja = bunja(() => {
-  const store = bunja.use(JotaiStoreScope);
   const session = bunja.use(rpcSessionBunja);
-  const stateAtom = atom<ProcessesState>({ phase: "loading", rows: [] });
-
+  const [state, setState] = createSignal<ProcessesState>({
+    phase: "loading",
+    rows: [],
+  });
+  const owner = getOwner();
   bunja.effect(() => {
     let stop: (() => void) | undefined;
     function start() {
       stop?.();
       stop = undefined;
-      const info = store.get(session.daemonInfoAtom);
+      const info = untrack(() => latest(session.daemonInfo));
       if (info.phase === "error") {
-        store.set(stateAtom, {
+        setState({
           phase: "error",
           message: "Daemon info unavailable",
           rows: [],
@@ -35,21 +42,20 @@ export const processesBunja = bunja(() => {
         return;
       }
       if (info.phase !== "ready") {
-        store.set(stateAtom, { phase: "loading", rows: [] });
+        setState({ phase: "loading", rows: [] });
         return;
       }
       if (
         !info.daemonInfo.supportedProcIds.includes(ProcId.SubscribeProcesses)
       ) {
-        store.set(stateAtom, {
+        setState({
           phase: "unsupported",
           message: "This daemon does not support process subscriptions.",
           rows: [],
         });
         return;
       }
-
-      store.set(stateAtom, { phase: "loading", rows: [] });
+      setState({ phase: "loading", rows: [] });
       let cancelled = false;
       let iterator: AsyncGenerator<ProcessesTableEvent> | undefined;
       stop = () => {
@@ -63,14 +69,14 @@ export const processesBunja = bunja(() => {
           iterator = subscribeProcesses(transport);
           for await (const event of iterator) {
             if (cancelled) return;
-            store.set(stateAtom, (current) => ({
+            setState((current) => ({
               phase: "ready",
               rows: applyProcessesEvent(current.rows, event),
             }));
           }
         } catch (error) {
           if (!cancelled)
-            store.set(stateAtom, {
+            setState({
               phase: "error",
               rows: [],
               message: error instanceof Error ? error.message : String(error),
@@ -78,16 +84,19 @@ export const processesBunja = bunja(() => {
         }
       })();
     }
-    const unsubscribe = store.sub(session.daemonInfoAtom, start);
-    start();
+    const dispose = runWithOwner(owner, () =>
+      createRoot((dispose) => {
+        createEffect(session.daemonInfo, () => start());
+        return dispose;
+      }),
+    );
     return () => {
-      unsubscribe();
+      dispose();
       stop?.();
     };
   });
-  return { stateAtom };
+  return { state };
 });
-
 function applyProcessesEvent(
   currentRows: ProcessInfo[],
   event: ProcessesTableEvent,
@@ -95,7 +104,6 @@ function applyProcessesEvent(
   if (event.type === "snapshot") {
     return sortedProcesses(event.rows);
   }
-
   const rowsByPid = new Map(currentRows.map((row) => [row.pid, row]));
   for (const pid of event.removePids) {
     rowsByPid.delete(pid);
@@ -105,7 +113,6 @@ function applyProcessesEvent(
   }
   return sortedProcesses([...rowsByPid.values()]);
 }
-
 function sortedProcesses(rows: ProcessInfo[]): ProcessInfo[] {
   return [...rows].sort((a, b) => a.pid - b.pid);
 }
