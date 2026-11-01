@@ -1146,7 +1146,12 @@ mod tests {
             send.reset(17).unwrap();
             let _ = recv.read_to_end(65536).await;
             loop {
-                if f.runtime.control().unwrap().holder_attach_id.is_none() {
+                if blocking(f.runtime.clone(), |r| r.control())
+                    .await
+                    .unwrap()
+                    .holder_attach_id
+                    .is_none()
+                {
                     break;
                 }
                 tokio::task::yield_now().await;
@@ -1164,7 +1169,18 @@ mod tests {
             // Revoking a paired credential closes a live viewer without another input.
             save_client_credentials(&f.credentials_path, &ClientCredentials::default()).unwrap();
             while events.next().await.unwrap().is_some() {}
-            assert!(!f.runtime.has(&id));
+            // Stream EOF can precede the blocking attachment cleanup. Never take
+            // its state mutex on this current-thread runtime: the helper IPC must
+            // keep running while cleanup awaits its native shutdown response.
+            while blocking(f.runtime.clone(), {
+                let id = id.clone();
+                move |r| Ok(r.has(&id))
+            })
+            .await
+            .unwrap()
+            {
+                tokio::task::yield_now().await;
+            }
             while f.gate.active() != 0 {
                 tokio::task::yield_now().await;
             }
