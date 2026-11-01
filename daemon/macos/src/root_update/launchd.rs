@@ -112,7 +112,7 @@ pub(super) fn run(state: &Dir, tool: &str, args: &[&str]) -> Result<(i32, String
     };
     let mut bytes = Vec::new();
     state
-        .read_file("native.log")?
+        .read_file(&name)?
         .take(65537)
         .read_to_end(&mut bytes)?;
     ensure!(bytes.len() <= 65536, "native output exceeds limit");
@@ -265,6 +265,36 @@ impl Control for Native<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn native_output_uses_unique_log_and_cleans_up() {
+        use std::{io::Write, os::unix::fs::PermissionsExt};
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::set_permissions(tmp.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+        let dir = Dir::open(
+            &tmp.path().canonicalize().unwrap(),
+            unsafe { libc::geteuid() },
+            false,
+        )
+        .unwrap();
+        dir.create("native.log", 0o600)
+            .unwrap()
+            .write_all(b"stale output")
+            .unwrap();
+        assert_eq!(
+            run(&dir, "/usr/bin/printf", &["fresh output"]).unwrap(),
+            (0, "fresh output".into())
+        );
+        assert_eq!(
+            run(&dir, "/usr/bin/false", &[]).unwrap(),
+            (1, String::new())
+        );
+        assert!(run(&dir, "/nonexistent-updater-test-command", &[]).is_err());
+        let names: Vec<_> = std::fs::read_dir(tmp.path())
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
+        assert_eq!(names, vec![std::ffi::OsString::from("native.log")]);
+    }
     #[test]
     fn parses_only_fixed_job_and_top_level_pid() {
         let text=format!("system/app.rieul.daemon = {{\n\tpath = {SYSTEM_PLIST}\n\tprogram = {SERVICE}\n\targuments = {{\n\t\t{SERVICE}\n\t\trun\n\t}}\n\tpid = 42\n\tresource = {{\n\t\tpid = 999\n\t}}\n}}");

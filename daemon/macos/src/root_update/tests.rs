@@ -204,6 +204,7 @@ struct Fake {
     events: Vec<&'static str>,
     crash: Option<&'static str>,
     healthy: bool,
+    parked: bool,
     db: u32,
     valid: bool,
 }
@@ -215,6 +216,7 @@ impl Default for Fake {
             events: vec![],
             crash: None,
             healthy: true,
+            parked: false,
             db: 2,
             valid: true,
         }
@@ -271,6 +273,7 @@ impl Effects for Fake {
         self.effect("service")
     }
     fn start(&mut self, i: &Identity, _: &str) -> Result<()> {
+        self.parked = false;
         self.effect(if i.version == Version(1, 0, 2) {
             "start-new"
         } else {
@@ -278,7 +281,7 @@ impl Effects for Fake {
         })
     }
     fn ready(&mut self, i: &Identity, _: &str) -> Result<bool> {
-        Ok(i.version == Version(1, 0, 1) || self.healthy)
+        Ok(!self.parked && (i.version == Version(1, 0, 1) || self.healthy))
     }
     fn restore_guis(&mut self) -> Result<()> {
         self.effect("gui")
@@ -622,4 +625,76 @@ fn consecutive_updates_and_finalization_crashes_recover() {
         );
         assert!(!dir.exists("journal.json").unwrap());
     }
+}
+
+#[test]
+fn terminal_reboot_restarts_parked_service_before_retiring_journal() {
+    for (phase, target, start) in [
+        (Phase::Committed, Installed::New, "start-new"),
+        (Phase::RolledBack, Installed::Old, "start-old"),
+    ] {
+        let (_tmp, dir) = fixture();
+        transaction::prepare(&dir, identity(1), identity(2)).unwrap();
+        let mut journal: Journal = dir.load("journal.json").unwrap().unwrap();
+        journal.phase = phase;
+        dir.save("journal.json", &journal).unwrap();
+        let mut effects = Fake {
+            app: target,
+            service: target,
+            parked: true,
+            ..Default::default()
+        };
+        assert_eq!(transaction::resume(&dir, &mut effects).unwrap(), phase);
+        assert!(!effects.parked);
+        let start_pos = effects
+            .events
+            .iter()
+            .position(|event| *event == start)
+            .unwrap();
+        let gui_pos = effects
+            .events
+            .iter()
+            .position(|event| *event == "gui")
+            .unwrap();
+        assert!(start_pos < gui_pos);
+        assert!(!dir.exists("journal.json").unwrap());
+    }
+}
+#[test]
+fn retired_cleanup_precedes_next_prepare_and_cannot_delete_new_transaction() {
+    let (_tmp, dir) = fixture();
+    transaction::prepare(&dir, identity(1), identity(2)).unwrap();
+    dir.create_dir("service-stage", 0o700).unwrap();
+    let mut effects = Fake {
+        crash: Some("retired"),
+        ..Default::default()
+    };
+    assert!(transaction::resume(&dir, &mut effects).is_err());
+    let old: Journal = dir.load("cleanup-pending.json").unwrap().unwrap();
+    assert!(dir.exists("service-stage").unwrap());
+    transaction::prepare(&dir, identity(2), identity(3)).unwrap();
+    assert!(!dir.exists("service-stage").unwrap());
+    let incoming = dir.create_dir("incoming", 0o700).unwrap();
+    incoming.create("keep", 0o600).unwrap();
+    dir.save("cleanup-pending.json", &old).unwrap();
+    let _lock = dir.lock().unwrap();
+    assert!(transaction::cleanup_pending_locked(&dir).is_err());
+    assert!(dir.child("incoming").unwrap().exists("keep").unwrap());
+}
+#[test]
+fn cleanup_rejects_mismatched_terminal_nonce_without_touching_stage() {
+    let (_tmp, dir) = fixture();
+    transaction::prepare(&dir, identity(1), identity(2)).unwrap();
+    let mut effects = Fake {
+        crash: Some("retired"),
+        ..Default::default()
+    };
+    assert!(transaction::resume(&dir, &mut effects).is_err());
+    let mut pending: Journal = dir.load("cleanup-pending.json").unwrap().unwrap();
+    pending.nonce = "f".repeat(64);
+    dir.save("cleanup-pending.json", &pending).unwrap();
+    dir.create_dir("service-stage", 0o700).unwrap();
+    let _lock = dir.lock().unwrap();
+    assert!(transaction::cleanup_pending_locked(&dir).is_err());
+    assert!(dir.exists("service-stage").unwrap());
 }

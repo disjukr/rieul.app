@@ -313,6 +313,23 @@ impl Dir {
     pub fn sync(&self) -> Result<()> {
         self.file.sync_all().context("sync directory")
     }
+    /// Publish a fully synced private directory without replacing existing state.
+    pub fn publish_dir(&self, from: &str, to: &str) -> Result<()> {
+        self.child(from)?.sync()?;
+        ensure!(
+            unsafe {
+                libc::renameatx_np(
+                    self.file.as_raw_fd(),
+                    component(from)?.as_ptr(),
+                    self.file.as_raw_fd(),
+                    component(to)?.as_ptr(),
+                    libc::RENAME_EXCL,
+                )
+            } == 0,
+            "private directory publish failed"
+        );
+        self.sync()
+    }
     pub fn rename_file(&self, from: &str, to: &str) -> Result<()> {
         self.read_file(from)?;
         ensure!(

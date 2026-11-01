@@ -18,6 +18,24 @@ pub(super) struct Parked {
     pub pid: u32,
     pub daemon_sha256: String,
 }
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct WorkerResult {
+    pub nonce: Option<String>,
+    pub phase: String,
+    pub error: Option<String>,
+    pub deferred: bool,
+}
+impl WorkerResult {
+    fn failure(nonce: Option<String>, error: &anyhow::Error) -> Self {
+        Self {
+            nonce,
+            phase: "failed".into(),
+            error: Some(error.to_string()),
+            deferred: error.downcast_ref::<super::drain::Deferred>().is_some(),
+        }
+    }
+}
 fn trusted_service(state: &Dir) -> Result<Dir> {
     ensure!(
         unsafe { libc::geteuid() } == 0,
@@ -78,20 +96,32 @@ pub fn worker() -> Result<()> {
     )?;
     if state.exists("migration.json")? {
         if let Err(error) = super::migration::worker(&state) {
-            state.save("worker-result.json",&serde_json::json!({"phase":"migration_deferred_or_failed","error":error.to_string()}))?;
+            state.save("worker-result.json", &WorkerResult::failure(None, &error))?;
         }
         return Ok(());
     }
-    if !state.exists("journal.json")? {
+    if cleanup_retired(&state)? {
         return Ok(());
     }
-    let control = launchd::Native { state: &state };
-    let mut effects = NativeEffects::new(&state, control)?;
-    match transaction::resume(&state, &mut effects) {
+    let nonce = state
+        .load::<Journal>("journal.json")?
+        .ok_or_else(|| anyhow::anyhow!("transaction disappeared"))?
+        .nonce;
+    let outcome = (|| {
+        let control = launchd::Native { state: &state };
+        let mut effects = NativeEffects::new(&state, control)?;
+        transaction::resume(&state, &mut effects)
+    })();
+    match outcome {
         Ok(phase) => {
             state.save(
                 "worker-result.json",
-                &serde_json::json!({"phase":format!("{phase:?}"),"error":null}),
+                &WorkerResult {
+                    nonce: Some(nonce.clone()),
+                    phase: format!("{phase:?}"),
+                    error: None,
+                    deferred: false,
+                },
             )?;
             Ok(())
         }
@@ -101,11 +131,24 @@ pub fn worker() -> Result<()> {
             state.remove("drain-request.json")?;
             state.save(
                 "worker-result.json",
-                &serde_json::json!({"phase":"deferred_or_failed","error":error.to_string()}),
+                &WorkerResult::failure(Some(nonce), &error),
             )?;
             Ok(())
         }
     }
+}
+/// Shared by worker and service startup. Do not take the lock while a journal
+/// exists: its worker may be waiting for this service's readiness callback.
+fn cleanup_retired(state: &Dir) -> Result<bool> {
+    if state.exists("journal.json")? {
+        return Ok(false);
+    }
+    let _lock = state.lock()?;
+    if state.exists("journal.json")? {
+        return Ok(false);
+    }
+    transaction::cleanup_pending_locked(state)?;
+    Ok(true)
 }
 /// true means this instance must park before opening the database/listening.
 /// Reboot recovery therefore cannot start an inconsistent app/runtime pair.
@@ -116,10 +159,13 @@ pub fn startup() -> Result<bool> {
     ensure!(unsafe { libc::geteuid() } == 0, "root service required");
     let state = Dir::open(Path::new(STATE), 0, true)?;
     state.require_private()?;
-    let Some(j) = state.load::<Journal>("journal.json")? else {
+    if cleanup_retired(&state)? {
         state.remove("parked.json")?;
         return Ok(false);
-    };
+    }
+    let j = state
+        .load::<Journal>("journal.json")?
+        .ok_or_else(|| anyhow::anyhow!("transaction changed during startup"))?;
     let mut control = launchd::Native { state: &state };
     let service = trusted_service(&state)?;
     let hash = verify::digest(service.read_file("rieul-macos-system")?)?;
@@ -159,4 +205,62 @@ pub(super) fn dispatch_prepared() -> Result<()> {
     let _lock = state.lock()?;
     ensure!(state.exists("journal.json")?, "no prepared update");
     ensure_worker(&state, &mut launchd::Native { state: &state })
+}
+
+#[cfg(test)]
+mod result_tests {
+    use super::*;
+    #[test]
+    fn startup_and_worker_cleanup_entry_replays_retirement_but_skips_active_transaction() {
+        use std::os::unix::fs::PermissionsExt;
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::set_permissions(tmp.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+        let state = Dir::open(
+            &tmp.path().canonicalize().unwrap(),
+            unsafe { libc::geteuid() },
+            false,
+        )
+        .unwrap();
+        let identity = |version| super::super::verify::Identity {
+            version: super::super::Version(1, 0, version),
+            daemon_sha256: "a".repeat(64),
+            app_dev: 1,
+            app_ino: version,
+        };
+        let j = Journal {
+            schema: 1,
+            nonce: "b".repeat(64),
+            old: identity(1),
+            new: identity(2),
+            phase: Phase::Committed,
+        };
+        state.save("last-result.json", &j).unwrap();
+        state.save("cleanup-pending.json", &j).unwrap();
+        state.create_dir("service-stage", 0o700).unwrap();
+        assert!(cleanup_retired(&state).unwrap());
+        assert!(!state.exists("service-stage").unwrap());
+        assert!(!state.exists("cleanup-pending.json").unwrap());
+        state.save("journal.json", &j).unwrap();
+        state.create_dir("service-stage", 0o700).unwrap();
+        let _lock = state.lock().unwrap();
+        assert!(
+            !cleanup_retired(&state).unwrap(),
+            "active transaction must not take held lock or clean staging"
+        );
+        assert!(state.exists("service-stage").unwrap());
+    }
+    #[test]
+    fn only_explicit_busy_drain_is_classified_as_deferral() {
+        let busy = anyhow::Error::new(super::super::drain::Deferred("live PTY".into()))
+            .context("worker drain");
+        assert!(WorkerResult::failure(Some("transaction".into()), &busy).deferred);
+        assert!(
+            !WorkerResult::failure(
+                Some("transaction".into()),
+                &anyhow::anyhow!("signature failed")
+            )
+            .deferred
+        );
+        assert!(!WorkerResult::failure(None, &anyhow::anyhow!("launchd failed")).deferred);
+    }
 }

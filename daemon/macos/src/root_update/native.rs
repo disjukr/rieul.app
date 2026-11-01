@@ -179,16 +179,26 @@ impl<C: Control> Effects for NativeEffects<'_, C> {
                     stage_expected.version == j.new.version,
                     "missing protected runtime staging after replacement"
                 );
-                let stage = self.state.create_dir("service-stage", 0o700)?;
-                incoming
-                    .child("Rieul.app")?
-                    .child("Contents")?
-                    .child("Library")?
-                    .child("LaunchServices")?
-                    .copy_file("rieul-macos-system", &stage, "rieul-macos-system", 0o755)?;
+                stage_runtime(self.state, &j.nonce, &j.new.daemon_sha256, |stage| {
+                    incoming
+                        .child("Rieul.app")?
+                        .child("Contents")?
+                        .child("Library")?
+                        .child("LaunchServices")?
+                        .copy_file("rieul-macos-system", stage, "rieul-macos-system", 0o755)
+                })?;
             }
             self.verified = true;
         }
+        let binding: StageBinding = self
+            .state
+            .child("service-stage")?
+            .load("transaction.json")?
+            .ok_or_else(|| anyhow::anyhow!("missing runtime staging transaction"))?;
+        ensure!(
+            binding.nonce == j.nonce,
+            "runtime staging belongs to another transaction"
+        );
         let running = self.service_hash()?;
         let staged = verify::digest(
             self.state
@@ -267,6 +277,17 @@ impl<C: Control> Effects for NativeEffects<'_, C> {
         self.control.start(Job::System)
     }
     fn ready(&mut self, identity: &Identity, nonce: &str) -> Result<bool> {
+        let job = self.control.inspect(Job::System)?;
+        let Some(pid) = job.and_then(|job| job.pid) else {
+            return Ok(false);
+        };
+        if self
+            .state
+            .load::<super::runtime::Parked>("parked.json")?
+            .is_some_and(|parked| parked.nonce == nonce && parked.pid == pid)
+        {
+            return Ok(false);
+        }
         let deadline = Instant::now() + Duration::from_secs(45);
         let request = Request {
             nonce: nonce.into(),
@@ -302,5 +323,108 @@ impl<C: Control> Effects for NativeEffects<'_, C> {
             }
         }
         Ok(())
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StageBinding {
+    nonce: String,
+}
+/// A published stage is never a partial copy. Incomplete temporary state is
+/// disposable; published state may contain the only rollback runtime.
+fn stage_runtime(
+    state: &Dir,
+    nonce: &str,
+    digest: &str,
+    copy: impl FnOnce(&Dir) -> Result<()>,
+) -> Result<()> {
+    ensure!(
+        !state.exists("service-stage")?,
+        "published runtime already exists"
+    );
+    state.discard_child("service-stage-tmp")?;
+    let stage = state.create_dir("service-stage-tmp", 0o700)?;
+    copy(&stage)?;
+    ensure!(
+        verify::digest(stage.read_file("rieul-macos-system")?)? == digest,
+        "incomplete runtime copy"
+    );
+    stage.read_file("rieul-macos-system")?.sync_all()?;
+    stage.save(
+        "transaction.json",
+        &StageBinding {
+            nonce: nonce.into(),
+        },
+    )?;
+    stage.sync()?;
+    state.publish_dir("service-stage-tmp", "service-stage")
+}
+#[cfg(test)]
+mod stage_tests {
+    use super::*;
+    use std::{io::Write, os::unix::fs::PermissionsExt};
+    #[test]
+    fn interrupted_runtime_copy_retries_without_publishing_partial_or_overwriting_rollback() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::set_permissions(tmp.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+        let state = Dir::open(
+            &tmp.path().canonicalize().unwrap(),
+            unsafe { libc::geteuid() },
+            false,
+        )
+        .unwrap();
+        let source = state.create_dir("source", 0o700).unwrap();
+        source
+            .create("runtime", 0o700)
+            .unwrap()
+            .write_all(b"complete runtime")
+            .unwrap();
+        let digest = verify::digest(source.read_file("runtime").unwrap()).unwrap();
+        assert!(stage_runtime(&state, "first", &digest, |stage| {
+            stage
+                .create("rieul-macos-system", 0o700)?
+                .write_all(b"partial")?;
+            anyhow::bail!("injected copy interruption")
+        })
+        .is_err());
+        assert!(!state.exists("service-stage").unwrap());
+        assert!(stage_runtime(&state, "first", &digest, |stage| {
+            stage
+                .create("rieul-macos-system", 0o700)?
+                .write_all(b"partial")?;
+            Ok(())
+        })
+        .is_err());
+        stage_runtime(&state, "first", &digest, |stage| {
+            source.copy_file("runtime", stage, "rieul-macos-system", 0o700)
+        })
+        .unwrap();
+        assert!(!state.exists("service-stage-tmp").unwrap());
+        assert_eq!(
+            state
+                .child("service-stage")
+                .unwrap()
+                .load::<StageBinding>("transaction.json")
+                .unwrap()
+                .unwrap()
+                .nonce,
+            "first"
+        );
+        assert!(stage_runtime(&state, "second", &digest, |_| panic!(
+            "must preserve rollback"
+        ))
+        .is_err());
+        assert_eq!(
+            verify::digest(
+                state
+                    .child("service-stage")
+                    .unwrap()
+                    .read_file("rieul-macos-system")
+                    .unwrap()
+            )
+            .unwrap(),
+            digest
+        );
     }
 }

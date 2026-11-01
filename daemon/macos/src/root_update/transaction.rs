@@ -49,6 +49,17 @@ pub(super) trait Effects {
     fn start(&mut self, identity: &Identity, nonce: &str) -> Result<()>;
     fn ready(&mut self, identity: &Identity, nonce: &str) -> Result<bool>;
     fn restore_guis(&mut self) -> Result<()>;
+    fn ensure_serving(&mut self, identity: &Identity, nonce: &str) -> Result<()> {
+        if !self.ready(identity, nonce)? {
+            self.quiesce()?;
+            self.start(identity, nonce)?;
+            ensure!(
+                self.ready(identity, nonce)?,
+                "terminal recovery service not ready"
+            );
+        }
+        Ok(())
+    }
     fn finalized_step(&mut self, _step: &str) -> Result<()> {
         Ok(())
     }
@@ -75,12 +86,17 @@ fn at_target(effects: &mut impl Effects, target: Installed, j: &Journal) -> Resu
 }
 pub(super) fn prepare(dir: &Dir, old: Identity, new: Identity) -> Result<()> {
     let _lock = dir.lock()?;
+    cleanup_pending_locked(dir)?;
     prepare_locked(dir, old, new)
 }
 pub(super) fn prepare_locked(dir: &Dir, old: Identity, new: Identity) -> Result<()> {
     ensure!(
         !dir.exists("journal.json")?,
         "unresolved transaction already exists"
+    );
+    ensure!(
+        !dir.exists("cleanup-pending.json")?,
+        "finalization cleanup pending"
     );
     ensure!(new.version > old.version, "non-increasing update");
     let mut bytes = [0u8; 32];
@@ -107,7 +123,7 @@ pub(super) fn resume(dir: &Dir, effects: &mut impl Effects) -> Result<Phase> {
             last.schema == 1 && matches!(last.phase, Phase::Committed | Phase::RolledBack),
             "invalid final result"
         );
-        cleanup(dir)?;
+        cleanup_pending_locked(dir)?;
         return Ok(last.phase);
     };
     ensure!(
@@ -128,6 +144,7 @@ pub(super) fn resume(dir: &Dir, effects: &mut impl Effects) -> Result<Phase> {
             at_target(effects, Installed::Old, &j)?,
             "rolled-back identity changed"
         );
+        effects.ensure_serving(&j.old, &j.nonce)?;
         effects.restore_guis()?;
         finalize(dir, &j, effects)?;
         return Ok(j.phase);
@@ -137,6 +154,7 @@ pub(super) fn resume(dir: &Dir, effects: &mut impl Effects) -> Result<Phase> {
             at_target(effects, Installed::New, &j)?,
             "committed identity changed"
         );
+        effects.ensure_serving(&j.new, &j.nonce)?;
         effects.restore_guis()?;
         finalize(dir, &j, effects)?;
         return Ok(j.phase);
@@ -212,10 +230,18 @@ fn rollback(dir: &Dir, j: &mut Journal, effects: &mut impl Effects) -> Result<Ph
 }
 
 fn cleanup(dir: &Dir) -> Result<()> {
-    for name in ["incoming", "rollback", "service-stage"] {
+    for name in ["incoming", "rollback", "service-stage", "service-stage-tmp"] {
         dir.discard_child(name)?;
     }
-    for name in ["start-request.json", "ready.json", "gui-sessions.json"] {
+    for name in [
+        "start-request.json",
+        "ready.json",
+        "gui-sessions.json",
+        "install-request.json",
+        "drain-request.json",
+        "drain-response.json",
+        "parked.json",
+    ] {
         dir.remove(name)?;
     }
     Ok(())
@@ -226,8 +252,33 @@ fn finalize(dir: &Dir, j: &Journal, effects: &mut impl Effects) -> Result<()> {
     // paths. A crash during cleanup is replayed without requiring deleted backups.
     dir.save("last-result.json", j)?;
     effects.finalized_step("result")?;
+    dir.save("cleanup-pending.json", j)?;
     dir.remove("journal.json")?;
     effects.finalized_step("retired")?;
-    cleanup(dir)?;
+    cleanup_pending_locked(dir)?;
     effects.finalized_step("cleaned")
+}
+
+/// Caller holds the transaction lock. A durable terminal nonce owns cleanup;
+/// never let stale completion delete a newer transaction's staging.
+pub(super) fn cleanup_pending_locked(dir: &Dir) -> Result<()> {
+    let Some(pending) = dir.load::<Journal>("cleanup-pending.json")? else {
+        return Ok(());
+    };
+    ensure!(
+        !dir.exists("journal.json")?,
+        "active transaction prevents retired cleanup"
+    );
+    let last: Journal = dir
+        .load("last-result.json")?
+        .ok_or_else(|| anyhow::anyhow!("missing cleanup result"))?;
+    ensure!(
+        pending.schema == 1
+            && pending.nonce == last.nonce
+            && pending.phase == last.phase
+            && matches!(pending.phase, Phase::Committed | Phase::RolledBack),
+        "cleanup transaction mismatch"
+    );
+    cleanup(dir)?;
+    dir.remove("cleanup-pending.json")
 }

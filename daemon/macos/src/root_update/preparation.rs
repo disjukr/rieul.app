@@ -62,6 +62,7 @@ pub(super) fn prepare(
         !state.exists("journal.json")?,
         "recover pending transaction before discovery"
     );
+    transaction::cleanup_pending_locked(state)?;
     let version = source.latest()?;
     if version <= old.version {
         return Ok(false);

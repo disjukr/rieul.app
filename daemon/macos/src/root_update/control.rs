@@ -192,12 +192,8 @@ impl UpdateService for Controller {
                 Phase::Committed | Phase::RolledBack => UpdatePhase::Idle,
                 _ => UpdatePhase::Installing,
             };
-            if let Some(result) = state.load::<serde_json::Value>("worker-result.json")? {
-                if result.get("error").is_some_and(|v| !v.is_null()) {
-                    status.phase = UpdatePhase::Deferred;
-                    status.reason=Some("Waiting for clients and active work to finish, or for recovery to be retried".into());
-                    status.can_install = true;
-                }
+            if let Some(result) = state.load::<runtime::WorkerResult>("worker-result.json")? {
+                apply_worker_result(&mut status, &j.nonce, &result);
             }
         }
         Ok(status)
@@ -257,7 +253,11 @@ impl UpdateService for Controller {
         if status.can_install && blocked {
             self.set(UpdatePhase::Deferred, Some(if manual { "Waiting for active terminals, commands, transfers and agent runtimes to finish" } else { "Automatic installation waits until all clients disconnect and active work finishes" }.into()));
         }
-        if status.can_install && can_dispatch && !blocked {
+        if status.can_install
+            && can_dispatch
+            && !blocked
+            && (manual || status.phase != UpdatePhase::Failed)
+        {
             self.inner.lock().unwrap().last_dispatch = Some(Instant::now());
             if self.launch(move |controller| controller.dispatch(manual)) {
                 self.inner.lock().unwrap().pending_manual = false;
@@ -297,4 +297,45 @@ pub fn service() -> Result<Option<Arc<dyn UpdateService>>> {
         })),
         running: Arc::new(AtomicBool::new(false)),
     })))
+}
+
+fn apply_worker_result(status: &mut UpdateStatus, nonce: &str, result: &runtime::WorkerResult) {
+    if result.nonce.as_deref() != Some(nonce) || result.error.is_none() {
+        return;
+    }
+    status.phase = if result.deferred {
+        UpdatePhase::Deferred
+    } else {
+        UpdatePhase::Failed
+    };
+    status.reason = Some(if result.deferred {"Installation deferred because the service could not grant an idle drain. Retry after clients and active work finish."} else {"Update or recovery failed. Review the daemon logs before explicitly retrying."}.into());
+    status.can_install = true;
+}
+#[cfg(test)]
+mod result_tests {
+    use super::*;
+    #[test]
+    fn stale_worker_result_cannot_mask_new_transaction_and_failure_is_not_busy() {
+        let mut status = UpdateStatus {
+            phase: UpdatePhase::Ready,
+            current_version: None,
+            target_version: None,
+            reason: None,
+            can_install: true,
+        };
+        let mut result = runtime::WorkerResult {
+            nonce: Some("old".into()),
+            phase: "failed".into(),
+            error: Some("signature".into()),
+            deferred: false,
+        };
+        apply_worker_result(&mut status, "new", &result);
+        assert_eq!(status.phase, UpdatePhase::Ready);
+        result.nonce = Some("new".into());
+        apply_worker_result(&mut status, "new", &result);
+        assert_eq!(status.phase, UpdatePhase::Failed);
+        result.deferred = true;
+        apply_worker_result(&mut status, "new", &result);
+        assert_eq!(status.phase, UpdatePhase::Deferred);
+    }
 }

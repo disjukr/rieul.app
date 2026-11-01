@@ -3,7 +3,7 @@ use super::{
     store::Dir,
     SERVICE, STATE,
 };
-use anyhow::{bail, ensure, Result};
+use anyhow::{ensure, Result};
 use rieul_daemon_host::maintenance::{DrainRequest, DrainState, MaintenanceHooks};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -11,6 +11,17 @@ use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
+#[derive(Debug)]
+pub(super) struct Deferred(pub String);
+impl std::fmt::Display for Deferred {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "update deferred: {}", self.0)
+    }
+}
+impl std::error::Error for Deferred {}
+fn deferred(reason: impl Into<String>) -> anyhow::Error {
+    Deferred(reason.into()).into()
+}
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct Intent {
@@ -154,14 +165,13 @@ pub(super) fn request_exit(
         if let Some(response) = state.load::<Response>("drain-response.json")? {
             if response.nonce == nonce && response.pid == pid {
                 match response.state.as_str() {
-                    "busy" => bail!("update deferred: {}", response.reason),
-                    "expired" => bail!("update deferred: drain lease expired"),
+                    "busy" => return Err(deferred(response.reason)),
+                    "expired" => return Err(deferred("drain lease expired")),
                     "granted" if !committed => {
                         let age = monotonic_ms()?.saturating_sub(response.monotonic_ms);
-                        ensure!(
-                            age < 1000 && response.remaining_ms > age + 5000,
-                            "stale drain grant"
-                        );
+                        if age >= 1000 || response.remaining_ms <= age + 5000 {
+                            return Err(deferred("stale drain grant"));
+                        }
                         state.save(
                             "drain-request.json",
                             &Intent {
@@ -177,10 +187,9 @@ pub(super) fn request_exit(
                 }
             }
         }
-        ensure!(
-            Instant::now() < deadline,
-            "update deferred: no drain acknowledgement"
-        );
+        if Instant::now() >= deadline {
+            return Err(deferred("no drain acknowledgement"));
+        }
         std::thread::sleep(Duration::from_millis(50));
     }
 }

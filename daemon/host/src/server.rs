@@ -397,10 +397,12 @@ async fn run_system_server_once(
                         } else {if let Err(err)=(hooks.report)(nonce,DrainState::Granted{remaining_ms:deadline.saturating_duration_since(std::time::Instant::now()).as_millis() as u64}){warn!(?err,"maintenance report failed; keeping service available");drain=None;continue;}}
                     } else if expired_nonce.as_ref()!=Some(&request.nonce) && !request.commit {
                         let scheduler=commands.pause_scheduler_for_update();
-                        let workload=Workload{connections:connections.load(std::sync::atomic::Ordering::SeqCst),terminals:terminals.sessions_snapshot().iter().filter(|session|session.exit.is_none()).count(),commands:commands.update_busy_jobs().await,agents:agents.update_live_runtimes(),active_calls:admission.active()};
-                        let guard=admission.begin_drain();
-                        let busy=workload.blocks_update(request.manual);
-                        if scheduler.is_some() && guard.is_some() && !busy {
+                        // Freeze mutation admission BEFORE observing live work. A
+                        // completed CreateTerminalSession may leave a PTY behind.
+                        let (guard, workload)=observe_update_work(&admission, request.manual, async {
+                            Workload{connections:connections.load(std::sync::atomic::Ordering::SeqCst),terminals:terminals.sessions_snapshot().iter().filter(|session|session.exit.is_none()).count(),commands:commands.update_busy_jobs().await,agents:agents.update_live_runtimes(),active_calls:admission.active()}
+                        }).await;
+                        if scheduler.is_some() && guard.is_some() {
                             drain=Some((request.nonce.clone(),std::time::Instant::now()+std::time::Duration::from_secs(20),scheduler.unwrap(),guard.unwrap(),request.manual));
                             if request.manual {disconnect_tx.send_modify(|epoch|*epoch=epoch.wrapping_add(1));}
                             if let Err(err)=(hooks.report)(&request.nonce,DrainState::Granted{remaining_ms:20_000}){warn!(?err,"maintenance report failed; keeping service available");drain=None;continue;}
@@ -466,6 +468,26 @@ async fn run_system_server_once(
         });
     }
     Ok(())
+}
+
+/// The observation future is polled only after mutation admission is frozen.
+/// Holding this guard across asynchronous snapshots prevents new terminal/job
+/// creation from slipping between the workload observation and drain grant.
+async fn observe_update_work(
+    admission: &Arc<crate::maintenance::WorkGate>,
+    manual: bool,
+    observe: impl std::future::Future<Output = crate::maintenance::Workload>,
+) -> (
+    Option<crate::maintenance::DrainGuard>,
+    crate::maintenance::Workload,
+) {
+    let guard = admission.begin_drain();
+    let workload = observe.await;
+    if workload.blocks_update(manual) {
+        (None, workload)
+    } else {
+        (guard, workload)
+    }
 }
 
 async fn wait_for_startup_config_change(config_path: &Path) -> Result<()> {
@@ -5724,6 +5746,50 @@ mod tests {
                 ..
             }]
         ));
+    }
+
+    #[tokio::test]
+    async fn manual_drain_reobserves_terminal_created_after_prior_sample() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let admission = Arc::new(crate::maintenance::WorkGate::default());
+        let live = Arc::new(AtomicUsize::new(0));
+        let stale_sample = live.load(Ordering::SeqCst);
+        let (finish_tx, finish_rx) = tokio::sync::oneshot::channel();
+        let (done_tx, done_rx) = tokio::sync::oneshot::channel();
+        let gate = admission.clone();
+        let terminals = live.clone();
+        let creator = tokio::spawn(async move {
+            let active_call = gate.enter().unwrap();
+            finish_rx.await.unwrap();
+            terminals.store(1, Ordering::SeqCst);
+            drop(active_call);
+            done_tx.send(()).unwrap();
+        });
+        finish_tx.send(()).unwrap();
+        done_rx.await.unwrap();
+        assert_eq!(stale_sample, 0);
+        assert_eq!(admission.active(), 0);
+        let (grant, work) = observe_update_work(&admission, true, async {
+            assert!(
+                admission.enter().is_none(),
+                "snapshot must run under admission freeze"
+            );
+            tokio::task::yield_now().await;
+            assert!(admission.enter().is_none());
+            crate::maintenance::Workload {
+                connections: 1,
+                terminals: live.load(Ordering::SeqCst),
+                ..Default::default()
+            }
+        })
+        .await;
+        assert_eq!(work.terminals, 1);
+        assert!(
+            grant.is_none(),
+            "manual confirmation cannot authorize killing the PTY"
+        );
+        assert!(admission.enter().is_some(), "deferral releases admission");
+        creator.await.unwrap();
     }
 
     #[tokio::test]
