@@ -84,3 +84,6 @@ impl Policy {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(all(test, target_os = "macos"))]
+mod vm_integration;
