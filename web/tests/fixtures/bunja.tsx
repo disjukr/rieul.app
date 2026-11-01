@@ -1,7 +1,7 @@
 import { type Bunja, bunja } from "bunja";
 import { createSignal, createEffect, For } from "solid-js";
 import { render } from "@solidjs/web";
-import { BunjaProvider, useBunja } from "../../src/solid/bunja.tsx";
+import { BunjaStoreProvider, useBunja } from "bunja/solid";
 import { machineStoreBunja } from "../../src/state/machine-store.ts";
 import { MachineStorageContext } from "../../src/solid/scopes.ts";
 function domain() {
@@ -81,9 +81,9 @@ function Fixture() {
 }
 render(
   () => (
-    <BunjaProvider>
+    <BunjaStoreProvider>
       <Fixture />
-    </BunjaProvider>
+    </BunjaStoreProvider>
   ),
   document.getElementById("root")!,
 );

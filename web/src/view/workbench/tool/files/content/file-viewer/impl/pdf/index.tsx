@@ -1,6 +1,6 @@
 import { createMemo, createSignal, createEffect, useContext } from "solid-js";
 import * as pdfjs from "pdfjs-dist";
-import { useBunja } from "../../../../../../../../solid/bunja.tsx";
+import { useBunja } from "bunja/solid";
 
 import type { FsEntry } from "../../../../../../../../protocol/generated/rpc.ts";
 import { readFileBytes } from "../../read-file-bytes.ts";

@@ -1,6 +1,6 @@
 import { createEffect, flush } from "solid-js";
 
-import { useBunja } from "../../solid/bunja.tsx";
+import { useBunja } from "bunja/solid";
 
 import { machineMenuBunja } from "../../state/machine-menu.ts";
 import { machineModalBunja } from "../../state/machine-modal.ts";

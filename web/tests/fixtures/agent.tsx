@@ -1,7 +1,8 @@
+import { TestBunjaStoreProvider } from "./bunja-store.tsx";
 import { override } from "bunja";
 import { createSignal, Show } from "solid-js";
 import { render } from "@solidjs/web";
-import { BunjaProvider } from "../../src/solid/bunja";
+
 import { agentsBunja, type AgentCatalogPhase } from "../../src/state/agents.ts";
 import { rpcSessionBunja } from "../../src/state/rpc-session.ts";
 import {
@@ -176,9 +177,9 @@ function Fixture() {
 }
 render(
   () => (
-    <BunjaProvider overrides={overrides}>
+    <TestBunjaStoreProvider overrides={overrides}>
       <Fixture />
-    </BunjaProvider>
+    </TestBunjaStoreProvider>
   ),
   document.getElementById("root")!,
 );

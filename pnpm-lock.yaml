@@ -54,8 +54,8 @@ importers:
         specifier: 5.5.0
         version: 5.5.0
       bunja:
-        specifier: 4.0.0-alpha.1
-        version: 4.0.0-alpha.1(solid-js@2.0.0-rc.20)
+        specifier: 4.0.0-alpha.2
+        version: 4.0.0-alpha.2(solid-js@2.0.0-rc.20)
       class-variance-authority:
         specifier: 0.7.1
         version: 0.7.1
@@ -1225,13 +1225,13 @@ packages:
     engines: {node: ^6 || ^7 || ^8 || ^9 || ^10 || ^11 || ^12 || >=13.7}
     hasBin: true
 
-  bunja@4.0.0-alpha.1:
-    resolution: {integrity: sha512-Rx6E2tUbACQfwcVZQ0+2zcxiGAEqVyOU19Boj0VR35A2e5YMCE0c4OohG3QJ1mqbuTLI25qJ64yZl/5U2kCPww==}
+  bunja@4.0.0-alpha.2:
+    resolution: {integrity: sha512-hL3KZDxRqcGOZkYEWHiq2VcIRbl5Dac+TaQQ/aEcxBoouIY1muyW9dBrmdPkQHlWaQFxyxqO9jtxTIHUjFKu+w==}
     engines: {node: '>=22.18.0'}
     peerDependencies:
       '@types/react': '*'
       react: '>=18'
-      solid-js: ^1
+      solid-js: ^1 || ^2.0.0-rc.20
     peerDependenciesMeta:
       '@types/react':
         optional: true
@@ -3169,7 +3169,7 @@ snapshots:
       node-releases: 2.0.60
       update-browserslist-db: 1.3.4(browserslist@4.29.4)
 
-  bunja@4.0.0-alpha.1(solid-js@2.0.0-rc.20):
+  bunja@4.0.0-alpha.2(solid-js@2.0.0-rc.20):
     optionalDependencies:
       solid-js: 2.0.0-rc.20
 

@@ -6,7 +6,7 @@ import {
   type Accessor,
 } from "solid-js";
 import { bunja } from "bunja";
-import { createScopeFromContext } from "../../../../../../solid/bunja.tsx";
+import { createScopeFromContext } from "bunja/solid";
 import {
   type FsEntry,
   FsEntryKind,

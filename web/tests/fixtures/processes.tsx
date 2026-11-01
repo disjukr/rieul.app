@@ -1,5 +1,6 @@
+import { TestBunjaStoreProvider } from "./bunja-store.tsx";
 import { bunja, createScope, override } from "bunja";
-import { BunjaProvider, bindScope, useBunja } from "../../src/solid/bunja.tsx";
+import { bindScope, useBunja } from "bunja/solid";
 import { createContext, createSignal, For } from "solid-js";
 import { render } from "@solidjs/web";
 import { processesBunja } from "../../src/state/processes.ts";
@@ -12,7 +13,7 @@ import {
 } from "../../src/protocol/wire.ts";
 import type { DaemonInfoState } from "../../src/state/rpc-session.ts";
 import { ProcId } from "../../src/protocol/generated/rpc.ts";
-const MachineContext = createContext<() => string>(() => "a");
+const MachineContext = createContext<string | (() => string)>(() => "a");
 const MachineScope = createScope<string>();
 bindScope(MachineScope, MachineContext);
 const diagnostics = { starts: 0, stops: 0 };
@@ -113,9 +114,9 @@ function Fixture() {
 }
 render(
   () => (
-    <BunjaProvider overrides={overrides}>
+    <TestBunjaStoreProvider overrides={overrides}>
       <Fixture />
-    </BunjaProvider>
+    </TestBunjaStoreProvider>
   ),
   document.getElementById("root")!,
 );

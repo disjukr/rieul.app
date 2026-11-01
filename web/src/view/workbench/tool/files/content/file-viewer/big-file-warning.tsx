@@ -1,5 +1,5 @@
 import { createMemo } from "solid-js";
-import { useBunja } from "../../../../../../solid/bunja.tsx";
+import { useBunja } from "bunja/solid";
 import { FileText } from "../../../../../../solid/icons.tsx";
 import { displayName, formatSize } from "../../../../../../state/explorer.ts";
 import { Button } from "../../../../../ui/button.tsx";

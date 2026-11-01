@@ -5,7 +5,7 @@ import type {
 } from "../../../../protocol/generated/rpc.ts";
 import { createSignal, createMemo, createEffect } from "solid-js";
 
-import { useBunja } from "../../../../solid/bunja.tsx";
+import { useBunja } from "bunja/solid";
 import {
   AppWindow,
   HardDrive,

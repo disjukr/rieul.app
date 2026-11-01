@@ -1,5 +1,5 @@
 import { For, createMemo, createSignal, createEffect } from "solid-js";
-import { useBunja } from "../../../../../../solid/bunja.tsx";
+import { useBunja } from "bunja/solid";
 import { RotateCcw, Trash2 } from "../../../../../../solid/icons.tsx";
 import {
   purgeTrashItems,

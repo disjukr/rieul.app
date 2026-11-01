@@ -1,7 +1,7 @@
 import type { JSX } from "@solidjs/web";
 import { createEffect } from "solid-js";
 
-import { useBunja } from "../solid/bunja.tsx";
+import { useBunja } from "bunja/solid";
 
 import { machineStoreBunja } from "../state/machine-store.ts";
 import { MachineBaseUrlContext, MachineIdContext } from "../state/machine.tsx";

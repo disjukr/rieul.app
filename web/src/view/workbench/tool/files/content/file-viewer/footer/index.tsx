@@ -1,5 +1,5 @@
 import { createMemo } from "solid-js";
-import { useBunja } from "../../../../../../../solid/bunja.tsx";
+import { useBunja } from "bunja/solid";
 
 import { formatSize } from "../../../../../../../state/explorer.ts";
 import { fileViewerImpls, isFileViewerImpl } from "../impl/index.ts";

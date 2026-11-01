@@ -7,7 +7,7 @@ import {
   untrack,
 } from "solid-js";
 
-import { useBunja } from "../../../../solid/bunja.tsx";
+import { useBunja } from "bunja/solid";
 import type { FitAddon } from "@xterm/addon-fit";
 import type { Terminal as XTerm } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";

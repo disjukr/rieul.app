@@ -1,7 +1,8 @@
+import { TestBunjaStoreProvider } from "./bunja-store.tsx";
 import { override } from "bunja";
 import { createSignal, Show } from "solid-js";
 import { render } from "@solidjs/web";
-import { BunjaProvider } from "../../src/solid/bunja.tsx";
+
 import { FsEntryKind } from "../../src/protocol/generated/rpc.ts";
 import { type Machine } from "../../src/state/machines.ts";
 import { FilesActionsContext } from "../../src/view/workbench/tool/files/context.tsx";
@@ -121,18 +122,18 @@ function Fixture() {
 
       <FilesActionsContext value={() => actions}>
         <Show when={mode() === "image"}>
-          <BunjaProvider
+          <TestBunjaStoreProvider
             overrides={[override(fileViewerBunja, () => imageModel)]}
           >
             <ImageFileViewer />
-          </BunjaProvider>
+          </TestBunjaStoreProvider>
         </Show>
         <Show when={mode() === "pdf"}>
-          <BunjaProvider
+          <TestBunjaStoreProvider
             overrides={[override(fileViewerBunja, () => pdfModel)]}
           >
             <PdfFileViewer />
-          </BunjaProvider>
+          </TestBunjaStoreProvider>
         </Show>
       </FilesActionsContext>
     </>

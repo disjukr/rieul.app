@@ -5,7 +5,7 @@ import type {
 } from "../../../state/workbench.ts";
 import { createMemo } from "solid-js";
 
-import { useBunja } from "../../../solid/bunja.tsx";
+import { useBunja } from "bunja/solid";
 import {
   Activity,
   AppWindow,

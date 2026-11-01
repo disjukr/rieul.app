@@ -1,3 +1,4 @@
+import { TestBunjaStoreProvider } from "./bunja-store.tsx";
 import type { Accessor } from "solid-js";
 import { rpcSessionBunja } from "../../src/state/rpc-session.ts";
 import { rpcSessionStub } from "../helpers/rpc-session.ts";
@@ -10,7 +11,7 @@ import {
 import { createSignal, For } from "solid-js";
 import { render } from "@solidjs/web";
 import { bunja, override } from "bunja";
-import { BunjaProvider, useBunja } from "../../src/solid/bunja.tsx";
+import { useBunja } from "bunja/solid";
 import { explorerRootsBunja } from "../../src/state/explorer.ts";
 import { MachineIdContext } from "../../src/state/machine.tsx";
 import { WorkbenchTabIdContext } from "../../src/state/workbench-context.ts";
@@ -128,11 +129,11 @@ function Fixture() {
 }
 render(
   () => (
-    <BunjaProvider overrides={overrides}>
+    <TestBunjaStoreProvider overrides={overrides}>
       <MachineStorageContext value={() => storage}>
         <Fixture />
       </MachineStorageContext>
-    </BunjaProvider>
+    </TestBunjaStoreProvider>
   ),
   document.getElementById("root")!,
 );

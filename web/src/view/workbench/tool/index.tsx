@@ -1,6 +1,6 @@
 import { createMemo } from "solid-js";
 
-import { useBunja } from "../../../solid/bunja.tsx";
+import { useBunja } from "bunja/solid";
 import { workbenchTabBunja } from "../../../state/workbench.ts";
 import { AgentTool } from "./agent/index.tsx";
 import { DaemonTool } from "./daemon/index.tsx";

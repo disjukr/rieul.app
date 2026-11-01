@@ -4,7 +4,7 @@ import type {
   AgentSessionSummary,
   CreateAgentWorkspace,
 } from "../../protocol/generated/rpc.ts";
-import { useBunja } from "../../solid/bunja.tsx";
+import { useBunja } from "bunja/solid";
 import {
   Archive,
   Check,

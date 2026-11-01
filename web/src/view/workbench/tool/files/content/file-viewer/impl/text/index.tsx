@@ -7,7 +7,7 @@ import {
   lazy,
   Loading,
 } from "solid-js";
-import { useBunja } from "../../../../../../../../solid/bunja.tsx";
+import { useBunja } from "bunja/solid";
 
 import { writeFile } from "../../../../../../../../protocol/generated/client.ts";
 import {

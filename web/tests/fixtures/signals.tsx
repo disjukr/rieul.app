@@ -1,7 +1,7 @@
 import { bunja, createScope } from "bunja";
 import { createContext, createEffect, createSignal, Show } from "solid-js";
 import { render } from "@solidjs/web";
-import { BunjaProvider, bindScope, useBunja } from "../../src/solid/bunja.tsx";
+import { BunjaStoreProvider, bindScope, useBunja } from "bunja/solid";
 
 const counterBunja = bunja(() => {
   const [count, setCount] = createSignal(0);
@@ -28,8 +28,8 @@ function Reader(props: { name: string; initialize?: boolean }) {
     </section>
   );
 }
-const SelectionContext = createContext<() => number>(() => 0);
-const DomainContext = createContext<() => number>(() => 0);
+const SelectionContext = createContext<number | (() => number)>(() => 0);
+const DomainContext = createContext<number | (() => number)>(() => 0);
 const SelectionScope = createScope<number>();
 const DomainScope = createScope<number>();
 bindScope(SelectionScope, SelectionContext);
@@ -69,7 +69,7 @@ function ReplacementFixture() {
       </button>
       <button onClick={() => setDomain(1)}>Replace domain</button>
       <button onClick={() => setVisible(false)}>Remove reader</button>
-      <BunjaProvider>
+      <BunjaStoreProvider>
         <DomainContext value={domain}>
           <SelectionContext value={selected}>
             <Show when={visible()}>
@@ -77,19 +77,19 @@ function ReplacementFixture() {
             </Show>
           </SelectionContext>
         </DomainContext>
-      </BunjaProvider>
+      </BunjaStoreProvider>
     </>
   );
 }
 render(
   () => (
     <>
-      <BunjaProvider>
+      <BunjaStoreProvider>
         <Reader name="first" initialize />
-      </BunjaProvider>
-      <BunjaProvider>
+      </BunjaStoreProvider>
+      <BunjaStoreProvider>
         <Reader name="second" />
-      </BunjaProvider>
+      </BunjaStoreProvider>
       <ReplacementFixture />
     </>
   ),

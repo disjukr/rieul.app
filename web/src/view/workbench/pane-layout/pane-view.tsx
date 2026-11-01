@@ -4,7 +4,7 @@ import { ModalDialog } from "../../ui/dialog.tsx";
 import { createSignal, createMemo, createEffect, For } from "solid-js";
 import { WorkbenchTabIdContext } from "../../../state/workbench-context.ts";
 
-import { useBunja } from "../../../solid/bunja.tsx";
+import { useBunja } from "bunja/solid";
 import { layoutReducer } from "../../../state/layout.ts";
 import {
   Activity,

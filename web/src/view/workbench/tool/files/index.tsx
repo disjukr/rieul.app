@@ -1,6 +1,6 @@
 import { untrack, createMemo, createSignal, createEffect } from "solid-js";
 
-import { useBunja } from "../../../../solid/bunja.tsx";
+import { useBunja } from "bunja/solid";
 import {
   FilePlus2,
   HardDrive,
