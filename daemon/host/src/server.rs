@@ -197,6 +197,27 @@ pub async fn run_system_server(
     terminal_backend: Option<SharedTerminalBackend>,
     log_label: &'static str,
 ) -> Result<()> {
+    run_system_server_with_readiness(listen_override,config_path,files,windows,
+        process_resources_in_use,process_sockets_in_use,process_modules,
+        pairing_notifier,terminal_backend,log_label,None,None).await
+}
+
+/// Called only after database initialization and successful transport binding.
+/// Callback failure prevents the daemon from accepting RPCs.
+pub async fn run_system_server_with_readiness(
+    listen_override: Option<SocketAddr>,
+    config_path: PathBuf,
+    files: SharedFileService,
+    windows: Option<SharedWindowService>,
+    process_resources_in_use: Option<SharedProcessResourcesInUseService>,
+    process_sockets_in_use: Option<SharedProcessSocketsInUseService>,
+    process_modules: Option<SharedProcessModulesService>,
+    pairing_notifier: Option<SharedPairingNotifier>,
+    terminal_backend: Option<SharedTerminalBackend>,
+    log_label: &'static str,
+    on_ready: Option<Arc<dyn Fn() -> Result<()> + Send + Sync>>,
+    maintenance: Option<Arc<crate::maintenance::MaintenanceHooks>>,
+) -> Result<()> {
     loop {
         write_daemon_status(&config_path, DaemonStatus::NotReady("starting"));
         match run_system_server_once(
@@ -210,6 +231,8 @@ pub async fn run_system_server(
             pairing_notifier.clone(),
             terminal_backend.clone(),
             log_label,
+            on_ready.clone(),
+            maintenance.clone(),
         )
         .await
         {
@@ -238,6 +261,8 @@ async fn run_system_server_once(
     pairing_notifier: Option<SharedPairingNotifier>,
     terminal_backend: Option<SharedTerminalBackend>,
     log_label: &'static str,
+    on_ready: Option<Arc<dyn Fn() -> Result<()> + Send + Sync>>,
+    maintenance: Option<Arc<crate::maintenance::MaintenanceHooks>>,
 ) -> Result<()> {
     let provider = web_transport_quinn::crypto::default_provider();
     let startup_config = load_startup_config(&config_path, listen_override)?;
@@ -274,6 +299,7 @@ async fn run_system_server_once(
 
     let resolver = Arc::new(ReloadingCertResolver::new(certificate.certified_key));
     let mut server = build_reloadable_server(addr, provider.clone(), resolver.clone())?;
+    if let Some(on_ready) = on_ready { on_ready()?; }
     let _scheduler = AbortTaskOnDrop(commands.start_scheduler());
     write_daemon_status(&config_path, DaemonStatus::Ready);
 
@@ -286,7 +312,42 @@ async fn run_system_server_once(
 
     info!(%addr, daemon = log_label, "rieul system daemon listening");
 
-    while let Some(request) = server.accept().await {
+    let connections=Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let mut maintenance_tick=tokio::time::interval(std::time::Duration::from_millis(250));
+    let mut drain:Option<(String,std::time::Instant,tokio::sync::OwnedMutexGuard<()>)>=None;
+    let mut expired_nonce=None;
+    loop {
+        let request=tokio::select! {
+            _=maintenance_tick.tick(), if maintenance.is_some()=>{
+                use crate::maintenance::{DrainState,Workload};
+                let hooks=maintenance.as_ref().unwrap();
+                let requested=match (hooks.request)(){Ok(request)=>request,Err(err)=>{warn!(?err,"maintenance request failed; keeping service available");drain=None;continue;}};
+                if let Some(request)=requested {
+                    if drain.as_ref().is_some_and(|(nonce,_,_)|*nonce!=request.nonce){drain=None;}
+                    if let Some((nonce,deadline,_))=&drain {
+                        if std::time::Instant::now()>=*deadline {
+                            if let Err(err)=(hooks.report)(nonce,DrainState::Expired){warn!(?err,"maintenance report failed; keeping service available");drain=None;continue;}expired_nonce=Some(nonce.clone());drain=None;
+                        } else if request.commit {
+                            // Only an idle, admission-blocked, scheduler-paused
+                            // daemon can acknowledge exit. Worker never kills a
+                            // busy server merely because a lease timer elapsed.
+                            if let Err(err)=(hooks.report)(nonce,DrainState::Exiting){warn!(?err,"maintenance report failed; keeping service available");drain=None;continue;}return Ok(());
+                        } else {if let Err(err)=(hooks.report)(nonce,DrainState::Granted{remaining_ms:deadline.saturating_duration_since(std::time::Instant::now()).as_millis() as u64}){warn!(?err,"maintenance report failed; keeping service available");drain=None;continue;}}
+                    } else if expired_nonce.as_ref()!=Some(&request.nonce) && !request.commit {
+                        let scheduler=commands.pause_scheduler_for_update();
+                        let workload=Workload{connections:connections.load(std::sync::atomic::Ordering::SeqCst),terminals:terminals.sessions_snapshot().iter().filter(|session|session.exit.is_none()).count(),commands:commands.update_busy_jobs().await,agents:agents.update_live_runtimes()};
+                        if scheduler.is_some() && !workload.busy() {
+                            drain=Some((request.nonce.clone(),std::time::Instant::now()+std::time::Duration::from_secs(20),scheduler.unwrap()));
+                            if let Err(err)=(hooks.report)(&request.nonce,DrainState::Granted{remaining_ms:20_000}){warn!(?err,"maintenance report failed; keeping service available");drain=None;continue;}
+                        } else {if let Err(err)=(hooks.report)(&request.nonce,DrainState::Busy(workload)){warn!(?err,"maintenance report failed; keeping service available");drain=None;continue;}}
+                    }
+                } else {drain=None;expired_nonce=None;}
+                continue;
+            },
+            request=server.accept(), if drain.is_none()=>match request {Some(request)=>request,None=>break},
+        };
+        let connection_guard=crate::maintenance::ConnectionGuard::new(connections.clone());
+        let activity=connections.clone();
         let config_path = config_path.clone();
         let credentials_path = credentials_path.clone();
         let config_state = config_state.clone();
@@ -305,6 +366,7 @@ async fn run_system_server_once(
         let trash_events = trash_events.clone();
         let pairing_notifier = pairing_notifier.clone();
         tokio::spawn(async move {
+            let _connection_guard=connection_guard;
             if let Err(err) = handle_request(
                 request,
                 config_path,
@@ -324,6 +386,7 @@ async fn run_system_server_once(
                 agents,
                 trash_events,
                 pairing_notifier,
+                activity,
             )
             .await
             {
@@ -857,6 +920,7 @@ async fn handle_request(
     agents: SharedAgentManager,
     trash_events: SharedTrashEvents,
     pairing_notifier: Option<SharedPairingNotifier>,
+    activity: Arc<std::sync::atomic::AtomicUsize>,
 ) -> Result<()> {
     let path = request.url.path().to_string();
     match path.as_str() {
@@ -881,6 +945,7 @@ async fn handle_request(
                 agents,
                 trash_events,
                 pairing_notifier,
+                activity,
             )
             .await
         }
@@ -910,6 +975,7 @@ async fn run_rpc_session(
     agents: SharedAgentManager,
     trash_events: SharedTrashEvents,
     pairing_notifier: Option<SharedPairingNotifier>,
+    activity: Arc<std::sync::atomic::AtomicUsize>,
 ) -> Result<()> {
     let session_state = Arc::new(Mutex::new(RpcSessionState {
         session_id: next_rpc_session_id(),
@@ -938,7 +1004,9 @@ async fn run_rpc_session(
                 let trash_events = trash_events.clone();
                 let pairing_notifier = pairing_notifier.clone();
                 let stream_session = session.clone();
+                let stream_guard=crate::maintenance::ConnectionGuard::new(activity.clone());
                 tokio::spawn(async move {
+                    let _stream_guard=stream_guard;
                     let response = async {
                         handle_reqres_stream(
                             recv,

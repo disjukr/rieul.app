@@ -11,7 +11,7 @@ use rieul_daemon_core::config::{
     SystemConfig,
 };
 #[cfg(target_os = "macos")]
-use rieul_daemon_host::server::run_system_server;
+use rieul_daemon_host::server::run_system_server_with_readiness;
 #[cfg(target_os = "macos")]
 use rieul_macos_daemon::fs::MacFileService;
 #[cfg(target_os = "macos")]
@@ -77,7 +77,10 @@ async fn main() -> Result<()> {
         Command::Run { listen, config } => {
             let config_path = config.unwrap_or_else(macos_system_config_path);
             let pairing_notifier = MacGuiPairingNotifier::from_config_path(&config_path);
-            run_system_server(
+            let ready = if config_path == macos_system_config_path() && listen.is_none() {
+                rieul_macos_daemon::root_update::startup_callback()?
+            } else { None };
+            run_system_server_with_readiness(
                 listen,
                 config_path,
                 Arc::new(MacFileService::default()),
@@ -88,6 +91,8 @@ async fn main() -> Result<()> {
                 Some(Arc::new(pairing_notifier)),
                 None,
                 "macOS system daemon",
+                ready,
+                rieul_macos_daemon::root_update::maintenance_hooks()?,
             )
             .await
         }

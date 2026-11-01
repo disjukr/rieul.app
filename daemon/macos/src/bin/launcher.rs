@@ -78,6 +78,21 @@ fn gui_executable_path() -> Result<PathBuf> {
 
 #[cfg(unix)]
 fn exec_gui(gui_executable: PathBuf, config_path: PathBuf) -> Result<()> {
+    if let Some(_guard) = rieul_macos_daemon::root_update::gui_update_guard()? {
+        return tokio::runtime::Builder::new_current_thread().enable_all().build()?.block_on(async {
+            let mut term=tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+            let mut interrupt=tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())?;
+            let mut child=tokio::process::Command::new(&gui_executable).arg("--config").arg(&config_path).kill_on_drop(true).spawn()?;
+            tokio::select! {
+                status=child.wait()=>{anyhow::ensure!(status?.success(),"GUI exited unsuccessfully");return Ok(());},
+                _=term.recv()=>{},
+                _=interrupt.recv()=>{},
+            }
+            if let Some(pid)=child.id(){unsafe{libc::kill(pid as i32,libc::SIGTERM);}}
+            if tokio::time::timeout(std::time::Duration::from_secs(10),child.wait()).await.is_err(){child.kill().await?;}
+            Ok(())
+        });
+    }
     let error = ProcessCommand::new(&gui_executable)
         .arg("--config")
         .arg(config_path)

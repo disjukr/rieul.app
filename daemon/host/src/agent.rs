@@ -144,6 +144,9 @@ pub struct AgentSessionSubscription {
 }
 
 impl AgentManager {
+    pub(crate) fn update_live_runtimes(&self)->usize {
+        self.runtimes.lock().map(|r|r.len()).unwrap_or(usize::MAX)
+    }
     pub fn open(db: DaemonStateDb, task_workspace_root: PathBuf) -> Result<Self> {
         let catalog_revision = db.agent_session_catalog_revision()?;
         let (project_events, _) = watch::channel(0);

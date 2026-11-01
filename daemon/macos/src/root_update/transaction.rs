@@ -49,6 +49,9 @@ pub(super) trait Effects {
     fn start(&mut self, identity: &Identity, nonce: &str) -> Result<()>;
     fn ready(&mut self, identity: &Identity, nonce: &str) -> Result<bool>;
     fn restore_guis(&mut self) -> Result<()>;
+    fn finalized_step(&mut self, _step: &str) -> Result<()> {
+        Ok(())
+    }
 }
 fn save(dir: &Dir, journal: &mut Journal, phase: Phase) -> Result<()> {
     journal.phase = phase;
@@ -96,9 +99,17 @@ pub(super) fn prepare_locked(dir: &Dir, old: Identity, new: Identity) -> Result<
 }
 pub(super) fn resume(dir: &Dir, effects: &mut impl Effects) -> Result<Phase> {
     let _lock = dir.lock()?;
-    let mut j: Journal = dir
-        .load("journal.json")?
-        .ok_or_else(|| anyhow::anyhow!("no transaction"))?;
+    let Some(mut j) = dir.load::<Journal>("journal.json")? else {
+        let last: Journal = dir
+            .load("last-result.json")?
+            .ok_or_else(|| anyhow::anyhow!("no transaction"))?;
+        ensure!(
+            last.schema == 1 && matches!(last.phase, Phase::Committed | Phase::RolledBack),
+            "invalid final result"
+        );
+        cleanup(dir)?;
+        return Ok(last.phase);
+    };
     ensure!(
         j.schema == 1
             && j.new.version > j.old.version
@@ -118,6 +129,7 @@ pub(super) fn resume(dir: &Dir, effects: &mut impl Effects) -> Result<Phase> {
             "rolled-back identity changed"
         );
         effects.restore_guis()?;
+        finalize(dir, &j, effects)?;
         return Ok(j.phase);
     }
     if j.phase == Phase::Committed {
@@ -126,6 +138,7 @@ pub(super) fn resume(dir: &Dir, effects: &mut impl Effects) -> Result<Phase> {
             "committed identity changed"
         );
         effects.restore_guis()?;
+        finalize(dir, &j, effects)?;
         return Ok(j.phase);
     }
     if j.phase == Phase::RollingBack {
@@ -162,6 +175,7 @@ pub(super) fn resume(dir: &Dir, effects: &mut impl Effects) -> Result<Phase> {
         );
         save(dir, &mut j, Phase::Committed)?;
         effects.restore_guis()?;
+        finalize(dir, &j, effects)?;
         Ok(j.phase)
     } else {
         save(dir, &mut j, Phase::RollingBack)?;
@@ -193,5 +207,27 @@ fn rollback(dir: &Dir, j: &mut Journal, effects: &mut impl Effects) -> Result<Ph
     );
     save(dir, j, Phase::RolledBack)?;
     effects.restore_guis()?;
+    finalize(dir, j, effects)?;
     Ok(j.phase)
+}
+
+fn cleanup(dir: &Dir) -> Result<()> {
+    for name in ["incoming", "rollback", "service-stage"] {
+        dir.discard_child(name)?;
+    }
+    for name in ["start-request.json", "ready.json", "gui-sessions.json"] {
+        dir.remove(name)?;
+    }
+    Ok(())
+}
+fn finalize(dir: &Dir, j: &Journal, effects: &mut impl Effects) -> Result<()> {
+    // GUI restoration has succeeded. Preserve durable evidence before retiring
+    // intent; after retirement, only private staging is removed, never installed
+    // paths. A crash during cleanup is replayed without requiring deleted backups.
+    dir.save("last-result.json", j)?;
+    effects.finalized_step("result")?;
+    dir.remove("journal.json")?;
+    effects.finalized_step("retired")?;
+    cleanup(dir)?;
+    effects.finalized_step("cleaned")
 }

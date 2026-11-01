@@ -231,6 +231,14 @@ impl Fake {
     }
 }
 impl Effects for Fake {
+    fn finalized_step(&mut self, step: &str) -> Result<()> {
+        match step {
+            "result" => self.effect("result"),
+            "retired" => self.effect("retired"),
+            "cleaned" => self.effect("cleaned"),
+            _ => Ok(()),
+        }
+    }
     fn validate(&mut self, _: &Journal) -> Result<()> {
         if !self.valid {
             bail!("wrong signing identity")
@@ -589,4 +597,29 @@ fn app_only_update_preserves_identical_daemon() {
         Phase::Committed
     );
     assert!(!effects.events.contains(&"service"));
+}
+
+#[test]
+fn consecutive_updates_and_finalization_crashes_recover() {
+    for point in ["result", "retired", "cleaned"] {
+        let (_t, dir) = fixture();
+        transaction::prepare(&dir, identity(1), identity(2)).unwrap();
+        let mut effects = Fake {
+            crash: Some(point),
+            ..Default::default()
+        };
+        assert!(transaction::resume(&dir, &mut effects).is_err());
+        assert_eq!(
+            transaction::resume(&dir, &mut effects).unwrap(),
+            Phase::Committed
+        );
+        assert!(!dir.exists("journal.json").unwrap());
+        transaction::prepare(&dir, identity(2), identity(3)).unwrap();
+        let mut second = Fake::default();
+        assert_eq!(
+            transaction::resume(&dir, &mut second).unwrap(),
+            Phase::Committed
+        );
+        assert!(!dir.exists("journal.json").unwrap());
+    }
 }

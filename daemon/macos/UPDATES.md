@@ -129,3 +129,45 @@ release worker. No installed resources were changed here.
 - [Sparkle package updates always require authorization](https://sparkle-project.github.io/documentation/package-updates/)
 - [Sparkle installer lifetime](https://github.com/sparkle-project/Sparkle/blob/2.x/Documentation/Installation.md)
 - [tar entry path and extension semantics](https://docs.rs/tar/0.4.46/tar/struct.Entry.html)
+
+## Follow-up implementation checkpoint (after b0e5115)
+
+Review fixes: terminal journals now retire only after successful GUI restoration,
+with a durable last-result record and replayable private-stage cleanup. Tests
+exercise consecutive updates and interruption at every finalization boundary.
+A fixed `/Applications/Rieul.app` destination abstraction allows its public parent
+to be group-writable without weakening private Dir checks. Exchanged-out app
+entries are untrusted until validated inside protected storage.
+
+Native launchd, private app snapshots, protected runtime staging, GUI barrier,
+readiness binding and transaction Effects adapters now compile. They have not
+been exercised against real launchd mutations. The independent worker and initial
+migration wiring remain unfinished; no production updater has been activated.
+
+An optional host maintenance hook counts connections and in-flight RPC streams,
+live PTYs, running background jobs and ACP runtimes. It pauses scheduler admission
+before granting an idle drain, and only acknowledges exit while admission is
+blocked. Busy work is deferred, never killed by a timeout. The current conservative
+implementation also defers on idle connected clients. The newly requested manual
+RPC/UI path is not yet implemented: it must explicitly warn/confirm disconnection
+and must not silently authorize termination of commands, terminals or agents.
+The UI belongs in the existing client daemon menu.
+
+Full signing/notarization checks and candidate copying run before drain in the
+native adapter; repeated in-process checks after drain use protected-file digests
+and known identities. Runtime health verifies nonce, PID, schema, SHA-256 and
+static-versus-running CodeDirectory hash. Stop-to-ready timing is recorded.
+Port handoff or zero downtime is not implemented or promised.
+
+Discovery currently uses the GitHub `/repos/disjukr/rieul.app/releases/latest`
+endpoint, not a list search. Non-desktop latest releases therefore yield no update.
+Only stable desktop-x.y.z passes; draft/prerelease are rejected. Asset URL metadata
+is ignored in favor of a fixed versioned asset name. HTTP conditional caching,
+rate-limit retry, polling cadence and manual UI are not connected yet.
+
+VM precheck: this arm64 Mac reports hardware virtualization support, 64 GiB RAM,
+and ample free disk. No Tart, UTM, Parallels or other VM manager was found in the
+checked installed applications/PATH. No VM or new software was installed. A
+snapshot-capable isolated macOS VM with synthetic pairing/data, no host mounts,
+and no imported signing credentials is the intended destructive lifecycle test
+location; prepare notarized fixture artifacts through the approved release path.

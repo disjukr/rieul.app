@@ -6,7 +6,19 @@
     reason = "Local updater engine awaiting production lifecycle integration; no installed entry point yet"
 )]
 mod archive;
+mod destination;
+mod drain;
+mod gate;
+#[cfg(target_os = "macos")]
+mod native;
+#[cfg(target_os = "macos")]
+pub use drain::hooks as maintenance_hooks;
+mod launchd;
+pub use gate::shared as gui_update_guard;
 mod preparation;
+mod receipt;
+#[cfg(target_os = "macos")]
+pub use receipt::startup_callback;
 mod source;
 mod store;
 mod transaction;

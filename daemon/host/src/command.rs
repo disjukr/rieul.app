@@ -85,6 +85,7 @@ pub struct CommandManager {
     schedules_events: watch::Sender<u64>,
     output_events: watch::Sender<u64>,
     next_id: Arc<AtomicU64>,
+    update_scheduler_gate: Arc<Mutex<()>>,
 }
 
 #[derive(Default)]
@@ -269,9 +270,16 @@ impl CommandManager {
             schedules_events,
             output_events,
             next_id: Arc::new(AtomicU64::new(1)),
+            update_scheduler_gate: Arc::new(Mutex::new(())),
         })
     }
 
+    pub(crate) fn pause_scheduler_for_update(&self)->Option<tokio::sync::OwnedMutexGuard<()>> {
+        self.update_scheduler_gate.clone().try_lock_owned().ok()
+    }
+    pub(crate) async fn update_busy_jobs(&self)->usize {
+        self.state.lock().await.jobs.values().filter(|job|job.task.as_ref().is_some_and(|task|!task.is_finished())).count()
+    }
     pub fn start_scheduler(&self) -> tokio::task::JoinHandle<()> {
         let manager = self.clone();
         tokio::spawn(async move {
@@ -1146,6 +1154,7 @@ impl CommandManager {
     }
 
     async fn run_due_schedules(&self) {
+        let _update_guard=self.update_scheduler_gate.lock().await;
         let now = current_unix_ms();
         let due = {
             let mut state = self.state.lock().await;

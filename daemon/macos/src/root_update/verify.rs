@@ -64,7 +64,7 @@ pub(super) fn digest(mut file: File) -> Result<String> {
     }
     Ok(format!("{:x}", sha.finalize()))
 }
-fn requirement(id: &str) -> String {
+pub(super) fn requirement(id: &str) -> String {
     format!("=anchor apple generic and identifier \"{id}\" and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = \"{TEAM}\"")
 }
 /// Fixed tools, empty environment, bounded runtime and output. No shell.
