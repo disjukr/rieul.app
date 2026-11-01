@@ -9,7 +9,6 @@ import { useBunja } from "bunja/solid";
 import {
   Activity,
   AppWindow,
-  Bot,
   Folder,
   Info,
   Terminal,
@@ -169,7 +168,7 @@ function WorkbenchTabIcon(props: WorkbenchTabIconProps) {
           return <Info size={12} className={props.className} />;
         }
         if (props.tab.tool === "agent") {
-          return <Bot size={12} className={props.className} />;
+          return <Info size={12} className={props.className} />;
         }
         if (props.tab.tool === "terminal") {
           return <Terminal size={12} className={props.className} />;

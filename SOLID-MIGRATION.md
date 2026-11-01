@@ -18,7 +18,6 @@ The original state and UI assertions remain, with Solid fixtures replacing React
 
 - Provider override isolation, owned roots, signal/scope replacement and final cleanup;
 - terminal conditional host lifetime, delayed xterm import, late RPC creation, and stable attachment while session metadata changes;
-- agent subscription cancellation and session replacement before transport resolves;
 - Monaco model/focus/undo lifetime, language switching and delayed file-resource cleanup;
 - modal/menu keyboard behavior and focus restoration, tooltip trigger association, file rename/path drafts;
 - pointer/touch tab movement, retained tab DOM identity, pointer/keyboard pane resizing, and persisted layout parity.

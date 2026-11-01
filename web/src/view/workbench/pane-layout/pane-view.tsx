@@ -9,7 +9,6 @@ import { layoutReducer } from "../../../state/layout.ts";
 import {
   Activity,
   AppWindow,
-  Bot,
   Columns2,
   Copy,
   Folder,
@@ -446,11 +445,6 @@ export function WorkbenchPaneView(props: WorkbenchPaneViewProps) {
     setPaneCreateMenuOpen(false);
     setPaneOverflowMenuOpen(false);
   }
-  function openAgentTab() {
-    paneState().addAgentTab();
-    setPaneCreateMenuOpen(false);
-    setPaneOverflowMenuOpen(false);
-  }
   function openProcessesTab() {
     paneState().addProcessesTab();
     setPaneCreateMenuOpen(false);
@@ -582,13 +576,6 @@ export function WorkbenchPaneView(props: WorkbenchPaneViewProps) {
                         >
                           <Info size={14} />
                           New Daemon Tab
-                        </FloatingMenuItem>
-                        <FloatingMenuItem
-                          className={paneOverflowMenuItemClassName}
-                          onClick={openAgentTab}
-                        >
-                          <Bot size={14} />
-                          New Agent Tab
                         </FloatingMenuItem>
                         <FloatingMenuItem
                           className={paneOverflowMenuItemClassName}

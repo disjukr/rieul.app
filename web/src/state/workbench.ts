@@ -13,7 +13,6 @@ import {
 export { WorkbenchPaneIdScope, WorkbenchTabIdScope };
 
 export type WorkbenchTool =
-  | "agent"
   | "daemon"
   | "files"
   | "processes"
@@ -28,6 +27,7 @@ export type WorkbenchProcessPage =
   | "modules";
 
 export interface WorkbenchTab {
+  // Retain saved metadata for unavailable legacy tabs; never start a session.
   agentSessionId?: string;
   daemonClientDetailId?: string;
   daemonClientsPageOpen?: boolean;
@@ -38,17 +38,12 @@ export interface WorkbenchTab {
   processDetailPid?: number;
   processPage?: WorkbenchProcessPage;
   title: string;
-  tool: WorkbenchTool;
+  tool: WorkbenchTool | "agent";
   terminalLaunch?: TerminalLaunchSpec;
   terminalLastKnownCwd?: string;
   terminalLastKnownTitle?: string;
   terminalSessionId?: string;
   windowDetailId?: string;
-}
-
-export interface WorkbenchAgentTabConfig {
-  sessionId?: string;
-  title?: string;
 }
 
 export interface WorkbenchTerminalTabConfig {
@@ -132,12 +127,9 @@ export const workbenchBunja = bunja(() => {
     return pruneStaleLayoutLeaves(current.layout, current.panes);
   });
   const activePaneId = createMemo(() => activePaneFromState(state())?.id);
-  const activeTool = createMemo(
-    () => activeTabFromPane(activePaneFromState(state()))?.tool ?? "files",
-  );
-  const activeAgentSessionId = createMemo(() => {
-    const activeTab = activeTabFromPane(activePaneFromState(state()));
-    return activeTab?.tool === "agent" ? activeTab.agentSessionId : undefined;
+  const activeTool = createMemo(() => {
+    const tool = activeTabFromPane(activePaneFromState(state()))?.tool;
+    return tool === "agent" ? undefined : (tool ?? "files");
   });
   const panes = createMemo(() => state().panes);
 
@@ -244,15 +236,6 @@ export const workbenchBunja = bunja(() => {
     return addToolTab(paneId, "daemon");
   }
 
-  function addAgentTab(
-    paneId: string,
-    config: WorkbenchAgentTabConfig = {},
-  ): string {
-    const tab = createAgentTab(config);
-    updateState((current) => openTabInPane(current, paneId, tab));
-    return tab.id;
-  }
-
   function addProcessesTab(
     paneId: string,
     config: WorkbenchProcessesTabConfig = {},
@@ -293,29 +276,6 @@ export const workbenchBunja = bunja(() => {
     updateState((current) => openToolTabInActivePane(current, "daemon"));
   }
 
-  function openAgentTab(config: WorkbenchAgentTabConfig = {}) {
-    updateState((current) => {
-      const activePane = activePaneFromState(current);
-      if (!activePane) return current;
-      const existing = activePane.tabs.find(
-        (tab) =>
-          tab.tool === "agent" && tab.agentSessionId === config.sessionId,
-      );
-      if (existing) {
-        return {
-          ...current,
-          activePaneId: activePane.id,
-          panes: current.panes.map((pane) =>
-            pane.id === activePane.id
-              ? activatePaneTab(pane, existing.id)
-              : pane,
-          ),
-        };
-      }
-      return openTabInPane(current, activePane.id, createAgentTab(config));
-    });
-  }
-
   function openProcessesTab(config: WorkbenchProcessesTabConfig = {}) {
     const tab = createProcessesTab(config);
     updateState((current) => openTabInActivePane(current, tab));
@@ -340,33 +300,6 @@ export const workbenchBunja = bunja(() => {
               tabs: pane.tabs.map((tab) =>
                 tab.id === tabId && tab.tool === "terminal"
                   ? { ...tab, terminalSessionId }
-                  : tab,
-              ),
-            }
-          : pane,
-      ),
-    }));
-  }
-
-  function setAgentSession(
-    paneId: string,
-    tabId: string,
-    sessionId: string,
-    title?: string,
-  ) {
-    updateState((current) => ({
-      ...current,
-      panes: current.panes.map((pane) =>
-        pane.id === paneId
-          ? {
-              ...pane,
-              tabs: pane.tabs.map((tab) =>
-                tab.id === tabId && tab.tool === "agent"
-                  ? {
-                      ...tab,
-                      agentSessionId: sessionId,
-                      title: title ?? tab.title,
-                    }
                   : tab,
               ),
             }
@@ -701,7 +634,7 @@ export const workbenchBunja = bunja(() => {
   return {
     layout,
     activeTool,
-    activeAgentSessionId,
+
     activePaneId,
     panes,
     setLayout,
@@ -710,13 +643,13 @@ export const workbenchBunja = bunja(() => {
     addPane,
     removePane,
     addDaemonTab,
-    addAgentTab,
+
     addFilesTab,
     addProcessesTab,
     addWindowsTab,
     addTerminalTab,
     openDaemonTab,
-    openAgentTab,
+
     openFilesTab,
     openProcessesTab,
     openTerminalTab,
@@ -726,7 +659,7 @@ export const workbenchBunja = bunja(() => {
     closeTab,
     moveTab,
     moveTabToNewPane,
-    setAgentSession,
+
     setDaemonClientDetailId,
     setDaemonClientsPageOpen,
     setProcessDetailPid,
@@ -761,10 +694,6 @@ export const workbenchPaneBunja = bunja(() => {
 
   function addDaemonTab(): string {
     return workbench.addDaemonTab(paneId);
-  }
-
-  function addAgentTab(config: WorkbenchAgentTabConfig = {}): string {
-    return workbench.addAgentTab(paneId, config);
   }
 
   function addProcessesTab(config: WorkbenchProcessesTabConfig = {}): string {
@@ -828,10 +757,6 @@ export const workbenchPaneBunja = bunja(() => {
     workbench.setTerminalSessionId(paneId, tabId, terminalSessionId);
   }
 
-  function setAgentSession(tabId: string, sessionId: string, title?: string) {
-    workbench.setAgentSession(paneId, tabId, sessionId, title);
-  }
-
   function setTerminalSessionSnapshot(
     tabId: string,
     snapshot: WorkbenchTerminalSessionSnapshot,
@@ -882,7 +807,7 @@ export const workbenchPaneBunja = bunja(() => {
     active,
     addPane,
     addDaemonTab,
-    addAgentTab,
+
     addFilesTab,
     addProcessesTab,
     addWindowsTab,
@@ -894,7 +819,7 @@ export const workbenchPaneBunja = bunja(() => {
     duplicateTab,
     moveTab,
     moveTabToNewPane,
-    setAgentSession,
+
     setDaemonClientDetailId,
     setDaemonClientsPageOpen,
     setProcessDetailPid,
@@ -931,10 +856,6 @@ export const workbenchTabBunja = bunja(() => {
 
   function setTerminalSessionId(terminalSessionId: string | undefined) {
     pane.setTerminalSessionId(tabId, terminalSessionId);
-  }
-
-  function setAgentSession(sessionId: string, title?: string) {
-    pane.setAgentSession(tabId, sessionId, title);
   }
 
   function setTerminalSessionSnapshot(
@@ -976,7 +897,7 @@ export const workbenchTabBunja = bunja(() => {
     focused,
     showClose,
     selectTab,
-    setAgentSession,
+
     setDaemonClientDetailId,
     setDaemonClientsPageOpen,
     setProcessDetailPid,
@@ -1168,15 +1089,6 @@ function createTerminalTab(config: WorkbenchTerminalTabConfig): WorkbenchTab {
   };
 }
 
-function createAgentTab(config: WorkbenchAgentTabConfig = {}): WorkbenchTab {
-  return {
-    agentSessionId: config.sessionId,
-    id: `agent-${crypto.randomUUID()}`,
-    title: config.title ?? "Agent",
-    tool: "agent",
-  };
-}
-
 function createWorkbenchTab(tool: WorkbenchTool): WorkbenchTab {
   return {
     id: `${tool}-${crypto.randomUUID()}`,
@@ -1187,8 +1099,6 @@ function createWorkbenchTab(tool: WorkbenchTool): WorkbenchTab {
 
 function titleForTool(tool: WorkbenchTool): string {
   switch (tool) {
-    case "agent":
-      return "Agent";
     case "daemon":
       return "Daemon";
     case "files":

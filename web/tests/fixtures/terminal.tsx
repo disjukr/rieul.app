@@ -163,7 +163,6 @@ const overrides = [
       focused: createSignal(false)[0],
       showClose: createSignal(false)[0],
       selectTab: unused,
-      setAgentSession: unused,
       setDaemonClientDetailId: unused,
       setDaemonClientsPageOpen: unused,
       setProcessDetailPid: unused,

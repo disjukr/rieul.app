@@ -1,10 +1,9 @@
-import { Dynamic, type JSX } from "@solidjs/web";
+import { Dynamic } from "@solidjs/web";
 import { createMemo, createSignal } from "solid-js";
 import type { AvailableShellInfo } from "../../protocol/generated/rpc.ts";
 import {
   Activity,
   AppWindow,
-  Bot,
   CheckCircle2,
   CircuitBoard,
   Cpu,
@@ -30,7 +29,6 @@ import { type Machine, type MachineIconName } from "../../state/machines.ts";
 import type { DaemonInfoState } from "../../state/rpc-session.ts";
 import type { ConnectionState } from "../../state/types.ts";
 import type {
-  WorkbenchAgentTabConfig,
   WorkbenchFilesTabConfig,
   WorkbenchPane,
   WorkbenchTab,
@@ -213,7 +211,6 @@ const topbarTools: {
   tool: WorkbenchTool;
 }[] = [
   { icon: Radio, label: "Daemon", tool: "daemon" },
-  { icon: Bot, label: "Agent", tool: "agent" },
   { icon: Folder, label: "Files", tool: "files" },
   { icon: Terminal, label: "Terminal", tool: "terminal" },
   { icon: AppWindow, label: "Windows", tool: "windows" },
@@ -236,8 +233,7 @@ const machineIconOptions: {
 ];
 
 interface AppTopbarProps {
-  activeTool: WorkbenchTool;
-  agentRail: JSX.Element;
+  activeTool?: WorkbenchTool;
   connection?: ConnectionState;
   daemonInfo: DaemonInfoState;
   machine?: Machine;
@@ -247,7 +243,6 @@ interface AppTopbarProps {
   selectedMachineId?: string;
   terminalShells: AvailableShellInfo[];
   onAddMachine: () => void;
-  onOpenAgentTab: (config?: WorkbenchAgentTabConfig) => void;
   onOpenDaemonTab: () => void;
   onOpenFilesTab: (config?: WorkbenchFilesTabConfig) => void;
   onOpenProcessesTab: () => void;
@@ -288,7 +283,6 @@ export function AppTopbar(componentProps: AppTopbarProps) {
       componentProps.terminalShells[0],
   );
   const openToolTab = createMemo(() => ({
-    agent: componentProps.onOpenAgentTab,
     daemon: componentProps.onOpenDaemonTab,
     files: componentProps.onOpenFilesTab,
     processes: componentProps.onOpenProcessesTab,
@@ -902,7 +896,6 @@ export function AppTopbar(componentProps: AppTopbarProps) {
             {renderToolLaunchers()}
           </nav>
         </div>
-        {componentProps.agentRail}
       </header>
       {renderToolMenu()}
       {renderConnectionPopover()}
@@ -1026,16 +1019,20 @@ function latestTabTarget(
   return undefined;
 }
 
-function ToolIcon(props: { size: number; tool: WorkbenchTool }) {
+function ToolIcon(props: { size: number; tool: WorkbenchTab["tool"] }) {
   const icons = {
     terminal: Terminal,
-    agent: Bot,
     windows: AppWindow,
     processes: Activity,
     files: Folder,
     daemon: Radio,
   };
-  return <Dynamic component={icons[props.tool]} size={props.size} />;
+  return (
+    <Dynamic
+      component={props.tool === "agent" ? Radio : icons[props.tool]}
+      size={props.size}
+    />
+  );
 }
 
 function hasToolMenu(tool: WorkbenchTool): boolean {

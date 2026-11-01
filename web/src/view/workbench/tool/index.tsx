@@ -2,7 +2,6 @@ import { createMemo } from "solid-js";
 
 import { useBunja } from "bunja/solid";
 import { workbenchTabBunja } from "../../../state/workbench.ts";
-import { AgentTool } from "./agent/index.tsx";
 import { DaemonTool } from "./daemon/index.tsx";
 import { FilesTool } from "./files/index.tsx";
 import { ProcessesTool } from "./processes/index.tsx";
@@ -17,7 +16,12 @@ export function WorkbenchToolContent() {
       {(() => {
         if (!tool()) return null;
         if (tool() === "agent") {
-          return <AgentTool />;
+          return (
+            <div class="p-4 text-rieul-text-2" role="status">
+              This saved tab is no longer available. Close it or open another
+              tool.
+            </div>
+          );
         }
         if (tool() === "daemon") {
           return <DaemonTool />;
