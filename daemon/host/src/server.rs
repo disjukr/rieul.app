@@ -1,3 +1,4 @@
+mod desktop_rpc;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
 use std::future::Future;
@@ -355,6 +356,7 @@ async fn run_system_server_once(
     let connections = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let mut maintenance_tick = tokio::time::interval(std::time::Duration::from_millis(250));
     let admission = Arc::new(crate::maintenance::WorkGate::default());
+    let desktop = crate::desktop::Runtime::new(admission.clone(), None);
     let (disconnect_tx, _) = watch::channel(0u64);
     let mut drain: Option<(
         String,
@@ -417,6 +419,7 @@ async fn run_system_server_once(
         let activity = connections.clone();
         let updates = updates.clone();
         let admission = admission.clone();
+        let desktop = desktop.clone();
         let disconnect = disconnect_tx.subscribe();
         let config_path = config_path.clone();
         let credentials_path = credentials_path.clone();
@@ -459,6 +462,7 @@ async fn run_system_server_once(
                 activity,
                 updates,
                 admission,
+                desktop,
                 disconnect,
             )
             .await
@@ -1016,6 +1020,7 @@ async fn handle_request(
     activity: Arc<std::sync::atomic::AtomicUsize>,
     updates: SharedUpdater,
     admission: Arc<crate::maintenance::WorkGate>,
+    desktop: Arc<crate::desktop::Runtime>,
     disconnect: watch::Receiver<u64>,
 ) -> Result<()> {
     let path = request.url.path().to_string();
@@ -1044,6 +1049,7 @@ async fn handle_request(
                 activity,
                 updates,
                 admission,
+                desktop,
                 disconnect,
             )
             .await
@@ -1077,14 +1083,21 @@ async fn run_rpc_session(
     activity: Arc<std::sync::atomic::AtomicUsize>,
     updates: SharedUpdater,
     admission: Arc<crate::maintenance::WorkGate>,
+    desktop: Arc<crate::desktop::Runtime>,
     mut disconnect: watch::Receiver<u64>,
 ) -> Result<()> {
     let session_state = Arc::new(Mutex::new(RpcSessionState {
         session_id: next_rpc_session_id(),
         authenticated_client_id: None,
     }));
+    let mut desktop_tick = tokio::time::interval(Duration::from_millis(100));
+    let _desktop_cleanup = desktop_rpc::ConnectionCleanup {
+        runtime: desktop.clone(),
+        connection: rpc_session_id(&session_state).await,
+    };
     loop {
         tokio::select! {
+            _=desktop_tick.tick()=>{desktop_rpc::expire(&desktop, &credentials_path, &client_credentials).await;}
             _=disconnect.changed()=>{session.close(0,b"Confirmed server update");return Ok(());}
             stream = session.accept_bi() => {
                 let (send, recv) = stream?;
@@ -1109,6 +1122,7 @@ async fn run_rpc_session(
                 let stream_session = session.clone();
                 let updates=updates.clone();
                 let admission=admission.clone();
+                let desktop=desktop.clone();
                 let stream_guard=crate::maintenance::ConnectionGuard::new(activity.clone());
                 tokio::spawn(async move {
                     let _stream_guard=stream_guard;
@@ -1137,6 +1151,7 @@ async fn run_rpc_session(
                             pairing_notifier,
                             updates,
                             admission,
+                            desktop,
                         )
                         .await?;
                         Result::<()>::Ok(())
@@ -1183,6 +1198,13 @@ fn build_rpc_handlers(
 ) -> HostRpcHandlers {
     let mut handlers = RpcHandlers::new()
         .get_daemon_info(HostRpcHandler::get_daemon_info_rpc)
+        .get_desktop_capabilities(HostRpcHandler::get_desktop_capabilities_rpc)
+        .attach_desktop(HostRpcHandler::attach_desktop_rpc)
+        .configure_desktop_viewports(HostRpcHandler::configure_desktop_viewports_rpc)
+        .set_desktop_control(HostRpcHandler::set_desktop_control_rpc)
+        .renew_desktop_lease(HostRpcHandler::renew_desktop_lease_rpc)
+        .detach_desktop(HostRpcHandler::detach_desktop_rpc)
+        .write_desktop_input(HostRpcHandler::write_desktop_input_rpc)
         .get_update_status(HostRpcHandler::get_update_status_rpc)
         .request_update(HostRpcHandler::request_update_rpc)
         .get_daemon_environment(HostRpcHandler::get_daemon_environment_rpc)
@@ -1270,6 +1292,8 @@ struct ReqResMessageReader {
     buffer: Vec<u8>,
     bytes_read: usize,
     finished: bool,
+    max_buffer: usize,
+    max_total: usize,
 }
 
 impl ReqResMessageReader {
@@ -1279,7 +1303,18 @@ impl ReqResMessageReader {
             buffer: Vec::new(),
             bytes_read: 0,
             finished: false,
+            max_buffer: MAX_MESSAGE_SEQUENCE_SIZE,
+            max_total: MAX_MESSAGE_SEQUENCE_SIZE,
         }
+    }
+
+    fn desktop_limits(&mut self) -> Result<()> {
+        self.max_buffer = crate::desktop::MAX_FRAME + 128;
+        self.max_total = crate::desktop::MAX_STREAM;
+        if self.buffer.len() > self.max_buffer || self.bytes_read > self.max_total {
+            bail!("desktop input limit exceeded");
+        }
+        Ok(())
     }
 
     async fn next(&mut self) -> Result<Option<ReqResMessage>> {
@@ -1300,7 +1335,9 @@ impl ReqResMessageReader {
 
     async fn read_more(&mut self) -> Result<()> {
         let mut chunk = [0u8; 8192];
-        let Some(len) = self.recv.read(&mut chunk).await? else {
+        let capacity = self.max_buffer.saturating_sub(self.buffer.len()).min(chunk.len());
+        if capacity == 0 { bail!("reqres frame exceeds implementation limit"); }
+        let Some(len) = self.recv.read(&mut chunk[..capacity]).await? else {
             self.finished = true;
             return Ok(());
         };
@@ -1309,10 +1346,15 @@ impl ReqResMessageReader {
             return Ok(());
         }
         self.bytes_read += len;
-        if self.bytes_read > MAX_MESSAGE_SEQUENCE_SIZE {
+        if self.bytes_read > self.max_total || self.buffer.len() + len > self.max_buffer {
             bail!("reqres message sequence exceeds implementation limit");
         }
         self.buffer.extend_from_slice(&chunk[..len]);
+        // Canonical desktop v1 start: kind=1, map(2), procId field=1, uint(72).
+        // Apply its small bound before buffering the complete CBOR byte string.
+        if self.buffer.starts_with(&[1, 0xa2, 1, 0x18, 72]) {
+            self.desktop_limits()?;
+        }
         Ok(())
     }
 }
@@ -1382,6 +1424,7 @@ async fn handle_reqres_messages_with_events(
     let rpc_handlers = Arc::new(build_rpc_handlers(windows.as_ref(), None, None, None));
     let context = HostRpcContext {
         updates: None,
+        desktop: crate::desktop::Runtime::new(Arc::new(crate::maintenance::WorkGate::default()), None),
         session: None,
         config_path: config_path.to_path_buf(),
         credentials_path: credentials_path.to_path_buf(),
@@ -1429,9 +1472,11 @@ async fn handle_reqres_stream(
     pairing_notifier: Option<SharedPairingNotifier>,
     updates: SharedUpdater,
     admission: Arc<crate::maintenance::WorkGate>,
+    desktop: Arc<crate::desktop::Runtime>,
 ) -> Result<()> {
     let context = HostRpcContext {
         updates,
+        desktop,
         session: Some(session),
         config_path,
         credentials_path,
@@ -1542,6 +1587,9 @@ async fn handle_reqres_stream(
             Ok(())
         }
         ReqResMessage::RequestStreamStart { proc_id, payload } => {
+            if proc_id == ProcId::WriteDesktopInput.as_u64() {
+                reader.desktop_limits()?;
+            }
             let responses = dispatch_client_stream_rpc(
                 proc_id,
                 payload,
@@ -1572,6 +1620,7 @@ async fn handle_reqres_stream(
 #[derive(Clone)]
 struct HostRpcContext {
     updates: SharedUpdater,
+    desktop: Arc<crate::desktop::Runtime>,
     session: Option<web_transport_quinn::Session>,
     config_path: PathBuf,
     credentials_path: PathBuf,
@@ -1797,6 +1846,7 @@ async fn dispatch_client_stream_rpc(
 
 struct HostRpcHandler {
     updates: SharedUpdater,
+    desktop: Arc<crate::desktop::Runtime>,
     session: Option<web_transport_quinn::Session>,
     config_path: PathBuf,
     credentials_path: PathBuf,
@@ -1844,6 +1894,7 @@ impl HostRpcHandler {
     ) -> Self {
         HostRpcHandler {
             updates: context.updates,
+            desktop: context.desktop,
             session: context.session,
             config_path: context.config_path,
             credentials_path: context.credentials_path,
@@ -4061,6 +4112,7 @@ async fn handle_rpc_messages_with_events(
     let rpc_handlers = Arc::new(build_rpc_handlers(None, None, None, None));
     let context = HostRpcContext {
         updates: None,
+        desktop: crate::desktop::Runtime::new(Arc::new(crate::maintenance::WorkGate::default()), None),
         session: None,
         config_path: config_path.to_path_buf(),
         credentials_path: credentials_path.to_path_buf(),
@@ -5206,8 +5258,9 @@ async fn load_runtime_client_credentials(
     credentials_path: &Path,
     client_credentials: &SharedClientCredentials,
 ) -> Result<ClientCredentials> {
+    let mut current = client_credentials.lock().await;
     let state = load_client_credentials_or_default(credentials_path)?;
-    *client_credentials.lock().await = state.clone();
+    *current = state.clone();
     Ok(state)
 }
 
@@ -5288,8 +5341,9 @@ async fn store_runtime_client_credentials(
     client_credentials_events: &SharedClientCredentialsEvents,
     state: ClientCredentials,
 ) -> Result<()> {
+    let mut current = client_credentials.lock().await;
     save_client_credentials(credentials_path, &state)?;
-    *client_credentials.lock().await = state.clone();
+    *current = state.clone();
     let _ = client_credentials_events.send(state);
     Ok(())
 }
@@ -6926,11 +6980,11 @@ mod tests {
         }
     }
 
-    fn test_files() -> SharedFileService {
+    pub(super) fn test_files() -> SharedFileService {
         Arc::new(TestFileService)
     }
 
-    fn test_terminals() -> SharedTerminalManager {
+    pub(super) fn test_terminals() -> SharedTerminalManager {
         Arc::new(TerminalManager::new(
             std::env::temp_dir().join("Rieul-test-shell-integration"),
         ))

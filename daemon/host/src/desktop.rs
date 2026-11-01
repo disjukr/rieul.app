@@ -116,7 +116,7 @@ impl<I: Input> Desktop<I> {
         );
         Ok(id)
     }
-    fn authorize(
+    pub(crate) fn authorize(
         &mut self,
         auth: &impl Credentials,
         connection: u64,
@@ -773,5 +773,302 @@ mod viewport_tests {
             },
         )
         .unwrap();
+    }
+}
+
+/// Platform adapters return only features actually implemented and OS-authorized.
+/// The default server has no adapter; constructing a fixture never touches an OS desktop.
+pub trait Backend: Send + Sync {
+    fn capabilities(&self) -> rieul_daemon_core::generated::rpc::DesktopCapabilities;
+    fn displays(&self) -> Vec<rieul_daemon_core::generated::rpc::DesktopDisplay>;
+    fn input(&self, event: &DesktopInputEvent) -> Result<(), Error>;
+    /// Produce one independent closed GOP. The caller never queues another GOP.
+    fn group(
+        &self,
+        _track: &rieul_daemon_core::generated::rpc::DesktopTrack,
+    ) -> Result<Vec<EncodedFrame>, Error> {
+        Err(Error::Unsupported)
+    }
+}
+pub struct EncodedFrame {
+    pub timestamp_micros: u64,
+    pub keyframe: bool,
+    pub data: Vec<u8>,
+}
+impl EncodedFrame {
+    pub fn new(timestamp_micros: u64, keyframe: bool, data: Vec<u8>) -> Self {
+        Self {
+            timestamp_micros,
+            keyframe,
+            data,
+        }
+    }
+}
+
+pub(crate) struct BackendInput(Option<Arc<dyn Backend>>);
+impl Input for BackendInput {
+    fn send(&mut self, event: &DesktopInputEvent) -> Result<(), Error> {
+        self.0.as_ref().ok_or(Error::Unsupported)?.input(event)
+    }
+}
+/// Owned by one daemon runtime. All controllers share this one state machine.
+pub struct Runtime {
+    state: std::sync::Mutex<Desktop<BackendInput>>,
+    backend: Option<Arc<dyn Backend>>,
+    pub(crate) changed: tokio::sync::watch::Sender<u64>,
+    streams: std::sync::Mutex<BTreeSet<String>>,
+    codecs: std::sync::Mutex<BTreeMap<String, rieul_daemon_core::generated::rpc::DesktopCodec>>,
+    configurations:
+        std::sync::Mutex<BTreeMap<String, rieul_daemon_core::generated::rpc::DesktopConfiguration>>,
+    gate: Arc<WorkGate>,
+    next_codec_epoch: std::sync::Mutex<u64>,
+}
+impl Runtime {
+    pub fn new(gate: Arc<WorkGate>, backend: Option<Arc<dyn Backend>>) -> Arc<Self> {
+        let (changed, _) = tokio::sync::watch::channel(0);
+        Arc::new(Self {
+            state: std::sync::Mutex::new(Desktop::new(gate.clone(), BackendInput(backend.clone()))),
+            backend,
+            changed,
+            streams: Default::default(),
+            codecs: Default::default(),
+            configurations: Default::default(),
+            gate,
+            next_codec_epoch: std::sync::Mutex::new(0),
+        })
+    }
+    pub fn capabilities(&self) -> rieul_daemon_core::generated::rpc::DesktopCapabilities {
+        use rieul_daemon_core::generated::rpc::*;
+        self.backend
+            .as_ref()
+            .map(|b| b.capabilities())
+            .unwrap_or(DesktopCapabilities {
+                profile: PROFILE,
+                capture: DesktopAvailability::Unsupported,
+                input: DesktopAvailability::Unsupported,
+                codecs: vec![],
+                composition: false,
+                relative_pointer: false,
+                max_viewports: MAX_VIEWPORTS as u64,
+                max_input_frame_bytes: MAX_FRAME as u64,
+                max_input_stream_bytes: MAX_STREAM as u64,
+                reason: Some("No desktop backend is active in this daemon user session".into()),
+            })
+    }
+    pub(crate) fn mutate<T>(
+        &self,
+        run: impl FnOnce(&mut Desktop<BackendInput>) -> Result<T, Error>,
+    ) -> Result<T, Error> {
+        let mut d = self.state.lock().map_err(|_| Error::Backend)?;
+        let result = run(&mut d);
+        self.codecs
+            .lock()
+            .map_err(|_| Error::Backend)?
+            .retain(|id, _| d.attachments.contains_key(id));
+        self.configurations
+            .lock()
+            .map_err(|_| Error::Backend)?
+            .retain(|id, _| d.attachments.contains_key(id));
+        self.changed.send_modify(|n| *n = n.wrapping_add(1));
+        result
+    }
+    pub(crate) fn attach(
+        &self,
+        auth: &impl Credentials,
+        connection: u64,
+        client: &str,
+        now: u64,
+        request: &rieul_daemon_core::generated::rpc::AttachDesktopReq,
+    ) -> Result<rieul_daemon_core::generated::rpc::DesktopEvent, Error> {
+        use rieul_daemon_core::generated::rpc::*;
+        let caps = self.capabilities();
+        if request.profile != PROFILE
+            || !request.media_uni_streams
+            || caps.capture != DesktopAvailability::Available
+            || !caps
+                .codecs
+                .iter()
+                .any(|c| request.codecs.contains(&c.codec))
+        {
+            return Err(Error::Unsupported);
+        }
+        self.mutate(|d| {
+            let id = d.attach(auth, connection, client, request.keyboard_mode, now)?;
+            self.codecs.lock().map_err(|_| Error::Backend)?.insert(
+                id.clone(),
+                caps.codecs
+                    .iter()
+                    .find(|c| request.codecs.contains(&c.codec))
+                    .unwrap()
+                    .clone(),
+            );
+            Ok(DesktopEvent::Attached {
+                attach_id: id,
+                layout_epoch: d.layout_epoch,
+                displays: self.backend.as_ref().unwrap().displays(),
+                control: DesktopControl {
+                    holder_attach_id: d.holder.clone(),
+                    input_epoch: d.epoch,
+                },
+                lease_ms: LEASE_MS,
+            })
+        })
+    }
+    pub(crate) fn control(
+        &self,
+    ) -> Result<rieul_daemon_core::generated::rpc::DesktopControl, Error> {
+        let d = self.state.lock().map_err(|_| Error::Backend)?;
+        Ok(rieul_daemon_core::generated::rpc::DesktopControl {
+            holder_attach_id: d.holder.clone(),
+            input_epoch: d.epoch,
+        })
+    }
+    pub(crate) fn is_empty(&self) -> bool {
+        self.state
+            .lock()
+            .map(|d| d.attachments.is_empty())
+            .unwrap_or(false)
+    }
+    pub(crate) fn has(&self, id: &str) -> bool {
+        self.state
+            .lock()
+            .map(|d| d.attachments.contains_key(id))
+            .unwrap_or(false)
+    }
+    pub(crate) fn close(&self, connection: u64) {
+        let _ = self.mutate(|d| d.disconnect(connection));
+    }
+    pub(crate) fn remove(&self, id: &str) {
+        let _ = self.mutate(|d| d.remove(id));
+    }
+    pub(crate) fn begin_input(self: &Arc<Self>, id: &str) -> Result<InputGuard, Error> {
+        if !self
+            .streams
+            .lock()
+            .map_err(|_| Error::Backend)?
+            .insert(id.into())
+        {
+            return Err(Error::Busy);
+        }
+        let epoch = self.control()?.input_epoch;
+        Ok(InputGuard {
+            runtime: self.clone(),
+            id: id.into(),
+            epoch,
+            complete: false,
+        })
+    }
+}
+pub(crate) struct InputGuard {
+    runtime: Arc<Runtime>,
+    id: String,
+    epoch: u64,
+    pub complete: bool,
+}
+impl Drop for InputGuard {
+    fn drop(&mut self) {
+        if !self.complete {
+            let _ = self.runtime.mutate(|d| {
+                if d.holder.as_deref() == Some(&self.id) && d.epoch == self.epoch {
+                    d.release()?;
+                }
+                Ok(())
+            });
+        }
+        if let Ok(mut streams) = self.runtime.streams.lock() {
+            streams.remove(&self.id);
+        }
+    }
+}
+
+impl Runtime {
+    pub(crate) fn configuration(
+        &self,
+        id: &str,
+    ) -> Option<rieul_daemon_core::generated::rpc::DesktopConfiguration> {
+        self.configurations.lock().ok()?.get(id).cloned()
+    }
+    pub(crate) fn configure(
+        &self,
+        auth: &impl Credentials,
+        connection: u64,
+        now: u64,
+        request: rieul_daemon_core::generated::rpc::ConfigureDesktopViewportsReq,
+    ) -> Result<rieul_daemon_core::generated::rpc::DesktopConfiguration, Error> {
+        use rieul_daemon_core::generated::rpc::*;
+        let backend = self.backend.as_ref().ok_or(Error::Unsupported)?;
+        let displays = backend.displays();
+        self.mutate(|d| {
+            d.authorize(auth, connection, &request.attach_id, now)?;
+            for v in &request.viewports {
+                let display = displays
+                    .iter()
+                    .find(|display| display.display_id == v.display_id)
+                    .ok_or(Error::Invalid)?;
+                // Crop is display-local pixels, independent of global display origin/DPI.
+                if v.crop.x < 0
+                    || v.crop.y < 0
+                    || (v.crop.x as u64)
+                        .checked_add(v.crop.width)
+                        .filter(|n| *n <= display.bounds.width)
+                        .is_none()
+                    || (v.crop.y as u64)
+                        .checked_add(v.crop.height)
+                        .filter(|n| *n <= display.bounds.height)
+                        .is_none()
+                {
+                    return Err(Error::Invalid);
+                }
+            }
+            let codec = self
+                .codecs
+                .lock()
+                .map_err(|_| Error::Backend)?
+                .get(&request.attach_id)
+                .cloned()
+                .ok_or(Error::NotFound)?;
+            let mut counter = self.next_codec_epoch.lock().map_err(|_| Error::Backend)?;
+            *counter = counter
+                .checked_add(1)
+                .filter(|n| *n <= MAX_SAFE)
+                .ok_or(Error::Limit)?;
+            let epoch = *counter;
+            drop(counter);
+            d.configure(
+                auth,
+                connection,
+                &request.attach_id,
+                now,
+                request.layout_epoch,
+                request.viewports.clone(),
+                request.total_bitrate,
+            )?;
+            let configuration = DesktopConfiguration {
+                layout_epoch: request.layout_epoch,
+                total_bitrate: request.total_bitrate,
+                tracks: request
+                    .viewports
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, viewport)| DesktopTrack {
+                        track_id: i as u64 + 1,
+                        viewport,
+                        codec: codec.clone(),
+                        codec_epoch: epoch,
+                    })
+                    .collect(),
+            };
+            self.configurations
+                .lock()
+                .map_err(|_| Error::Backend)?
+                .insert(request.attach_id, configuration.clone());
+            Ok(configuration)
+        })
+    }
+    pub(crate) fn capture_work(&self) -> Option<WorkGuard> {
+        self.gate.enter()
+    }
+    pub(crate) fn backend(&self) -> Option<Arc<dyn Backend>> {
+        self.backend.clone()
     }
 }
