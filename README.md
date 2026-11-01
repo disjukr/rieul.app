@@ -30,7 +30,7 @@ Before installing Rieul:
    [HTTPS certificates](https://tailscale.com/docs/how-to/set-up-https-certificates)
    are enabled for your tailnet.
 
-On macOS:
+On macOS 13 or later (Apple Silicon / arm64 only; Intel Macs are unsupported):
 
 ```sh
 curl -fsSL https://rieul.app/install.sh | sh
@@ -72,7 +72,7 @@ The goal is to make remote machine operation more direct and inspectable:
 Rieul is under active development. Until the 1.0 release, backward compatibility
 is not guaranteed.
 
-The project currently focuses on desktop environments. Windows and macOS
+The project currently focuses on desktop environments. Windows x64 and Apple Silicon macOS
 packages install the system daemon plus a per-user desktop helper. A web client
 with mobile support is also available for connecting to paired daemons from the
 browser.

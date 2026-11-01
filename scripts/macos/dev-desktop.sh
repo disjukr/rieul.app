@@ -9,6 +9,7 @@ WEB_URL="http://127.0.0.1:$WEB_PORT"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+source "$SCRIPT_DIR/require-arm64.sh"
 TMP_DIR="$REPO_ROOT/tmp/dev"
 LOG_DIR="$REPO_ROOT/tmp/log"
 CONFIG_PATH="$TMP_DIR/rieul.yaml"
@@ -98,7 +99,7 @@ if [[ "$WEB_READY" != "1" ]]; then
   exit 1
 fi
 
-echo "Starting rieul macOS GPUiX pairing utility"
+echo "Starting rieul macOS native GPUI pairing utility"
 "$GUI_EXE" --config "$CONFIG_PATH" --show >"$GUI_OUT_LOG" 2>"$GUI_ERR_LOG" &
 GUI_PID="$!"
 echo "$GUI_PID" >"$GUI_PID_FILE"

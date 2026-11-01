@@ -18,7 +18,7 @@ Options:
   --out-dir DIR         Output directory. Defaults to dist/macos.
   --app-name NAME       App bundle display name. Defaults to "Rieul".
   --sign IDENTITY       Code signing identity for codesign.
-  --skip-build          Reuse target/release daemon binaries and GPUiX pairing app.
+  --skip-build          Reuse target/release daemon binaries and GPUI pairing app.
   --skip-dmg            Build only the .app bundle.
   --gui-app PATH        Use an already built candidate app (requires --skip-build).
   -h, --help            Show this help.
@@ -125,6 +125,7 @@ done
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+source "$SCRIPT_DIR/require-arm64.sh"
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
   echo "macOS app/dmg packaging must be built on macOS." >&2
@@ -169,12 +170,15 @@ if [[ ! -x "$LAUNCHER_EXE" ]]; then
   exit 1
 fi
 if [[ ! -d "$GUI_APP" ]]; then
-  echo "Missing GPUiX pairing app: $GUI_APP" >&2
+  echo "Missing GPUI pairing app: $GUI_APP" >&2
   exit 1
 fi
 if [[ ! -f "$GUI_APP/Contents/Resources/pairing/bundle.json" ]]; then
   echo "Missing native pairing bundle manifest" >&2; exit 1
 fi
+for binary in "$SYSTEM_EXE" "$LAUNCHER_EXE" "$GUI_APP/Contents/MacOS/rieul-gui"; do
+  [[ "$(/usr/bin/lipo -archs "$binary")" == "arm64" ]] || { echo "Unsupported macOS binary architecture (arm64 only): $binary" >&2; exit 1; }
+done
 "$GUI_APP/Contents/MacOS/rieul-gui" --verify-bundle
 
 SYSTEM_LABEL="app.rieul.daemon"
@@ -212,7 +216,7 @@ mkdir -p "$APP_PATH/Contents/Library/LaunchServices"
 
 GUI_EXECUTABLE_NAME="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP_PATH/Contents/Info.plist")"
 if [[ -z "$GUI_EXECUTABLE_NAME" || ! -x "$APP_PATH/Contents/MacOS/$GUI_EXECUTABLE_NAME" ]]; then
-  echo "GPUiX pairing app has no executable CFBundleExecutable." >&2
+  echo "GPUI pairing app has no executable CFBundleExecutable." >&2
   exit 1
 fi
 
@@ -231,6 +235,11 @@ fi
 cat >"$APP_PATH/Contents/Resources/install" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
+
+if [ "\$(/usr/sbin/sysctl -n hw.optional.arm64 2>/dev/null || true)" != "1" ]; then
+  echo "Unsupported platform: Rieul macOS requires Apple Silicon (arm64); Intel Macs are not supported." >&2
+  exit 1
+fi
 
 if [[ "\${EUID:-\$(/usr/bin/id -u)}" -ne 0 ]]; then
   exec /usr/bin/sudo /bin/bash "\$0" "\$@"
@@ -449,36 +458,6 @@ plutil -lint \
   "$APP_PATH/Contents/Resources/$SYSTEM_LABEL.plist" \
   "$APP_PATH/Contents/Resources/$GUI_LABEL.plist" >/dev/null
 
-RUNTIME_ENTITLEMENTS="$STAGING_DIR/runtime.entitlements"
-cat >"$RUNTIME_ENTITLEMENTS" <<'EOF'
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>com.apple.security.cs.allow-jit</key>
-  <true/>
-</dict>
-</plist>
-EOF
-plutil -lint "$RUNTIME_ENTITLEMENTS" >/dev/null
-
-# Bun's FFI compiles native call wrappers with TinyCC. Keep its memory
-# exception on the Bun executable only; do not relax library validation.
-BUN_ENTITLEMENTS="$STAGING_DIR/bun.entitlements"
-cat >"$BUN_ENTITLEMENTS" <<'EOF'
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>com.apple.security.cs.allow-jit</key>
-  <true/>
-  <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
-  <true/>
-</dict>
-</plist>
-EOF
-plutil -lint "$BUN_ENTITLEMENTS" >/dev/null
-
 if [[ -n "$SIGN_IDENTITY" && "$SIGN_IDENTITY" != "-" ]]; then
   codesign_args=(--force --options runtime --timestamp --sign "$SIGN_IDENTITY")
 elif [[ -n "$SIGN_IDENTITY" ]]; then
@@ -486,33 +465,14 @@ elif [[ -n "$SIGN_IDENTITY" ]]; then
 else
   codesign_args=(--force --sign -)
 fi
-runtime_codesign_args=("${codesign_args[@]}")
-if [[ -n "$SIGN_IDENTITY" ]]; then
-  runtime_codesign_args+=(--entitlements "$RUNTIME_ENTITLEMENTS")
-fi
-bun_codesign_args=("${codesign_args[@]}")
-if [[ -n "$SIGN_IDENTITY" ]]; then
-  bun_codesign_args+=(--entitlements "$BUN_ENTITLEMENTS")
-fi
-
 # Normalize unsigned staging before any signatures are made.
 node "$REPO_ROOT/pairing/scripts/bundle-permissions.mjs" normalize "$APP_PATH"
-# Every runtime/addon/bridge is signed before the enclosing app.
-while IFS= read -r -d '' native_file; do
-  if /usr/bin/file -b "$native_file" | grep -q 'Mach-O'; then
-    if [[ "$native_file" == "$APP_PATH/Contents/Resources/pairing/runtime/bun" ]]; then
-      codesign "${bun_codesign_args[@]}" "$native_file"
-    else
-      codesign "${runtime_codesign_args[@]}" "$native_file"
-    fi
-  fi
-done < <(find "$APP_PATH/Contents/Resources/pairing" -type f -print0)
-# Signing modifies Mach-O bytes. Refresh hashes before signing the outer app.
+# The native GUI needs no Node/Bun JIT or unsigned executable memory entitlement.
+node "$REPO_ROOT/pairing/scripts/check-macos-target.mjs" "$APP_PATH"
+codesign "${codesign_args[@]}" --preserve-metadata=identifier "$APP_PATH/Contents/MacOS/$GUI_EXECUTABLE_NAME"
+# Signing changes the executable bytes; update its v2 hash before sealing the app.
 node "$REPO_ROOT/pairing/scripts/refresh-manifest.mjs" "$APP_PATH/Contents/Resources/pairing"
 
-codesign "${runtime_codesign_args[@]}" \
-  --preserve-metadata=identifier \
-  "$APP_PATH/Contents/MacOS/$GUI_EXECUTABLE_NAME"
 codesign "${codesign_args[@]}" \
   "$APP_PATH/Contents/Library/LaunchServices/rieul-macos-system"
 codesign "${codesign_args[@]}" \
@@ -522,7 +482,7 @@ codesign "${codesign_args[@]}" "$APP_PATH"
 codesign --verify --deep --strict --verbose=2 "$APP_PATH"
 node "$REPO_ROOT/pairing/scripts/bundle-permissions.mjs" verify "$APP_PATH"
 if [[ -n "$SIGN_IDENTITY" ]]; then
-  bash "$SCRIPT_DIR/test-signed-bun-ffi.sh" "$APP_PATH"
+  bash "$SCRIPT_DIR/test-signed-native-gui.sh" "$APP_PATH"
 fi
 
 if [[ "$SKIP_DMG" == "1" ]]; then

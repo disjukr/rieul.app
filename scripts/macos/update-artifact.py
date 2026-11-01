@@ -21,6 +21,19 @@ def entries(app):
             yield Path(root) / name
 
 
+def check_macho(path, required=False):
+    with path.open("rb") as file:
+        prefix = file.read(8)
+    magics = {bytes.fromhex(value) for value in (
+        "cefaedfe", "feedface", "cffaedfe", "feedfacf",
+        "cafebabe", "bebafeca", "cafebabf", "bfbafeca",
+    )}
+    if prefix[:4] not in magics and not required:
+        return
+    if prefix != bytes.fromhex("cffaedfe0c000001"):
+        raise ValueError(f"unsupported Mach-O architecture (arm64 only): {path}")
+
+
 def inspect(app):
     if app.name != "Rieul.app" or app.is_symlink() or not app.is_dir():
         raise ValueError("expected a real Rieul.app build directory")
@@ -36,6 +49,13 @@ def inspect(app):
             raise ValueError(f"unsafe permissions: {path}")
         elif stat.S_ISREG(info.st_mode) and info.st_nlink != 1:
             raise ValueError(f"hardlinked file: {path}")
+        elif stat.S_ISREG(info.st_mode):
+            check_macho(path)
+    for name in ("Library/LaunchServices/rieul-macos-system", "MacOS/rieul-macos-launcher", "MacOS/rieul-gui"):
+        path = app / "Contents" / name
+        if path.is_symlink() or not path.is_file():
+            raise ValueError(f"missing regular arm64 entry point: {path}")
+        check_macho(path, required=True)
 
 
 def manifest(app):

@@ -7,6 +7,7 @@ BUILD="${BUILD:-0}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+source "$SCRIPT_DIR/require-arm64.sh"
 CONFIG_PATH="$REPO_ROOT/tmp/dev/rieul.yaml"
 SYSTEM_EXE="$REPO_ROOT/target/debug/rieul-macos-system"
 

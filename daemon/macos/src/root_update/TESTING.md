@@ -1,6 +1,6 @@
 # Updater verification checkpoint
 
-The macOS matrix in `.github/workflows/check-pairing.yml` runs these commands after
+The macOS arm64 job in `.github/workflows/check-pairing.yml` runs these commands after
 installing the existing daemon codegen dependencies:
 
 ```sh
@@ -8,7 +8,7 @@ cargo test -p rieul-macos-daemon --lib root_update --locked
 cargo test -p rieul-daemon-host --lib --locked
 ```
 
-The existing matrix covers `macos-15` and `macos-15-intel`. Tests use temporary
+The supported macOS runner is Apple Silicon `macos-15`; Intel Macs are unsupported. Tests use temporary
 files, fixture ownership based on the test process UID, simulated service effects,
 and harmless native commands. They cover extraction, filesystem swaps, private
 records, transaction/recovery faults, retry suppression, management RPC
@@ -73,3 +73,13 @@ The RPC generator golden changed only for the appended update RPC schema
 The signed-fixture workflow remains a local, non-dispatched review draft outside
 `.github/workflows`. Actual signed lifecycle, rollback, reboot, multiuser and
 downtime evidence remains pending. Production updater activation is unchanged.
+
+## Architecture contract
+
+The signed update manifest schema and asset name remain unchanged. Candidate
+verification requires an Apple Silicon macOS host, audits Mach-O headers throughout
+the staged app, and requires arm64 Mach-O daemon, launcher and GUI entry points.
+Intel and universal/mixed-architecture candidates are rejected before replacement.
+Signature, digest, version and database gates still apply. This does not delete
+old release assets or modify an existing Intel installation. Pure header tests run
+without executing a candidate or changing host services.

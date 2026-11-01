@@ -20,4 +20,13 @@ for (const relative of Object.keys(manifest.files)) {
     .update(await readFile(file))
     .digest("hex");
 }
+if (manifest.schema_version === 2) {
+  const executable =
+    manifest.platform === "win32"
+      ? path.join(root, "rieul-windows-gui.exe")
+      : path.resolve(root, "../../MacOS/rieul-gui");
+  manifest.executable_sha256 = createHash("sha256")
+    .update(await readFile(executable))
+    .digest("hex");
+}
 await writeFile(manifestPath, JSON.stringify(manifest, null, 2) + "\n");
