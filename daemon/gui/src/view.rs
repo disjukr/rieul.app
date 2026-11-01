@@ -958,6 +958,11 @@ pub fn run() -> anyhow::Result<()> {
                 ..Default::default()
             },
             |window, cx| {
+                // AppKit can round a centered content rectangle outward on a
+                // display with an odd logical height. Set the content size
+                // independently of its position to keep the fixed layout exact.
+                #[cfg(target_os = "macos")]
+                window.resize(size(px(640.), px(360.)));
                 cx.new(|cx: &mut Context<View>| {
                     let resources =
                         rieul_gui::bundle::root(&std::env::current_exe().unwrap()).unwrap();
