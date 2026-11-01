@@ -1,0 +1,125 @@
+# VM-only signed fixtures. No release/tag or production activation.
+name: Isolated macOS updater fixtures
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  fixtures:
+    if: github.repository == 'disjukr/rieul.app' && github.ref == 'refs/heads/main'
+    runs-on: macos-latest
+    timeout-minutes: 90
+    env:
+      # Reviewed source, never an arbitrary workflow input.
+      REVIEWED_SHA: 4dab18839689d8bc381c89675a7fe4a44bad3b7d
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Pin reviewed main source before credential access
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$REVIEWED_SHA" =~ ^[0-9a-f]{40}$ ]]
+          git merge-base --is-ancestor "$REVIEWED_SHA" origin/main
+          git checkout --detach "$REVIEWED_SHA"
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.3.9
+      - name: Build tooling
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          pnpm install --frozen-lockfile
+          cargo build -p rieul-macos-daemon --release --bin rieul-macos-system --bin rieul-macos-launcher --locked
+          node pairing/scripts/package.mjs --replace
+      - name: Import existing application identity into disposable runner keychain
+        shell: bash
+        env:
+          APPLICATION_CERT_P12: ${{ secrets.MACOS_APPLICATION_CERT_P12 }}
+          APPLICATION_CERT_PASSWORD: ${{ secrets.MACOS_APPLICATION_CERT_PASSWORD }}
+          APPLE_API_PRIVATE_KEY: ${{ secrets.APPLE_API_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          umask 077
+          : "${APPLICATION_CERT_P12:?}" "${APPLICATION_CERT_PASSWORD:?}" "${APPLE_API_PRIVATE_KEY:?}"
+          printf '%s' "$APPLICATION_CERT_P12" | /usr/bin/base64 -D > "$RUNNER_TEMP/developer-id-application.p12"
+          printf '%s' "$APPLE_API_PRIVATE_KEY" | /usr/bin/base64 -D > "$RUNNER_TEMP/notary-api-key.p8"
+          keychain="$RUNNER_TEMP/rieul-vm-signing.keychain-db"
+          password="$(openssl rand -base64 32)"
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 7200 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          security import "$RUNNER_TEMP/developer-id-application.p12" -k "$keychain" -P "$APPLICATION_CERT_PASSWORD" -A -t cert -f pkcs12
+          rm -f "$RUNNER_TEMP/developer-id-application.p12"
+          [[ ! -e "$RUNNER_TEMP/developer-id-application.p12" ]]
+          curl --fail --silent --show-error --location https://www.apple.com/certificateauthority/DeveloperIDG2CA.cer --output "$RUNNER_TEMP/DeveloperIDG2CA.cer"
+          fingerprint="$(openssl x509 -inform DER -in "$RUNNER_TEMP/DeveloperIDG2CA.cer" -noout -fingerprint -sha256 | cut -d= -f2 | tr -d ':')"
+          [[ "$fingerprint" == F16CD3C54C7F83CEA4BF1A3E6A0819C8AAA8E4A1528FD144715F350643D2DF3A ]]
+          security import "$RUNNER_TEMP/DeveloperIDG2CA.cer" -k "$keychain"
+          security set-key-partition-list -S apple-tool:,apple: -k "$password" "$keychain"
+          security list-keychains -d user -s "$keychain"
+          security default-keychain -d user -s "$keychain"
+          identity="$(security find-identity -v -p codesigning "$keychain" | awk -F'"' '/Developer ID Application:.*\(D379GLRLPV\)/ {print $2; exit}')"
+          [[ -n "$identity" ]]
+          echo "APP_SIGN_IDENTITY=$identity" >> "$GITHUB_ENV"
+      - name: Build three signed VM-only versions and notarize each app
+        shell: bash
+        env:
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          mkdir -p vm-delivery
+          for version in 0.0.1 0.0.2 0.0.3; do
+            args=(--skip-build --skip-dmg --version "$version" --out-dir "$RUNNER_TEMP/vm-build" --sign "$APP_SIGN_IDENTITY")
+            ./scripts/macos/package-desktop-dmg.sh "${args[@]}"
+            app="$RUNNER_TEMP/vm-build/rieul-macos-desktop-$version-app/Rieul.app"
+            printf '{"vm_test_only":true,"reviewed_sha":"%s"}\n' "$REVIEWED_SHA" > "$app/Contents/Resources/vm-test-only.json"
+            chmod 0644 "$app/Contents/Resources/vm-test-only.json"
+            python3 scripts/macos/update-artifact.py manifest "$app"
+            codesign --force --options runtime --timestamp --sign "$APP_SIGN_IDENTITY" "$app"
+            codesign --verify --deep --strict "$app"
+            zip="$RUNNER_TEMP/notarize-$version.zip"
+            ditto -c -k --keepParent "$app" "$zip"
+            xcrun notarytool submit "$zip" --key "$RUNNER_TEMP/notary-api-key.p8" --key-id "$APPLE_API_KEY_ID" --issuer "$APPLE_API_ISSUER_ID" --wait
+            xcrun stapler staple "$app"
+            xcrun stapler validate "$app"
+            codesign --verify --deep --strict "$app"
+            spctl --assess --type execute "$app"
+            # Match production's Developer ID chain, fixed Team, and identifiers.
+            app_requirement='=anchor apple generic and identifier "app.rieul" and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = "D379GLRLPV"'
+            daemon_requirement='=anchor apple generic and identifier "rieul-macos-system" and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = "D379GLRLPV"'
+            codesign --verify --strict -R "$app_requirement" "$app"
+            codesign --verify --strict -R "$daemon_requirement" "$app/Contents/Library/LaunchServices/rieul-macos-system"
+            mkdir -p "vm-delivery/$version"
+            python3 scripts/macos/update-artifact.py archive "$app" --output "vm-delivery/$version/rieul-macos-update.tar"
+            shasum -a 256 "vm-delivery/$version/rieul-macos-update.tar" >> vm-delivery/SHA256SUMS
+          done
+          printf 'VM TEST ONLY. Not a release. Source %s. Team D379GLRLPV. Production activation remains disabled.\n' "$REVIEWED_SHA" > vm-delivery/README.txt
+      - name: Remove credentials before artifact upload (also on failure)
+        if: always()
+        shell: bash
+        run: |
+          security delete-keychain "$RUNNER_TEMP/rieul-vm-signing.keychain-db" 2>/dev/null || true
+          rm -f "$RUNNER_TEMP/developer-id-application.p12" "$RUNNER_TEMP/notary-api-key.p8" "$RUNNER_TEMP/DeveloperIDG2CA.cer"
+      - name: Verify credential files are absent before upload
+        shell: bash
+        run: |
+          set -euo pipefail
+          for path in "$RUNNER_TEMP/developer-id-application.p12" "$RUNNER_TEMP/notary-api-key.p8" "$RUNNER_TEMP/DeveloperIDG2CA.cer" "$RUNNER_TEMP/rieul-vm-signing.keychain-db"; do
+            [[ ! -e "$path" ]] || { echo "Credential cleanup incomplete" >&2; exit 1; }
+          done
+      - name: Upload only signed fixture archives
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: vm-only-signed-updater-fixtures
+          path: vm-delivery/
+          retention-days: 1
+          if-no-files-found: error
