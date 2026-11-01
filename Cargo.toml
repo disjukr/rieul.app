@@ -8,6 +8,7 @@ members = [
   "daemon/gui-launcher",
 ]
 resolver = "2"
+exclude = ["daemon/gui"]
 
 [workspace.package]
 edition = "2021"
