@@ -56,7 +56,7 @@ impl Source for FixtureSource {
         stage.sync()
     }
 }
-fn prepare_fixture(version: Version, fixtures: Dir) -> Result<()> {
+fn prepare_fixture(version: Version, fixtures: Dir, confirmed_retry: bool) -> Result<()> {
     let state = Dir::open(Path::new(STATE), 0, true)?;
     state.require_private()?;
     let old = {
@@ -89,7 +89,7 @@ fn prepare_fixture(version: Version, fixtures: Dir) -> Result<()> {
     };
     let data = Dir::open(Path::new(super::gate::DATA), 0, true)?;
     ensure!(
-        preparation::prepare(
+        preparation::prepare_with_retry(
             &state,
             old,
             preparation::database_schema(&data)?,
@@ -97,7 +97,8 @@ fn prepare_fixture(version: Version, fixtures: Dir) -> Result<()> {
                 dir: fixtures,
                 version
             },
-            verify::candidate
+            verify::candidate,
+            confirmed_retry
         )?,
         "fixture not prepared"
     );
@@ -109,8 +110,66 @@ fn prepare_fixture(version: Version, fixtures: Dir) -> Result<()> {
 fn signed_native_guest_operation() -> Result<()> {
     let fixtures = guest_guard()?;
     match std::env::var("RIEUL_VM_TEST_OPERATION")?.as_str() {
-        "prepare-0.0.2" => prepare_fixture(Version(0, 0, 2), fixtures),
-        "prepare-0.0.3" => prepare_fixture(Version(0, 0, 3), fixtures),
+        "prepare-0.0.2" => prepare_fixture(Version(0, 0, 2), fixtures, false),
+        "prepare-0.0.3" => prepare_fixture(Version(0, 0, 3), fixtures, false),
+        "prepare-retry-0.0.2" => prepare_fixture(Version(0, 0, 2), fixtures, true),
+        "verify-fixtures" => {
+            ensure!(
+                !fixtures.exists("validation")?,
+                "existing validation fixture"
+            );
+            let stage = fixtures.create_dir("validation", 0o700)?;
+            super::archive::extract(
+                fixtures
+                    .child("0.0.2")?
+                    .read_file("rieul-macos-update.tar")?,
+                &stage,
+            )?;
+            verify::candidate(&stage, Version(0, 0, 2), Version(0, 0, 1), DATABASE_SCHEMA)?;
+            ensure!(
+                verify::candidate(&stage, Version(0, 0, 3), Version(0, 0, 1), DATABASE_SCHEMA)
+                    .is_err(),
+                "wrong version accepted"
+            );
+            ensure!(
+                verify::candidate(&stage, Version(0, 0, 2), Version(0, 0, 2), DATABASE_SCHEMA)
+                    .is_err(),
+                "non-increasing version accepted"
+            );
+            let resources = stage
+                .child("Rieul.app")?
+                .child("Contents")?
+                .child("Resources")?;
+            resources.remove("vm-test-only.json")?;
+            let mut tampered = resources.create("vm-test-only.json", 0o644)?;
+            tampered.write_all(b"{\"tampered\":true}\n")?;
+            tampered.sync_all()?;
+            ensure!(
+                verify::candidate(&stage, Version(0, 0, 2), Version(0, 0, 1), DATABASE_SCHEMA)
+                    .is_err(),
+                "tampered signed bundle accepted"
+            );
+            ensure!(
+                super::launchd::checked(
+                    &stage,
+                    "/usr/bin/codesign",
+                    &[
+                        "--verify",
+                        "--strict",
+                        "-R",
+                        &verify::requirement(super::DAEMON_ID),
+                        "/Library/Application Support/rieul-vm-fixtures/unsigned-daemon"
+                    ]
+                )
+                .is_err(),
+                "wrong signing identity accepted"
+            );
+            fixtures.discard_child("validation")?;
+            println!(
+                "signed candidate accepted; wrong signing identity, tamper, wrong version and downgrade rejected"
+            );
+            Ok(())
+        }
         "dispatch-auto" => runtime::dispatch_prepared(false),
         "dispatch-manual" => runtime::dispatch_prepared(true),
         "status" => {
