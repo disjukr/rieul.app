@@ -37,6 +37,7 @@ interface DatagramRuntime {
   closed: boolean;
   nextPingId: number;
   onRtt: (rttMs: number) => void;
+  onFailure: () => void;
   pendingPing?: DatagramPing;
   pingInterval: ReturnType<typeof setInterval>;
   writer: WritableStreamDefaultWriter<Uint8Array>;
@@ -47,6 +48,7 @@ interface DatagramPing {
   timeout: ReturnType<typeof setTimeout>;
 }
 interface ManagedRpcSession {
+  closed: boolean;
   generation: number;
   authenticatedClientId?: string;
   datagrams: DatagramRuntime;
@@ -293,22 +295,12 @@ function createRpcSessionController(
     if (!machine) throw new Error("missing machine");
     const session = openRpcSession(machine, sessionGeneration);
     rpcSession = session;
-    session
-      .then((openedSession) => {
-        openedSession.transport.closed
-          .catch(() => {})
-          .finally(() => {
-            if (rpcSession !== session || closed) return;
-            rpcSession = undefined;
-            handleTransportClosed();
-          });
-      })
-      .catch(() => {
-        if (rpcSession === session) {
-          rpcSession = undefined;
-          if (!closed) setConnectionOffline();
-        }
-      });
+    session.catch(() => {
+      if (rpcSession === session) {
+        rpcSession = undefined;
+        if (!closed) setConnectionOffline();
+      }
+    });
     return session;
   }
   async function getAuthenticatedRpcSession(
@@ -325,7 +317,16 @@ function createRpcSessionController(
     const session = manageRpcSession(
       await openWebTransport(machine),
       generation,
-      setDatagramRtt,
+      (rttMs) => {
+        if (!closed && generation === sessionGeneration) setDatagramRtt(rttMs);
+      },
+      () => {
+        if (closed || generation !== sessionGeneration) return;
+        rpcSession = undefined;
+        pairingStarted = false;
+        sessionGeneration++;
+        setConnectionOffline();
+      },
     );
     if (closed || generation !== sessionGeneration) {
       closeManagedRpcSession(session);
@@ -475,11 +476,6 @@ function createRpcSessionController(
     session.authenticatedClientId = clientId;
     startCredentialRenewalLoop(session);
   }
-  function handleTransportClosed() {
-    if (closed) return;
-    sessionGeneration++;
-    setConnectionOffline();
-  }
   async function refreshDaemonInfoForCurrentMachine(
     options: {
       loadingAlreadySet?: boolean;
@@ -538,33 +534,42 @@ function manageRpcSession(
   transport: WebTransport,
   generation: number,
   onDatagramRtt: (rttMs: number) => void,
+  onFailure: () => void,
 ): ManagedRpcSession {
-  const managed = {
+  const managed: ManagedRpcSession = {
+    closed: false,
     generation,
     authenticatedClientId: undefined,
-    datagrams: startDatagramRuntime(transport, onDatagramRtt),
+    datagrams: startDatagramRuntime(transport, onDatagramRtt, fail),
     credentialRenewalStarted: false,
     transport,
   };
-  transport.closed
-    .catch(() => {})
-    .finally(() => {
-      closeDatagramRuntime(managed.datagrams);
-    });
+  // Observe loss as soon as transport.ready resolves, including while auth or
+  // credential renewal is still pending. Both clean close and rejection count.
+  transport.closed.then(fail, fail);
+  function fail() {
+    if (managed.closed) return;
+    closeManagedRpcSession(managed);
+    onFailure();
+  }
   return managed;
 }
 function closeManagedRpcSession(session: ManagedRpcSession): void {
+  if (session.closed) return;
+  session.closed = true;
   closeDatagramRuntime(session.datagrams);
   closeProtocolWebTransport(session.transport);
 }
 function startDatagramRuntime(
   transport: WebTransport,
   onRtt: (rttMs: number) => void,
+  onFailure: () => void,
 ): DatagramRuntime {
   const runtime: DatagramRuntime = {
     closed: false,
     nextPingId: 0,
     onRtt,
+    onFailure,
     pingInterval: setInterval(
       () => sendDatagramPing(runtime),
       DATAGRAM_PING_INTERVAL_MS,
@@ -583,11 +588,15 @@ async function readDatagrams(
   try {
     while (!runtime.closed) {
       const { done, value } = await reader.read();
-      if (done) break;
+      if (runtime.closed) break;
+      if (done) {
+        failDatagramRuntime(runtime);
+        break;
+      }
       await handleIncomingDatagram(runtime, value);
     }
   } catch {
-    closeDatagramRuntime(runtime);
+    failDatagramRuntime(runtime);
   } finally {
     try {
       reader.releaseLock();
@@ -615,7 +624,7 @@ async function handleIncomingDatagram(
         }),
       );
     } catch {
-      closeDatagramRuntime(runtime);
+      failDatagramRuntime(runtime);
     }
     return;
   }
@@ -629,15 +638,16 @@ async function handleIncomingDatagram(
   }
 }
 function sendDatagramPing(runtime: DatagramRuntime): void {
-  if (runtime.closed) return;
-  clearPendingDatagramPing(runtime);
+  // Keep the outstanding deadline. The interval must not replace a ping just
+  // before its timeout fires (both timers use the same interval).
+  if (runtime.closed || runtime.pendingPing) return;
   const pingId = nextDatagramPingId(runtime);
   const pending: DatagramPing = {
     pingId,
     startedAt: performance.now(),
     timeout: setTimeout(() => {
       if (runtime.pendingPing !== pending) return;
-      runtime.pendingPing = undefined;
+      failDatagramRuntime(runtime);
     }, DATAGRAM_PING_TIMEOUT_MS),
   };
   runtime.pendingPing = pending;
@@ -650,7 +660,7 @@ function sendDatagramPing(runtime: DatagramRuntime): void {
     )
     .catch(() => {
       if (runtime.pendingPing === pending) clearPendingDatagramPing(runtime);
-      closeDatagramRuntime(runtime);
+      failDatagramRuntime(runtime);
     });
 }
 function nextDatagramPingId(runtime: DatagramRuntime): number {
@@ -662,6 +672,11 @@ function clearPendingDatagramPing(runtime: DatagramRuntime): void {
   if (!runtime.pendingPing) return;
   clearTimeout(runtime.pendingPing.timeout);
   runtime.pendingPing = undefined;
+}
+function failDatagramRuntime(runtime: DatagramRuntime): void {
+  if (runtime.closed) return;
+  closeDatagramRuntime(runtime);
+  runtime.onFailure();
 }
 function closeDatagramRuntime(runtime: DatagramRuntime): void {
   if (runtime.closed) return;

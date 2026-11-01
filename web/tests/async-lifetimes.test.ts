@@ -1,3 +1,8 @@
+import {
+  decodeDatagramMessage,
+  encodeDatagramMessage,
+  DatagramMessageKind,
+} from "../src/protocol/wire.ts";
 import { createRoot, createSignal, flush as flushSolid } from "solid-js";
 import { test, mock } from "node:test";
 import assert from "node:assert/strict";
@@ -343,4 +348,261 @@ test("credential renewal from a replaced RPC session cannot overwrite its succes
   old.resolve({ clientCredentialExpiresAtUnix: 100 });
   await flush();
   assert.equal(machines.findMachine("a")?.clientCredentialExpiresAtUnix, 200);
+});
+
+function observableTransport(closeNotification = true) {
+  const closed = Promise.withResolvers<void>();
+  let reader!: ReadableStreamDefaultController<Uint8Array>;
+  let readableEnded = false;
+  let writesFail = false;
+  let closeCount = 0;
+  const pings: number[] = [];
+  const remote = {
+    closed: closed.promise,
+    datagrams: {
+      readable: new ReadableStream<Uint8Array>({
+        start(value) {
+          reader = value;
+        },
+      }),
+      writable: new WritableStream<Uint8Array>({
+        write(bytes) {
+          if (writesFail) throw new Error("datagram write failed");
+          const message = decodeDatagramMessage(bytes);
+          if (message.kind === DatagramMessageKind.Ping)
+            pings.push(message.pingId);
+        },
+      }),
+    },
+    close() {
+      closeCount++;
+      if (!readableEnded) {
+        readableEnded = true;
+        reader.close();
+      }
+      if (closeNotification) closed.resolve();
+    },
+  } as unknown as WebTransport;
+  return {
+    remote,
+    pings,
+    closed,
+    closeCount: () => closeCount,
+    failWrites() {
+      writesFail = true;
+    },
+    endDatagrams() {
+      readableEnded = true;
+      reader.close();
+    },
+    failDatagrams() {
+      readableEnded = true;
+      reader.error(new Error("receive failed"));
+    },
+    pong(id: number) {
+      reader.enqueue(
+        encodeDatagramMessage({ kind: DatagramMessageKind.Pong, pingId: id }),
+      );
+    },
+  };
+}
+
+for (const failure of [
+  "closed resolution",
+  "closed rejection",
+  "receive EOF",
+  "receive failure",
+  "write failure",
+  "heartbeat timeout",
+] as const) {
+  test(`RPC stops reporting reachable on ${failure} even without a transport close notification`, async (t) => {
+    t.mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
+    const remote = observableTransport();
+    open = async () => remote.remote;
+    getInfo = async () => info("live");
+    const f = fixture(),
+      entry = f.store.get(rpcSessionBunja, f.read),
+      stop = entry.mount();
+    t.after(() => {
+      stop();
+      f.store.dispose();
+    });
+    await flush();
+    assert.equal(entry.value.connection().phase, "reachable");
+    assert.equal(entry.value.daemonInstanceId(), "live");
+    switch (failure) {
+      case "closed resolution":
+        remote.closed.resolve();
+        break;
+      case "closed rejection":
+        remote.closed.reject(new Error("daemon exited"));
+        break;
+      case "receive EOF":
+        remote.endDatagrams();
+        break;
+      case "receive failure":
+        remote.failDatagrams();
+        break;
+      case "write failure":
+        remote.pong(remote.pings[0]);
+        await flush();
+        remote.failWrites();
+        t.mock.timers.tick(5000);
+        break;
+      case "heartbeat timeout":
+        t.mock.timers.tick(4999);
+        await flush();
+        assert.equal(entry.value.connection().phase, "reachable");
+        t.mock.timers.tick(1);
+        break;
+    }
+    await flush();
+    assert.equal(entry.value.connection().phase, "offline");
+    assert.equal(entry.value.daemonInfo().phase, "idle");
+    assert.equal(entry.value.daemonInstanceId(), undefined);
+    if (!failure.startsWith("closed")) assert.equal(remote.closeCount(), 1);
+    const sent = remote.pings.length;
+    t.mock.timers.tick(20000);
+    await flush();
+    assert.equal(
+      remote.pings.length,
+      sent,
+      "lost sessions release their heartbeat timer",
+    );
+  });
+}
+
+test("matching pongs keep a session live; unrelated pongs cannot extend its deadline", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
+  const remote = observableTransport();
+  open = async () => remote.remote;
+  getInfo = async () => info("live");
+  const f = fixture(),
+    entry = f.store.get(rpcSessionBunja, f.read),
+    stop = entry.mount();
+  t.after(() => {
+    stop();
+    f.store.dispose();
+  });
+  await flush();
+  for (let index = 0; index < 3; index++) {
+    remote.pong(remote.pings.at(-1)!);
+    await flush();
+    t.mock.timers.tick(5000);
+    await flush();
+    assert.equal(entry.value.connection().phase, "reachable");
+  }
+  remote.pong(99999);
+  await flush();
+  t.mock.timers.tick(5000);
+  await flush();
+  assert.equal(entry.value.connection().phase, "offline");
+});
+
+test("a heartbeat timeout invalidates pending daemon info and old closure cannot affect reconnect", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
+  const old = observableTransport(),
+    fresh = observableTransport();
+  const pendingInfo = Promise.withResolvers<DaemonInfo>();
+  open = async () => old.remote;
+  getInfo = () => pendingInfo.promise;
+  const f = fixture(),
+    entry = f.store.get(rpcSessionBunja, f.read),
+    stop = entry.mount();
+  t.after(() => {
+    stop();
+    f.store.dispose();
+  });
+  await flush();
+  t.mock.timers.tick(5000);
+  await flush();
+  assert.equal(entry.value.connection().phase, "offline");
+  open = async () => fresh.remote;
+  getInfo = async () => info("fresh");
+  entry.value.reconnect();
+  await flush();
+  pendingInfo.resolve(info("stale"));
+  await flush();
+  assert.equal(entry.value.connection().phase, "reachable");
+  assert.equal(entry.value.daemonInstanceId(), "fresh");
+});
+
+test("transport loss during credential renewal cannot leave a connecting session alive", async (t) => {
+  const remote = observableTransport(),
+    renewal = Promise.withResolvers<{
+      clientCredentialExpiresAtUnix: number;
+    }>();
+  open = async () => remote.remote;
+  renew = () => renewal.promise;
+  getInfo = async () => info("must not arrive");
+  const f = fixture(),
+    machines = f.store.get(machineStoreBunja, f.read).value;
+  machines.setMachineCredentials("a", {
+    clientId: "client",
+    clientSecret: "secret",
+    clientCredentialExpiresAtUnix: 0,
+  });
+  await flush();
+  const entry = f.store.get(rpcSessionBunja, f.read),
+    stop = entry.mount();
+  t.after(() => {
+    stop();
+    f.store.dispose();
+  });
+  await flush();
+  remote.closed.reject(new Error("lost during renewal"));
+  await flush();
+  assert.equal(entry.value.connection().phase, "offline");
+  assert.equal(remote.closeCount(), 1);
+  renewal.resolve({ clientCredentialExpiresAtUnix: 200 });
+  await flush();
+  assert.equal(entry.value.daemonInstanceId(), undefined);
+  assert.equal(machines.findMachine("a")?.clientCredentialExpiresAtUnix, 0);
+});
+
+test("saved pairing credentials do not imply a live connection when opening fails", async (t) => {
+  open = async () => {
+    throw new Error("daemon not running");
+  };
+  const f = fixture(),
+    machines = f.store.get(machineStoreBunja, f.read).value;
+  machines.setMachineCredentials("a", {
+    clientId: "client",
+    clientSecret: "secret",
+    clientCredentialExpiresAtUnix: 0,
+  });
+  await flush();
+  const entry = f.store.get(rpcSessionBunja, f.read),
+    stop = entry.mount();
+  t.after(() => {
+    stop();
+    f.store.dispose();
+  });
+  await flush();
+  assert.equal(entry.value.connection().phase, "offline");
+  assert.equal(entry.value.daemonInfo().phase, "idle");
+  assert.equal(machines.findMachine("a")?.clientId, "client");
+});
+
+test("a replaced transport's delayed close rejection cannot disconnect its successor", async (t) => {
+  const old = observableTransport(false),
+    fresh = observableTransport();
+  open = async () => old.remote;
+  getInfo = async () => info("old");
+  const f = fixture(),
+    entry = f.store.get(rpcSessionBunja, f.read),
+    stop = entry.mount();
+  t.after(() => {
+    stop();
+    f.store.dispose();
+  });
+  await flush();
+  open = async () => fresh.remote;
+  getInfo = async () => info("fresh");
+  entry.value.reconnect();
+  await flush();
+  old.closed.reject(new Error("delayed old close"));
+  await flush();
+  assert.equal(entry.value.connection().phase, "reachable");
+  assert.equal(entry.value.daemonInstanceId(), "fresh");
 });
