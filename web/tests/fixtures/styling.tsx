@@ -1,6 +1,5 @@
 import { render } from "@solidjs/web";
 import { createSignal } from "solid-js";
-import "@unocss/reset/tailwind.css";
 import "../../src/theme.css";
 import { Button } from "../../src/view/ui/button.tsx";
 import { Badge } from "../../src/view/ui/badge.tsx";

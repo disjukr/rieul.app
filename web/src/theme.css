@@ -1,4 +1,5 @@
-/* Application token values and global base rules; main.tsx imports the reset once. */
+/* Reset stays below authored styles, including CSS loaded from other chunks. */
+@import "@unocss/reset/tailwind.css" layer(reset);
 :root,
 [data-theme="light"] {
   --rieul-color-white: #ffffff;

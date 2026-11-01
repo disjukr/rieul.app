@@ -357,7 +357,8 @@ alongside their markup. `output: "html"` produces Solid's `class` and CSS text
 attributes. Spread variant applications to retain their state attributes.
 
 `web/src/theme.css` owns the existing `--rieul-*` tokens and global rules.
-The fixed `@unocss/reset` stylesheet is retained once for visual compatibility;
+The fixed `@unocss/reset` stylesheet is retained once in a lower CSS layer for
+visual compatibility, regardless of production chunk loading order;
 the UnoCSS compiler and CVA are not used. Monaco and xterm keep their own CSS.
 The app remains client-rendered; no SSR setup is required.
 

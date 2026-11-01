@@ -1,7 +1,6 @@
 import { render } from "@solidjs/web";
 import { BunjaStoreProvider } from "bunja/solid";
 import "./solid/scopes";
-import "@unocss/reset/tailwind.css";
 import "./theme.css";
 import View from "./view/index.tsx";
 
