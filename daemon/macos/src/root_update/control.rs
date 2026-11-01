@@ -446,8 +446,28 @@ mod discovery_lock_tests {
             })),
             running: Arc::new(AtomicBool::new(false)),
         };
+        let failure = runtime::WorkerResult {
+            nonce: Some("same-transaction".into()),
+            phase: "failed".into(),
+            error: Some("signature verification failed".into()),
+            deferred: false,
+        };
+        state.save("worker-result.json", &failure).unwrap();
+        let marker = std::fs::read(state.path.join("worker-result.json")).unwrap();
+        let mut autosubmits = 0;
+        let mut observe_dispatch = || {
+            let mut status = c.inner.lock().unwrap().status.clone();
+            status.can_install = true;
+            let durable: runtime::WorkerResult = state.load("worker-result.json").unwrap().unwrap();
+            apply_worker_result(&mut status, "same-transaction", &durable);
+            assert_eq!(status.phase, UpdatePhase::Failed);
+            if dispatch_allowed(&status, false, true, false) {
+                autosubmits += 1;
+            }
+        };
         let worker = state.lock().unwrap();
         assert!(c.discovery_lock(&state).unwrap().is_none());
+        observe_dispatch();
         {
             let inner = c.inner.lock().unwrap();
             assert_eq!(inner.status.phase, UpdatePhase::Checking);
@@ -457,6 +477,16 @@ mod discovery_lock_tests {
         drop(worker);
         assert!(c.discovery_lock(&state).unwrap().is_some());
         assert!(c.inner.lock().unwrap().check_retry_at.is_none());
+        // The 30-second retry can acquire discovery's lock, but the same nonce's
+        // durable failure still prevents all automatic installation decisions.
+        for _ in 0..10 {
+            observe_dispatch();
+        }
+        assert_eq!(autosubmits, 0);
+        assert_eq!(
+            std::fs::read(state.path.join("worker-result.json")).unwrap(),
+            marker
+        );
         // Corrupt lock type is an integrity failure, not retryable contention.
         state.remove("lock").unwrap();
         std::fs::create_dir(tmp.path().join("lock")).unwrap();
