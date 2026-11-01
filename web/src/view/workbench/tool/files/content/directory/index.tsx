@@ -1,3 +1,4 @@
+import { style, theme } from "../../../../../../zyzz.config.ts";
 import { useContext } from "solid-js";
 
 import type { FsEntry } from "../../../../../../protocol/generated/rpc.ts";
@@ -14,24 +15,7 @@ import {
 } from "../../context.tsx";
 import { FileTable } from "./file-table.tsx";
 import { Inspector } from "./entry-details.tsx";
-const directoryContentClassName = [
-  "grid [grid-template-rows:minmax(0,1fr)_auto]",
-  "w-full h-full min-w-0 min-h-0 overflow-hidden",
-  "rounded-[12px]",
-  "bg-[rgba(247,247,248,0.58)]",
-  "p-[4px] backdrop-blur-2xl",
-].join(" ");
-const browserLayoutClassName = [
-  "browser-layout grid [grid-template-columns:minmax(0,1fr)_minmax(220px,28%)]",
-  "[@container_workbench-tab-page_(max-width:980px)]:[grid-template-columns:minmax(0,1fr)]",
-  "h-full min-h-0 gap-[7px] overflow-visible",
-].join(" ");
-const explorerFooterClassName = [
-  "flex items-center justify-between h-[22px] min-h-[22px] box-border",
-  "px-[7px] pt-[5px] text-[12px] font-560 leading-none text-rieul-text-3",
-  "[&_span]:min-w-0 [&_span]:overflow-hidden [&_span]:text-ellipsis [&_span]:whitespace-nowrap",
-].join(" ");
-const footerSelectionClassName = "text-rieul-text-3";
+
 export function DirectoryContent() {
   const actions = requireFilesActions(useContext(FilesActionsContext));
   const createFile = requireFilesCreateFileState(
@@ -44,8 +28,8 @@ export function DirectoryContent() {
   const selectedEntry = () => explorer().selectedEntry();
   const selectedPath = () => explorer().selectedPath();
   return (
-    <div class={directoryContentClassName}>
-      <div class={browserLayoutClassName}>
+    <div {...styles.directoryContent()}>
+      <div {...styles.browserLayout({ className: "browser-layout" })}>
         <FileTable
           rows={rows()}
           selectedPath={selectedPath()}
@@ -88,8 +72,8 @@ interface DirectoryFooterProps {
 }
 function DirectoryFooter(props: DirectoryFooterProps) {
   return (
-    <div class={explorerFooterClassName}>
-      <span class={footerSelectionClassName}>
+    <div {...styles.explorerFooter()}>
+      <span {...styles.footerSelection()}>
         {props.selectedEntry
           ? displayName(props.selectedEntry)
           : "No selection"}
@@ -97,4 +81,58 @@ function DirectoryFooter(props: DirectoryFooterProps) {
       <span>{props.rowCount} items</span>
     </div>
   );
+}
+
+namespace styles {
+  export const directoryContent = style({
+    gridTemplateRows: "minmax(0,1fr) auto",
+    display: "grid",
+    height: "100%",
+    minHeight: "0",
+    minWidth: "0",
+    width: "100%",
+    overflow: "hidden",
+    borderRadius: "12px",
+    backgroundColor: "rgba(247, 247, 248, 0.58)",
+    padding: "4px",
+    WebkitBackdropFilter: "blur(40px)",
+    backdropFilter: "blur(40px)",
+  });
+  export const browserLayout = style({
+    gridTemplateColumns: "minmax(0,1fr) minmax(220px,28%)",
+    display: "grid",
+    height: "100%",
+    minHeight: "0",
+    gap: "7px",
+    overflow: "visible",
+    "@container workbench-tab-page (max-width:980px)": {
+      gridTemplateColumns: "minmax(0,1fr)",
+    },
+  });
+  export const explorerFooter = style({
+    boxSizing: "border-box",
+    selectors: {
+      "& span": {
+        minWidth: "0",
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
+      },
+    },
+    height: "22px",
+    minHeight: "22px",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingLeft: "7px",
+    paddingRight: "7px",
+    paddingTop: "5px",
+    fontSize: "12px",
+    color: theme.textTertiary,
+    fontWeight: 560,
+    lineHeight: 1,
+  });
+  export const footerSelection = style({
+    color: theme.textTertiary,
+  });
 }

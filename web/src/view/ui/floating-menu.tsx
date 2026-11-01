@@ -1,48 +1,94 @@
-import { Portal, type JSX } from "@solidjs/web";
-import { cva, type VariantProps } from "class-variance-authority";
-import { createEffect, omit, type Accessor } from "solid-js";
 import { className as joinClassName } from "../class-name.ts";
-const menuVariants = cva([
-  "grid gap-[2px] border border-[var(--rieul-border-light)]",
-  "bg-[var(--rieul-bg-primary)] rounded-[var(--rieul-radius-sm)] p-0",
-  "shadow-rieul-menu outline-none",
-]);
-const menuPositionerVariants = cva("z-[30]", {
+import { cx } from "zyzz";
+
+import { style, variants, theme } from "../../zyzz.config.ts";
+import { Portal, type JSX } from "@solidjs/web";
+import type { Props } from "zyzz";
+import { createEffect, omit, type Accessor } from "solid-js";
+const menuVariants = variants({
+  base: {
+    display: "grid",
+    gap: "2px",
+    borderWidth: "1px",
+    borderColor: theme.borderLight,
+    borderRadius: theme.radiusSm,
+    backgroundColor: theme.bgPrimary,
+    padding: "0",
+    boxShadow:
+      "0 0 rgb(0 0 0 / 0), 0 0 rgb(0 0 0 / 0), var(--rieul-shadow-menu)",
+    outline: "2px solid transparent",
+    outlineOffset: "2px",
+  },
+});
+const menuPositionerVariants = variants({
+  base: {
+    zIndex: 30,
+  },
   variants: {
     strategy: {
-      absolute: "absolute",
-      fixed: "fixed",
+      absolute: {
+        position: "absolute",
+      },
+      fixed: {
+        position: "fixed",
+      },
     },
   },
   defaultVariants: {
     strategy: "fixed",
   },
 });
-const menuItemVariants = cva(
-  [
-    "inline-flex h-[2rem] min-h-[2rem] w-full appearance-none",
-    "items-center justify-start gap-[7px] rounded-0 border-0 bg-transparent",
-    "px-[8px] text-left [font:inherit]",
-    "cursor-pointer outline-none",
-    "data-[highlighted]:bg-[var(--rieul-bg-menu-hover)]",
-    "data-[disabled]:cursor-not-allowed data-[disabled]:opacity-48",
-  ],
-  {
-    variants: {
-      tone: {
-        danger: [
-          "text-[var(--rieul-danger)]",
-          "data-[highlighted]:bg-[var(--rieul-danger-soft-hover)]",
-          "data-[highlighted]:text-[var(--rieul-danger-hover)]",
-        ],
-        neutral: "text-[var(--rieul-text-primary)]",
+const menuItemVariants = variants({
+  base: {
+    font: "inherit",
+    height: "2rem",
+    minHeight: "2rem",
+    width: "100%",
+    display: "inline-flex",
+    cursor: "pointer",
+    selectors: {
+      "&[data-disabled]": {
+        cursor: "not-allowed",
+        opacity: 0.48,
+      },
+      "&[data-highlighted]": {
+        backgroundColor: theme.bgMenuHover,
       },
     },
-    defaultVariants: {
-      tone: "neutral",
+    WebkitAppearance: "none",
+    appearance: "none",
+    alignItems: "center",
+    justifyContent: "flex-start",
+    gap: "7px",
+    borderWidth: "0px",
+    borderRadius: "0",
+    backgroundColor: "transparent",
+    paddingLeft: "8px",
+    paddingRight: "8px",
+    textAlign: "left",
+    outline: "2px solid transparent",
+    outlineOffset: "2px",
+  },
+  variants: {
+    tone: {
+      danger: {
+        selectors: {
+          "&[data-highlighted]": {
+            backgroundColor: theme.dangerSoftHover,
+            color: theme.dangerHover,
+          },
+        },
+        color: theme.danger,
+      },
+      neutral: {
+        color: theme.textPrimary,
+      },
     },
   },
-);
+  defaultVariants: {
+    tone: "neutral",
+  },
+});
 const viewportMargin = 8;
 const menuBorderSize = 2;
 const menuPaddingBlock = 0;
@@ -71,7 +117,10 @@ export interface FloatingMenuProps {
 
 export interface FloatingMenuItemProps
   extends Omit<JSX.ButtonHTMLAttributes<HTMLButtonElement>, "className">,
-    VariantProps<typeof menuItemVariants> {
+    Omit<
+      Props.Variants<typeof menuItemVariants>,
+      "className" | "style" | "vars"
+    > {
   className?: string;
   type?: "button";
 }
@@ -191,10 +240,12 @@ export function FloatingMenu(props: FloatingMenuProps) {
         role={props.role ?? "menu"}
         aria-label={props["aria-label"]}
         tabindex={-1}
-        class={joinClassName(
+        {...cx(
           menuVariants(),
-          menuPositionerVariants({ strategy: props.strategy }),
-          props.className,
+          menuPositionerVariants({
+            strategy: props.strategy,
+            className: joinClassName(props.className ?? ""),
+          }),
         )}
         style={{
           position: props.strategy ?? "fixed",
@@ -220,11 +271,13 @@ export function FloatingMenuItem(props: FloatingMenuItemProps) {
       type="button"
       role={props.role ?? "menuitem"}
       tabindex={-1}
-      class={joinClassName(
-        menuItemVariants({ tone: props.tone }),
-        "focus:bg-[var(--rieul-bg-menu-hover)] hover:bg-[var(--rieul-bg-menu-hover)] disabled:opacity-48",
-        props.className,
-      )}
+      {...menuItemVariants({
+        tone: props.tone,
+        className: joinClassName(
+          styles.button().class ?? "",
+          props.className ?? "",
+        ),
+      })}
     />
   );
 }
@@ -357,4 +410,20 @@ function clampViewportPosition(
   const max = viewportSize - size - viewportMargin;
   if (max < viewportMargin) return viewportMargin;
   return Math.max(viewportMargin, Math.min(value, max));
+}
+
+namespace styles {
+  export const button = style({
+    selectors: {
+      "&:hover": {
+        backgroundColor: theme.bgMenuHover,
+      },
+      "&:focus": {
+        backgroundColor: theme.bgMenuHover,
+      },
+      "&:disabled": {
+        opacity: 0.48,
+      },
+    },
+  });
 }

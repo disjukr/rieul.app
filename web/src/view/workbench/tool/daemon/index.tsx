@@ -1,3 +1,4 @@
+import { style } from "../../../../zyzz.config.ts";
 import { DaemonUpdateSection } from "./updates.tsx";
 import type {
   ClientsTableEvent,
@@ -45,155 +46,7 @@ import {
 function procName(procId: number): string {
   return procs[procId as keyof typeof procs]?.name ?? `Proc ${procId}`;
 }
-const daemonToolClassName = [
-  "grid h-full min-h-0 w-full [grid-template-rows:auto_minmax(0,1fr)]",
-  "overflow-hidden bg-white",
-  "text-[#20242d]",
-].join(" ");
-const daemonContentClassName = "min-h-0 overflow-auto p-[1rem]";
-const statusPillClassName = [
-  "inline-flex flex-[0_0_auto] items-center gap-[0.5rem] min-w-0 rounded-[999px]",
-  "bg-[#eef3fb] px-[9px] py-[4px] text-[1rem] font-700 text-[#344054]",
-  "[&_svg]:flex-[0_0_auto]",
-  "[&.reachable]:bg-[#ecfdf3] [&.reachable]:text-[#027a48]",
-  "[&.offline]:bg-[#fff1f3] [&.offline]:text-[#b42318]",
-].join(" ");
-const daemonHeaderClassName = [
-  "flex h-[2rem] min-h-[2rem] min-w-0 items-center justify-between gap-[1rem]",
-  "overflow-hidden border-b border-b-[#d8dde7] bg-[#fbfcfe] px-[0.5rem]",
-].join(" ");
-const summaryNoteClassName = "text-[#667085]";
-const procSectionClassName = "mt-[18px] min-w-0";
-const procSectionTitleClassName =
-  "mb-[8px] text-[1rem] font-800 text-[#667085]";
-const sectionTitleButtonClassName = [
-  "mb-[8px] inline-flex h-[24px] appearance-none items-center gap-[3px] rounded-[0.5rem]",
-  "cursor-pointer border-transparent bg-transparent px-[4px] text-[1rem]",
-  "font-800 text-[#667085] [font-family:inherit]",
-  "hover:bg-[#eef3fb] hover:text-[#344054]",
-  "[&_svg]:flex-[0_0_auto]",
-].join(" ");
-const clientsSectionClassName = "mt-[18px] min-w-0";
-const clientOverviewCardClassName = [
-  "min-w-0 rounded-[8px] border border-[#d8dde7] bg-[#fbfcfe]",
-  "grid gap-[8px] px-[1rem] py-[1rem] text-[14px] text-[#667085]",
-].join(" ");
-const clientOverviewCurrentButtonClassName = [
-  "grid min-w-0 appearance-none gap-[3px] rounded-[0.5rem] px-[8px] py-[7px] text-left",
-  "cursor-pointer text-[#344054] hover:bg-[#eef3fb]",
-  "[font-family:inherit]",
-  "[&_strong]:min-w-0 [&_strong]:overflow-hidden [&_strong]:text-ellipsis",
-  "[&_strong]:whitespace-nowrap [&_strong]:text-[14px] [&_strong]:font-750",
-  "[&_span]:min-w-0 [&_span]:overflow-hidden [&_span]:text-ellipsis",
-  "[&_span]:whitespace-nowrap [&_span]:text-[12px] [&_span]:text-[#667085]",
-].join(" ");
-const clientOverviewMetaClassName =
-  "px-[8px] text-[1rem] font-650 text-[#667085]";
-const clientOverviewMetaButtonClassName = [
-  "inline min-h-0 appearance-none justify-self-start gap-0 border-0 rounded-0",
-  "cursor-pointer bg-transparent p-0 text-left text-[1rem] font-650 text-[#667085]",
-  "[font-family:inherit]",
-  "hover:border-transparent hover:bg-transparent hover:text-[#344054]",
-].join(" ");
-const clientListClassName = [
-  "grid content-start gap-[0.5rem] min-w-0 rounded-[8px]",
-  "border border-[#d8dde7] bg-[#fbfcfe] p-[0.5rem]",
-].join(" ");
-const clientListItemClassName = [
-  "grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center rounded-[0.5rem]",
-  "border border-transparent bg-white",
-].join(" ");
-const clientButtonClassName = [
-  "grid min-w-0 appearance-none gap-[3px] rounded-l-[0.5rem] px-[1rem] py-[8px] text-left",
-  "cursor-pointer text-[#344054] hover:bg-[#eef3fb]",
-  "[font-family:inherit]",
-  "[&.selected]:bg-[#e8eef7] [&.selected]:text-[#20242d]",
-  "[&_strong]:min-w-0 [&_strong]:overflow-hidden [&_strong]:text-ellipsis",
-  "[&_strong]:whitespace-nowrap [&_strong]:text-[14px] [&_strong]:font-750",
-  "[&_span]:min-w-0 [&_span]:overflow-hidden [&_span]:text-ellipsis",
-  "[&_span]:whitespace-nowrap [&_span]:text-[12px] [&_span]:text-[#667085]",
-].join(" ");
-const clientListRemoveButtonClassName = "mr-[0.5rem]";
-const clientListConfirmationClassName = [
-  "col-span-2 flex min-w-0 flex-wrap items-center gap-[0.5rem]",
-  "border-t border-t-[#edf0f5] px-[1rem] py-[0.5rem]",
-].join(" ");
-const clientListConfirmationMessageClassName =
-  "mr-auto text-[1rem] text-[#667085]";
-const clientListErrorClassName = "mr-auto text-[1rem] text-[#b42318]";
-const clientNameRowClassName = "flex min-w-0 items-center gap-[0.5rem]";
-const currentClientBadgeClassName = [
-  "flex-[0_0_auto] rounded-[999px] bg-[#dff6e7] px-[0.5rem] py-[1px]",
-  "text-[1rem] not-italic font-800 text-[#027a48]",
-].join(" ");
-const clientInfoCurrentClientBadgeClassName = [
-  "flex-[0_0_auto] rounded-[999px] bg-[#dff6e7] px-[0.5rem] py-[1px]",
-  "text-[1rem] not-italic text-[#027a48]",
-].join(" ");
-const clientDetailPageClassName = "grid min-w-0 gap-[14px]";
-const clientDetailSectionClassName = [
-  "min-w-0 overflow-hidden rounded-[8px] border border-[#d8dde7] bg-white",
-].join(" ");
-const clientDetailSectionHeaderClassName = [
-  "flex min-h-[48px] min-w-0 items-center justify-between gap-[1rem]",
-  "border-b border-b-[#d8dde7] bg-[#fbfcfe] px-[1rem] py-[9px]",
-  "[&_h2]:m-0 [&_h2]:min-w-0 [&_h2]:overflow-hidden",
-  "[&_h2]:text-ellipsis [&_h2]:whitespace-nowrap",
-  "[&_h2]:text-[1rem] [&_h2]:font-800",
-  "[&_h2]:text-[#667085]",
-  "[&_span]:flex-[0_0_auto] [&_span]:text-[1rem]",
-  "[&_span]:font-650 [&_span]:text-[#667085]",
-].join(" ");
-const clientIdValueClassName = "flex min-w-0 flex-wrap items-center gap-[7px]";
-const credentialExpiryRemainingClassName = "text-[1rem] text-[#667085]";
-const credentialCreatedAgeClassName = credentialExpiryRemainingClassName;
-const renewCredentialButtonClassName = "!min-h-[28px] !px-[9px] !text-[1rem]";
-const renewCredentialMessageClassName = "text-[1rem] text-[#667085]";
-const renewCredentialErrorClassName = "text-[1rem] text-[#b42318]";
-const clientDangerZoneClassName = [
-  "flex min-w-0 flex-wrap items-center gap-[0.5rem] border-t border-t-[#edf0f5]",
-  "px-[1rem] py-[0.75rem]",
-].join(" ");
-const clientDangerMessageClassName = "mr-auto text-[1rem] text-[#667085]";
-const clientDangerErrorClassName = "mr-auto text-[1rem] text-[#b42318]";
-const terminalSessionListClassName = [
-  "grid min-w-0",
-  "[&_article]:grid [&_article]:min-w-0",
-  "[&_article]:grid-cols-[minmax(0,1fr)_auto_auto]",
-  "[&_article]:gap-x-[1rem] [&_article]:gap-y-[4px]",
-  "[&_article]:items-center",
-  "[&_article]:border-b [&_article]:border-b-[#edf0f5]",
-  "[&_article]:px-[1rem] [&_article]:py-[1rem]",
-  "[&_article:last-child]:border-b-0",
-  "[&_strong]:min-w-0 [&_strong]:overflow-hidden [&_strong]:text-ellipsis",
-  "[&_strong]:whitespace-nowrap [&_strong]:font-750",
-  "[&_span]:text-[#667085]",
-  "[&_small]:col-span-3 [&_small]:min-w-0 [&_small]:[overflow-wrap:anywhere]",
-  "[&_small]:text-[1rem] [&_small]:text-[#667085]",
-].join(" ");
-const terminalSessionActionsClassName =
-  "flex min-w-0 items-center justify-end gap-[0.5rem]";
-const terminalSessionCloseButtonClassName =
-  "!min-h-[24px] !px-[1rem] !text-[1rem]";
-const clientDetailStateClassName = "p-[1rem] text-[#667085]";
-const procTableClassName = [
-  "grid overflow-hidden border border-[#d8dde7] rounded-[8px]",
-  "bg-white",
-  "[&_div]:grid [&_div]:grid-cols-[72px_minmax(0,1fr)]",
-  "[&_div]:min-w-0 [&_div]:border-b [&_div]:border-b-[#edf0f5]",
-  "[&_div:last-child]:border-b-0",
-  "[&_span]:min-w-0 [&_span]:px-[1rem] [&_span]:py-[8px]",
-  "[&_span]:text-[14px] [&_span]:[overflow-wrap:anywhere]",
-  "[&_span:first-child]:bg-[#fbfcfe] [&_span:first-child]:font-700",
-  "[&_span:first-child]:text-[#667085]",
-].join(" ");
-const messageStateClassName = [
-  "grid h-full min-h-[220px] place-items-center text-center",
-  "[&_div]:grid [&_div]:justify-items-center [&_div]:gap-[8px]",
-  "[&_svg]:text-[#98a2b3]",
-  "[&_strong]:text-[15px] [&_strong]:text-[#20242d]",
-  "[&_p]:m-0 [&_p]:max-w-[420px] [&_p]:text-[14px] [&_p]:text-[#667085]",
-].join(" ");
+
 interface ClientsState {
   clients: ClientInfo[];
   message?: string;
@@ -490,8 +343,8 @@ export function DaemonTool() {
     <>
       {(() => {
         return (
-          <section class={daemonToolClassName}>
-            <div class={daemonHeaderClassName}>
+          <section {...styles.daemonTool()}>
+            <div {...styles.daemonHeader()}>
               <DaemonBreadcrumb
                 clientsPageOpen={clientsPageOpen()}
                 clientDetailId={clientDetailId()}
@@ -499,7 +352,9 @@ export function DaemonTool() {
                 onOpenRoot={openRootPage}
               />
               {clientsPageOpen() ? null : (
-                <span class={`${statusPillClassName} ${connection().phase}`}>
+                <span
+                  class={`${styles.statusPill().class} ${connection().phase}`}
+                >
                   {connection().phase === "reachable" ? (
                     <CheckCircle2 size={13} />
                   ) : connection().phase === "offline" ? (
@@ -511,7 +366,7 @@ export function DaemonTool() {
                 </span>
               )}
             </div>
-            <div class={daemonContentClassName}>
+            <div {...styles.daemonContent()}>
               {daemonInfo().phase === "ready" ? (
                 <DaemonInfoView
                   endpoint={machine()?.baseUrl}
@@ -604,7 +459,7 @@ function DaemonBreadcrumb(props: DaemonBreadcrumbProps) {
         return (
           <Breadcrumb
             ariaLabel="Daemon location"
-            className="flex-[1_1_auto]"
+            className={styles.breadcrumb().class}
             items={items}
           />
         );
@@ -729,7 +584,7 @@ function DaemonInfoView(props: DaemonInfoViewProps) {
               </PropertyListItem>
               <PropertyListItem label="Daemon instance ID">
                 <PropertyValue>{props.instanceId}</PropertyValue>
-                <span class={summaryNoteClassName}>
+                <span {...styles.summaryNote()}>
                   Changes every time the daemon starts.
                 </span>
               </PropertyListItem>
@@ -742,7 +597,7 @@ function DaemonInfoView(props: DaemonInfoViewProps) {
                 <PropertyValue>
                   {formatDaemonTimestamp(props.startedAtMs)}
                 </PropertyValue>
-                <span class={summaryNoteClassName}>
+                <span {...styles.summaryNote()}>
                   Uptime {formatDaemonUptime(props.uptimeSeconds)}
                 </span>
               </PropertyListItem>
@@ -757,9 +612,9 @@ function DaemonInfoView(props: DaemonInfoViewProps) {
               onOpenClients={props.onOpenClients}
             />
 
-            <section class={procSectionClassName}>
-              <div class={procSectionTitleClassName}>Supported RPC</div>
-              <div class={procTableClassName}>
+            <section {...styles.procSection()}>
+              <div {...styles.procSectionTitle()}>Supported RPC</div>
+              <div {...styles.procTable()}>
                 {props.supportedProcIds.map((procId) => (
                   <div>
                     <span>{procId}</span>
@@ -785,16 +640,16 @@ function ClientsOverviewSection(props: ClientsOverviewSectionProps) {
     <>
       {(() => {
         return (
-          <section class={clientsSectionClassName}>
+          <section {...styles.procSection()}>
             <button
               type="button"
-              class={sectionTitleButtonClassName}
+              {...styles.sectionTitleButton()}
               onClick={props.onOpenClients}
             >
               Clients
               <ChevronRight size={13} />
             </button>
-            <div class={clientOverviewCardClassName}>
+            <div {...styles.clientOverviewCard()}>
               <ClientsOverviewContent
                 clientsState={props.clientsState}
                 currentClientId={props.currentClientId}
@@ -832,7 +687,7 @@ function ClientsOverviewContent(props: ClientsOverviewContentProps) {
           return (
             <>
               <span>{clientsOverviewLabel(props.clientsState)}</span>
-              <span class={clientOverviewMetaClassName}>
+              <span {...styles.clientOverviewMeta()}>
                 This client is not in the daemon client list.
               </span>
             </>
@@ -845,18 +700,18 @@ function ClientsOverviewContent(props: ClientsOverviewContentProps) {
           <>
             <button
               type="button"
-              class={clientOverviewCurrentButtonClassName}
+              {...styles.clientOverviewCurrentButton()}
               onClick={() => props.onOpenClient(currentClient()!.clientId)}
             >
-              <div class={clientNameRowClassName}>
+              <div {...styles.clientNameRow()}>
                 <strong>{currentClient()!.label || "Unnamed client"}</strong>
-                <em class={currentClientBadgeClassName}>This client</em>
+                <em {...styles.currentClientBadge()}>This client</em>
               </div>
               <span>{currentClient()!.clientId}</span>
             </button>
             <button
               type="button"
-              class={clientOverviewMetaButtonClassName}
+              {...styles.clientOverviewMetaButton()}
               onClick={props.onOpenClients}
             >
               {otherClientsLabel(otherClientCount())}
@@ -878,7 +733,7 @@ function ClientsPage(props: ClientsPageProps) {
     <>
       {(() => {
         return (
-          <section class={clientDetailPageClassName}>
+          <section {...styles.clientDetailPage()}>
             <ClientsSection
               clientsState={props.clientsState}
               currentClientId={props.currentClientId}
@@ -899,7 +754,7 @@ function ClientDetailPendingPage(props: ClientDetailPendingPageProps) {
     <>
       {(() => {
         return (
-          <section class={clientDetailPageClassName}>
+          <section {...styles.clientDetailPage()}>
             <InlineState message={props.message} />
           </section>
         );
@@ -918,8 +773,8 @@ function ClientsSection(props: ClientsSectionProps) {
     <>
       {(() => {
         return (
-          <section class={clientsSectionClassName}>
-            <div class={procSectionTitleClassName}>Clients</div>
+          <section {...styles.procSection()}>
+            <div {...styles.procSectionTitle()}>Clients</div>
             {props.clientsState.phase === "error" ? (
               <InlineState
                 message={props.clientsState.message ?? "Client list failed"}
@@ -929,7 +784,7 @@ function ClientsSection(props: ClientsSectionProps) {
             ) : props.clientsState.clients.length === 0 ? (
               <InlineState message="No paired clients" />
             ) : (
-              <div class={clientListClassName}>
+              <div {...styles.clientList()}>
                 {props.clientsState.clients.map((client) => (
                   <ClientListItem
                     client={client}
@@ -974,23 +829,23 @@ function ClientListItem(props: ClientListItemProps) {
     <>
       {(() => {
         return (
-          <article class={clientListItemClassName}>
+          <article {...styles.clientListItem()}>
             <button
               type="button"
-              class={clientButtonClassName}
+              {...styles.clientButton()}
               onClick={() => props.onOpenClient(props.client.clientId)}
             >
-              <div class={clientNameRowClassName}>
+              <div {...styles.clientNameRow()}>
                 <strong>{props.client.label || "Unnamed client"}</strong>
                 {isCurrent() ? (
-                  <em class={currentClientBadgeClassName}>This client</em>
+                  <em {...styles.currentClientBadge()}>This client</em>
                 ) : null}
               </div>
               <span>{props.client.clientId}</span>
             </button>
             <Button
               aria-label={`Remove ${props.client.label || props.client.clientId}`}
-              className={clientListRemoveButtonClassName}
+              className={styles.clientListRemoveButton().class}
               disabled={removePhase() === "removing"}
               onClick={() => setRemovePhase("confirming")}
               size="icon"
@@ -1001,8 +856,8 @@ function ClientListItem(props: ClientListItemProps) {
               <Trash2 size={15} />
             </Button>
             {removePhase() === "confirming" || removePhase() === "removing" ? (
-              <div class={clientListConfirmationClassName}>
-                <span class={clientListConfirmationMessageClassName}>
+              <div {...styles.clientListConfirmation()}>
+                <span {...styles.clientListConfirmationMessage()}>
                   This client will need to pair again.
                 </span>
                 <Button
@@ -1024,8 +879,8 @@ function ClientListItem(props: ClientListItemProps) {
                 </Button>
               </div>
             ) : removePhase() === "error" ? (
-              <div class={clientListConfirmationClassName}>
-                <span class={clientListErrorClassName}>
+              <div {...styles.clientListConfirmation()}>
+                <span {...styles.clientListError()}>
                   {removeError() ?? "Client removal failed"}
                 </span>
                 <Button
@@ -1059,7 +914,7 @@ function ClientDetailPage(props: ClientDetailPageProps) {
     <>
       {(() => {
         return (
-          <section class={clientDetailPageClassName}>
+          <section {...styles.clientDetailPage()}>
             <ClientInformationSection
               client={props.client}
               currentClientId={props.currentClientId}
@@ -1125,21 +980,21 @@ function ClientInformationSection(props: ClientInformationSectionProps) {
     <>
       {(() => {
         return (
-          <section class={clientDetailSectionClassName}>
-            <header class={clientDetailSectionHeaderClassName}>
+          <section {...styles.clientDetailSection()}>
+            <header {...styles.clientDetailSectionHeader()}>
               <h2>Client information</h2>
             </header>
-            <PropertyList className="!border-0 !rounded-0 bg-[#edf0f5]">
+            <PropertyList className={styles.propertyList().class}>
               <PropertyListItem label="Label">
                 <PropertyValue>
                   {props.client.label || "Unnamed client"}
                 </PropertyValue>
               </PropertyListItem>
               <PropertyListItem label="Client ID">
-                <div class={clientIdValueClassName}>
+                <div {...styles.clientIdValue()}>
                   <PropertyValue>{props.client.clientId}</PropertyValue>
                   {isCurrent() ? (
-                    <em class={clientInfoCurrentClientBadgeClassName}>
+                    <em {...styles.clientInfoCurrentClientBadge()}>
                       This client
                     </em>
                   ) : null}
@@ -1149,7 +1004,7 @@ function ClientInformationSection(props: ClientInformationSectionProps) {
                 <PropertyValue>
                   {formatUnixTimestamp(props.client.createdAtUnix)}
                 </PropertyValue>
-                <span class={credentialCreatedAgeClassName}>
+                <span {...styles.credentialExpiryRemaining()}>
                   {formatCredentialCreatedAge(
                     props.client.createdAtUnix,
                     nowMs(),
@@ -1160,7 +1015,7 @@ function ClientInformationSection(props: ClientInformationSectionProps) {
                 <PropertyValue>
                   {formatUnixTimestamp(props.client.expiresAtUnix)}
                 </PropertyValue>
-                <span class={credentialExpiryRemainingClassName}>
+                <span {...styles.credentialExpiryRemaining()}>
                   {formatCredentialExpiryRemaining(
                     props.client.expiresAtUnix,
                     nowMs(),
@@ -1169,19 +1024,19 @@ function ClientInformationSection(props: ClientInformationSectionProps) {
                 {isCurrent() ? (
                   <>
                     <Button
-                      className={renewCredentialButtonClassName}
+                      className={styles.renewCredentialButton().class}
                       disabled={renewPhase() === "renewing"}
                       onClick={renewNow}
                     >
                       {renewPhase() === "renewing" ? "Renewing" : "Renew now"}
                     </Button>
                     {renewPhase() === "renewed" ? (
-                      <span class={renewCredentialMessageClassName}>
+                      <span {...styles.credentialExpiryRemaining()}>
                         Renewal requested
                       </span>
                     ) : null}
                     {renewPhase() === "error" ? (
-                      <span class={renewCredentialErrorClassName}>
+                      <span {...styles.renewCredentialError()}>
                         {renewError() ?? "Renewal failed"}
                       </span>
                     ) : null}
@@ -1189,11 +1044,11 @@ function ClientInformationSection(props: ClientInformationSectionProps) {
                 ) : null}
               </PropertyListItem>
             </PropertyList>
-            <div class={clientDangerZoneClassName}>
+            <div {...styles.clientDangerZone()}>
               {removePhase() === "confirming" ||
               removePhase() === "removing" ? (
                 <>
-                  <span class={clientDangerMessageClassName}>
+                  <span {...styles.clientListConfirmationMessage()}>
                     This client will need to pair again.
                   </span>
                   <Button
@@ -1220,11 +1075,11 @@ function ClientInformationSection(props: ClientInformationSectionProps) {
               ) : (
                 <>
                   {removePhase() === "error" ? (
-                    <span class={clientDangerErrorClassName}>
+                    <span {...styles.clientListError()}>
                       {removeError() ?? "Client removal failed"}
                     </span>
                   ) : (
-                    <span class={clientDangerMessageClassName} />
+                    <span {...styles.clientListConfirmationMessage()} />
                   )}
                   <Button
                     onClick={() => setRemovePhase("confirming")}
@@ -1274,8 +1129,8 @@ function ClientTerminalSessions(props: ClientTerminalSessionsProps) {
     <>
       {(() => {
         return (
-          <section class={clientDetailSectionClassName}>
-            <header class={clientDetailSectionHeaderClassName}>
+          <section {...styles.clientDetailSection()}>
+            <header {...styles.clientDetailSectionHeader()}>
               <h2>Terminal sessions</h2>
             </header>
             {closeError() ? (
@@ -1290,23 +1145,23 @@ function ClientTerminalSessions(props: ClientTerminalSessionsProps) {
             ) : props.sessions.length === 0 ? (
               <ClientDetailState message="No terminal sessions for this client" />
             ) : (
-              <div class={terminalSessionListClassName}>
+              <div {...styles.terminalSessionList()}>
                 {props.sessions.map((session) => (
                   <article>
                     <strong>{commandName(session.launch.command)}</strong>
                     <span>
                       {session.cols} x {session.rows}
                     </span>
-                    <div class={terminalSessionActionsClassName}>
+                    <div {...styles.terminalSessionActions()}>
                       <Button
-                        className={terminalSessionCloseButtonClassName}
+                        className={styles.terminalSessionCloseButton().class}
                         onClick={() => props.onOpenTerminalSession(session)}
                       >
                         <SquareTerminal size={13} />
                         Open
                       </Button>
                       <Button
-                        className={terminalSessionCloseButtonClassName}
+                        className={styles.terminalSessionCloseButton().class}
                         disabled={closingSessionIds().has(
                           session.terminalSessionId,
                         )}
@@ -1339,7 +1194,7 @@ function ClientDetailState(props: ClientDetailStateProps) {
   return (
     <>
       {(() => {
-        return <div class={clientDetailStateClassName}>{props.message}</div>;
+        return <div {...styles.clientDetailState()}>{props.message}</div>;
       })()}
     </>
   );
@@ -1362,11 +1217,7 @@ function InlineState(props: InlineStateProps) {
   return (
     <>
       {(() => {
-        return (
-          <div class="min-w-0 rounded-[8px] border border-[#d8dde7] bg-[#fbfcfe] px-[1rem] py-[1rem] text-[14px] text-[#667085]">
-            {props.message}
-          </div>
-        );
+        return <div {...styles.div()}>{props.message}</div>;
       })()}
     </>
   );
@@ -1479,7 +1330,7 @@ function DaemonInfoStateView(props: DaemonInfoStateViewProps) {
     <>
       {(() => {
         return (
-          <div class={messageStateClassName}>
+          <div {...styles.messageState()}>
             <div>
               {props.phase === "error" ? (
                 <AlertTriangle size={24} />
@@ -1496,4 +1347,534 @@ function DaemonInfoStateView(props: DaemonInfoStateViewProps) {
       })()}
     </>
   );
+}
+
+namespace styles {
+  export const daemonTool = style({
+    gridTemplateRows: "auto minmax(0,1fr)",
+    display: "grid",
+    height: "100%",
+    minHeight: "0",
+    width: "100%",
+    overflow: "hidden",
+    backgroundColor: "rgb(255 255 255 / 1)",
+    color: "rgb(32 36 45 / 1)",
+  });
+  export const daemonContent = style({
+    minHeight: "0",
+    overflow: "auto",
+    padding: "1rem",
+  });
+  export const statusPill = style({
+    minWidth: "0",
+    display: "inline-flex",
+    selectors: {
+      "& svg": {
+        flex: "0 0 auto",
+      },
+      "&.offline": {
+        backgroundColor: "rgb(255 241 243 / 1)",
+        color: "rgb(180 35 24 / 1)",
+      },
+      "&.reachable": {
+        backgroundColor: "rgb(236 253 243 / 1)",
+        color: "rgb(2 122 72 / 1)",
+      },
+    },
+    flex: "0 0 auto",
+    alignItems: "center",
+    gap: "0.5rem",
+    borderRadius: "999px",
+    backgroundColor: "rgb(238 243 251 / 1)",
+    paddingLeft: "9px",
+    paddingRight: "9px",
+    paddingTop: "4px",
+    paddingBottom: "4px",
+    fontSize: "1rem",
+    color: "rgb(52 64 84 / 1)",
+    fontWeight: 700,
+  });
+  export const daemonHeader = style({
+    height: "2rem",
+    minHeight: "2rem",
+    minWidth: "0",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: "1rem",
+    overflow: "hidden",
+    borderBottomWidth: "1px",
+    borderBottomColor: "rgb(216 221 231 / 1)",
+    backgroundColor: "rgb(251 252 254 / 1)",
+    paddingLeft: "0.5rem",
+    paddingRight: "0.5rem",
+  });
+  export const summaryNote = style({
+    color: "rgb(102 112 133 / 1)",
+  });
+  export const procSection = style({
+    marginTop: "18px",
+    minWidth: "0",
+  });
+  export const procSectionTitle = style({
+    marginBottom: "8px",
+    fontSize: "1rem",
+    color: "rgb(102 112 133 / 1)",
+    fontWeight: 800,
+  });
+  export const sectionTitleButton = style({
+    fontFamily: "inherit",
+    marginBottom: "8px",
+    height: "24px",
+    display: "inline-flex",
+    selectors: {
+      "& svg": {
+        flex: "0 0 auto",
+      },
+      "&:hover": {
+        backgroundColor: "rgb(238 243 251 / 1)",
+        color: "rgb(52 64 84 / 1)",
+      },
+    },
+    cursor: "pointer",
+    WebkitAppearance: "none",
+    appearance: "none",
+    alignItems: "center",
+    gap: "3px",
+    borderColor: "transparent",
+    borderRadius: "0.5rem",
+    backgroundColor: "transparent",
+    paddingLeft: "4px",
+    paddingRight: "4px",
+    fontSize: "1rem",
+    color: "rgb(102 112 133 / 1)",
+    fontWeight: 800,
+  });
+
+  export const clientOverviewCard = style({
+    display: "grid",
+    minWidth: "0",
+    gap: "8px",
+    borderWidth: "1px",
+    borderColor: "rgb(216 221 231 / 1)",
+    borderRadius: "8px",
+    backgroundColor: "rgb(251 252 254 / 1)",
+    paddingLeft: "1rem",
+    paddingRight: "1rem",
+    paddingTop: "1rem",
+    paddingBottom: "1rem",
+    fontSize: "14px",
+    color: "rgb(102 112 133 / 1)",
+  });
+  export const clientOverviewCurrentButton = style({
+    fontFamily: "inherit",
+    display: "grid",
+    selectors: {
+      "& span": {
+        minWidth: "0",
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
+        fontSize: "12px",
+        color: "rgb(102 112 133 / 1)",
+      },
+      "& strong": {
+        minWidth: "0",
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
+        fontSize: "14px",
+        fontWeight: 750,
+      },
+      "&:hover": {
+        backgroundColor: "rgb(238 243 251 / 1)",
+      },
+    },
+    minWidth: "0",
+    cursor: "pointer",
+    WebkitAppearance: "none",
+    appearance: "none",
+    gap: "3px",
+    borderRadius: "0.5rem",
+    paddingLeft: "8px",
+    paddingRight: "8px",
+    paddingTop: "7px",
+    paddingBottom: "7px",
+    textAlign: "left",
+    color: "rgb(52 64 84 / 1)",
+  });
+  export const clientOverviewMeta = style({
+    paddingLeft: "8px",
+    paddingRight: "8px",
+    fontSize: "1rem",
+    color: "rgb(102 112 133 / 1)",
+    fontWeight: 650,
+  });
+  export const clientOverviewMetaButton = style({
+    fontFamily: "inherit",
+    display: "inline",
+    minHeight: "0",
+    cursor: "pointer",
+    WebkitAppearance: "none",
+    appearance: "none",
+    justifySelf: "start",
+    gap: "0",
+    borderWidth: "0px",
+    selectors: {
+      "&:hover": {
+        borderColor: "transparent",
+        backgroundColor: "transparent",
+        color: "rgb(52 64 84 / 1)",
+      },
+    },
+    borderRadius: "0",
+    backgroundColor: "transparent",
+    padding: "0",
+    textAlign: "left",
+    fontSize: "1rem",
+    color: "rgb(102 112 133 / 1)",
+    fontWeight: 650,
+  });
+  export const clientList = style({
+    display: "grid",
+    minWidth: "0",
+    alignContent: "flex-start",
+    gap: "0.5rem",
+    borderWidth: "1px",
+    borderColor: "rgb(216 221 231 / 1)",
+    borderRadius: "8px",
+    backgroundColor: "rgb(251 252 254 / 1)",
+    padding: "0.5rem",
+  });
+  export const clientListItem = style({
+    display: "grid",
+    gridTemplateColumns: "minmax(0,1fr) auto",
+    minWidth: "0",
+    alignItems: "center",
+    borderWidth: "1px",
+    borderColor: "transparent",
+    borderRadius: "0.5rem",
+    backgroundColor: "rgb(255 255 255 / 1)",
+  });
+  export const clientButton = style({
+    fontFamily: "inherit",
+    display: "grid",
+    selectors: {
+      "& span": {
+        minWidth: "0",
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
+        fontSize: "12px",
+        color: "rgb(102 112 133 / 1)",
+      },
+      "& strong": {
+        minWidth: "0",
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
+        fontSize: "14px",
+        fontWeight: 750,
+      },
+      "&.selected": {
+        backgroundColor: "rgb(232 238 247 / 1)",
+        color: "rgb(32 36 45 / 1)",
+      },
+      "&:hover": {
+        backgroundColor: "rgb(238 243 251 / 1)",
+      },
+    },
+    minWidth: "0",
+    cursor: "pointer",
+    WebkitAppearance: "none",
+    appearance: "none",
+    gap: "3px",
+    borderTopLeftRadius: "0.5rem",
+    borderBottomLeftRadius: "0.5rem",
+    paddingLeft: "1rem",
+    paddingRight: "1rem",
+    paddingTop: "8px",
+    paddingBottom: "8px",
+    textAlign: "left",
+    color: "rgb(52 64 84 / 1)",
+  });
+  export const clientListRemoveButton = style({
+    marginRight: "0.5rem",
+  });
+  export const clientListConfirmation = style({
+    gridColumn: "span 2/span 2",
+    minWidth: "0",
+    display: "flex",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: "0.5rem",
+    borderTopWidth: "1px",
+    borderTopColor: "rgb(237 240 245 / 1)",
+    paddingLeft: "1rem",
+    paddingRight: "1rem",
+    paddingTop: "0.5rem",
+    paddingBottom: "0.5rem",
+  });
+  export const clientListConfirmationMessage = style({
+    marginRight: "auto",
+    fontSize: "1rem",
+    color: "rgb(102 112 133 / 1)",
+  });
+  export const clientListError = style({
+    marginRight: "auto",
+    fontSize: "1rem",
+    color: "rgb(180 35 24 / 1)",
+  });
+  export const clientNameRow = style({
+    minWidth: "0",
+    display: "flex",
+    alignItems: "center",
+    gap: "0.5rem",
+  });
+  export const currentClientBadge = style({
+    flex: "0 0 auto",
+    borderRadius: "999px",
+    backgroundColor: "rgb(223 246 231 / 1)",
+    paddingLeft: "0.5rem",
+    paddingRight: "0.5rem",
+    paddingTop: "1px",
+    paddingBottom: "1px",
+    fontSize: "1rem",
+    color: "rgb(2 122 72 / 1)",
+    fontWeight: 800,
+    fontStyle: "normal",
+  });
+  export const clientInfoCurrentClientBadge = style({
+    flex: "0 0 auto",
+    borderRadius: "999px",
+    backgroundColor: "rgb(223 246 231 / 1)",
+    paddingLeft: "0.5rem",
+    paddingRight: "0.5rem",
+    paddingTop: "1px",
+    paddingBottom: "1px",
+    fontSize: "1rem",
+    color: "rgb(2 122 72 / 1)",
+    fontStyle: "normal",
+  });
+  export const clientDetailPage = style({
+    display: "grid",
+    minWidth: "0",
+    gap: "14px",
+  });
+  export const clientDetailSection = style({
+    minWidth: "0",
+    overflow: "hidden",
+    borderWidth: "1px",
+    borderColor: "rgb(216 221 231 / 1)",
+    borderRadius: "8px",
+    backgroundColor: "rgb(255 255 255 / 1)",
+  });
+  export const clientDetailSectionHeader = style({
+    selectors: {
+      "& h2": {
+        margin: "0",
+        minWidth: "0",
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
+        fontSize: "1rem",
+        color: "rgb(102 112 133 / 1)",
+        fontWeight: 800,
+      },
+      "& span": {
+        flex: "0 0 auto",
+        fontSize: "1rem",
+        color: "rgb(102 112 133 / 1)",
+        fontWeight: 650,
+      },
+    },
+    minWidth: "0",
+    minHeight: "48px",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: "1rem",
+    borderBottomWidth: "1px",
+    borderBottomColor: "rgb(216 221 231 / 1)",
+    backgroundColor: "rgb(251 252 254 / 1)",
+    paddingLeft: "1rem",
+    paddingRight: "1rem",
+    paddingTop: "9px",
+    paddingBottom: "9px",
+  });
+  export const clientIdValue = style({
+    minWidth: "0",
+    display: "flex",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: "7px",
+  });
+  export const credentialExpiryRemaining = style({
+    fontSize: "1rem",
+    color: "rgb(102 112 133 / 1)",
+  });
+  export const renewCredentialButton = style({
+    minHeight: "28px !important",
+    paddingLeft: "9px !important",
+    paddingRight: "9px !important",
+    fontSize: "1rem !important",
+  });
+
+  export const renewCredentialError = style({
+    fontSize: "1rem",
+    color: "rgb(180 35 24 / 1)",
+  });
+  export const clientDangerZone = style({
+    minWidth: "0",
+    display: "flex",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: "0.5rem",
+    borderTopWidth: "1px",
+    borderTopColor: "rgb(237 240 245 / 1)",
+    paddingLeft: "1rem",
+    paddingRight: "1rem",
+    paddingTop: "0.75rem",
+    paddingBottom: "0.75rem",
+  });
+
+  export const terminalSessionList = style({
+    selectors: {
+      "& small": {
+        overflowWrap: "anywhere",
+        gridColumn: "span 3/span 3",
+        minWidth: "0",
+        fontSize: "1rem",
+        color: "rgb(102 112 133 / 1)",
+      },
+      "& article": {
+        display: "grid",
+        gridTemplateColumns: "minmax(0,1fr) auto auto",
+        minWidth: "0",
+        alignItems: "center",
+        columnGap: "1rem",
+        rowGap: "4px",
+        borderBottomWidth: "1px",
+        borderBottomColor: "rgb(237 240 245 / 1)",
+        paddingLeft: "1rem",
+        paddingRight: "1rem",
+        paddingTop: "1rem",
+        paddingBottom: "1rem",
+      },
+      "& strong": {
+        minWidth: "0",
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
+        fontWeight: 750,
+      },
+      "& article:last-child": {
+        borderBottomWidth: "0px",
+      },
+      "& span": {
+        color: "rgb(102 112 133 / 1)",
+      },
+    },
+    display: "grid",
+    minWidth: "0",
+  });
+  export const terminalSessionActions = style({
+    minWidth: "0",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    gap: "0.5rem",
+  });
+  export const terminalSessionCloseButton = style({
+    minHeight: "24px !important",
+    paddingLeft: "1rem !important",
+    paddingRight: "1rem !important",
+    fontSize: "1rem !important",
+  });
+  export const clientDetailState = style({
+    padding: "1rem",
+    color: "rgb(102 112 133 / 1)",
+  });
+  export const procTable = style({
+    selectors: {
+      "& span": {
+        overflowWrap: "anywhere",
+        minWidth: "0",
+        paddingLeft: "1rem",
+        paddingRight: "1rem",
+        paddingTop: "8px",
+        paddingBottom: "8px",
+        fontSize: "14px",
+      },
+      "& div": {
+        display: "grid",
+        gridTemplateColumns: "72px minmax(0,1fr)",
+        minWidth: "0",
+        borderBottomWidth: "1px",
+        borderBottomColor: "rgb(237 240 245 / 1)",
+      },
+      "& div:last-child": {
+        borderBottomWidth: "0px",
+      },
+      "& span:first-child": {
+        backgroundColor: "rgb(251 252 254 / 1)",
+        color: "rgb(102 112 133 / 1)",
+        fontWeight: 700,
+      },
+    },
+    display: "grid",
+    overflow: "hidden",
+    borderWidth: "1px",
+    borderColor: "rgb(216 221 231 / 1)",
+    borderRadius: "8px",
+    backgroundColor: "rgb(255 255 255 / 1)",
+  });
+  export const messageState = style({
+    selectors: {
+      "& div": {
+        display: "grid",
+        justifyItems: "center",
+        gap: "8px",
+      },
+      "& p": {
+        margin: "0",
+        maxWidth: "420px",
+        fontSize: "14px",
+        color: "rgb(102 112 133 / 1)",
+      },
+      "& strong": {
+        fontSize: "15px",
+        color: "rgb(32 36 45 / 1)",
+      },
+      "& svg": {
+        color: "rgb(152 162 179 / 1)",
+      },
+    },
+    display: "grid",
+    height: "100%",
+    minHeight: "220px",
+    placeItems: "center",
+    textAlign: "center",
+  });
+  export const breadcrumb = style({
+    flex: "1 1 auto",
+  });
+  export const propertyList = style({
+    borderWidth: "0px !important",
+    borderRadius: "0 !important",
+    backgroundColor: "rgb(237 240 245 / 1)",
+  });
+  export const div = style({
+    minWidth: "0",
+    borderWidth: "1px",
+    borderColor: "rgb(216 221 231 / 1)",
+    borderRadius: "8px",
+    backgroundColor: "rgb(251 252 254 / 1)",
+    paddingLeft: "1rem",
+    paddingRight: "1rem",
+    paddingTop: "1rem",
+    paddingBottom: "1rem",
+    fontSize: "14px",
+    color: "rgb(102 112 133 / 1)",
+  });
 }

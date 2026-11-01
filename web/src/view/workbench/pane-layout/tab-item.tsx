@@ -1,3 +1,4 @@
+import { style, theme } from "../../../zyzz.config.ts";
 import type { Accessor } from "solid-js";
 import type {
   TabDropPosition,
@@ -30,45 +31,7 @@ interface WorkbenchTabItemProps {
   onClose: () => void;
   onContextMenu: (tab: WorkbenchTab, event: MouseEvent) => void;
 }
-const workbenchTabClassName = [
-  "workbench-tab group relative flex flex-[0_0_auto] items-center min-w-[136px] max-w-[206px] h-[28px] box-border leading-none",
-  "max-[680px]:min-w-[72px] max-[680px]:max-w-[104px]",
-  "rounded-[999px] border border-transparent bg-transparent",
-  "before:content-[''] before:absolute before:top-[4px] before:bottom-[4px]",
-  "before:z-[2] before:w-[2px] before:rounded-full before:bg-transparent",
-  "before:pointer-events-none before:left-0",
-  "after:content-[''] after:absolute after:top-[4px] after:bottom-[4px]",
-  "after:z-[2] after:w-[2px] after:rounded-full after:bg-transparent",
-  "after:pointer-events-none after:right-0",
-  "[&.drop-before::before]:bg-rieul-accent",
-  "[&.drop-after::after]:bg-rieul-accent",
-  "[&.dragging]:opacity-48",
-  "[&:not(.active)]:text-rieul-text-3/76",
-  "[&:not(.active):hover]:border-white/42 [&:not(.active):hover]:bg-white/24",
-  "[&.active]:border-white/74 [&.active]:bg-[rgba(255,255,255,0.78)] [&.active]:backdrop-blur-2xl",
-  "[&.active]:[box-shadow:0_7px_16px_rgba(18,25,38,0.082),inset_0_1px_0_rgba(255,255,255,0.86),inset_0_-1px_0_rgba(18,25,38,0.028)]",
-  "[&.active>button]:text-rieul-text [&.active>button_svg]:text-rieul-accent",
-].join(" ");
-const workbenchTabButtonClassName = [
-  "inline-flex h-full min-h-0 min-w-0 flex-[1_1_auto] appearance-none",
-  "items-center justify-start gap-[8px] overflow-hidden rounded-none border-0",
-  "bg-transparent pl-[11px] pr-[8px] [font-family:inherit]",
-  "text-ellipsis whitespace-nowrap text-rieul-text-2 font-640 leading-none",
-  "cursor-grab select-none [touch-action:manipulation]",
-  "[-webkit-touch-callout:none] [-webkit-user-select:none]",
-  "hover:bg-transparent active:cursor-grabbing",
-].join(" ");
-const workbenchTabCloseClassName = [
-  "tab-close ml-auto mr-[6px] inline-flex h-[18px] min-h-[18px]",
-  "w-[18px] min-w-[18px] flex-[0_0_auto] appearance-none items-center",
-  "justify-center rounded-full border-0 bg-transparent p-0 text-rieul-text-2",
-  "opacity-48 hover:bg-[rgba(58,74,96,0.12)] hover:text-rieul-text",
-  "group-[.active]:opacity-78 group-hover:opacity-100",
-].join(" ");
-const workbenchTabIconClassName = "flex-[0_0_auto] text-rieul-text-3";
-const workbenchTabTitleClassName =
-  "min-w-0 overflow-hidden text-ellipsis whitespace-nowrap";
-const activePaneTabClassName = "z-[8]";
+
 export function WorkbenchTabItem(props: WorkbenchTabItemProps) {
   const tabState = useBunja(workbenchTabBunja);
   const tab = () => tabState().tab();
@@ -80,9 +43,9 @@ export function WorkbenchTabItem(props: WorkbenchTabItemProps) {
   const specialLocation = () => navigation().specialLocation();
   const tabClassName = createMemo(() =>
     className(
-      workbenchTabClassName,
+      styles.workbenchTab({ className: "workbench-tab group" }).class,
       active() && "active",
-      active() && props.paneActive && activePaneTabClassName,
+      active() && props.paneActive && styles.activePaneTab().class,
       props.dragging && "dragging",
       props.dropPosition === "before" && "drop-before",
       props.dropPosition === "after" && "drop-after",
@@ -113,7 +76,7 @@ export function WorkbenchTabItem(props: WorkbenchTabItemProps) {
               data-tab-drag
               type="button"
               role="tab"
-              class={workbenchTabButtonClassName}
+              {...styles.workbenchTabButton()}
               aria-selected={active() ? "true" : "false"}
               onClick={tabState().selectTab}
               title={label()}
@@ -121,14 +84,14 @@ export function WorkbenchTabItem(props: WorkbenchTabItemProps) {
               <WorkbenchTabIcon
                 tab={tab()!}
                 trashActive={specialLocation() === "trash"}
-                className={workbenchTabIconClassName}
+                className={styles.workbenchTabIcon().class}
               />
-              <span class={workbenchTabTitleClassName}>{label()}</span>
+              <span {...styles.workbenchTabTitle()}>{label()}</span>
             </button>
             {showClose() ? (
               <button
                 type="button"
-                class={workbenchTabCloseClassName}
+                {...styles.workbenchTabClose({ className: "tab-close" })}
                 draggable={false}
                 onMouseDown={(event) => event.stopPropagation()}
                 onClick={props.onClose}
@@ -140,10 +103,7 @@ export function WorkbenchTabItem(props: WorkbenchTabItemProps) {
                 }
               >
                 {dirty() ? (
-                  <span
-                    class="block size-[6px] rounded-full bg-rieul-text-3"
-                    aria-hidden="true"
-                  />
+                  <span {...styles.span()} aria-hidden="true" />
                 ) : (
                   <X size={11} />
                 )}
@@ -220,4 +180,171 @@ function isCoarsePointer(): boolean {
     typeof globalThis.matchMedia === "function" &&
     globalThis.matchMedia("(pointer: coarse)").matches
   );
+}
+
+namespace styles {
+  export const workbenchTab = style({
+    selectors: {
+      "&.active": {
+        boxShadow:
+          "0 7px 16px rgba(18,25,38,0.082),inset 0 1px 0 rgba(255,255,255,0.86),inset 0 -1px 0 rgba(18,25,38,0.028)",
+        borderColor: "rgb(255 255 255 / 0.74)",
+        backgroundColor: "rgba(255, 255, 255, 0.78)",
+        WebkitBackdropFilter: "blur(40px)",
+        backdropFilter: "blur(40px)",
+      },
+      "&::before": {
+        pointerEvents: "none",
+        position: "absolute",
+        bottom: "4px",
+        left: "0",
+        top: "4px",
+        zIndex: 2,
+        width: "2px",
+        borderRadius: "9999px",
+        backgroundColor: "transparent",
+        content: "''",
+      },
+      "&::after": {
+        pointerEvents: "none",
+        position: "absolute",
+        bottom: "4px",
+        right: "0",
+        top: "4px",
+        zIndex: 2,
+        width: "2px",
+        borderRadius: "9999px",
+        backgroundColor: "transparent",
+        content: "''",
+      },
+      "&:not(.active):hover": {
+        borderColor: "rgb(255 255 255 / 0.42)",
+        backgroundColor: "rgb(255 255 255 / 0.24)",
+      },
+      "&.drop-after::after": {
+        backgroundColor: theme.accent,
+      },
+      "&.drop-before::before": {
+        backgroundColor: theme.accent,
+      },
+      "&:not(.active)": {
+        color: theme.textTertiary,
+      },
+      "&.active>button svg": {
+        color: theme.accent,
+      },
+      "&.active>button": {
+        color: theme.textPrimary,
+      },
+      "&.dragging": {
+        opacity: 0.48,
+      },
+    },
+    position: "relative",
+    boxSizing: "border-box",
+    height: "28px",
+    maxWidth: "206px",
+    minWidth: "136px",
+    display: "flex",
+    flex: "0 0 auto",
+    alignItems: "center",
+    borderWidth: "1px",
+    borderColor: "transparent",
+    borderRadius: "999px",
+    backgroundColor: "transparent",
+    lineHeight: 1,
+    "@media (max-width: 680px)": {
+      maxWidth: "104px",
+      minWidth: "72px",
+    },
+  });
+  export const workbenchTabButton = style({
+    WebkitTouchCallout: "none",
+    WebkitUserSelect: "none",
+    fontFamily: "inherit",
+    touchAction: "manipulation",
+    height: "100%",
+    minHeight: "0",
+    minWidth: "0",
+    display: "inline-flex",
+    flex: "1 1 auto",
+    cursor: "grab",
+    selectors: {
+      "&:active": {
+        cursor: "grabbing",
+      },
+      "&:hover": {
+        backgroundColor: "transparent",
+      },
+    },
+    userSelect: "none",
+    WebkitAppearance: "none",
+    appearance: "none",
+    alignItems: "center",
+    justifyContent: "flex-start",
+    gap: "8px",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    borderWidth: "0px",
+    borderRadius: "0",
+    backgroundColor: "transparent",
+    paddingLeft: "11px",
+    paddingRight: "8px",
+    color: theme.textSecondary,
+    fontWeight: 640,
+    lineHeight: 1,
+  });
+  export const workbenchTabClose = style({
+    marginLeft: "auto",
+    marginRight: "6px",
+    height: "18px",
+    minHeight: "18px",
+    minWidth: "18px",
+    width: "18px",
+    display: "inline-flex",
+    flex: "0 0 auto",
+    WebkitAppearance: "none",
+    appearance: "none",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: "0px",
+    borderRadius: "9999px",
+    backgroundColor: "transparent",
+    selectors: {
+      "&:hover": {
+        backgroundColor: "rgba(58, 74, 96, 0.12)",
+        color: theme.textPrimary,
+      },
+      ".group.active &": {
+        opacity: 0.78,
+      },
+      ".group:hover &": {
+        opacity: 1,
+      },
+    },
+    padding: "0",
+    color: theme.textSecondary,
+    opacity: 0.48,
+  });
+  export const workbenchTabIcon = style({
+    flex: "0 0 auto",
+    color: theme.textTertiary,
+  });
+  export const workbenchTabTitle = style({
+    minWidth: "0",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  });
+  export const activePaneTab = style({
+    zIndex: 8,
+  });
+  export const span = style({
+    display: "block",
+    width: "6px",
+    height: "6px",
+    borderRadius: "9999px",
+    backgroundColor: theme.textTertiary,
+  });
 }

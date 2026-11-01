@@ -1,38 +1,8 @@
+import { style, theme } from "../../zyzz.config.ts";
 import type { JSX } from "@solidjs/web";
 import { omit } from "solid-js";
 
 import { className as joinClassName } from "../class-name.ts";
-
-const propertyListClassName = [
-  "@container m-0 grid min-w-0 grid-cols-1 overflow-hidden",
-  "rounded-[0.5rem] border border-[var(--rieul-border-light)] bg-[var(--rieul-bg-primary)]",
-  "[&>div+div>dt]:shadow-[inset_0_1px_0_var(--rieul-border-light)]",
-  "@[520px]:[&>div+div>dd]:[box-shadow:inset_1px_0_0_var(--rieul-border-light),inset_0_1px_0_var(--rieul-border-light)]",
-].join(" ");
-
-const propertyListItemClassName = [
-  "grid min-w-0 bg-[var(--rieul-bg-primary)]",
-  "@[520px]:grid-cols-[minmax(120px,180px)_minmax(0,1fr)]",
-  "[&_dt]:m-0 [&_dt]:box-border [&_dt]:min-w-0 [&_dt]:bg-[var(--rieul-bg-subtle)]",
-  "[&_dt]:px-[1rem] [&_dt]:py-[0.5rem] [&_dt]:text-[12px]",
-  "[&_dt]:font-700 [&_dt]:text-[var(--rieul-text-tertiary)]",
-  "@[520px]:[&_dt]:py-[1rem]",
-  "[&_dd]:shadow-[inset_0_1px_0_var(--rieul-border-light)]",
-  "@[520px]:[&_dd]:shadow-[inset_1px_0_0_var(--rieul-border-light)]",
-].join(" ");
-
-const propertyListItemWhiteClassName = "[&_dt]:!bg-[var(--rieul-bg-primary)]";
-const propertyListValueCellClassName = [
-  "m-0 box-border grid min-w-0 w-full self-stretch justify-self-stretch",
-  "justify-items-start gap-[7px] bg-[var(--rieul-bg-primary)] p-[1rem]",
-  "text-[1rem] text-[var(--rieul-text-primary)] [overflow-wrap:anywhere]",
-].join(" ");
-
-const propertyValueClassName = [
-  "inline-block max-w-full rounded-[0.25rem] border border-[var(--rieul-border-light)]",
-  "bg-[var(--rieul-bg-control-disabled)] px-[0.5rem] font-mono",
-  "leading-[1.4] text-[var(--rieul-text-primary)] [overflow-wrap:anywhere]",
-].join(" ");
 
 export interface PropertyListProps
   extends JSX.HTMLAttributes<HTMLDListElement> {
@@ -45,7 +15,10 @@ export function PropertyList(componentProps: PropertyListProps) {
   return (
     <dl
       {...otherProps}
-      class={joinClassName(propertyListClassName, componentProps.className)}
+      class={joinClassName(
+        styles.propertyList().class,
+        componentProps.className,
+      )}
     />
   );
 }
@@ -72,16 +45,16 @@ export function PropertyListItem(componentProps: PropertyListItemProps) {
     <div
       {...otherProps}
       class={joinClassName(
-        propertyListItemClassName,
+        styles.propertyListItem().class,
         (componentProps.variant ?? "default") === "white" &&
-          propertyListItemWhiteClassName,
+          styles.propertyListItemWhite().class,
         componentProps.className,
       )}
     >
       <dt>{componentProps.label}</dt>
       <dd
         class={joinClassName(
-          propertyListValueCellClassName,
+          styles.propertyListValueCell().class,
           componentProps.valueClassName,
         )}
       >
@@ -101,7 +74,114 @@ export function PropertyValue(componentProps: PropertyValueProps) {
   return (
     <code
       {...otherProps}
-      class={joinClassName(propertyValueClassName, componentProps.className)}
+      class={joinClassName(
+        styles.propertyValue().class,
+        componentProps.className,
+      )}
     />
   );
+}
+
+namespace styles {
+  export const propertyList = style({
+    display: "grid",
+    gridTemplateColumns: "repeat(1,minmax(0,1fr))",
+    margin: "0",
+    minWidth: "0",
+    overflow: "hidden",
+    borderWidth: "1px",
+    borderColor: theme.borderLight,
+    borderRadius: "0.5rem",
+    backgroundColor: theme.bgPrimary,
+    selectors: {
+      "&>div+div>dt": {
+        boxShadow:
+          "0 0 rgb(0 0 0 / 0), 0 0 rgb(0 0 0 / 0), inset 0 1px 0 var(--rieul-border-light)",
+      },
+    },
+    containerType: "inline-size",
+    "@container (min-width: 520px)": {
+      selectors: {
+        "&>div+div>dd": {
+          boxShadow:
+            "inset 1px 0 0 var(--rieul-border-light),inset 0 1px 0 var(--rieul-border-light)",
+        },
+      },
+    },
+  });
+  export const propertyListItem = style({
+    display: "grid",
+    selectors: {
+      "& dt": {
+        margin: "0",
+        boxSizing: "border-box",
+        minWidth: "0",
+        backgroundColor: theme.bgSubtle,
+        paddingLeft: "1rem",
+        paddingRight: "1rem",
+        paddingTop: "0.5rem",
+        paddingBottom: "0.5rem",
+        fontSize: "12px",
+        color: theme.textTertiary,
+        fontWeight: 700,
+      },
+      "& dd": {
+        boxShadow:
+          "0 0 rgb(0 0 0 / 0), 0 0 rgb(0 0 0 / 0), inset 0 1px 0 var(--rieul-border-light)",
+      },
+    },
+    minWidth: "0",
+    backgroundColor: theme.bgPrimary,
+    "@container (min-width: 520px)": {
+      gridTemplateColumns: "minmax(120px,180px) minmax(0,1fr)",
+      selectors: {
+        "& dt": {
+          paddingTop: "1rem",
+          paddingBottom: "1rem",
+        },
+        "& dd": {
+          boxShadow:
+            "0 0 rgb(0 0 0 / 0), 0 0 rgb(0 0 0 / 0), inset 1px 0 0 var(--rieul-border-light)",
+        },
+      },
+    },
+  });
+  export const propertyListItemWhite = style({
+    selectors: {
+      "& dt": {
+        backgroundColor: "var(--rieul-bg-primary) !important",
+      },
+    },
+  });
+  export const propertyListValueCell = style({
+    overflowWrap: "anywhere",
+    display: "grid",
+    margin: "0",
+    boxSizing: "border-box",
+    minWidth: "0",
+    width: "100%",
+    alignSelf: "stretch",
+    justifyItems: "start",
+    justifySelf: "stretch",
+    gap: "7px",
+    backgroundColor: theme.bgPrimary,
+    padding: "1rem",
+    fontSize: "1rem",
+    color: theme.textPrimary,
+  });
+  export const propertyValue = style({
+    overflowWrap: "anywhere",
+    display: "inline-block",
+    maxWidth: "100%",
+    borderWidth: "1px",
+    borderColor: theme.borderLight,
+    borderRadius: "0.25rem",
+    backgroundColor: theme.bgControlDisabled,
+    paddingLeft: "0.5rem",
+    paddingRight: "0.5rem",
+    color: theme.textPrimary,
+    lineHeight: 1.4,
+    fontFamily:
+      'ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace',
+  });
 }

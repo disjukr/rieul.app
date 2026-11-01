@@ -348,3 +348,21 @@ scripts/macos/package-desktop-pkg.sh \
   --app-sign "Developer ID Application: Example" \
   --installer-sign "Developer ID Installer: Example"
 ```
+
+## Web styling
+
+The web client uses Zyzz 0.0.44 with the native Solid 2 compiler. Import `style`,
+`variants`, and `theme` from `web/src/zyzz.config.ts`, and keep component styles
+alongside their markup. `output: "html"` produces Solid's `class` and CSS text
+attributes. Spread variant applications to retain their state attributes.
+
+`web/src/theme.css` owns the existing `--rieul-*` tokens and global rules.
+The fixed `@unocss/reset` stylesheet is retained once in a lower CSS layer for
+visual compatibility, regardless of production chunk loading order;
+the UnoCSS compiler and CVA are not used. Monaco and xterm keep their own CSS.
+The app remains client-rendered; no SSR setup is required.
+
+See [Thinking in Zyzz](https://zyzz.style/docs/introduction/thinking-in-zyzz)
+and [Vite integration](https://zyzz.style/docs/api/vite) for authoring and compiler
+constraints. `web/tests/ui/styling.spec.ts` checks live style values, compound
+variants, disabled controls, hover, and keyboard focus with the real compiler.

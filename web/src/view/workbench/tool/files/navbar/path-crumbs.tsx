@@ -1,3 +1,4 @@
+import { style, theme } from "../../../../../zyzz.config.ts";
 import { untrack, createMemo, createSignal, createEffect } from "solid-js";
 import { ChevronRight } from "../../../../../solid/icons.tsx";
 import {
@@ -8,30 +9,7 @@ interface PathCrumbsProps {
   path?: string;
   onNavigate: (path?: string) => void;
 }
-const pathInputFormClassName = [
-  "min-w-0",
-  "[&_input]:w-full [&_input]:h-[23px] [&_input]:min-h-[23px]",
-  "[&_input]:min-w-0 [&_input]:box-border [&_input]:border [&_input]:border-rieul-border-medium",
-  "[&_input]:rounded-[6px] [&_input]:bg-white/74 [&_input]:px-[6px] [&_input]:text-rieul-text",
-  "[&_input]:[font:inherit] [&_input]:leading-[1.38]",
-  "[&_input:focus]:outline-none",
-].join(" ");
-const crumbsClassName = [
-  "flex items-center gap-[1px] w-full h-[23px] min-h-[23px] min-w-0",
-  "box-border leading-[1.38]",
-  "overflow-x-auto overflow-y-hidden overscroll-x-contain [scrollbar-width:none] cursor-text",
-  "[&::-webkit-scrollbar]:hidden",
-  "[&_svg]:flex-[0_0_auto] [&_svg]:pointer-events-none [&_svg]:text-rieul-text-3",
-  "[&_button]:inline-flex [&_button]:appearance-none [&_button]:cursor-pointer",
-  "[&_button]:items-center [&_button]:flex-[0_0_auto] [&_button]:[font-family:inherit]",
-  "[&_button]:min-w-0 [&_button]:max-w-[180px]",
-  "[&_button]:h-[21px] [&_button]:min-h-[21px] [&_button]:overflow-hidden [&_button]:leading-[1.38]",
-  "[&_button]:box-border [&_button]:rounded-rieul-sm [&_button]:border-transparent [&_button]:bg-transparent",
-  "[&_button]:px-[5px] [&_button]:text-[12.5px] [&_button]:text-rieul-text-2",
-  "[&_button:hover]:bg-white/42 [&_button:hover]:text-rieul-text",
-  "[&_button:focus-visible]:bg-white/42 [&_button:focus-visible]:outline-none",
-  "[&_button]:text-ellipsis [&_button]:whitespace-nowrap",
-].join(" ");
+
 export function PathCrumbs(props: PathCrumbsProps) {
   const [editing, setEditing] = createSignal(false);
   const [draftPath, setDraftPath] = createSignal(
@@ -113,7 +91,7 @@ export function PathCrumbs(props: PathCrumbsProps) {
   return (
     <>
       {editing() ? (
-        <form class={pathInputFormClassName} onSubmit={submitPath}>
+        <form {...styles.pathInputForm()} onSubmit={submitPath}>
           <input
             ref={(element) => (inputRef.current = element)}
             value={draftPath()}
@@ -129,7 +107,7 @@ export function PathCrumbs(props: PathCrumbsProps) {
       ) : (
         <div
           ref={(element) => (crumbsRef.current = element)}
-          class={crumbsClassName}
+          {...styles.crumbs()}
           aria-label="Path"
           onMouseDown={(event) => {
             if (event.target !== event.currentTarget) return;
@@ -152,4 +130,92 @@ export function PathCrumbs(props: PathCrumbsProps) {
       )}
     </>
   );
+}
+
+namespace styles {
+  export const pathInputForm = style({
+    selectors: {
+      "& input": {
+        font: "inherit",
+        boxSizing: "border-box",
+        height: "23px",
+        minHeight: "23px",
+        minWidth: "0",
+        width: "100%",
+        borderWidth: "1px",
+        borderColor: theme.borderMedium,
+        borderRadius: "6px",
+        backgroundColor: "rgb(255 255 255 / 0.74)",
+        paddingLeft: "6px",
+        paddingRight: "6px",
+        color: theme.textPrimary,
+        lineHeight: 1.38,
+      },
+      "& input:focus": {
+        outline: "2px solid transparent",
+        outlineOffset: "2px",
+      },
+    },
+    minWidth: "0",
+  });
+  export const crumbs = style({
+    selectors: {
+      "& button": {
+        fontFamily: "inherit",
+        boxSizing: "border-box",
+        height: "21px",
+        maxWidth: "180px",
+        minHeight: "21px",
+        minWidth: "0",
+        display: "inline-flex",
+        flex: "0 0 auto",
+        cursor: "pointer",
+        WebkitAppearance: "none",
+        appearance: "none",
+        alignItems: "center",
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
+        borderColor: "transparent",
+        borderRadius: theme.radiusSm,
+        backgroundColor: "transparent",
+        paddingLeft: "5px",
+        paddingRight: "5px",
+        fontSize: "12.5px",
+        color: theme.textSecondary,
+        lineHeight: 1.38,
+      },
+      "& svg": {
+        pointerEvents: "none",
+        flex: "0 0 auto",
+        color: theme.textTertiary,
+      },
+      "&::-webkit-scrollbar": {
+        display: "none",
+      },
+      "& button:focus-visible": {
+        backgroundColor: "rgb(255 255 255 / 0.42)",
+        outline: "2px solid transparent",
+        outlineOffset: "2px",
+      },
+      "& button:hover": {
+        backgroundColor: "rgb(255 255 255 / 0.42)",
+        color: theme.textPrimary,
+      },
+    },
+    scrollbarWidth: "none",
+    boxSizing: "border-box",
+    minWidth: "0",
+    height: "23px",
+    minHeight: "23px",
+    width: "100%",
+    display: "flex",
+    cursor: "text",
+    alignItems: "center",
+    gap: "1px",
+    overflowX: "auto",
+    overflowY: "hidden",
+    overscrollBehaviorX: "contain",
+    lineHeight: 1.38,
+  });
 }

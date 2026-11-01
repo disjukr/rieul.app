@@ -1,3 +1,4 @@
+import { style, theme } from "../../zyzz.config.ts";
 import type { JSX } from "@solidjs/web";
 
 import { ChevronRight } from "../../solid/icons.tsx";
@@ -16,28 +17,10 @@ interface BreadcrumbProps {
   items: BreadcrumbItem[];
 }
 
-const breadcrumbClassName = [
-  "flex h-[2rem] min-h-[2rem] min-w-0 items-center gap-[0.5rem] overflow-hidden",
-  "[&_svg]:flex-[0_0_auto] [&_svg]:text-[var(--rieul-text-disabled)]",
-  "[&_button]:inline-flex [&_button]:appearance-none [&_button]:cursor-pointer",
-  "[&_button]:items-center [&_button]:[font-family:inherit]",
-  "[&_button]:h-[2rem] [&_button]:min-w-0 [&_button]:max-w-[180px]",
-  "[&_button]:overflow-hidden [&_button]:text-ellipsis",
-  "[&_button]:whitespace-nowrap [&_button]:rounded-[0.5rem]",
-  "[&_button]:border-transparent [&_button]:bg-transparent",
-  "[&_button]:px-[0.5rem] [&_button]:font-750",
-  "[&_button]:text-[var(--rieul-text-control)] [&_button:hover]:bg-[var(--rieul-bg-hover)]",
-  "[&_span]:inline-flex [&_span]:h-[2rem] [&_span]:min-w-0",
-  "[&_span]:max-w-[240px] [&_span]:items-center [&_span]:overflow-hidden",
-  "[&_span]:text-ellipsis [&_span]:whitespace-nowrap",
-  "[&_span]:px-[0.5rem] [&_span]:font-750 [&_span]:text-[var(--rieul-text-primary)]",
-].join(" ");
-const breadcrumbMutedClassName = "text-[var(--rieul-text-tertiary)]";
-
 export function Breadcrumb(componentProps: BreadcrumbProps) {
   return (
     <nav
-      class={joinClassName(breadcrumbClassName, componentProps.className)}
+      class={joinClassName(styles.breadcrumb().class, componentProps.className)}
       aria-label={componentProps.ariaLabel}
     >
       {componentProps.items.map((item, index) => (
@@ -67,7 +50,9 @@ function BreadcrumbPart(componentProps: BreadcrumbPartProps) {
       ) : (
         <span
           class={
-            componentProps.item.muted ? breadcrumbMutedClassName : undefined
+            componentProps.item.muted
+              ? styles.breadcrumbMuted().class
+              : undefined
           }
           title={componentProps.item.title}
         >
@@ -76,4 +61,63 @@ function BreadcrumbPart(componentProps: BreadcrumbPartProps) {
       )}
     </>
   );
+}
+
+namespace styles {
+  export const breadcrumb = style({
+    selectors: {
+      "& button": {
+        fontFamily: "inherit",
+        height: "2rem",
+        maxWidth: "180px",
+        minWidth: "0",
+        display: "inline-flex",
+        cursor: "pointer",
+        WebkitAppearance: "none",
+        appearance: "none",
+        alignItems: "center",
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
+        borderColor: "transparent",
+        borderRadius: "0.5rem",
+        backgroundColor: "transparent",
+        paddingLeft: "0.5rem",
+        paddingRight: "0.5rem",
+        color: theme.textControl,
+        fontWeight: 750,
+      },
+      "& span": {
+        height: "2rem",
+        minWidth: "0",
+        maxWidth: "240px",
+        display: "inline-flex",
+        alignItems: "center",
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
+        paddingLeft: "0.5rem",
+        paddingRight: "0.5rem",
+        color: theme.textPrimary,
+        fontWeight: 750,
+      },
+      "& svg": {
+        flex: "0 0 auto",
+        color: theme.textDisabled,
+      },
+      "& button:hover": {
+        backgroundColor: theme.bgHover,
+      },
+    },
+    height: "2rem",
+    minWidth: "0",
+    minHeight: "2rem",
+    display: "flex",
+    alignItems: "center",
+    gap: "0.5rem",
+    overflow: "hidden",
+  });
+  export const breadcrumbMuted = style({
+    color: theme.textTertiary,
+  });
 }

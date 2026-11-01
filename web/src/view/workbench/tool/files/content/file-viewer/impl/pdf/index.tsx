@@ -1,3 +1,4 @@
+import { style } from "../../../../../../../../zyzz.config.ts";
 import { createMemo, createSignal, createEffect, useContext } from "solid-js";
 import * as pdfjs from "pdfjs-dist";
 import { useBunja } from "bunja/solid";
@@ -17,28 +18,7 @@ pdfjs.GlobalWorkerOptions.workerSrc = new URL(
 const inlineOpenLimitBytes = 1024 * 1024;
 const pageCssScale = 1.25;
 const maxRenderPixelRatio = 2;
-const fileViewerStatusClassName = [
-  "flex items-center justify-center gap-[8px] min-w-0 min-h-0",
-  "text-[#667085] text-[14px]",
-  "[&.error]:items-start [&.error]:justify-start [&.error]:overflow-auto",
-  "[&.error]:text-[#b42318] [&.error]:p-[14px]",
-].join(" ");
-const pdfViewerClassName = [
-  "grid [grid-template-rows:minmax(0,1fr)] min-w-0 min-h-0 overflow-hidden",
-  "bg-[#eef1f5]",
-].join(" ");
-const pdfPagesClassName = [
-  "min-w-0 min-h-0 overflow-y-scroll overflow-x-auto px-[18px] py-[18px]",
-  "[scrollbar-gutter:stable]",
-  "[&_canvas]:block [&_canvas]:h-auto [&_canvas]:max-w-full",
-].join(" ");
-const pdfPageShellClassName = [
-  "mx-auto mb-[18px] flex max-w-full justify-center",
-  "last:mb-0",
-].join(" ");
-const pdfPageCanvasClassName = [
-  "bg-white [box-shadow:0_2px_14px_rgb(32_36_45_/_18%)]",
-].join(" ");
+
 type PdfReadState =
   | {
       phase: "loading";
@@ -149,7 +129,7 @@ export default function PdfFileViewer() {
   return (
     <>
       {!machine() ? (
-        <div class={`${fileViewerStatusClassName} error`}>
+        <div class={`${styles.fileViewerStatus().class} error`}>
           <span>No machine selected</span>
         </div>
       ) : viewerState().phase !== "ready" ? null : !confirmed() ? (
@@ -159,11 +139,11 @@ export default function PdfFileViewer() {
           viewerName={pdfViewerName}
         />
       ) : state().phase === "loading" ? (
-        <div class={fileViewerStatusClassName}>
+        <div {...styles.fileViewerStatus()}>
           <span>Loading PDF</span>
         </div>
       ) : state().phase === "error" ? (
-        <div class={`${fileViewerStatusClassName} error`}>
+        <div class={`${styles.fileViewerStatus().class} error`}>
           <span>{errorMessage()}</span>
         </div>
       ) : (
@@ -224,12 +204,12 @@ function PdfCanvasDocument(props: { bytes: Uint8Array }) {
               scale: pageCssScale * pixelRatio,
             });
             const canvas = document.createElement("canvas");
-            canvas.className = pdfPageCanvasClassName;
+            canvas.className = styles.pdfPageCanvas().class;
             canvas.width = Math.floor(renderViewport.width);
             canvas.height = Math.floor(renderViewport.height);
             canvas.style.width = `${Math.floor(renderViewport.width / pixelRatio)}px`;
             const pageShell = document.createElement("div");
-            pageShell.className = pdfPageShellClassName;
+            pageShell.className = styles.pdfPageShell().class;
             pageShell.style.width = `${Math.floor(cssViewport.width)}px`;
             pageShell.append(canvas);
             host.append(pageShell);
@@ -265,15 +245,15 @@ function PdfCanvasDocument(props: { bytes: Uint8Array }) {
     },
   );
   return (
-    <section class={pdfViewerClassName}>
-      <div class={pdfPagesClassName}>
+    <section {...styles.pdfViewer()}>
+      <div {...styles.pdfPages()}>
         {state().phase === "rendering" ? (
           <PdfRenderStatus
             pageCount={renderingState()?.pageCount}
             renderedPages={renderingState()!.renderedPages}
           />
         ) : state().phase === "error" ? (
-          <div class={`${fileViewerStatusClassName} error`}>
+          <div class={`${styles.fileViewerStatus().class} error`}>
             <span>{errorMessage()}</span>
           </div>
         ) : null}
@@ -284,7 +264,7 @@ function PdfCanvasDocument(props: { bytes: Uint8Array }) {
 }
 function PdfRenderStatus(props: { pageCount?: number; renderedPages: number }) {
   return (
-    <div class="mb-[14px] flex justify-center text-[#667085] text-[14px]">
+    <div {...styles.div()}>
       {props.pageCount === undefined
         ? "Opening PDF"
         : `Rendering ${props.renderedPages}/${props.pageCount} pages`}
@@ -296,4 +276,76 @@ function hasCompleteInitialBytes(
   initialBytes: Uint8Array,
 ): boolean {
   return fsEntry.size !== undefined && fsEntry.size <= initialBytes.byteLength;
+}
+
+namespace styles {
+  export const fileViewerStatus = style({
+    minHeight: "0",
+    minWidth: "0",
+    display: "flex",
+    selectors: {
+      "&.error": {
+        alignItems: "flex-start",
+        justifyContent: "flex-start",
+        overflow: "auto",
+        padding: "14px",
+        color: "rgb(180 35 24 / 1)",
+      },
+    },
+    alignItems: "center",
+    justifyContent: "center",
+    gap: "8px",
+    fontSize: "14px",
+    color: "rgb(102 112 133 / 1)",
+  });
+  export const pdfViewer = style({
+    gridTemplateRows: "minmax(0,1fr)",
+    display: "grid",
+    minHeight: "0",
+    minWidth: "0",
+    overflow: "hidden",
+    backgroundColor: "rgb(238 241 245 / 1)",
+  });
+  export const pdfPages = style({
+    scrollbarGutter: "stable",
+    selectors: {
+      "& canvas": {
+        display: "block",
+        height: "auto",
+        maxWidth: "100%",
+      },
+    },
+    minHeight: "0",
+    minWidth: "0",
+    overflowX: "auto",
+    overflowY: "scroll",
+    paddingLeft: "18px",
+    paddingRight: "18px",
+    paddingTop: "18px",
+    paddingBottom: "18px",
+  });
+  export const pdfPageShell = style({
+    marginLeft: "auto",
+    marginRight: "auto",
+    marginBottom: "18px",
+    selectors: {
+      "&:last-child": {
+        marginBottom: "0",
+      },
+    },
+    maxWidth: "100%",
+    display: "flex",
+    justifyContent: "center",
+  });
+  export const pdfPageCanvas = style({
+    boxShadow: "0 2px 14px rgb(32 36 45 / 18%)",
+    backgroundColor: "rgb(255 255 255 / 1)",
+  });
+  export const div = style({
+    marginBottom: "14px",
+    display: "flex",
+    justifyContent: "center",
+    fontSize: "14px",
+    color: "rgb(102 112 133 / 1)",
+  });
 }

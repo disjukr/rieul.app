@@ -1,26 +1,49 @@
+import { className as joinClassName } from "../class-name.ts";
+import { variants, theme } from "../../zyzz.config.ts";
 import type { JSX } from "@solidjs/web";
 import { omit } from "solid-js";
 
-import { cva, type VariantProps } from "class-variance-authority";
-import { className as joinClassName } from "../class-name.ts";
+import type { Props } from "zyzz";
 
-const surfaceVariants = cva("min-w-0", {
+const surfaceVariants = variants({
+  base: {
+    minWidth: "0",
+  },
   variants: {
     border: {
-      none: "",
-      subtle: "border border-[var(--rieul-border-light)]",
+      none: {},
+      subtle: {
+        borderWidth: "1px",
+        borderColor: theme.borderLight,
+      },
     },
     radius: {
-      none: "rounded-0",
-      md: "rounded-[var(--rieul-radius-md)]",
-      lg: "rounded-[var(--rieul-radius-lg)]",
+      none: {
+        borderRadius: "0",
+      },
+      md: {
+        borderRadius: theme.radiusMd,
+      },
+      lg: {
+        borderRadius: theme.radiusLg,
+      },
     },
     variant: {
-      canvas: "bg-[var(--rieul-bg-canvas)]",
-      header: "bg-[var(--rieul-bg-header)]",
-      primary: "bg-[var(--rieul-bg-primary)]",
-      secondary: "bg-[var(--rieul-bg-secondary)]",
-      subtle: "bg-[var(--rieul-bg-subtle)]",
+      canvas: {
+        backgroundColor: theme.bgCanvas,
+      },
+      header: {
+        backgroundColor: theme.bgHeader,
+      },
+      primary: {
+        backgroundColor: theme.bgPrimary,
+      },
+      secondary: {
+        backgroundColor: theme.bgSecondary,
+      },
+      subtle: {
+        backgroundColor: theme.bgSubtle,
+      },
     },
   },
   defaultVariants: {
@@ -30,30 +53,49 @@ const surfaceVariants = cva("min-w-0", {
   },
 });
 
-const surfaceHeaderVariants = cva(
-  "flex min-w-0 items-center border-b border-b-[var(--rieul-border-light)] bg-[var(--rieul-bg-header)]",
-  {
-    variants: {
-      density: {
-        compact: "min-h-[2rem] px-[8px]",
-        regular: "min-h-[48px] px-[1rem]",
+const surfaceHeaderVariants = variants({
+  base: {
+    minWidth: "0",
+    display: "flex",
+    alignItems: "center",
+    borderBottomWidth: "1px",
+    borderBottomColor: theme.borderLight,
+    backgroundColor: theme.bgHeader,
+  },
+  variants: {
+    density: {
+      compact: {
+        minHeight: "2rem",
+        paddingLeft: "8px",
+        paddingRight: "8px",
+      },
+      regular: {
+        minHeight: "48px",
+        paddingLeft: "1rem",
+        paddingRight: "1rem",
       },
     },
-    defaultVariants: {
-      density: "compact",
-    },
   },
-);
+  defaultVariants: {
+    density: "compact",
+  },
+});
 
 export interface SurfaceProps
   extends JSX.HTMLAttributes<HTMLDivElement>,
-    VariantProps<typeof surfaceVariants> {
+    Omit<
+      Props.Variants<typeof surfaceVariants>,
+      "className" | "style" | "vars"
+    > {
   className?: string;
 }
 
 export interface SurfaceHeaderProps
   extends JSX.HTMLAttributes<HTMLDivElement>,
-    VariantProps<typeof surfaceHeaderVariants> {
+    Omit<
+      Props.Variants<typeof surfaceHeaderVariants>,
+      "className" | "style" | "vars"
+    > {
   className?: string;
 }
 
@@ -69,14 +111,12 @@ export function Surface(componentProps: SurfaceProps) {
   return (
     <div
       {...otherProps}
-      class={joinClassName(
-        surfaceVariants({
-          border: componentProps.border,
-          radius: componentProps.radius,
-          variant: componentProps.variant,
-        }),
-        componentProps.className,
-      )}
+      {...surfaceVariants({
+        border: componentProps.border,
+        radius: componentProps.radius,
+        variant: componentProps.variant,
+        className: joinClassName(componentProps.className ?? ""),
+      })}
     />
   );
 }
@@ -87,10 +127,10 @@ export function SurfaceHeader(componentProps: SurfaceHeaderProps) {
   return (
     <div
       {...otherProps}
-      class={joinClassName(
-        surfaceHeaderVariants({ density: componentProps.density }),
-        componentProps.className,
-      )}
+      {...surfaceHeaderVariants({
+        density: componentProps.density,
+        className: joinClassName(componentProps.className ?? ""),
+      })}
     />
   );
 }

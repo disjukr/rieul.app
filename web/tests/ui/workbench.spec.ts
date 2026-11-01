@@ -10,6 +10,8 @@ test.beforeEach(async ({ page }) => {
         }
       },
     });
+    // Reload checks must retain the state written by the app.
+    if (localStorage.getItem("rieul.workbench.A.v1")) return;
     localStorage.setItem(
       "rieul.machines.v1",
       JSON.stringify([
@@ -244,7 +246,8 @@ test("saved agent tabs remain readable and closable without agent entry points",
 }) => {
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
-  await page.addInitScript(() => {
+  await page.goto("/");
+  await page.evaluate(() => {
     const key = "rieul.workbench.A.v1";
     const saved = JSON.parse(localStorage.getItem(key)!);
     saved.panes[0].tabs[0] = {
@@ -255,7 +258,7 @@ test("saved agent tabs remain readable and closable without agent entry points",
     };
     localStorage.setItem(key, JSON.stringify(saved));
   });
-  await page.goto("/");
+  await page.reload();
   await expect(
     page.getByText(
       "This saved tab is no longer available. Close it or open another tool.",
@@ -275,6 +278,14 @@ test("saved agent tabs remain readable and closable without agent entry points",
     ),
   ).toHaveCount(0);
   await page.reload();
+  await expect(
+    page.getByRole("tab", { name: "Daemon", exact: true }),
+  ).toBeVisible();
+  expect(
+    (await state(page)).panes
+      .flatMap((pane: { tabs: { id: string }[] }) => pane.tabs)
+      .some((tab: { id: string }) => tab.id === "t1"),
+  ).toBe(false);
   await expect(
     page.getByText(
       "This saved tab is no longer available. Close it or open another tool.",

@@ -1,3 +1,4 @@
+import { style } from "../../../../../../../../zyzz.config.ts";
 import { createMemo, createSignal, createEffect, useContext } from "solid-js";
 import { useBunja } from "bunja/solid";
 
@@ -11,17 +12,7 @@ import {
 import { BigFileWarning } from "../../big-file-warning.tsx";
 import { fileViewerBunja } from "../../state.tsx";
 const inlineOpenLimitBytes = 1024 * 1024;
-const fileViewerStatusClassName = [
-  "flex items-center justify-center gap-[8px] min-w-0 min-h-0",
-  "text-[#667085] text-[14px]",
-  "[&.error]:items-start [&.error]:justify-start [&.error]:overflow-auto",
-  "[&.error]:text-[#b42318] [&.error]:p-[14px]",
-].join(" ");
-const fileContentClassName = [
-  "min-w-0 min-h-0 m-0 overflow-auto bg-white text-[#20242d]",
-  "font-mono text-[13px] leading-[1.55] p-[14px]",
-  "[tab-size:2] whitespace-pre [overflow-wrap:normal]",
-].join(" ");
+
 type FileReadState =
   | {
       phase: "loading";
@@ -118,7 +109,7 @@ export default function HexFileViewer() {
   return (
     <>
       {!machine() ? (
-        <div class={`${fileViewerStatusClassName} error`}>
+        <div class={`${styles.fileViewerStatus().class} error`}>
           <span>No machine selected</span>
         </div>
       ) : viewerState().phase !== "ready" ? null : !confirmed() ? (
@@ -128,15 +119,15 @@ export default function HexFileViewer() {
           viewerName={hexViewerName}
         />
       ) : state().phase === "loading" ? (
-        <div class={fileViewerStatusClassName}>
+        <div {...styles.fileViewerStatus()}>
           <span>Loading bytes</span>
         </div>
       ) : state().phase === "error" ? (
-        <div class={`${fileViewerStatusClassName} error`}>
+        <div class={`${styles.fileViewerStatus().class} error`}>
           <span>{errorMessage()}</span>
         </div>
       ) : (
-        <pre class={fileContentClassName}>{readyState()!.text}</pre>
+        <pre {...styles.fileContent()}>{readyState()!.text}</pre>
       )}
     </>
   );
@@ -167,4 +158,42 @@ function decodeHexFilePreview(bytes: Uint8Array): string {
     lines.push(`... ${formatSize(bytes.length - previewLength)} more`);
   }
   return lines.join("\n");
+}
+
+namespace styles {
+  export const fileViewerStatus = style({
+    minHeight: "0",
+    minWidth: "0",
+    display: "flex",
+    selectors: {
+      "&.error": {
+        alignItems: "flex-start",
+        justifyContent: "flex-start",
+        overflow: "auto",
+        padding: "14px",
+        color: "rgb(180 35 24 / 1)",
+      },
+    },
+    alignItems: "center",
+    justifyContent: "center",
+    gap: "8px",
+    fontSize: "14px",
+    color: "rgb(102 112 133 / 1)",
+  });
+  export const fileContent = style({
+    overflowWrap: "normal",
+    tabSize: 2,
+    margin: "0",
+    minHeight: "0",
+    minWidth: "0",
+    overflow: "auto",
+    whiteSpace: "pre",
+    backgroundColor: "rgb(255 255 255 / 1)",
+    padding: "14px",
+    fontSize: "13px",
+    color: "rgb(32 36 45 / 1)",
+    lineHeight: 1.55,
+    fontFamily:
+      'ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace',
+  });
 }

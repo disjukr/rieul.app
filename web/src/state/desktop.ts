@@ -1,3 +1,4 @@
+import { copyDocumentStyles } from "../solid/popup-styles.ts";
 import { desktopEvents } from "../protocol/desktop-session.ts";
 import { bunja } from "bunja";
 import {
@@ -406,7 +407,12 @@ export const desktopBunja = bunja(() => {
       `Remote display ${track.viewport.displayId}`,
     );
     popup.document.body.append(note, canvas);
-    const cleanup = registerSurface(viewportId, canvas);
+    const stopStyles = copyDocumentStyles(document, popup.document);
+    const releaseSurface = registerSurface(viewportId, canvas);
+    const cleanup = () => {
+      releaseSurface();
+      stopStyles();
+    };
     popups.set(popup, cleanup);
     popup.addEventListener(
       "pagehide",

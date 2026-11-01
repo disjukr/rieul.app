@@ -1,3 +1,4 @@
+import { style } from "../../../zyzz.config.ts";
 import type { LayoutState } from "../../../state/layout.ts";
 import type { TabSplitDropSide } from "./tab-drag.ts";
 import { createMemo, createSignal, For, onCleanup } from "solid-js";
@@ -296,7 +297,7 @@ export function WorkbenchPaneLayout() {
     const node = createMemo(() => layout().nodes[props.id] as BranchNode);
     return (
       <div
-        class="flex h-full w-full min-h-0 min-w-0"
+        {...styles.div()}
         style={{
           "flex-direction":
             node().direction === "horizontal" ? "row" : "column",
@@ -306,7 +307,7 @@ export function WorkbenchPaneLayout() {
           {(id, index) => (
             <>
               <div
-                class="min-w-0 min-h-0 overflow-visible"
+                {...styles.div2()}
                 style={{
                   flex: `${node().ratios[index()]} 1 0px`,
                 }}
@@ -330,13 +331,13 @@ export function WorkbenchPaneLayout() {
   }
   return (
     <div
-      class="workbench-pane-root w-full h-full min-w-0 min-h-0 overflow-visible p-[12px] rounded-[15px] max-[680px]:p-0 max-[680px]:rounded-none"
+      {...styles.div3({ className: "workbench-pane-root" })}
       onPointerDown={start}
     >
       {layout().rootId ? <Node id={layout().rootId!} /> : <div>No panes</div>}
       {drag() ? (
         <div
-          class="fixed z-[100] pointer-events-none rounded-full bg-white px-3 py-1 shadow-lg"
+          {...styles.div4()}
           style={{
             left: `${point().x + 12}px`,
             top: `${point().y + 12}px`,
@@ -359,4 +360,45 @@ function topRightLeaf(layout: LayoutState): string | undefined {
         ? node.children.at(-1)!
         : node.children[0];
   }
+}
+
+namespace styles {
+  export const div = style({
+    height: "100%",
+    minHeight: "0",
+    minWidth: "0",
+    width: "100%",
+    display: "flex",
+  });
+  export const div2 = style({
+    minHeight: "0",
+    minWidth: "0",
+    overflow: "visible",
+  });
+  export const div3 = style({
+    height: "100%",
+    minHeight: "0",
+    minWidth: "0",
+    width: "100%",
+    overflow: "visible",
+    borderRadius: "15px",
+    padding: "12px",
+    "@media (max-width: 680px)": {
+      borderRadius: "0",
+      padding: "0",
+    },
+  });
+  export const div4 = style({
+    pointerEvents: "none",
+    position: "fixed",
+    zIndex: 100,
+    borderRadius: "9999px",
+    backgroundColor: "rgb(255 255 255 / 1)",
+    paddingLeft: "0.75rem",
+    paddingRight: "0.75rem",
+    paddingTop: "0.25rem",
+    paddingBottom: "0.25rem",
+    boxShadow:
+      "0 0 rgb(0 0 0 / 0), 0 0 rgb(0 0 0 / 0), 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)",
+  });
 }

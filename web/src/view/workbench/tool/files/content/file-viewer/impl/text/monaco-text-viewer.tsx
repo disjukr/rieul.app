@@ -1,3 +1,4 @@
+import { style } from "../../../../../../../../zyzz.config.ts";
 import { createEffect, untrack } from "solid-js";
 import * as monaco from "monaco-editor/esm/vs/editor/editor.main.js";
 interface MonacoTextViewerProps {
@@ -6,8 +7,7 @@ interface MonacoTextViewerProps {
   path: string;
   text: string;
 }
-const monacoTextViewerClassName =
-  "w-full h-full min-w-0 min-h-0 overflow-hidden";
+
 const monacoHost = globalThis as typeof globalThis & {
   MonacoEnvironment?: {
     getWorker: (_moduleId: string, label: string) => Worker;
@@ -136,7 +136,7 @@ export function MonacoTextViewer(props: MonacoTextViewerProps) {
   return (
     <div
       ref={(element) => (hostRef.current = element)}
-      class={monacoTextViewerClassName}
+      {...styles.monacoTextViewer()}
     />
   );
 }
@@ -210,4 +210,14 @@ function fileExtension(basename: string): string | undefined {
   const dotIndex = basename.lastIndexOf(".");
   if (dotIndex <= 0 || dotIndex === basename.length - 1) return undefined;
   return basename.slice(dotIndex + 1);
+}
+
+namespace styles {
+  export const monacoTextViewer = style({
+    height: "100%",
+    minHeight: "0",
+    minWidth: "0",
+    width: "100%",
+    overflow: "hidden",
+  });
 }

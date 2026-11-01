@@ -2,14 +2,14 @@ import { readFileSync } from "node:fs";
 import { defineConfig } from "vite";
 import solid from "@solidjs/vite-plugin";
 import { visualizer } from "rollup-plugin-visualizer";
-import UnoCSS from "unocss/vite";
+import { zyzz } from "zyzz/vite";
 import { resolve } from "node:path";
 
 const devAllowedHosts = readDevAllowedHosts();
 
 export default defineConfig({
   plugins: [
-    UnoCSS(),
+    zyzz(),
     solid(),
     {
       name: "verify-native-solid-runtime",

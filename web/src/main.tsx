@@ -1,8 +1,7 @@
 import { render } from "@solidjs/web";
 import { BunjaStoreProvider } from "bunja/solid";
 import "./solid/scopes";
-import "@unocss/reset/tailwind.css";
-import "virtual:uno.css";
+import "./theme.css";
 import View from "./view/index.tsx";
 
 const dispose = render(
