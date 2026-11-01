@@ -53,8 +53,8 @@ attach/track/layout/codec/group identities. Each CBOR object has a big-endian u3
 length prefix. Limits: 4 MiB/object, 16 MiB/group, 240 objects/group. A partial EOF,
 wrong epoch, missing keyframe or discontinuity abandons the entire group. The
 browser decoder budget defaults to three queued frames; exceeding it cancels the
-current group, resets the decoder and requests a new keyframe through the adapter.
-The current class exposes that callback, but no WebCodecs adapter is connected.
+current group and resets the WebCodecs decoder. It reports local recovery status
+and resumes at the next independent group; wire feedback is not yet connected.
 The host limits each track to one producer/send operation, times out blocked media
 streams, and paces bytes against each track budget. Each new group must begin with
 an independent keyframe. Native encoder compliance is not yet verified.
@@ -78,15 +78,31 @@ streams and recovery after a canceled group. Unit tests additionally cover stale
 sequence/epoch, viewport bounds, credential expiry, competing drain admission,
 release failures, input rollover limits and cross-language codec goldens.
 
+## Viewer styling handoff
+
+`web/src/view/workbench/tool/desktop/index.tsx` exports `DesktopTool`. It needs a
+workbench entry point after coordination with the styling migration. New classes
+use `rieul-desktop-*`; root state is exposed via `data-phase` and
+`data-controlling`, cursor visibility via `data-visible`, and tracks via
+`data-viewport-id`. No shared theme, UnoCSS, CVA or dependency file is changed.
+Popup documents use `rieul-desktop-window` and `rieul-desktop-canvas`; they need
+explicit stylesheet delivery because a new document does not inherit parent CSS.
+
 ## Integration work still required
 
 - Native capture/input and hardware encoder adapters on Apple Silicon macOS and
   Windows x64, plus per-user desktop IPC and OS permission reporting. The production
   server intentionally constructs the runtime without an adapter.
 - Dynamic display discovery/layout epochs and cursor production.
-- Solid 2/Bunja viewer, WebCodecs negotiation/decoding, input capture, feedback
-  handling and optional multi-window placement. Feedback, composition and relative
-  pointer events still return Unsupported; no frontend claims these work.
+- Product entry-point and Zyzz presentation integration for the new standalone
+  Solid 2/Bunja viewer. It negotiates WebCodecs, renders per-track canvases, supports
+  explicitly acquired physical input and manually moved popup windows. Popups
+  close when their layout/configuration changes. Viewing does not acquire control;
+  input failures stop input without replay. Synthetic tests cover browser key/drag
+  behavior, bounded channels, decoder lifetime, and daemon replacement.
+- Wire feedback handling, cursor shape decoding, and optional monitor enumeration.
+  Current cursor overlay shows position with a generic marker, and decoder metrics
+  remain local. Feedback, composition and relative pointer still return Unsupported.
 - Native testing requires a separate isolated desktop fixture. The updater VM is
   reserved and must not be modified. A macOS arm64 guest needs an interactive user
   session and explicitly granted Screen Recording/Accessibility permissions for

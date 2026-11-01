@@ -16,9 +16,17 @@ export type DesktopTrackEpoch = {
 /** A negotiated v1 uni stream contains one independently decodable closed GOP. */
 export async function* readDesktopGroup(
   readable: ReadableStream<Uint8Array>,
-  expected: DesktopTrackEpoch,
+  expected:
+    | DesktopTrackEpoch
+    | ((first: DesktopMediaObject) => DesktopTrackEpoch | undefined),
+  signal?: AbortSignal,
 ): AsyncGenerator<DesktopMediaObject> {
   const reader = readable.getReader();
+  const abort = () => {
+    void reader.cancel("desktop group abandoned").catch(() => {});
+  };
+  signal?.addEventListener("abort", abort, { once: true });
+  if (signal?.aborted) abort();
   let chunk: Uint8Array<ArrayBufferLike> = new Uint8Array();
   let offset = 0;
   let total = 0;
@@ -26,6 +34,8 @@ export async function* readDesktopGroup(
   let group: number | undefined;
   let timestamp = 0;
   let complete = false;
+  let resolved: DesktopTrackEpoch | undefined =
+    typeof expected === "function" ? undefined : expected;
   async function read(
     length: number,
     allowEof = false,
@@ -70,11 +80,14 @@ export async function* readDesktopGroup(
       }
       const body = (await read(length))!;
       const object = decodeDesktopMediaObjectValue(decodeCbor(body));
+      if (!resolved && typeof expected === "function")
+        resolved = expected(object);
+      if (!resolved) throw new Error("Unknown desktop media track");
       if (
-        object.attachId !== expected.attachId ||
-        object.trackId !== expected.trackId ||
-        object.layoutEpoch !== expected.layoutEpoch ||
-        object.codecEpoch !== expected.codecEpoch ||
+        object.attachId !== resolved.attachId ||
+        object.trackId !== resolved.trackId ||
+        object.layoutEpoch !== resolved.layoutEpoch ||
+        object.codecEpoch !== resolved.codecEpoch ||
         object.objectId !== count ||
         object.keyframe !== (count === 0) ||
         (group !== undefined && object.groupId !== group) ||
@@ -92,6 +105,7 @@ export async function* readDesktopGroup(
     // Reset/cancel abandons the entire GOP, including on downstream decode failure.
     if (!complete)
       await reader.cancel("desktop group abandoned").catch(() => {});
+    signal?.removeEventListener("abort", abort);
     reader.releaseLock();
   }
 }
