@@ -910,7 +910,7 @@ fn ambiguous_saved_gui_domain_retains_terminal_journal_until_restore_or_proven_l
     use super::launchd::{Control, Job, JobState};
     struct GuiControl {
         code: i32,
-        restored: bool,
+        restored: Vec<u32>,
     }
     impl Control for GuiControl {
         fn sessions(&mut self) -> Result<Vec<u32>> {
@@ -920,18 +920,24 @@ fn ambiguous_saved_gui_domain_retains_terminal_journal_until_restore_or_proven_l
             unreachable!()
         }
         fn gui_domain(&mut self, uid: u32) -> Result<bool> {
+            if uid == 502 {
+                return Ok(true);
+            }
             assert_eq!(uid, 501);
             let text = match self.code {
                 125 => "Could not print domain: 125: Domain does not support specified action",
                 112 => "Bad request.\nCould not find domain for user gui: 501",
-                0 => "existing GUI domain",
+                0 | 1 => "existing GUI domain",
                 _ => unreachable!(),
             };
-            super::launchd::gui_domain_result(uid, self.code, text)
+            super::launchd::gui_domain_result(uid, if self.code == 1 { 0 } else { self.code }, text)
         }
         fn start(&mut self, job: Job) -> Result<()> {
-            assert_eq!(job, Job::Gui(501));
-            self.restored = true;
+            let Job::Gui(uid) = job else { unreachable!() };
+            if uid == 501 && self.code == 1 {
+                anyhow::bail!("injected start failure");
+            }
+            self.restored.push(uid);
             Ok(())
         }
         fn stop(&mut self, _: Job) -> Result<()> {
@@ -977,40 +983,53 @@ fn ambiguous_saved_gui_domain_retains_terminal_journal_until_restore_or_proven_l
     }
     for phase in [Phase::Committed, Phase::RolledBack] {
         for recovered_code in [0, 112] {
-            let (_temp, dir) = fixture();
-            transaction::prepare(&dir, identity(1), identity(2)).unwrap();
-            let mut journal: Journal = dir.load("journal.json").unwrap().unwrap();
-            journal.phase = phase;
-            dir.save("journal.json", &journal).unwrap();
-            dir.save("gui-sessions.json", &serde_json::json!({"uids":[501]}))
-                .unwrap();
-            let mut recovery = Recovery {
-                dir: &dir,
-                installed: if phase == Phase::Committed {
-                    Installed::New
-                } else {
-                    Installed::Old
-                },
-                control: GuiControl {
-                    code: 125,
-                    restored: false,
-                },
-            };
-            assert!(
-                transaction::resume(&dir, &mut recovery)
-                    .unwrap_err()
-                    .to_string()
-                    .contains("125")
-            );
-            assert!(dir.exists("journal.json").unwrap());
-            assert!(dir.exists("gui-sessions.json").unwrap());
-            assert!(!dir.exists("last-result.json").unwrap());
-            assert!(!recovery.control.restored);
-            recovery.control.code = recovered_code;
-            assert_eq!(transaction::resume(&dir, &mut recovery).unwrap(), phase);
-            assert_eq!(recovery.control.restored, recovered_code == 0);
-            assert!(!dir.exists("journal.json").unwrap());
-            assert!(!dir.exists("gui-sessions.json").unwrap());
+            for uids in [[501, 502], [502, 501]] {
+                for failure in [125, 1] {
+                    let (_temp, dir) = fixture();
+                    transaction::prepare(&dir, identity(1), identity(2)).unwrap();
+                    let mut journal: Journal = dir.load("journal.json").unwrap().unwrap();
+                    journal.phase = phase;
+                    dir.save("journal.json", &journal).unwrap();
+                    dir.save("gui-sessions.json", &serde_json::json!({"uids":uids}))
+                        .unwrap();
+                    let mut recovery = Recovery {
+                        dir: &dir,
+                        installed: if phase == Phase::Committed {
+                            Installed::New
+                        } else {
+                            Installed::Old
+                        },
+                        control: GuiControl {
+                            code: failure,
+                            restored: Vec::new(),
+                        },
+                    };
+                    assert!(transaction::resume(&dir, &mut recovery)
+                        .unwrap_err()
+                        .to_string()
+                        .contains(if failure == 125 {
+                            "125"
+                        } else {
+                            "injected start failure"
+                        }));
+                    assert!(dir.exists("journal.json").unwrap());
+                    assert!(dir.exists("gui-sessions.json").unwrap());
+                    assert!(!dir.exists("last-result.json").unwrap());
+                    assert_eq!(recovery.control.restored, vec![502]);
+                    let saved: serde_json::Value = dir.load("gui-sessions.json").unwrap().unwrap();
+                    assert_eq!(saved["uids"], serde_json::json!(uids));
+                    recovery.control.restored.clear();
+                    recovery.control.code = recovered_code;
+                    assert_eq!(transaction::resume(&dir, &mut recovery).unwrap(), phase);
+                    let expected: Vec<u32> = uids
+                        .into_iter()
+                        .filter(|uid| *uid == 502 || recovered_code == 0)
+                        .collect();
+                    assert_eq!(recovery.control.restored, expected);
+                    assert!(!dir.exists("journal.json").unwrap());
+                    assert!(!dir.exists("gui-sessions.json").unwrap());
+                }
+            }
         }
     }
 }
