@@ -277,40 +277,33 @@ impl<C: Control> Effects for NativeEffects<'_, C> {
         self.control.start(Job::System)
     }
     fn ready(&mut self, identity: &Identity, nonce: &str) -> Result<bool> {
-        let job = self.control.inspect(Job::System)?;
-        let Some(pid) = job.and_then(|job| job.pid) else {
-            return Ok(false);
-        };
-        if self
-            .state
-            .load::<super::runtime::Parked>("parked.json")?
-            .is_some_and(|parked| parked.nonce == nonce && parked.pid == pid)
-        {
-            return Ok(false);
-        }
-        let deadline = Instant::now() + Duration::from_secs(45);
         let request = Request {
             nonce: nonce.into(),
             daemon_sha256: identity.daemon_sha256.clone(),
         };
-        while Instant::now() < deadline {
-            if let (Some(job), Some(receipt)) = (
-                self.control.inspect(Job::System)?,
-                self.state.load::<receipt::Receipt>("ready.json")?,
-            ) {
-                if let Some(pid) = job.pid {
-                    if receipt::matches(&receipt, &request, pid, &self.service_hash()?) {
-                        self.verify_running(pid, &identity.daemon_sha256)?;
-                        if let Some(start) = self.stopped_at {
-                            self.state.save("downtime.json",&serde_json::json!({"nonce":nonce,"stop_to_ready_ms":drain::monotonic_ms()?.saturating_sub(start)}))?;
-                        }
-                        return Ok(true);
+        wait_for_readiness(Duration::from_secs(45), || {
+            let Some(pid) = self.control.inspect(Job::System)?.and_then(|job| job.pid) else {
+                // bootstrap/kickstart can return before launchd publishes a PID.
+                return Ok(None);
+            };
+            if self
+                .state
+                .load::<super::runtime::Parked>("parked.json")?
+                .is_some_and(|parked| parked.nonce == nonce && parked.pid == pid)
+            {
+                return Ok(Some(false));
+            }
+            if let Some(receipt) = self.state.load::<receipt::Receipt>("ready.json")? {
+                if receipt::matches(&receipt, &request, pid, &self.service_hash()?) {
+                    self.verify_running(pid, &identity.daemon_sha256)?;
+                    if let Some(start) = self.stopped_at {
+                        self.state.save("downtime.json",&serde_json::json!({"nonce":nonce,"stop_to_ready_ms":drain::monotonic_ms()?.saturating_sub(start)}))?;
                     }
+                    return Ok(Some(true));
                 }
             }
-            std::thread::sleep(Duration::from_millis(100));
-        }
-        Ok(false)
+            Ok(None)
+        })
     }
     fn restore_guis(&mut self) -> Result<()> {
         self.barrier = None;
@@ -430,6 +423,55 @@ mod stage_tests {
             )
             .unwrap(),
             digest
+        );
+    }
+}
+
+// None means launch/receipt is still pending, not that launch has failed.
+fn wait_for_readiness(
+    timeout: Duration,
+    mut probe: impl FnMut() -> Result<Option<bool>>,
+) -> Result<bool> {
+    let deadline = Instant::now() + timeout;
+    while Instant::now() < deadline {
+        if let Some(ready) = probe()? {
+            return Ok(ready);
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    Ok(false)
+}
+#[cfg(test)]
+mod readiness_wait_tests {
+    use super::*;
+    #[test]
+    fn missing_launchd_pid_waits_for_fresh_readiness_within_existing_bound() {
+        let mut probes = [None, None, Some(true)].into_iter();
+        assert!(wait_for_readiness(Duration::from_secs(2), || Ok(probes.next().unwrap())).unwrap());
+        assert_eq!(probes.next(), None);
+        assert!(!wait_for_readiness(Duration::ZERO, || panic!("expired wait")).unwrap());
+    }
+    #[test]
+    fn pending_probe_expires_after_a_positive_timeout() {
+        let timeout = Duration::from_millis(1);
+        let started = Instant::now();
+        let mut calls = 0;
+        assert!(!wait_for_readiness(timeout, || {
+            calls += 1;
+            Ok(None)
+        })
+        .unwrap());
+        assert!(calls > 0);
+        assert!(started.elapsed() >= timeout);
+        // The deadline is checked between synchronous probes; it is not an
+        // upper bound on probe execution or total wall-clock shutdown time.
+    }
+    #[test]
+    fn parked_instance_and_inspection_errors_never_become_ready() {
+        assert!(!wait_for_readiness(Duration::from_secs(1), || Ok(Some(false))).unwrap());
+        assert!(
+            wait_for_readiness(Duration::from_secs(1), || anyhow::bail!("identity failure"))
+                .is_err()
         );
     }
 }
