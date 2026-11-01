@@ -466,7 +466,7 @@ else
   codesign_args=(--force --sign -)
 fi
 # Normalize unsigned staging before any signatures are made.
-node "$REPO_ROOT/pairing/scripts/bundle-permissions.mjs" normalize "$APP_PATH"
+node "$REPO_ROOT/pairing/scripts/bundle-permissions.mjs" normalize-public-macos "$APP_PATH"
 # The native GUI needs no Node/Bun JIT or unsigned executable memory entitlement.
 node "$REPO_ROOT/pairing/scripts/check-macos-target.mjs" "$APP_PATH"
 codesign "${codesign_args[@]}" --preserve-metadata=identifier "$APP_PATH/Contents/MacOS/$GUI_EXECUTABLE_NAME"
@@ -480,7 +480,7 @@ codesign "${codesign_args[@]}" \
 codesign "${codesign_args[@]}" "$APP_PATH"
 "$APP_PATH/Contents/MacOS/rieul-gui" --verify-bundle
 codesign --verify --deep --strict --verbose=2 "$APP_PATH"
-node "$REPO_ROOT/pairing/scripts/bundle-permissions.mjs" verify "$APP_PATH"
+node "$REPO_ROOT/pairing/scripts/bundle-permissions.mjs" verify-public-macos "$APP_PATH"
 if [[ -n "$SIGN_IDENTITY" ]]; then
   bash "$SCRIPT_DIR/test-signed-native-gui.sh" "$APP_PATH"
 fi
@@ -564,7 +564,7 @@ elif ! layout_dmg_volume "$VOLUME_NAME" "$MOUNT_DIR" "$APP_NAME"; then
 fi
 "$MOUNT_DIR/$APP_NAME.app/Contents/MacOS/rieul-gui" --verify-bundle
 codesign --verify --deep --strict "$MOUNT_DIR/$APP_NAME.app"
-node "$REPO_ROOT/pairing/scripts/bundle-permissions.mjs" verify "$MOUNT_DIR/$APP_NAME.app"
+node "$REPO_ROOT/pairing/scripts/bundle-permissions.mjs" verify-public-macos "$MOUNT_DIR/$APP_NAME.app"
 detach_build_image
 hdiutil convert "$RW_DMG_PATH" \
   -ov \

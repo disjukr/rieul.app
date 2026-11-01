@@ -543,11 +543,27 @@ fn release_contract_builder_roundtrips_through_restricted_extractor() {
     // signature verification remains a separate native fixture gate.
     let arm64 = [0xcf, 0xfa, 0xed, 0xfe, 12, 0, 0, 1];
     std::fs::write(daemon.path.join("rieul-macos-system"), arm64).unwrap();
+    std::fs::set_permissions(
+        daemon.path.join("rieul-macos-system"),
+        std::fs::Permissions::from_mode(0o755),
+    )
+    .unwrap();
     let executables = contents.create_dir("MacOS", 0o755).unwrap();
     for name in ["rieul-macos-launcher", "rieul-gui"] {
         std::fs::write(executables.path.join(name), arm64).unwrap();
+        std::fs::set_permissions(
+            executables.path.join(name),
+            std::fs::Permissions::from_mode(0o755),
+        )
+        .unwrap();
     }
     std::fs::write(contents.path.join("Info.plist"),br#"<?xml version="1.0"?><plist version="1.0"><dict><key>CFBundleIdentifier</key><string>app.rieul</string><key>CFBundleShortVersionString</key><string>1.0.2</string></dict></plist>"#).unwrap();
+    let license = contents
+        .path
+        .join("Resources/pairing/licenses/fnv-1.0.7/LICENSE-MIT");
+    std::fs::create_dir_all(license.parent().unwrap()).unwrap();
+    std::fs::write(&license, b"public license fixture").unwrap();
+    std::fs::set_permissions(&license, std::fs::Permissions::from_mode(0o644)).unwrap();
     let script = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../scripts/macos/update-artifact.py");
     let output = build.path.join("rieul-macos-update.tar");
@@ -589,6 +605,23 @@ fn release_contract_builder_roundtrips_through_restricted_extractor() {
         manifest.daemon_sha256,
         super::verify::digest(daemon.read_file("rieul-macos-system").unwrap()).unwrap()
     );
+    // A privileged builder can read 0640, but the GUI user cannot after a root
+    // install. Reject that archive before publication rather than repairing it.
+    std::fs::set_permissions(&license, std::fs::Permissions::from_mode(0o640)).unwrap();
+    let unreadable = build.path.join("unreadable/rieul-macos-update.tar");
+    std::fs::create_dir(unreadable.parent().unwrap()).unwrap();
+    let result = std::process::Command::new("python3")
+        .arg(&script)
+        .arg("archive")
+        .arg(&app.path)
+        .arg("--output")
+        .arg(&unreadable)
+        .output()
+        .unwrap();
+    assert!(!result.status.success());
+    assert!(String::from_utf8_lossy(&result.stderr).contains("public bundle entry needs mode 644"));
+    assert!(!unreadable.exists());
+    std::fs::set_permissions(&license, std::fs::Permissions::from_mode(0o644)).unwrap();
     std::fs::write(
         executables.path.join("rieul-gui"),
         [0xcf, 0xfa, 0xed, 0xfe, 7, 0, 0, 1],

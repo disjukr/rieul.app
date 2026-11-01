@@ -1,10 +1,23 @@
-import { chmod, lstat, readdir, realpath } from "node:fs/promises";
+import { chmod, lstat, readdir, realpath, readFile } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
+const publicPolicy = JSON.parse(await readFile(
+  new URL("../public-macos-bundle.json", import.meta.url), "utf8",
+));
+function publicMode(relative, directory) {
+  const dataTree = publicPolicy.dataTrees.some(
+    (tree) => relative === tree || relative.startsWith(tree + "/"),
+  );
+  if (directory)
+    return dataTree || publicPolicy.directories.includes(relative) ? 0o755 : null;
+  if (publicPolicy.executableFiles.includes(relative)) return 0o755;
+  return dataTree || publicPolicy.dataFiles.includes(relative) ? 0o644 : null;
+}
+
 // Only use normalization on private, unsigned staging trees. Verification is
 // read-only and also runs on the extracted archive, after signing.
-export async function bundlePermissions(directory, normalize = false) {
+export async function bundlePermissions(directory, normalize = false, publicMacOS = false) {
   const root = path.resolve(directory);
   if (!(await lstat(root)).isDirectory())
     throw new Error(`Bundle root must be a real directory: ${root}`);
@@ -31,15 +44,24 @@ export async function bundlePermissions(directory, normalize = false) {
       throw new Error(`Special permission bits in bundle: ${file}`);
     if (!normalize && info.mode & 0o022)
       throw new Error(`Group/world-writable bundle entry: ${file}`);
-    entries.push([file, info.mode & 0o777]);
+    // Only the explicit public payload allowlist gains read/search permissions.
+    // Never broaden access to unknown files (credentials, profiles, etc.).
+    const relative = path.relative(root, file).split(path.sep).join("/");
+    const required = publicMacOS ? publicMode(relative, info.isDirectory()) : null;
+    const mode = info.mode & 0o777;
+    if (!normalize && required !== null && mode !== required)
+      throw new Error(`Public bundle entry needs mode ${required.toString(8)}: ${file}`);
+    entries.push([file, mode, required]);
     if (info.isDirectory())
       for (const name of await readdir(file))
         await visit(path.join(file, name));
   }
   await visit(root);
   if (normalize)
-    for (const [file, mode] of entries)
-      if (mode & 0o022) await chmod(file, mode & ~0o022);
+    for (const [file, mode, required] of entries) {
+      const target = required ?? (mode & ~0o022);
+      if (mode !== target) await chmod(file, target);
+    }
 }
 
 if (
@@ -47,7 +69,7 @@ if (
   import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href
 ) {
   const [operation, directory] = process.argv.slice(2);
-  if (!["normalize", "verify"].includes(operation) || !directory)
-    throw new Error("Usage: bundle-permissions.mjs normalize|verify DIRECTORY");
-  await bundlePermissions(directory, operation === "normalize");
+  if (!["normalize", "verify", "normalize-public-macos", "verify-public-macos"].includes(operation) || !directory)
+    throw new Error("Usage: bundle-permissions.mjs normalize|verify|normalize-public-macos|verify-public-macos DIRECTORY");
+  await bundlePermissions(directory, operation.startsWith("normalize"), operation.endsWith("-public-macos"));
 }

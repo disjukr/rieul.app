@@ -28,6 +28,33 @@ async function fixture(run) {
 }
 const mode = async (file) => (await stat(file)).mode & 0o777;
 
+test("public macOS payload fixes restrictive upstream modes without exposing private files", posix, async () =>
+  fixture(async (root) => {
+    const resources = path.join(root, "Contents/Resources");
+    const licenses = path.join(resources, "pairing/licenses/fnv-1.0.7");
+    const assets = path.join(resources, "pairing/assets");
+    await mkdir(licenses, { recursive: true });
+    await mkdir(assets);
+    const files = [path.join(licenses, "LICENSE-APACHE"), path.join(licenses, "LICENSE-MIT"), path.join(assets, "tray.png"), path.join(resources, "pairing/bundle.json")];
+    for (const file of files) {
+      await writeFile(file, "public fixture");
+      await chmod(file, 0o640);
+    }
+    await chmod(licenses, 0o700);
+    const privateFile = path.join(resources, "private-key.pem");
+    await writeFile(privateFile, "PRIVATE FIXTURE ONLY");
+    await chmod(privateFile, 0o600);
+    await assert.rejects(bundlePermissions(root, false, true), /Public bundle entry/);
+    await bundlePermissions(root, true, true);
+    for (const file of files) assert.equal(await mode(file), 0o644);
+    assert.equal(await mode(licenses), 0o755);
+    assert.equal(await mode(privateFile), 0o600);
+    await bundlePermissions(root, false, true);
+    await chmod(files[0], 0o640);
+    await assert.rejects(bundlePermissions(root, false, true), /Public bundle entry/);
+  }),
+);
+
 test(
   "normalizes writable files/directories and preserves executable bits",
   posix,

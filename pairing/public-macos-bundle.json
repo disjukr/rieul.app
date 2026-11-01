@@ -1,0 +1,6 @@
+{
+  "directories": ["", "Contents", "Contents/MacOS", "Contents/Library", "Contents/Library/LaunchServices", "Contents/Resources", "Contents/Resources/pairing", "Contents/_CodeSignature"],
+  "dataTrees": ["Contents/Resources/pairing/assets", "Contents/Resources/pairing/licenses"],
+  "dataFiles": ["Contents/Info.plist", "Contents/_CodeSignature/CodeResources", "Contents/Resources/pairing/bundle.json", "Contents/Resources/rieul.svg", "Contents/Resources/rieul.icns", "Contents/Resources/app.rieul.daemon.plist", "Contents/Resources/app.rieul.gui.plist", "Contents/Resources/rieul-update.json"],
+  "executableFiles": ["Contents/MacOS/rieul-gui", "Contents/MacOS/rieul-macos-launcher", "Contents/Library/LaunchServices/rieul-macos-system", "Contents/Resources/install", "Contents/Resources/uninstall"]
+}

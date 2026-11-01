@@ -188,7 +188,7 @@ pkgbuild "${pkgbuild_args[@]}" "$PKG_PATH"
 # signed payloads here: unsafe permissions or links must fail packaging.
 PKG_EXPANDED="$PKG_STAGING_DIR/verified-expanded"
 pkgutil --expand-full "$PKG_PATH" "$PKG_EXPANDED"
-node "$REPO_ROOT/pairing/scripts/bundle-permissions.mjs" verify "$PKG_EXPANDED/Payload/Applications/$APP_NAME.app"
+node "$REPO_ROOT/pairing/scripts/bundle-permissions.mjs" verify-public-macos "$PKG_EXPANDED/Payload/Applications/$APP_NAME.app"
 payload_files="$(pkgutil --payload-files "$PKG_PATH")"
 if ! grep -Fq "Applications/$APP_NAME.app/Contents/MacOS/install" <<<"$payload_files"; then
   echo "PKG payload is missing the bundled Rieul install command." >&2

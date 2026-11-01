@@ -48,3 +48,15 @@ node pairing/scripts/bundle-qa.mjs --bundle target/release/Rieul-desktop.app
 QA는 `.invalid` 주소, 별도 프로필과 CBOR 요청을 사용한다. 실제 서비스 등록, 장치 페어링, 설치·업그레이드·제거를 수행하지 않는다. 자동화는 빌드의 `qa` 기능, `RIEUL_PAIRING_AUTOMATION=1`, 명시적 `--config`가 모두 필요하다. native renderer/event dispatch 검증과 실제 OS 입력·알림·트레이 검증은 구분한다.
 
 상세 구현·의존성 및 검증 상태는 [daemon/gui/README.md](../daemon/gui/README.md)를 참조한다. [MIGRATION.md](MIGRATION.md)와 [VERIFICATION.md](VERIFICATION.md)는 이전 GPUiX 구현의 역사적 검증 기록이다.
+## Public payload permissions
+
+`public-macos-bundle.json` lists shipped public resources and executable paths.
+Unsigned staging normalizes only these paths to readable data (`0644`) or
+searchable directories/executables (`0755`), before signing. It does not grant
+read access to unknown files, keys, credentials or user profiles. Archive creation
+rejects public entries with incorrect modes without repairing a signed app.
+
+macOS CI also extracts a generated update archive into a disposable root-owned
+directory, drops UID/GID and supplementary groups, reads every bundled file and
+runs the actual native GUI's `--verify-bundle`. This checks access after root
+ownership changes; verification as the builder or root alone cannot do so.
