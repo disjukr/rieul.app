@@ -9,6 +9,7 @@ fn main() {
         .compile("rieul_desktop");
     for framework in [
         "Foundation",
+        "Security",
         "AppKit",
         "CoreGraphics",
         "CoreMedia",

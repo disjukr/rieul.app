@@ -154,7 +154,12 @@ On macOS the installed GPUI app starts the existing bundled system binary in its
 new `desktop-user` mode as the GUI user, using a stdin pipe to bind its lifetime.
 GUI exit requests cleanup by EOF, not SIGKILL. An empty helper may restart after a
 daemon update; no viewer/control state is restored. Each peer is checked using
-kernel UID/PID and the expected root-owned installed executable path and ancestors.
+kernel UID/PID, peer audit token, valid running-code signatures and identical code
+hashes, plus the expected root-owned installed executable path and ancestors.
+The standard root:admin group-writable `/Applications` container is allowed only
+with this code identity check; world-writable containers and writable app contents
+are rejected. Same-code and different-program socket fixtures exercise the check
+without starting capture or injecting input.
 The user socket directory is private, symlinks are rejected, and a file lock prevents
 competing helper ownership. Console UID plus Quartz console/login state are checked;
 Screen Recording and Accessibility preflight never prompts or changes permissions.

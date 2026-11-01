@@ -1,5 +1,9 @@
 // User-session adapter. No permission prompts or automatic capture at initialization.
 #import <Foundation/Foundation.h>
+#import <Security/Security.h>
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <bsm/audit.h>
 #import <ScreenCaptureKit/ScreenCaptureKit.h>
 #import <VideoToolbox/VideoToolbox.h>
 #import <ApplicationServices/ApplicationServices.h>
@@ -9,6 +13,43 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
+
+// Bind identity to the kernel peer audit token (including PID generation), not
+// a pathname or a reusable PID. Both roles execute the exact same signed binary.
+bool rd_peer_matches_self(int fd) {
+    audit_token_t token;
+    socklen_t length=sizeof(token);
+    if(getsockopt(fd,SOL_LOCAL,LOCAL_PEERTOKEN,&token,&length) || length!=sizeof(token)) return false;
+    @autoreleasepool {
+        NSData *audit=[NSData dataWithBytes:&token length:sizeof(token)];
+        NSDictionary *attributes=@{(__bridge NSString *)kSecGuestAttributeAudit:audit};
+        SecCodeRef own=NULL,peer=NULL;
+        SecStaticCodeRef ownStatic=NULL,peerStatic=NULL;
+        CFDictionaryRef ownInfo=NULL,peerInfo=NULL;
+        bool ok=false;
+        if(SecCodeCopySelf(kSecCSDefaultFlags,&own)!=errSecSuccess ||
+           SecCodeCopyGuestWithAttributes(NULL,(__bridge CFDictionaryRef)attributes,kSecCSDefaultFlags,&peer)!=errSecSuccess ||
+           SecCodeCheckValidity(own,kSecCSDefaultFlags,NULL)!=errSecSuccess ||
+           SecCodeCheckValidity(peer,kSecCSDefaultFlags,NULL)!=errSecSuccess ||
+           SecCodeCopyStaticCode(own,kSecCSDefaultFlags,&ownStatic)!=errSecSuccess ||
+           SecCodeCopyStaticCode(peer,kSecCSDefaultFlags,&peerStatic)!=errSecSuccess ||
+           SecCodeCopySigningInformation(ownStatic,kSecCSSigningInformation,&ownInfo)!=errSecSuccess ||
+           SecCodeCopySigningInformation(peerStatic,kSecCSSigningInformation,&peerInfo)!=errSecSuccess) goto cleanup;
+        {
+            CFTypeRef a=CFDictionaryGetValue(ownInfo,kSecCodeInfoUnique);
+            CFTypeRef b=CFDictionaryGetValue(peerInfo,kSecCodeInfoUnique);
+            ok=a && b && CFGetTypeID(a)==CFDataGetTypeID() && CFGetTypeID(b)==CFDataGetTypeID() && CFEqual(a,b);
+        }
+    cleanup:
+        if(peerInfo) CFRelease(peerInfo);
+        if(ownInfo) CFRelease(ownInfo);
+        if(peerStatic) CFRelease(peerStatic);
+        if(ownStatic) CFRelease(ownStatic);
+        if(peer) CFRelease(peer);
+        if(own) CFRelease(own);
+        return ok;
+    }
+}
 
 typedef struct { uint32_t id; double x,y,width,height,scale,dpi; } RDDisplay;
 typedef bool (*RDPacket)(void *, const uint8_t *, size_t, uint64_t);

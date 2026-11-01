@@ -39,6 +39,9 @@ fn valid_profile(profile: &str) -> bool {
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || b == b'-')
 }
+unsafe extern "C" {
+    fn rd_peer_matches_self(fd: libc::c_int) -> bool;
+}
 fn verify_peer(stream: &UnixStream, uid: u32) -> Result<(), Error> {
     let fd = stream.as_raw_fd();
     let (mut peer_uid, mut gid) = (0, 0);
@@ -81,9 +84,18 @@ fn verify_peer(stream: &UnixStream, uid: u32) -> Result<(), Error> {
     if peer != expected {
         return Err(Error::Unauthorized);
     }
+    // /Applications is normally root:admin 0775. Permit that shared container
+    // only after authenticating the actual running peer's exact signed code hash.
+    // The app, executable and all other ancestors remain root-owned/non-writable.
+    if !unsafe { rd_peer_matches_self(fd) } {
+        return Err(Error::Unauthorized);
+    }
     for ancestor in expected.ancestors() {
         let metadata = fs::metadata(ancestor).map_err(|_| Error::Unauthorized)?;
-        if metadata.uid() != 0 || metadata.mode() & 0o022 != 0 {
+        let applications = ancestor == Path::new("/Applications")
+            && metadata.gid() == 80
+            && metadata.mode() & 0o002 == 0;
+        if metadata.uid() != 0 || (metadata.mode() & 0o022 != 0 && !applications) {
             return Err(Error::Unauthorized);
         }
     }
@@ -190,6 +202,32 @@ pub async fn run(config: &Path) -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn audit_token_authenticates_same_running_code_without_desktop_access() {
+        let (a, _b) = UnixStream::pair().unwrap();
+        assert!(unsafe { rd_peer_matches_self(a.as_raw_fd()) });
+        assert!(!unsafe { rd_peer_matches_self(-1) });
+    }
+    #[tokio::test]
+    async fn different_signed_program_cannot_impersonate_helper() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("peer.sock");
+        let listener = UnixListener::bind(&path).unwrap();
+        let mut child = tokio::process::Command::new("/usr/bin/python3")
+            .arg("-c")
+            .arg("import socket,sys; s=socket.socket(socket.AF_UNIX); s.connect(sys.argv[1]); s.recv(1)")
+            .arg(&path)
+            .kill_on_drop(true)
+            .spawn().unwrap();
+        let (stream, _) =
+            tokio::time::timeout(std::time::Duration::from_secs(5), listener.accept())
+                .await
+                .unwrap()
+                .unwrap();
+        assert!(!unsafe { rd_peer_matches_self(stream.as_raw_fd()) });
+        drop(stream);
+        child.wait().await.unwrap();
+    }
     #[test]
     fn profile_cannot_escape_endpoint() {
         assert!(valid_profile("0123abcd"));
