@@ -72,6 +72,13 @@ import {
   attachAgentSessionProc,
   getUpdateStatusProc,
   requestUpdateProc,
+  getDesktopCapabilitiesProc,
+  attachDesktopProc,
+  configureDesktopViewportsProc,
+  setDesktopControlProc,
+  renewDesktopLeaseProc,
+  detachDesktopProc,
+  writeDesktopInputProc,
 } from "./rpc.ts";
 import type {
   ActiveAgentSessionsTableEvent,
@@ -84,6 +91,7 @@ import type {
   AgentTerminalOutputEvent,
   AgentTurnInfo,
   AttachAgentSessionReq,
+  AttachDesktopReq,
   AttachTerminalSessionReq,
   AvailableShellsTableEvent,
   BulkJobMutationRes,
@@ -96,6 +104,7 @@ import type {
   CloseTerminalSessionReq,
   CompletePairingReq,
   CompletePairingRes,
+  ConfigureDesktopViewportsReq,
   CreateAgentProjectReq,
   CreateAgentSessionReq,
   CreateAgentTurnReq,
@@ -109,6 +118,14 @@ import type {
   DeleteJobsReq,
   DeletePathsReq,
   DeleteSchedulesReq,
+  DesktopAttachRef,
+  DesktopCapabilities,
+  DesktopConfiguration,
+  DesktopControl,
+  DesktopEvent,
+  DesktopInputFrame,
+  DesktopInputReceipt,
+  DesktopLease,
   DirectoryTableEvent,
   GetScheduleNextRunsReq,
   GetScheduleNextRunsRes,
@@ -144,6 +161,7 @@ import type {
   SchedulesTableEvent,
   SetAgentSessionConfigReq,
   SetAgentSessionConfigRes,
+  SetDesktopControlReq,
   StartPairingReq,
   StartPairingRes,
   SubscribeAgentSessionCatalogReq,
@@ -431,4 +449,32 @@ export function getUpdateStatus(transport: WebTransport): Promise<UpdateStatus> 
 
 export function requestUpdate(transport: WebTransport, request: RequestUpdateReq): Promise<UpdateStatus> {
   return callUnary(transport, requestUpdateProc, request);
+}
+
+export function getDesktopCapabilities(transport: WebTransport): Promise<DesktopCapabilities> {
+  return callUnary(transport, getDesktopCapabilitiesProc, undefined);
+}
+
+export function attachDesktop(transport: WebTransport, request: AttachDesktopReq): AsyncGenerator<DesktopEvent> {
+  return callServerStream(transport, attachDesktopProc, request);
+}
+
+export function configureDesktopViewports(transport: WebTransport, request: ConfigureDesktopViewportsReq): Promise<DesktopConfiguration> {
+  return callUnary(transport, configureDesktopViewportsProc, request);
+}
+
+export function setDesktopControl(transport: WebTransport, request: SetDesktopControlReq): Promise<DesktopControl> {
+  return callUnary(transport, setDesktopControlProc, request);
+}
+
+export function renewDesktopLease(transport: WebTransport, request: DesktopAttachRef): Promise<DesktopLease> {
+  return callUnary(transport, renewDesktopLeaseProc, request);
+}
+
+export function detachDesktop(transport: WebTransport, request: DesktopAttachRef): Promise<undefined> {
+  return callUnary(transport, detachDesktopProc, request);
+}
+
+export function writeDesktopInput(transport: WebTransport, requests: RpcClientStream<DesktopInputFrame>): Promise<DesktopInputReceipt> {
+  return callClientStream(transport, writeDesktopInputProc, requests);
 }

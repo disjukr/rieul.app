@@ -1,0 +1,432 @@
+# standard - rieul-rpc
+# description
+| Desktop profile v1. Only advertised after backend and transport negotiation.
+| Paired credentials authorize access; OS permissions remain mandatory.
+
+@ id - 66
+@ stream - unary
+proc GetDesktopCapabilities = void -> DesktopCapabilities throws DesktopError
+
+@ id - 67
+@ stream - server
+proc AttachDesktop = AttachDesktopReq -> DesktopEvent throws DesktopError
+
+@ id - 68
+@ stream - unary
+proc ConfigureDesktopViewports = ConfigureDesktopViewportsReq -> DesktopConfiguration throws DesktopError
+
+@ id - 69
+@ stream - unary
+proc SetDesktopControl = SetDesktopControlReq -> DesktopControl throws DesktopError
+
+@ id - 70
+@ stream - unary
+proc RenewDesktopLease = DesktopAttachRef -> DesktopLease throws DesktopError
+
+@ id - 71
+@ stream - unary
+proc DetachDesktop = DesktopAttachRef -> void throws DesktopError
+
+@ id - 72
+@ stream - client
+proc WriteDesktopInput = DesktopInputFrame -> DesktopInputReceipt throws DesktopError
+
+enum DesktopAvailability {
+  @ id - 0
+  Unsupported,
+  @ id - 1
+  PermissionRequired,
+  @ id - 2
+  Available,
+}
+
+enum DesktopControlAction {
+  @ id - 0
+  Acquire,
+  @ id - 1
+  Release,
+  @ id - 2
+  Takeover,
+}
+
+enum DesktopKeyboardMode {
+  @ id - 0
+  Physical,
+  @ id - 1
+  Text,
+}
+
+enum DesktopWheelUnit {
+  @ id - 0
+  Pixels,
+  @ id - 1
+  Lines,
+  @ id - 2
+  Pages,
+}
+
+struct DesktopCapabilities {
+  @ id - 1
+  profile: u53,
+  @ id - 2
+  capture: DesktopAvailability,
+  @ id - 3
+  input: DesktopAvailability,
+  @ id - 4
+  codecs: DesktopCodec[],
+  @ id - 5
+  composition: bool,
+  @ id - 6
+  relativePointer: bool,
+  @ id - 7
+  maxViewports: u53,
+  @ id - 8
+  maxInputFrameBytes: u53,
+  @ id - 9
+  maxInputStreamBytes: u53,
+  @ id - 10
+  reason?: string,
+}
+
+struct DesktopCodec {
+  @ id - 1
+  codec: string,
+  @ id - 2
+  description?: bytes,
+  @ id - 3
+  hardware: bool,
+}
+
+struct DesktopRect {
+  @ id - 1
+  x: i53,
+  @ id - 2
+  y: i53,
+  @ id - 3
+  width: u53,
+  @ id - 4
+  height: u53,
+}
+
+struct DesktopDisplay {
+  @ id - 1
+  displayId: string,
+  @ id - 2
+  bounds: DesktopRect,
+  @ id - 3
+  scale: f64,
+  @ id - 4
+  dpi: f64,
+}
+
+struct AttachDesktopReq {
+  @ id - 1
+  profile: u53,
+  @ id - 2
+  codecs: string[],
+  @ id - 3
+  mediaUniStreams: bool,
+  @ id - 4
+  keyboardMode: DesktopKeyboardMode,
+}
+
+struct DesktopAttachRef {
+  @ id - 1
+  attachId: string,
+}
+
+struct DesktopLease {
+  @ id - 1
+  attachId: string,
+  @ id - 2
+  remainingMs: u53,
+}
+
+struct DesktopControl {
+  @ id - 1
+  holderAttachId?: string,
+  @ id - 2
+  inputEpoch: u53,
+}
+
+struct DesktopViewport {
+  @ id - 1
+  viewportId: string,
+  @ id - 2
+  displayId: string,
+  @ id - 3
+  crop: DesktopRect,
+  @ id - 4
+  width: u53,
+  @ id - 5
+  height: u53,
+  @ id - 6
+  fps: u53,
+  @ id - 7
+  bitrate: u53,
+}
+
+struct ConfigureDesktopViewportsReq {
+  @ id - 1
+  attachId: string,
+  @ id - 2
+  layoutEpoch: u53,
+  @ id - 3
+  viewports: DesktopViewport[],
+  @ id - 4
+  totalBitrate: u53,
+}
+
+struct DesktopTrack {
+  @ id - 1
+  trackId: u53,
+  @ id - 2
+  viewport: DesktopViewport,
+  @ id - 3
+  codec: DesktopCodec,
+  @ id - 4
+  codecEpoch: u53,
+}
+
+struct DesktopConfiguration {
+  @ id - 1
+  layoutEpoch: u53,
+  @ id - 2
+  tracks: DesktopTrack[],
+  @ id - 3
+  totalBitrate: u53,
+}
+
+struct SetDesktopControlReq {
+  @ id - 1
+  attachId: string,
+  @ id - 2
+  action: DesktopControlAction,
+}
+
+union DesktopEvent {
+  @ id - 0
+  Attached(
+    @ id - 1
+    attachId: string,
+    @ id - 2
+    layoutEpoch: u53,
+    @ id - 3
+    displays: DesktopDisplay[],
+    @ id - 4
+    control: DesktopControl,
+    @ id - 5
+    leaseMs: u53,
+  ),
+  @ id - 1
+  Layout(
+    @ id - 1
+    layoutEpoch: u53,
+    @ id - 2
+    displays: DesktopDisplay[],
+  ),
+  @ id - 2
+  Control(
+    @ id - 1
+    control: DesktopControl,
+  ),
+  @ id - 3
+  Configured(
+    @ id - 1
+    configuration: DesktopConfiguration,
+  ),
+  @ id - 4
+  Cursor(
+    @ id - 1
+    layoutEpoch: u53,
+    @ id - 2
+    x: i53,
+    @ id - 3
+    y: i53,
+    @ id - 4
+    visible: bool,
+    @ id - 5
+    shape?: bytes,
+    @ id - 6
+    hotspotX: u53,
+    @ id - 7
+    hotspotY: u53,
+  ),
+  @ id - 5
+  Closed(
+    @ id - 1
+    reason: string,
+  ),
+}
+
+struct DesktopInputFrame {
+  @ id - 1
+  attachId: string,
+  @ id - 2
+  inputEpoch: u53,
+  @ id - 3
+  sequence: u53,
+  @ id - 4
+  layoutEpoch: u53,
+  @ id - 5
+  event: DesktopInputEvent,
+}
+
+union DesktopInputEvent {
+  @ id - 0
+  PhysicalKey(
+    @ id - 1
+    usage: u53,
+    @ id - 2
+    down: bool,
+    @ id - 3
+    repeat: bool,
+  ),
+  @ id - 1
+  TextCommit(
+    @ id - 1
+    text: string,
+  ),
+  @ id - 2
+  Composition(
+    @ id - 1
+    text: string,
+    @ id - 2
+    selectionStart: u53,
+    @ id - 3
+    selectionEnd: u53,
+  ),
+  @ id - 3
+  AbsolutePointer(
+    @ id - 1
+    viewportId: string,
+    @ id - 2
+    x: f64,
+    @ id - 3
+    y: f64,
+  ),
+  @ id - 4
+  RelativePointer(
+    @ id - 1
+    dx: f64,
+    @ id - 2
+    dy: f64,
+  ),
+  @ id - 5
+  Button(
+    @ id - 1
+    viewportId: string,
+    @ id - 2
+    x: f64,
+    @ id - 3
+    y: f64,
+    @ id - 4
+    button: u53,
+    @ id - 5
+    down: bool,
+  ),
+  @ id - 6
+  Wheel(
+    @ id - 1
+    viewportId: string,
+    @ id - 2
+    x: f64,
+    @ id - 3
+    y: f64,
+    @ id - 4
+    dx: f64,
+    @ id - 5
+    dy: f64,
+    @ id - 6
+    unit: DesktopWheelUnit,
+  ),
+  @ id - 7
+  ReleaseAll(
+  ),
+  @ id - 8
+  Feedback(
+    @ id - 1
+    trackId: u53,
+    @ id - 2
+    codecEpoch: u53,
+    @ id - 3
+    groupId: u53,
+    @ id - 4
+    decodeMicros: u53,
+    @ id - 5
+    renderMicros: u53,
+    @ id - 6
+    queueDepth: u53,
+    @ id - 7
+    requestKeyframe: bool,
+  ),
+}
+
+struct DesktopInputReceipt {
+  @ id - 1
+  lastSequence: u53,
+}
+
+struct DesktopMediaObject {
+  @ id - 1
+  attachId: string,
+  @ id - 2
+  trackId: u53,
+  @ id - 3
+  layoutEpoch: u53,
+  @ id - 4
+  codecEpoch: u53,
+  @ id - 5
+  groupId: u53,
+  @ id - 6
+  objectId: u53,
+  @ id - 7
+  timestampMicros: u53,
+  @ id - 8
+  keyframe: bool,
+  @ id - 9
+  data: bytes,
+}
+
+union DesktopError {
+  @ id - 0
+  Failed(
+    @ id - 1
+    message: string,
+  ),
+  @ id - 1
+  Unsupported(
+    @ id - 1
+    message: string,
+  ),
+  @ id - 2
+  PermissionDenied(
+    @ id - 1
+    message: string,
+  ),
+  @ id - 3
+  NotFound(
+    @ id - 1
+    message: string,
+  ),
+  @ id - 4
+  Busy(
+    @ id - 1
+    message: string,
+  ),
+  @ id - 5
+  InvalidConfiguration(
+    @ id - 1
+    message: string,
+  ),
+  @ id - 6
+  StaleEpoch(
+    @ id - 1
+    message: string,
+  ),
+  @ id - 7
+  LimitExceeded(
+    @ id - 1
+    message: string,
+  ),
+}
