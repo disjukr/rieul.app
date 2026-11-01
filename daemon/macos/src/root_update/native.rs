@@ -92,7 +92,7 @@ impl<'a, C: Control> NativeEffects<'a, C> {
 
         let mut sessions: Sessions = self.state.load("gui-sessions.json")?.unwrap_or_default();
         for uid in self.control.sessions()? {
-            if self.control.inspect(Job::Gui(uid))?.is_some() && !sessions.uids.contains(&uid) {
+            if self.control.discover_gui(uid)?.is_some() && !sessions.uids.contains(&uid) {
                 sessions.uids.push(uid);
             }
         }
@@ -314,16 +314,21 @@ impl<C: Control> Effects for NativeEffects<'_, C> {
     }
     fn restore_guis(&mut self) -> Result<()> {
         self.barrier = None;
-        let sessions: Sessions = self.state.load("gui-sessions.json")?.unwrap_or_default();
-
-        for uid in sessions.uids {
-            ensure!(uid > 0, "invalid GUI uid");
-            if self.control.gui_domain(uid)? {
-                self.control.start(Job::Gui(uid))?;
-            }
-        }
-        Ok(())
+        restore_saved_guis(self.state, &mut self.control)
     }
+}
+
+/// Saved sessions are recovery obligations, not background-UID discovery.
+/// Ambiguous domain errors propagate so transaction finalization retains them.
+pub(super) fn restore_saved_guis(state: &Dir, control: &mut impl Control) -> Result<()> {
+    let sessions: Sessions = state.load("gui-sessions.json")?.unwrap_or_default();
+    for uid in sessions.uids {
+        ensure!(uid > 0, "invalid GUI uid");
+        if control.gui_domain(uid)? {
+            control.start(Job::Gui(uid))?;
+        }
+    }
+    Ok(())
 }
 
 #[derive(Serialize, Deserialize)]

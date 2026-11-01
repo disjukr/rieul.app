@@ -870,3 +870,114 @@ fn interrupted_dispatch_preserves_write_ahead_failure_marker() {
         super::runtime::dispatch_attempt(&dir, false, |_| panic!("must not resubmit")).is_err()
     );
 }
+
+#[cfg(target_os = "macos")]
+#[test]
+fn ambiguous_saved_gui_domain_retains_terminal_journal_until_restore_or_proven_logout() {
+    use super::launchd::{Control, Job, JobState};
+    struct GuiControl {
+        code: i32,
+        restored: bool,
+    }
+    impl Control for GuiControl {
+        fn sessions(&mut self) -> Result<Vec<u32>> {
+            unreachable!()
+        }
+        fn inspect(&mut self, _: Job) -> Result<Option<JobState>> {
+            unreachable!()
+        }
+        fn gui_domain(&mut self, uid: u32) -> Result<bool> {
+            assert_eq!(uid, 501);
+            let text = match self.code {
+                125 => "Could not print domain: 125: Domain does not support specified action",
+                112 => "Bad request.\nCould not find domain for user gui: 501",
+                0 => "existing GUI domain",
+                _ => unreachable!(),
+            };
+            super::launchd::gui_domain_result(uid, self.code, text)
+        }
+        fn start(&mut self, job: Job) -> Result<()> {
+            assert_eq!(job, Job::Gui(501));
+            self.restored = true;
+            Ok(())
+        }
+        fn stop(&mut self, _: Job) -> Result<()> {
+            unreachable!()
+        }
+        fn submit_worker(&mut self) -> Result<()> {
+            unreachable!()
+        }
+    }
+    struct Recovery<'a> {
+        dir: &'a Dir,
+        installed: Installed,
+        control: GuiControl,
+    }
+    impl Effects for Recovery<'_> {
+        fn validate(&mut self, _: &Journal) -> Result<()> {
+            Ok(())
+        }
+        fn database_schema(&mut self) -> Result<u32> {
+            Ok(2)
+        }
+        fn installed(&mut self) -> Result<(Installed, Installed)> {
+            Ok((self.installed, self.installed))
+        }
+        fn quiesce(&mut self) -> Result<()> {
+            unreachable!()
+        }
+        fn exchange_app(&mut self) -> Result<()> {
+            unreachable!()
+        }
+        fn exchange_service(&mut self) -> Result<()> {
+            unreachable!()
+        }
+        fn start(&mut self, _: &Identity, _: &str) -> Result<()> {
+            unreachable!()
+        }
+        fn ready(&mut self, _: &Identity, _: &str) -> Result<bool> {
+            Ok(true)
+        }
+        fn restore_guis(&mut self) -> Result<()> {
+            super::native::restore_saved_guis(self.dir, &mut self.control)
+        }
+    }
+    for phase in [Phase::Committed, Phase::RolledBack] {
+        for recovered_code in [0, 112] {
+            let (_temp, dir) = fixture();
+            transaction::prepare(&dir, identity(1), identity(2)).unwrap();
+            let mut journal: Journal = dir.load("journal.json").unwrap().unwrap();
+            journal.phase = phase;
+            dir.save("journal.json", &journal).unwrap();
+            dir.save("gui-sessions.json", &serde_json::json!({"uids":[501]}))
+                .unwrap();
+            let mut recovery = Recovery {
+                dir: &dir,
+                installed: if phase == Phase::Committed {
+                    Installed::New
+                } else {
+                    Installed::Old
+                },
+                control: GuiControl {
+                    code: 125,
+                    restored: false,
+                },
+            };
+            assert!(
+                transaction::resume(&dir, &mut recovery)
+                    .unwrap_err()
+                    .to_string()
+                    .contains("125")
+            );
+            assert!(dir.exists("journal.json").unwrap());
+            assert!(dir.exists("gui-sessions.json").unwrap());
+            assert!(!dir.exists("last-result.json").unwrap());
+            assert!(!recovery.control.restored);
+            recovery.control.code = recovered_code;
+            assert_eq!(transaction::resume(&dir, &mut recovery).unwrap(), phase);
+            assert_eq!(recovery.control.restored, recovered_code == 0);
+            assert!(!dir.exists("journal.json").unwrap());
+            assert!(!dir.exists("gui-sessions.json").unwrap());
+        }
+    }
+}
