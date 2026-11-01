@@ -41,6 +41,7 @@ def main():
         builder["archive"](app, archive)
         extracted = base / "extracted"
         extracted.mkdir(mode=0o755)
+        extracted.chmod(0o755)
         with tarfile.open(archive) as tar:
             members = tar.getmembers()
             assert all(member.uid == 0 and member.gid == 0 for member in members)
@@ -70,7 +71,8 @@ print("Non-admin read and native integrity check passed for", count, "root-owned
             os.setgid(nobody.pw_gid)
             os.setuid(nobody.pw_uid)
         subprocess.run(["/usr/bin/python3", "-c", reader, str(payload)],
-                       check=True, preexec_fn=drop_privileges)
+                       check=True, cwd=base, preexec_fn=drop_privileges,
+                       env={"PATH": "/usr/bin:/bin", "HOME": str(base)})
         print(json.dumps({"root_owned_archive": True, "reader_uid": nobody.pw_uid,
                           "supplementary_groups": [], "native_verify_bundle": True}))
 
