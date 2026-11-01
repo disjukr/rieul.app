@@ -117,6 +117,7 @@ fn audit_tree(path: &Path, root: &Path, uid: u32) -> Result<()> {
     super::store::no_acl(fd.as_raw_fd())?;
     if m.is_file() {
         ensure!(m.nlink() == 1, "hardlink in artifact");
+        crate::architecture::audit_macho(fd)?;
     } else {
         for entry in std::fs::read_dir(path)? {
             audit_tree(&entry?.path(), root, uid)?;
@@ -132,6 +133,10 @@ pub(super) fn candidate(
     current: Version,
     db: u32,
 ) -> Result<Identity> {
+    ensure!(
+        cfg!(all(target_os = "macos", target_arch = "aarch64")),
+        "unsupported update host: Rieul macOS requires Apple Silicon (arm64)"
+    );
     let app = stage.child("Rieul.app")?;
     let m = std::fs::symlink_metadata(&app.path)?;
     audit_tree(&app.path, &app.path, m.uid())?;
@@ -142,6 +147,16 @@ pub(super) fn candidate(
         .context("missing signed update manifest")?;
     manifest.validate(expected, current, db)?;
     let daemon_dir = contents.child("Library")?.child("LaunchServices")?;
+    for file in [
+        daemon_dir.read_file("rieul-macos-system")?,
+        contents.child("MacOS")?.read_file("rieul-macos-launcher")?,
+        contents.child("MacOS")?.read_file("rieul-gui")?,
+    ] {
+        ensure!(
+            crate::architecture::audit_macho(file)?,
+            "missing arm64 Mach-O entry point"
+        );
+    }
     let hash = digest(daemon_dir.read_file("rieul-macos-system")?)?;
     ensure!(hash == manifest.daemon_sha256, "daemon digest mismatch");
     let app_req = requirement(APP_ID);

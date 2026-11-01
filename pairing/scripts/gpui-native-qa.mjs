@@ -87,18 +87,22 @@ async function launch(name) {
     });
   const snapshot = () => call("snapshot");
   const wait = async (predicate) => {
+    let state;
     for (let i = 0; i < 150; i++) {
-      const state = await snapshot();
-      if (predicate(state)) return state;
+      state = await snapshot();
+      if ((!state.visible || state.renderedGeneration === state.generation) && predicate(state)) return state;
       await delay(40);
     }
-    throw Error("native state wait timed out");
+    throw Error(`native state wait timed out: ${JSON.stringify(state)}`);
   };
   const request = (procId, payload) => {
     let socket;
     const result = new Promise((resolve, reject) => {
       const chunks = [];
       socket = net.createConnection(endpoint(config));
+      socket.setTimeout(20000, () => {
+        socket.destroy(Error(`GUI IPC procedure ${procId} timed out`));
+      });
       socket.on("error", reject);
       socket.on("data", (b) => chunks.push(b));
       socket.on("end", () => resolve(Buffer.concat(chunks)));
@@ -145,8 +149,11 @@ async function launch(name) {
     stderr: () => stderr,
   };
 }
-const accepted = (bytes) =>
-  decodeCborSequence(decodeCborSequence(bytes)[1].get(2))[0].get(1);
+const accepted = (bytes) => {
+  const response = decodeCborSequence(bytes);
+  assert(response[1]?.get(2), `Missing GUI response payload: ${bytes.toString("hex")}`);
+  return decodeCborSequence(response[1].get(2))[0].get(1);
+};
 const deadline = setTimeout(() => {
   for (const child of owned) child.kill();
 }, 120000);

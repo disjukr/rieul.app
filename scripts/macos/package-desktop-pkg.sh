@@ -70,6 +70,7 @@ done
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+source "$SCRIPT_DIR/require-arm64.sh"
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
   echo "macOS PKG packaging must be built on macOS." >&2
@@ -137,11 +138,10 @@ rm -rf "$PKG_STAGING_DIR"
 mkdir -p "$PKG_ROOT/Applications"
 /usr/bin/ditto "$APP_PATH" "$PKG_ROOT/Applications/$APP_NAME.app"
 
-if [[ ! -x "$PKG_SCRIPTS/postinstall" ]]; then
-  echo "PKG scripts must be executable: $PKG_SCRIPTS" >&2
-  exit 1
-fi
-/bin/bash -n "$PKG_SCRIPTS/postinstall"
+for script in preinstall postinstall; do
+  [[ -x "$PKG_SCRIPTS/$script" ]] || { echo "Missing executable PKG script: $script" >&2; exit 1; }
+  /bin/bash -n "$PKG_SCRIPTS/$script"
+done
 
 pkgbuild --analyze --root "$PKG_ROOT" "$COMPONENT_PLIST"
 component_index=""

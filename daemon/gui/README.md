@@ -1,5 +1,8 @@
 # Native GPUI daemon GUI
 
+Supported desktops are macOS 13+ on Apple Silicon (arm64) and Windows x64.
+Intel Macs are unsupported; legacy releases and user data are preserved.
+
 This isolated Cargo workspace builds the native GUI used by the desktop packaging scripts. Run only with a disposable, explicit `--config` file. No real daemon,
 service registration, user data, or security setting is required by its tests.
 
@@ -42,7 +45,7 @@ No component framework such as gpui-box is needed for these three screens.
 The macOS build selects upstream's `runtime_shaders` feature because the local
 machine has Command Line Tools, not full Xcode/Metal tools. It compiles Metal
 shaders through the supported runtime API, without changing OS security settings.
-The hardened, ad-hoc signed macOS ARM64 and Intel installer fixtures run with
+The hardened, ad-hoc signed macOS ARM64 installer fixtures run with
 this feature and pass the macOS 13.0 deployment-target check. Upstream GPUI/platform, zlog, ztracing and ztracing_macro manifests
 at this revision declare Apache-2.0; a complete transitive license bundle is included in each native package.
 
@@ -79,7 +82,7 @@ Branch: `codex/daemon-gpui`, isolated checkout on Mac Studio.
   disposable explicit config and a PATH without Node or Bun.
 - A source checkout with spaces and Korean characters builds and verifies its
   actual GUI payload, using the same pinned lockfile and protocol generator.
-- Both macOS ARM64 and Intel jobs passed at `8daca9956f90f56a4b11a9a330eceb850de21dd1`:
+- Historical macOS ARM64 and Intel jobs passed at `8daca9956f90f56a4b11a9a330eceb850de21dd1`:
   [CI run](https://github.com/disjukr/rieul.app/actions/runs/41275615104).
   These include signed PKG extraction, GUI execution from that payload, strict
   signature/entitlement checks and DMG verification, without installation.
@@ -128,7 +131,10 @@ GUI digest before sealing the outer app, and no JIT entitlements are needed.
 Mac ARM64 disposable-profile QA has passed native pointer approval, rejection,
 cancel, close/hide/reopen, stale generation, duplicate activation and independent
 profile shutdown. Tests use the native renderer and event dispatch, not OS-input
-injection. The PR records exact-commit CI results and the remaining scope of visual comparison.
+injection. The PR records exact-commit CI results for macOS arm64 and Windows x64. Intel CI
+was removed when Intel Mac support was discontinued; its older checkpoints above
+are historical. Renderer QA waits for the current generation to be drawn before
+dispatching input, and bounds each IPC response wait.
 
 The official GPUI pin precedes the CAMetalDisplayLink change in 0373366f43;
 that newer renderer aborts when screenshot readback runs on this Mac. The pinned

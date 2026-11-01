@@ -2,6 +2,8 @@
 
 데몬의 페어링·정보 창은 `daemon/gui`의 Rust GPUI 프로세스가 담당한다. Node/Bun, GPUiX, Solid 및 JavaScript GUI 의존성은 설치 번들에 포함하지 않는다. 웹 클라이언트의 Solid/Bunja 구성과 데몬의 인증서·페어링 프로토콜은 그대로 유지한다.
 
+지원 플랫폼은 macOS 13 이상 Apple Silicon(arm64)과 Windows x64이다. Intel Mac과 Rosetta 빌드 셸은 지원하지 않으며 설치·빌드 전에 명확한 오류로 중단한다.
+
 ## 구조와 실행 계약
 
 - `daemon/gui/src/controller.rs`: 요청 검증, 화면 상태, 세대별 응답 검증. 요청 교체·연결 해제·닫기·종료는 진행 중 확인을 거절한다.

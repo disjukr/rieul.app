@@ -539,7 +539,14 @@ fn release_contract_builder_roundtrips_through_restricted_extractor() {
         .unwrap()
         .create_dir("LaunchServices", 0o755)
         .unwrap();
-    std::fs::write(daemon.path.join("rieul-macos-system"), b"fixture daemon").unwrap();
+    // Header-only inert fixtures: artifact generation checks CPU architecture;
+    // signature verification remains a separate native fixture gate.
+    let arm64 = [0xcf, 0xfa, 0xed, 0xfe, 12, 0, 0, 1];
+    std::fs::write(daemon.path.join("rieul-macos-system"), arm64).unwrap();
+    let executables = contents.create_dir("MacOS", 0o755).unwrap();
+    for name in ["rieul-macos-launcher", "rieul-gui"] {
+        std::fs::write(executables.path.join(name), arm64).unwrap();
+    }
     std::fs::write(contents.path.join("Info.plist"),br#"<?xml version="1.0"?><plist version="1.0"><dict><key>CFBundleIdentifier</key><string>app.rieul</string><key>CFBundleShortVersionString</key><string>1.0.2</string></dict></plist>"#).unwrap();
     let script = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../scripts/macos/update-artifact.py");
@@ -582,6 +589,24 @@ fn release_contract_builder_roundtrips_through_restricted_extractor() {
         manifest.daemon_sha256,
         super::verify::digest(daemon.read_file("rieul-macos-system").unwrap()).unwrap()
     );
+    std::fs::write(
+        executables.path.join("rieul-gui"),
+        [0xcf, 0xfa, 0xed, 0xfe, 7, 0, 0, 1],
+    )
+    .unwrap();
+    let rejected = build.path.join("intel/rieul-macos-update.tar");
+    std::fs::create_dir(rejected.parent().unwrap()).unwrap();
+    let result = std::process::Command::new("python3")
+        .arg(script)
+        .arg("archive")
+        .arg(&app.path)
+        .arg("--output")
+        .arg(&rejected)
+        .output()
+        .unwrap();
+    assert!(!result.status.success());
+    assert!(String::from_utf8_lossy(&result.stderr).contains("unsupported Mach-O architecture"));
+    assert!(!rejected.exists());
 }
 
 #[test]

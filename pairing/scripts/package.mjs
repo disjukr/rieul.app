@@ -15,6 +15,8 @@ import { execute, root, sha256 } from "./build-tools.mjs";
 import { publishReplacement } from "./publish.mjs";
 import { bundlePermissions } from "./bundle-permissions.mjs";
 const windows = process.platform === "win32";
+if (process.platform === "darwin" && process.arch !== "arm64")
+  throw new Error("Unsupported platform: Rieul macOS requires Apple Silicon (arm64); Intel/Rosetta builds are not supported");
 if (!windows && process.platform !== "darwin")
   throw new Error("Desktop packaging supports Windows/macOS");
 const arg = process.argv.indexOf("--out");
@@ -279,7 +281,7 @@ if (!windows) {
   await chmod(executable, 0o755);
   await writeFile(
     path.join(output, "Contents/Info.plist"),
-    '<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict><key>CFBundleExecutable</key><string>rieul-gui</string><key>CFBundleIdentifier</key><string>app.rieul</string><key>CFBundleName</key><string>Rieul</string><key>CFBundlePackageType</key><string>APPL</string><key>LSUIElement</key><true/><key>LSMinimumSystemVersion</key><string>13.0</string></dict></plist>',
+    '<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict><key>CFBundleExecutable</key><string>rieul-gui</string><key>CFBundleIdentifier</key><string>app.rieul</string><key>CFBundleName</key><string>Rieul</string><key>CFBundlePackageType</key><string>APPL</string><key>LSUIElement</key><true/><key>LSMinimumSystemVersion</key><string>13.0</string><key>LSArchitecturePriority</key><array><string>arm64</string></array></dict></plist>',
   );
   await bundlePermissions(output, true);
 }

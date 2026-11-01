@@ -9,7 +9,7 @@
 - `daemon/windows`: Windows-specific system/user daemon binaries.
 - `daemon/macos`: macOS-specific system daemon and desktop installer bootstrap.
 - `protocol`: BDL schemas, RPC/wire standards, and protocol docs.
-- `web`: Vite + React + TypeScript browser client, managed with Node.js and pnpm.
+- `web`: Vite + Solid 2 + TypeScript browser client, managed with Node.js and pnpm.
 
 See `protocol/README.md` for protocol layer terminology. In short, `rieul-wire`
 is the byte-level envelope family carried over WebTransport reqres streams and
@@ -46,16 +46,19 @@ are unchanged; `scripts/codegen/bdl-config.ts` supplies the filesystem boundary
 on Node. Tests check TypeScript output against checked-in sources and Rust output
 against independent baseline hashes.
 
-The daemon-attached pairing utility lives in `pairing` and uses GPUiX + Solid.
-Build tooling uses Node.js 24 and Rust; platform bridges need the Windows SDK or
-Xcode command-line tools. Desktop bundles embed checksum-pinned Node 22.22.0 and
-Bun 1.3.9 runtimes, so users do not need a runtime on PATH. Both GPUiX packages
-are pinned together to 0.11.0. Intel macOS builds the unchanged official native
-source because that release has no published Intel addon.
+The daemon-attached pairing utility is implemented in `daemon/gui` with Rust GPUI.
+Build tooling uses Node.js 24 and Rust 1.99.1; platform bridges need the Windows
+SDK or Xcode command-line tools. Runtime bundles contain no Node, Bun, GPUiX or
+JavaScript GUI dependencies. GPUI is pinned in the standalone Cargo workspace.
+
+Desktop support is Windows x64 and macOS 13+ on Apple Silicon (arm64). Intel Macs
+are unsupported. macOS builds must run in a native arm64 shell; Rosetta build
+shells fail before compilation. Installers reject Intel hosts before copying or
+changing installed files. Historical Intel releases and user data are not removed.
 
 Close-to-hide, tray activation/quit, confirmation rejection, profile-scoped IPC,
 and duplicate activation are compatibility requirements. See `pairing/README.md`
-and `pairing/VERIFICATION.md` for safe fixture commands and verification limits.
+and `daemon/gui/README.md` for safe fixture commands and verification limits.
 
 `pnpm --dir web check:daemon` uses Chromium WebTransport because Node does not
 provide that browser API. Install Chromium with the command above first. It uses
@@ -81,7 +84,7 @@ and set `domain` to the Windows machine's Tailscale hostname, or add explicit
 config is valid.
 
 Run the macOS desktop development environment. The system daemon is launched
-with `sudo`; the GPUiX pairing utility runs as the current user.
+with `sudo`; the native GPUI pairing utility runs as the current user.
 
 ```sh
 pnpm macos:dev:desktop
@@ -275,7 +278,7 @@ pnpm macos:package:desktop
 ```
 
 The DMG contains `Rieul.app` and an `/Applications` shortcut, laid out for the
-usual drag-to-install flow. The app bundle contains the per-user GPUiX pairing
+usual drag-to-install flow. The app bundle contains the per-user native GPUI pairing
 GUI and installer controller.
 
 Build a PKG for command-line installation, or for managed deployment after
@@ -334,13 +337,11 @@ scripts/macos/package-desktop-dmg.sh --sign "Developer ID Application: Example"
 PKG distribution uses separate identities for the app bundle and installer
 package:
 
-Signed macOS packaging verifies the final bundle's entitlement scope and runs a
-real Bun FFI call before producing an installer. Bun alone retains
-`com.apple.security.cs.allow-unsigned-executable-memory` in addition to
-`allow-jit`, because its TinyCC-generated FFI wrappers need executable memory.
-Library validation and executable-page protection remain enabled. The release
-workflow also exercises the native GUI with its final Developer ID signatures
-before notarization; ad-hoc builds cannot substitute for that Team ID check.
+Signed macOS packaging verifies native payload integrity, arm64 Mach-O images,
+strict signatures and the final entitlement scope. No JIT or unsigned executable
+memory entitlement is required. The release workflow also exercises the native GUI
+with its final Developer ID signatures before notarization; ad-hoc builds cannot
+substitute for that Team ID check.
 
 ```sh
 scripts/macos/package-desktop-pkg.sh \

@@ -14,6 +14,8 @@ struct View {
     qa: Option<mpsc::Receiver<serde_json::Value>>,
     #[cfg(feature = "qa")]
     qa_clipboard: Option<ClipboardItem>,
+    #[cfg(feature = "qa")]
+    rendered_generation: Option<u64>,
     root_focus: FocusHandle,
     button_focus: std::cell::RefCell<std::collections::HashMap<SharedString, FocusHandle>>,
     controller: Controller,
@@ -384,6 +386,11 @@ enum Action {
 }
 impl Render for View {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        #[cfg(feature = "qa")]
+        {
+            // QA must not click a previous frame's generation-scoped handlers.
+            self.rendered_generation = Some(self.generation);
+        }
         let route = self.controller.route.clone();
         let content = match route {
             Route::Idle(info) | Route::Info(info) => {
@@ -1009,6 +1016,8 @@ pub fn run() -> anyhow::Result<()> {
                         qa,
                         #[cfg(feature = "qa")]
                         qa_clipboard: None,
+                        #[cfg(feature = "qa")]
+                        rendered_generation: None,
                         controller: Controller::new(info),
                         events: rx,
                         shell,
@@ -1087,7 +1096,7 @@ impl View {
                         }
                     };
                     Ok(
-                        serde_json::json!({"route":route,"generation":self.controller.generation,"visible":self.shell.is_visible(),"feedback":self.feedback,"error":self.error,"a11y":window.debug_a11y_tree_json()}),
+                        serde_json::json!({"route":route,"generation":self.controller.generation,"renderedGeneration":self.rendered_generation,"visible":self.shell.is_visible(),"feedback":self.feedback,"error":self.error,"a11y":window.debug_a11y_tree_json()}),
                     )
                 }
                 "clipboardMatches" => Ok(serde_json::json!(

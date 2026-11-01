@@ -18,6 +18,8 @@ async function visit(directory) {
         encoding: "utf8",
       });
       if (!kind.includes("Mach-O")) continue;
+      const architectures = execFileSync("/usr/bin/lipo", ["-archs", file], { encoding: "utf8" }).trim();
+      assert.equal(architectures, "arm64", `Unsupported Mach-O architecture in ${file}: ${architectures}`);
       const headers = execFileSync("/usr/bin/otool", ["-l", file], {
         encoding: "utf8",
       });

@@ -20,9 +20,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-15, macos-15-intel]
+        os: [macos-15]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: ${{ matrix.os == 'macos-15-intel' && 90 || 60 }}
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -43,6 +43,7 @@ jobs:
         run: cargo test --manifest-path daemon/gui/Cargo.toml --lib --locked
       - name: Verify development process ownership without starting services
         run: |
+          bash scripts/macos/test-architecture.sh
           bash scripts/macos/test-dev-process-scope.sh
           bash scripts/macos/test-dmg-lifecycle.sh
           hdiutil info -plist > "$RUNNER_TEMP/dmg-inventory.plist"
@@ -75,6 +76,7 @@ jobs:
       # updater here. Signed root launchd/reboot integration remains a separate gate.
       - name: Test updater recovery and server drain without service installation
         run: |
+          cargo test -p rieul-macos-daemon --lib architecture --locked
           cargo test -p rieul-macos-daemon --lib root_update --locked
           cargo test -p rieul-daemon-host --lib --locked
       - name: Build installer wrapper and validate signed PKG payload without installation

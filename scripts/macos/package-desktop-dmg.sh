@@ -125,6 +125,7 @@ done
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+source "$SCRIPT_DIR/require-arm64.sh"
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
   echo "macOS app/dmg packaging must be built on macOS." >&2
@@ -175,6 +176,9 @@ fi
 if [[ ! -f "$GUI_APP/Contents/Resources/pairing/bundle.json" ]]; then
   echo "Missing native pairing bundle manifest" >&2; exit 1
 fi
+for binary in "$SYSTEM_EXE" "$LAUNCHER_EXE" "$GUI_APP/Contents/MacOS/rieul-gui"; do
+  [[ "$(/usr/bin/lipo -archs "$binary")" == "arm64" ]] || { echo "Unsupported macOS binary architecture (arm64 only): $binary" >&2; exit 1; }
+done
 "$GUI_APP/Contents/MacOS/rieul-gui" --verify-bundle
 
 SYSTEM_LABEL="app.rieul.daemon"
@@ -231,6 +235,11 @@ fi
 cat >"$APP_PATH/Contents/Resources/install" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
+
+if [ "\$(/usr/sbin/sysctl -n hw.optional.arm64 2>/dev/null || true)" != "1" ]; then
+  echo "Unsupported platform: Rieul macOS requires Apple Silicon (arm64); Intel Macs are not supported." >&2
+  exit 1
+fi
 
 if [[ "\${EUID:-\$(/usr/bin/id -u)}" -ne 0 ]]; then
   exec /usr/bin/sudo /bin/bash "\$0" "\$@"
@@ -459,6 +468,7 @@ fi
 # Normalize unsigned staging before any signatures are made.
 node "$REPO_ROOT/pairing/scripts/bundle-permissions.mjs" normalize "$APP_PATH"
 # The native GUI needs no Node/Bun JIT or unsigned executable memory entitlement.
+node "$REPO_ROOT/pairing/scripts/check-macos-target.mjs" "$APP_PATH"
 codesign "${codesign_args[@]}" --preserve-metadata=identifier "$APP_PATH/Contents/MacOS/$GUI_EXECUTABLE_NAME"
 # Signing changes the executable bytes; update its v2 hash before sealing the app.
 node "$REPO_ROOT/pairing/scripts/refresh-manifest.mjs" "$APP_PATH/Contents/Resources/pairing"

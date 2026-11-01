@@ -81,12 +81,15 @@ jobs:
             --clobber
 
   macos:
-    name: Build macOS installers
-    runs-on: macos-latest
+    name: Build macOS arm64 installers
+    runs-on: macos-15
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+
+      - name: Verify Apple Silicon build host
+        run: bash scripts/macos/require-arm64.sh
 
       - name: Install Rust toolchain
         shell: bash
