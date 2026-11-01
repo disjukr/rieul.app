@@ -39,6 +39,7 @@ export const theme = {
   dangerSoftHover: "var(--rieul-danger-soft-hover)",
   dangerSoftMuted: "var(--rieul-danger-soft-muted)",
   focus: "var(--rieul-focus)",
+  fontNative: "var(--rieul-font-native)",
   materialFloatingBg: "var(--rieul-material-floating-bg)",
   overlayBackdrop: "var(--rieul-overlay-backdrop)",
   radius2xl: "var(--rieul-radius-2xl)",

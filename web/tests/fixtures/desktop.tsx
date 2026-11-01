@@ -1,3 +1,5 @@
+import "@unocss/reset/tailwind.css";
+import "../../src/theme.css";
 import { TestBunjaStoreProvider } from "./bunja-store.tsx";
 import { override } from "bunja";
 import { createSignal, createMemo } from "solid-js";

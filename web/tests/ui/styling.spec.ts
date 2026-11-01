@@ -1,5 +1,50 @@
 import { expect, test } from "@playwright/test";
 
+test("desktop popup receives styles, theme changes and stylesheet updates without retaining observers", async ({
+  page,
+}) => {
+  await page.goto("/tests/fixtures/popup-styles.html");
+  const opened = page.waitForEvent("popup");
+  await page.getByRole("button", { name: "Open styled popup" }).click();
+  const popup = await opened;
+  const canvas = popup.getByLabel("Remote display fixture");
+  await expect(canvas).toHaveCSS("display", "block");
+  await expect(canvas).toHaveCSS("background-color", "rgb(16, 24, 40)");
+  await expect(canvas).toHaveCSS("touch-action", "none");
+  await page.evaluate(() => {
+    document.documentElement.style.setProperty(
+      "--rieul-bg-inverse",
+      "rgb(20, 30, 40)",
+    );
+    const style = document.createElement("style");
+    style.id = "popup-update";
+    style.textContent = ".rieul-desktop-canvas { border: 3px solid red; }";
+    document.head.append(style);
+  });
+  await expect(canvas).toHaveCSS("background-color", "rgb(20, 30, 40)");
+  await expect(canvas).toHaveCSS("border-top-width", "3px");
+  await page.evaluate(() => document.getElementById("popup-update")!.remove());
+  await expect(canvas).toHaveCSS("border-top-width", "0px");
+  await page.getByRole("button", { name: "Stop stylesheet sync" }).click();
+  await expect(
+    popup.locator("head style, head link[rel=stylesheet]"),
+  ).toHaveCount(0);
+  await page.evaluate(() => {
+    document.documentElement.style.setProperty(
+      "--rieul-bg-inverse",
+      "rgb(50, 60, 70)",
+    );
+    document.head.append(document.createElement("style"));
+  });
+  expect(await popup.locator("html").getAttribute("style")).toContain(
+    "rgb(20, 30, 40)",
+  );
+  await expect(
+    popup.locator("head style, head link[rel=stylesheet]"),
+  ).toHaveCount(0);
+  await popup.close();
+});
+
 test("compiled styles retain dynamic values, compound variants and interaction states", async ({
   page,
 }) => {
