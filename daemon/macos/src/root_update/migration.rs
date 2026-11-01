@@ -78,6 +78,7 @@ fn startup_with<C: Control>(
     }
     // Publish before starting the worker: it must distinguish this instance,
     // which has not opened the DB or transport, from a serving process.
+    state.remove("ready.json")?;
     state.save(
         "parked.json",
         &runtime::Parked {
@@ -221,6 +222,23 @@ pub fn prepare() -> Result<()> {
     }
     runtime::ensure_worker(&state, &mut launchd::Native { state: &state })
 }
+/// Used by both Native::start and Native::health. A current parked process
+/// cannot satisfy readiness, even if reboot reused a prior receipt's PID.
+fn ready_pid(state: &Dir, expected: &Request, job: &launchd::JobState) -> Result<Option<u32>> {
+    let Some(pid) = job.pid else {
+        return Ok(None);
+    };
+    if state
+        .load::<runtime::Parked>("parked.json")?
+        .is_some_and(|parked| parked.nonce == expected.nonce && parked.pid == pid)
+    {
+        return Ok(None);
+    }
+    let Some(ready) = state.load::<receipt::Receipt>("ready.json")? else {
+        return Ok(None);
+    };
+    Ok(receipt::matches(&ready, expected, pid, &expected.daemon_sha256).then_some(pid))
+}
 struct Native<'a> {
     state: &'a Dir,
     control: launchd::Native<'a>,
@@ -283,12 +301,8 @@ impl Steps for Native<'_> {
             daemon_sha256: m.identity.daemon_sha256.clone(),
         };
         if let Some(job) = self.control.inspect(Job::System)? {
-            if let (Some(pid), Some(ready)) =
-                (job.pid, self.state.load::<receipt::Receipt>("ready.json")?)
-            {
-                if receipt::matches(&ready, &expected, pid, &m.identity.daemon_sha256) {
-                    return Ok(());
-                }
+            if ready_pid(self.state, &expected, &job)?.is_some() {
+                return Ok(());
             }
             // A crash may have booted the registered service before a readiness
             // request was persisted. Never kill work to repair that ordering.
@@ -307,25 +321,20 @@ impl Steps for Native<'_> {
             daemon_sha256: m.identity.daemon_sha256.clone(),
         };
         loop {
-            if let (Some(job), Some(receipt)) = (
-                self.control.inspect(Job::System)?,
-                self.state.load::<receipt::Receipt>("ready.json")?,
-            ) {
-                if let Some(pid) = job.pid {
-                    if receipt::matches(&receipt, &expected, pid, &m.identity.daemon_sha256) {
-                        launchd::checked(
-                            self.state,
-                            "/usr/bin/codesign",
-                            &[
-                                "--verify",
-                                "--strict",
-                                "-R",
-                                &verify::requirement(super::DAEMON_ID),
-                                &pid.to_string(),
-                            ],
-                        )?;
-                        return Ok(());
-                    }
+            if let Some(job) = self.control.inspect(Job::System)? {
+                if let Some(pid) = ready_pid(self.state, &expected, &job)? {
+                    launchd::checked(
+                        self.state,
+                        "/usr/bin/codesign",
+                        &[
+                            "--verify",
+                            "--strict",
+                            "-R",
+                            &verify::requirement(super::DAEMON_ID),
+                            &pid.to_string(),
+                        ],
+                    )?;
+                    return Ok(());
                 }
             }
             ensure!(
@@ -448,6 +457,85 @@ mod tests {
         }
         fn submit_worker(&mut self) -> Result<()> {
             unreachable!()
+        }
+    }
+    #[test]
+    fn native_readiness_rejects_reused_pid_receipt_until_park_clears_and_fresh_receipt_arrives() {
+        use std::os::unix::fs::PermissionsExt;
+        for phase in [Phase::Starting, Phase::Complete] {
+            let tmp = tempfile::tempdir().unwrap();
+            std::fs::set_permissions(tmp.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+            let state = Dir::open(
+                &tmp.path().canonicalize().unwrap(),
+                unsafe { libc::geteuid() },
+                false,
+            )
+            .unwrap();
+            let m = Migration {
+                schema: 1,
+                phase,
+                identity: Identity {
+                    version: Version(0, 0, 1),
+                    daemon_sha256: "a".repeat(64),
+                    app_dev: 1,
+                    app_ino: 1,
+                },
+                nonce: "b".repeat(64),
+            };
+            let expected = Request {
+                nonce: m.nonce.clone(),
+                daemon_sha256: m.identity.daemon_sha256.clone(),
+            };
+            let pid = std::process::id();
+            let job = launchd::JobState { pid: Some(pid) };
+            state.save("migration.json", &m).unwrap();
+            state.save("start-request.json", &expected).unwrap();
+            receipt::write(&state, expected.clone(), pid, super::super::DATABASE_SCHEMA).unwrap();
+            assert_eq!(ready_pid(&state, &expected, &job).unwrap(), Some(pid));
+            state
+                .save(
+                    "parked.json",
+                    &runtime::Parked {
+                        nonce: m.nonce.clone(),
+                        pid,
+                        daemon_sha256: m.identity.daemon_sha256.clone(),
+                    },
+                )
+                .unwrap();
+            // Exact same nonce/PID/hash as the old ready receipt. This helper
+            // is the actual early-return predicate in Native::start and the
+            // actual pre-signature predicate in Native::health.
+            assert_eq!(ready_pid(&state, &expected, &job).unwrap(), None);
+            assert_eq!(
+                startup_with(
+                    &state,
+                    &mut AbsentWorker,
+                    &m.identity.daemon_sha256,
+                    |state, _| {
+                        assert!(!state.exists("ready.json")?);
+                        assert!(state.exists("parked.json")?);
+                        Ok(())
+                    }
+                )
+                .unwrap(),
+                Some(true)
+            );
+            // Verified worker restarted the daemon. Being permitted to serve
+            // does not alone constitute a fresh post-DB/transport receipt.
+            assert_eq!(
+                startup_with(
+                    &state,
+                    &mut LiveWorker,
+                    &m.identity.daemon_sha256,
+                    |_, _| panic!("already running")
+                )
+                .unwrap(),
+                Some(false)
+            );
+            assert!(!state.exists("parked.json").unwrap());
+            assert_eq!(ready_pid(&state, &expected, &job).unwrap(), None);
+            receipt::write(&state, expected.clone(), pid, super::super::DATABASE_SCHEMA).unwrap();
+            assert_eq!(ready_pid(&state, &expected, &job).unwrap(), Some(pid));
         }
     }
     struct RebootSteps<'a> {
