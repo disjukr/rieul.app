@@ -167,6 +167,24 @@ try {
   const exit = await new Promise((r) => duplicate.on("exit", r));
   assert.equal(exit, 0);
   evidence.checks.push("duplicate activation");
+  if (process.platform === "win32" && process.env.RIEUL_PAIRING_LAUNCHER) {
+    const wrapper = spawn("pwsh.exe", [
+      "-NoProfile", "-File", process.env.RIEUL_PAIRING_LAUNCHER,
+      "-Config", app.config, "-Bundle", path.dirname(executable), "-Show",
+    ], { stdio: "pipe" });
+    owned.add(wrapper);
+    let output = "";
+    wrapper.stdout.on("data", (data) => { output += data; });
+    wrapper.stderr.on("data", (data) => { output += data; });
+    const code = await new Promise((resolve, reject) => {
+      wrapper.once("error", reject);
+      wrapper.once("exit", resolve);
+    });
+    assert.equal(code, 0, output);
+    await app.wait((state) => state.visible);
+    evidence.checks.push("PowerShell launcher reuses the native profile instance");
+  }
+
   await app.request(
     1,
     encodeCbor(
