@@ -1,7 +1,7 @@
 name: Check native pairing bundle
 on:
   push:
-    branches: [main, codex/runtime-migration]
+    branches: [main]
   pull_request:
   workflow_dispatch:
 permissions:

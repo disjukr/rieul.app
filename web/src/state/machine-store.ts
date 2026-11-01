@@ -5,7 +5,6 @@ import {
   createRoot,
   getOwner,
   runWithOwner,
-  latest,
   untrack,
 } from "solid-js";
 import { bunja } from "bunja";
@@ -30,10 +29,7 @@ export const machineStoreBunja = bunja(() => {
     setSelectedId(machineId);
   }
   function findMachine(machineId?: string): Machine | undefined {
-    return getMachine(
-      untrack(() => latest(machines)),
-      machineId,
-    );
+    return getMachine(untrack(machines), machineId);
   }
   function addMachine(machine: Machine) {
     setMachines((current) => [...current, machine]);
@@ -83,7 +79,7 @@ export const machineStoreBunja = bunja(() => {
     );
   }
   function deleteSelectedMachine(): Machine | undefined {
-    const current = untrack(() => latest(selected));
+    const current = untrack(selected);
     if (!current) return;
     setMachines((items) => {
       const remaining = items.filter((machine) => machine.id !== current.id);

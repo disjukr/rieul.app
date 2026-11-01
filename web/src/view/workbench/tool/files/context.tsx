@@ -1,20 +1,19 @@
 import { createContext, type Accessor } from "solid-js";
-import type { Atom } from "jotai/vanilla";
 import type { FsEntry } from "../../../../protocol/generated/rpc.ts";
 import type {
   ExplorerLocation,
   ExplorerSpecialLocation,
 } from "../../../../state/explorer.ts";
 export interface FilesExplorerState {
-  currentPathAtom: Atom<string | undefined>;
-  displayPathAtom: Atom<string | undefined>;
-  historyAtom: Atom<ExplorerLocation[]>;
-  openedFileAtom: Atom<FsEntry | undefined>;
-  refreshAtom: Atom<number>;
-  selectedEntryAtom: Atom<FsEntry | undefined>;
-  selectedPathAtom: Atom<string | undefined>;
-  specialLocationAtom: Atom<ExplorerSpecialLocation | undefined>;
-  visibleRowsAtom: Atom<FsEntry[]>;
+  currentPath: Accessor<string | undefined>;
+  displayPath: Accessor<string | undefined>;
+  history: Accessor<ExplorerLocation[]>;
+  openedFile: Accessor<FsEntry | undefined>;
+  refreshRevision: Accessor<number>;
+  selectedEntry: Accessor<FsEntry | undefined>;
+  selectedPath: Accessor<string | undefined>;
+  specialLocation: Accessor<ExplorerSpecialLocation | undefined>;
+  visibleRows: Accessor<FsEntry[]>;
   goBack: () => void;
   goUp: () => void;
   navigate: (path?: string) => void;

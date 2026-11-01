@@ -1,9 +1,8 @@
+import { createRoot, createSignal, flush as flushSolid } from "solid-js";
 import { test, mock } from "node:test";
 import assert from "node:assert/strict";
 import { bunja, createBunjaStore, createReadScopeFn, override } from "bunja";
-import { atom, createStore } from "jotai/vanilla";
 import { nowBunja } from "../src/state/now.ts";
-import { JotaiStoreScope } from "../src/state/jotai-store.ts";
 import * as protocol from "../src/protocol/client.ts";
 import * as client from "../src/protocol/generated/client.ts";
 import { machineBunja, machineStoreBunja } from "../src/state/machine-store.ts";
@@ -39,27 +38,26 @@ const { fileViewerBunja, FsEntryPathScope: pathScope } = await import(
   "../src/view/workbench/tool/files/content/file-viewer/state.tsx"
 );
 async function flush() {
-  for (let i = 0; i < 40; i++) await Promise.resolve();
+  for (let i = 0; i < 40; i++) {
+    flushSolid();
+    await Promise.resolve();
+  }
+  flushSolid();
 }
 function fixture(overrides: Parameters<typeof createBunjaStore>[0] = {}) {
-  const state = createStore(),
-    store = createBunjaStore({
-      overrides: [
-        override(nowBunja, () => {
-          const value = atom(0);
-          return {
-            nowAtom: value,
-            nowEverySecondAtom: value,
-            nowEveryMinuteAtom: value,
-            nowEveryUtcHourAtom: value,
-            nowEveryLocalHourAtom: value,
-            nowEveryUtcDayAtom: value,
-            nowEveryLocalDayAtom: value,
-          };
-        }),
-        ...(overrides.overrides ?? []),
-      ],
-    });
+  const store = createBunjaStore({
+    wrapInstance: (init) => createRoot(init),
+    overrides: [
+      override(nowBunja, () => {
+        const [value] = createSignal(0);
+        return {
+          now: value,
+          nowEverySecond: value,
+        };
+      }),
+      ...(overrides.overrides ?? []),
+    ],
+  });
   const storage = {
     getItem: (key: string) =>
       key === "rieul.machines.v1"
@@ -70,7 +68,6 @@ function fixture(overrides: Parameters<typeof createBunjaStore>[0] = {}) {
   };
   const read = createReadScopeFn(
     [
-      [JotaiStoreScope, state],
       [MachineStorageScope, storage],
       [MachineIdScope, "a"],
       [MachineBaseUrlScope, "https://a"],
@@ -79,7 +76,7 @@ function fixture(overrides: Parameters<typeof createBunjaStore>[0] = {}) {
     ],
     () => undefined as never,
   );
-  return { state, store, read };
+  return { store, read };
 }
 function transport() {
   const closed = Promise.withResolvers<void>();
@@ -134,7 +131,7 @@ test("reconnected RPC ignores old daemon info success and failure", async (t) =>
   await flush();
   requests[0].resolve(info("old"));
   await flush();
-  assert.equal(f.state.get(entry.value.daemonInstanceIdAtom), "new");
+  assert.equal((flushSolid(), entry.value.daemonInstanceId()), "new");
   entry.value.reconnect();
   await flush();
   entry.value.reconnect();
@@ -143,7 +140,7 @@ test("reconnected RPC ignores old daemon info success and failure", async (t) =>
   await flush();
   requests[2].reject(new Error("old failure"));
   await flush();
-  assert.equal(f.state.get(entry.value.daemonInstanceIdAtom), "newest");
+  assert.equal((flushSolid(), entry.value.daemonInstanceId()), "newest");
 });
 test("pair completion cannot update credentials or a replacement modal after cancellation", async () => {
   const pending = Promise.withResolvers<{
@@ -166,7 +163,8 @@ test("pair completion cannot update credentials or a replacement modal after can
     stop = entry.mount();
   entry.value.openPairMachineModal("a");
   await flush();
-  f.state.set(entry.value.pairingCodeAtom, "1234");
+  entry.value.setPairingCode("1234");
+  flushSolid();
   const complete = entry.value.pairSelected();
   entry.value.closeMachineModal();
   entry.value.openAddMachineModal();
@@ -180,7 +178,7 @@ test("pair completion cannot update credentials or a replacement modal after can
     f.store.get(machineStoreBunja, f.read).value.findMachine("a")?.clientSecret,
     undefined,
   );
-  assert.equal(f.state.get(entry.value.machineModalModeAtom), "add");
+  assert.equal((flushSolid(), entry.value.machineModalMode()), "add");
   stop();
   f.store.dispose();
 });
@@ -199,7 +197,7 @@ test("file viewer exposes transport failure instead of staying in detection", as
   const entry = f.store.get(fileViewerBunja, f.read),
     stop = entry.mount();
   await flush();
-  assert.deepEqual(f.state.get(entry.value.stateAtom), {
+  assert.deepEqual((flushSolid(), entry.value.state()), {
     phase: "error",
     message: "offline fixture",
   });
@@ -227,13 +225,13 @@ test("a transport opened before reconnect cannot publish state after the new con
   });
   entry.value.reconnect();
   await flush();
-  assert.equal(f.state.get(entry.value.daemonInstanceIdAtom), "current");
+  assert.equal((flushSolid(), entry.value.daemonInstanceId()), "current");
   const old = transport();
   pending.resolve(old);
   await flush();
   await old.closed;
-  assert.equal(f.state.get(entry.value.daemonInstanceIdAtom), "current");
-  assert.equal(f.state.get(entry.value.connectionAtom).phase, "reachable");
+  assert.equal((flushSolid(), entry.value.daemonInstanceId()), "current");
+  assert.equal((flushSolid(), entry.value.connection()).phase, "reachable");
 });
 
 test("pairing late failure cannot overwrite a new machine or a disposed modal", async () => {
@@ -255,14 +253,16 @@ test("pairing late failure cannot overwrite a new machine or a disposed modal", 
       stop = entry.mount();
     entry.value.openPairMachineModal("a");
     await flush();
-    f.state.set(entry.value.pairingCodeAtom, "1234");
+    entry.value.setPairingCode("1234");
+    flushSolid();
     const complete = entry.value.pairSelected();
     if (dispose) stop();
     else f.store.get(machineStoreBunja, f.read).value.selectMachine("b");
-    f.state.set(entry.value.machineFormErrorAtom, "new form");
+    flushSolid();
+    const currentError = entry.value.machineFormError();
     pending.reject(new Error("late pairing failure"));
     await complete;
-    assert.equal(f.state.get(entry.value.machineFormErrorAtom), "new form");
+    assert.equal((flushSolid(), entry.value.machineFormError()), currentError);
     if (!dispose) stop();
     f.store.dispose();
   }
@@ -280,10 +280,10 @@ test("file viewer late transport failure cannot write after unmount", async () =
   const entry = f.store.get(fileViewerBunja, f.read),
     stop = entry.mount();
   stop();
-  const before = f.state.get(entry.value.stateAtom);
+  const before = (flushSolid(), entry.value.state());
   pending.reject(new Error("late transport failure"));
   await flush();
-  assert.equal(f.state.get(entry.value.stateAtom), before);
+  assert.equal((flushSolid(), entry.value.state()), before);
   f.store.dispose();
 });
 
@@ -304,8 +304,8 @@ test("daemon info arriving after transport close cannot restore ready state", as
   await flush();
   pending.resolve(info("closed"));
   await flush();
-  assert.equal(f.state.get(entry.value.daemonInfoAtom).phase, "idle");
-  assert.equal(f.state.get(entry.value.connectionAtom).phase, "offline");
+  assert.equal((flushSolid(), entry.value.daemonInfo()).phase, "idle");
+  assert.equal((flushSolid(), entry.value.connection()).phase, "offline");
 });
 
 test("credential renewal from a replaced RPC session cannot overwrite its successor", async (t) => {
@@ -329,6 +329,7 @@ test("credential renewal from a replaced RPC session cannot overwrite its succes
     clientSecret: "secret",
     clientCredentialExpiresAtUnix: 0,
   });
+  flushSolid();
   const entry = f.store.get(rpcSessionBunja, f.read),
     stop = entry.mount();
   t.after(() => {

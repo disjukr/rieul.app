@@ -5,7 +5,7 @@ export const filesToolBunja = bunja(() => {
   const terminalShells = bunja.use(terminalShellsBunja);
 
   return {
-    defaultShellAtom: terminalShells.defaultShellAtom,
-    terminalShellsAtom: terminalShells.terminalShellsAtom,
+    defaultShell: terminalShells.defaultShell,
+    terminalShells: terminalShells.terminalShells,
   };
 });

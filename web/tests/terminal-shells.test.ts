@@ -1,3 +1,4 @@
+import { createRoot, createSignal, flush as flushSolid } from "solid-js";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -7,8 +8,6 @@ import {
   override,
   type Bunja,
 } from "bunja";
-import { atom, createStore } from "jotai/vanilla";
-import { JotaiStoreScope } from "../src/state/jotai-store.ts";
 import { terminalShellsBunja } from "../src/state/terminal-shells.ts";
 import { rpcSessionBunja } from "../src/state/rpc-session.ts";
 import { encodeAvailableShellsTableEventValue } from "../src/protocol/generated/rpc.ts";
@@ -32,7 +31,11 @@ const row = (shellId: string): AvailableShellInfo => ({
   isDefault: true,
 });
 async function flush() {
-  for (let i = 0; i < 20; i++) await Promise.resolve();
+  for (let i = 0; i < 20; i++) {
+    flushSolid();
+    await Promise.resolve();
+  }
+  flushSolid();
 }
 function stream() {
   let controller!: ReadableStreamDefaultController<Uint8Array>;
@@ -64,7 +67,6 @@ function stream() {
   };
 }
 function fixture() {
-  const state = createStore();
   const storage = {
     getItem: () => null,
     setItem: () => {},
@@ -90,23 +92,29 @@ function fixture() {
   function unused(): never {
     throw new Error("Unexpected RPC method in shell test");
   }
-  const sessions = machines.map(
-    () =>
-      ({
-        closeRpcSession: unused,
-        reconnect: unused,
-        resetController: unused,
-        startPairingSession: async () => unused(),
-        completePairingSession: async () => unused(),
-        connectionAtom: atom({ phase: "idle" as const }),
-        daemonInfoAtom: atom({ phase: "idle" as const }),
-        daemonServerTimeMsAtom: atom<number | undefined>(undefined),
-        daemonUptimeSecondsAtom: atom<number | undefined>(undefined),
-        daemonInstanceIdAtom: atom<string | undefined>("daemon"),
-        webTransport: async () => transport,
-      }) satisfies RpcSession,
-  );
+  const sessions = machines.map(() => {
+    const [daemonInstanceId, setDaemonInstanceId] = createSignal<
+      string | undefined
+    >("daemon");
+    return {
+      closeRpcSession: unused,
+      reconnect: unused,
+      resetController: unused,
+      startPairingSession: async () => unused(),
+      completePairingSession: async () => unused(),
+      connection: createSignal({ phase: "idle" as const })[0],
+      daemonInfo: createSignal({ phase: "idle" as const })[0],
+      daemonServerTimeMs: createSignal(undefined)[0],
+      daemonUptimeSeconds: createSignal(undefined)[0],
+      daemonInstanceId,
+      setDaemonInstanceId,
+      webTransport: async () => transport,
+    } satisfies RpcSession & {
+      setDaemonInstanceId: typeof setDaemonInstanceId;
+    };
+  });
   const store = createBunjaStore({
+    wrapInstance: (init) => createRoot(init),
     overrides: [
       override(rpcSessionBunja, () => {
         const session =
@@ -118,7 +126,6 @@ function fixture() {
   const scopes = (id = "a") =>
     createReadScopeFn(
       [
-        [JotaiStoreScope, state],
         [MachineStorageScope, storage],
         [MachineIdScope, id],
       ],
@@ -128,11 +135,12 @@ function fixture() {
     );
   const machineStore = store.get(machineStoreBunja, scopes());
   const releaseMachines = machineStore.mount();
-  state.set(machineStore.value.machinesAtom, machines);
-  state.set(machineStore.value.selectedIdAtom, "a");
+  for (const machine of machines) machineStore.value.addMachine(machine);
+  flushSolid();
+  machineStore.value.selectMachine("a");
+  flushSolid();
   const get = (id = "a") => store.get(terminalShellsBunja, scopes(id));
   return {
-    state,
     store,
     sessions,
     streams,
@@ -166,8 +174,8 @@ test("shell consumers share per machine, ignore selection and release only the f
     2,
     "global selection must not restart either scoped subscription",
   );
-  assert.deepEqual(f.state.get(a.value.terminalShellsAtom), [row("sh")]);
-  assert.deepEqual(f.state.get(other.value.terminalShellsAtom), []);
+  assert.deepEqual((flushSolid(), a.value.terminalShells()), [row("sh")]);
+  assert.deepEqual((flushSolid(), other.value.terminalShells()), []);
   f.machineStore.clearMachineCredentials("b");
   assert.equal(f.streams[0].returns(), 0);
   f.streams[1].send({ type: "snapshot", rows: [] });
@@ -179,7 +187,7 @@ test("shell consumers share per machine, ignore selection and release only the f
   f.streams[0].send({ type: "snapshot", rows: [row("late")] });
   await flush();
   assert.equal(f.streams[0].returns(), 1);
-  assert.deepEqual(f.state.get(a.value.terminalShellsAtom), [row("sh")]);
+  assert.deepEqual((flushSolid(), a.value.terminalShells()), [row("sh")]);
   stopOther();
   f.releaseMachines();
   f.store.dispose();
@@ -193,7 +201,7 @@ test("pairing and daemon replacement reject late events/errors; pending transpor
   f.streams[0].send({ type: "snapshot", rows: [row("old")] });
   await flush();
   f.machineStore.clearMachineCredentials("a");
-  assert.deepEqual(f.state.get(a.value.terminalShellsAtom), []);
+  assert.deepEqual((flushSolid(), a.value.terminalShells()), []);
   f.machineStore.setMachineCredentials("a", {
     clientId: "new",
     clientSecret: "new",
@@ -203,8 +211,9 @@ test("pairing and daemon replacement reject late events/errors; pending transpor
   f.streams[0].send({ type: "snapshot", rows: [row("stale")] });
   f.streams[1].send({ type: "snapshot", rows: [row("new")] });
   await flush();
-  assert.deepEqual(f.state.get(a.value.terminalShellsAtom), [row("new")]);
-  f.state.set(f.sessions[0].daemonInstanceIdAtom, "replacement");
+  assert.deepEqual((flushSolid(), a.value.terminalShells()), [row("new")]);
+  f.sessions[0].setDaemonInstanceId("replacement");
+  flushSolid();
   await flush();
   f.streams[1].fail(new Error("late error"));
   f.streams[2].send({ type: "snapshot", rows: [row("fresh")] });
@@ -215,7 +224,7 @@ test("pairing and daemon replacement reject late events/errors; pending transpor
     upserts: [row("patched")],
   });
   await flush();
-  assert.deepEqual(f.state.get(a.value.defaultShellAtom), row("patched"));
+  assert.deepEqual((flushSolid(), a.value.defaultShell()), row("patched"));
   stop();
   const pending = Promise.withResolvers<WebTransport>();
   f.sessions[0].webTransport = () => pending.promise;
@@ -231,7 +240,7 @@ test("pairing and daemon replacement reject late events/errors; pending transpor
   assert.equal(f.streams.length, 4);
   f.streams[3].send({ type: "snapshot", rows: [row("remounted")] });
   await flush();
-  assert.deepEqual(f.state.get(next.value.terminalShellsAtom), [
+  assert.deepEqual((flushSolid(), next.value.terminalShells()), [
     row("remounted"),
   ]);
   stopNext();

@@ -4,7 +4,6 @@ import {
   createRoot,
   getOwner,
   runWithOwner,
-  latest,
   untrack,
 } from "solid-js";
 import { bunja } from "bunja";
@@ -32,7 +31,7 @@ export const processesBunja = bunja(() => {
     function start() {
       stop?.();
       stop = undefined;
-      const info = untrack(() => latest(session.daemonInfo));
+      const info = untrack(session.daemonInfo);
       if (info.phase === "error") {
         setState({
           phase: "error",

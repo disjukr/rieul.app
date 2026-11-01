@@ -4,7 +4,6 @@ import {
   createRoot,
   getOwner,
   runWithOwner,
-  latest,
   untrack,
   type Accessor,
 } from "solid-js";
@@ -175,7 +174,7 @@ export const rpcSessionBunja = bunja(() => {
   }
   function instantiateController(): RpcSessionController | undefined {
     const machineId = machineState.machineId;
-    if (!machineId || !untrack(() => latest(machineState.machine))) {
+    if (!machineId || !untrack(machineState.machine)) {
       return undefined;
     }
     const created = runWithOwner(owner, () =>

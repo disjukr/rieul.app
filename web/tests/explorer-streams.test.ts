@@ -1,9 +1,13 @@
+import {
+  createRoot,
+  createEffect,
+  flush as flushSolid,
+  type Accessor,
+} from "solid-js";
 import type { StreamState } from "../src/state/types.ts";
 import { after, test, mock } from "node:test";
 import assert from "node:assert/strict";
 import { bunja, createBunjaStore, createReadScopeFn, override } from "bunja";
-import { createStore, type Atom } from "jotai/vanilla";
-import { JotaiStoreScope } from "../src/state/jotai-store.ts";
 import * as client from "../src/protocol/generated/client.ts";
 import { rpcSessionStub } from "./helpers/rpc-session.ts";
 let subscribe: (
@@ -43,6 +47,7 @@ after(() => {
 });
 async function flush() {
   for (let i = 0; i < 24; i++) await Promise.resolve();
+  flushSolid();
 }
 function stream<T>() {
   let pending = Promise.withResolvers<IteratorResult<T>>();
@@ -82,7 +87,6 @@ const entry = (name: string): FsEntry => ({
   readonly: false,
 });
 function fixture(kind: "roots" | "directory") {
-  const state = createStore();
   const machines = ["a", "b"].map((id) => ({
     id,
     name: id,
@@ -111,7 +115,6 @@ function fixture(kind: "roots" | "directory") {
   const read = (machine = "a", tab = "one") =>
     createReadScopeFn(
       [
-        [JotaiStoreScope, state],
         [MachineStorageScope, storage],
         [MachineIdScope, machine],
         [WorkbenchTabIdScope, tab],
@@ -132,6 +135,7 @@ function fixture(kind: "roots" | "directory") {
     invalidations = 0;
   const session = rpcSessionBunja;
   const store = createBunjaStore({
+    wrapInstance: (init) => createRoot(init),
     overrides: [
       override(session, () => {
         const machine = bunja.use(MachineIdScope)!;
@@ -175,7 +179,7 @@ function fixture(kind: "roots" | "directory") {
   };
   const views = new WeakMap<
     object,
-    { rowsAtom: Atom<FsEntry[]>; stateAtom: Atom<StreamState> }
+    { rows: Accessor<FsEntry[]>; state: Accessor<StreamState> }
   >();
   const navigation = (machine = "a", tab = "one") =>
     store.get(explorerNavigationBunja, read(machine, tab)).value;
@@ -189,21 +193,20 @@ function fixture(kind: "roots" | "directory") {
     let value = views.get(entry.value);
     if (!value) {
       value =
-        "rootsAtom" in entry.value
+        "roots" in entry.value
           ? {
-              rowsAtom: entry.value.rootsAtom,
-              stateAtom: entry.value.rootsStateAtom,
+              rows: entry.value.roots,
+              state: entry.value.rootsState,
             }
           : {
-              rowsAtom: entry.value.directoryRowsAtom,
-              stateAtom: entry.value.directoryStateAtom,
+              rows: entry.value.directoryRows,
+              state: entry.value.directoryState,
             };
       views.set(entry.value, value);
     }
     return { ...entry, value };
   };
   return {
-    state,
     store,
     read,
     get,
@@ -226,7 +229,10 @@ for (const kind of ["roots", "directory"] as const) {
   test(`${kind}: row observation waits for its Bunja owner and final owner cleanup stops a retained observer`, async () => {
     const f = fixture(kind),
       first = f.get();
-    const stopRows = f.state.sub(first.value.rowsAtom, () => {});
+    const stopRows = createRoot((dispose) => {
+      createEffect(first.value.rows, () => {});
+      return dispose;
+    });
     await flush();
     assert.equal(
       f.requests(),
@@ -236,13 +242,16 @@ for (const kind of ["roots", "directory"] as const) {
     const stopFirst = first.mount();
     const second = f.get();
     const stopSecond = second.mount();
-    const stopOtherRows = f.state.sub(second.value.rowsAtom, () => {});
+    const stopOtherRows = createRoot((dispose) => {
+      createEffect(second.value.rows, () => {});
+      return dispose;
+    });
     await flush();
     assert.equal(f.requests(), 1);
     assert.equal(first.value, second.value);
     f.channels[0].stream.send({ type: "snapshot", rows: [entry("visible")] });
     await flush();
-    assert.equal(f.state.get(first.value.rowsAtom)[0].name, "visible");
+    assert.equal((flushSolid(), first.value.rows())[0].name, "visible");
     stopFirst();
     stopRows();
     assert.equal(
@@ -267,7 +276,10 @@ for (const kind of ["roots", "directory"] as const) {
       "disposed owner must detach key listeners",
     );
     stopOtherRows();
-    const oldObserver = f.state.sub(first.value.rowsAtom, () => {});
+    const oldObserver = createRoot((dispose) => {
+      createEffect(first.value.rows, () => {});
+      return dispose;
+    });
     await flush();
     assert.equal(
       f.requests(),
@@ -277,7 +289,10 @@ for (const kind of ["roots", "directory"] as const) {
     oldObserver();
     const fresh = f.get();
     const stopFresh = fresh.mount();
-    const freshRows = f.state.sub(fresh.value.rowsAtom, () => {});
+    const freshRows = createRoot((dispose) => {
+      createEffect(fresh.value.rows, () => {});
+      return dispose;
+    });
     await flush();
     assert.notEqual(fresh.value, first.value);
     assert.equal(f.requests(), calls + 1);
@@ -292,7 +307,11 @@ for (const kind of ["roots", "directory"] as const) {
     await flush();
     assert.equal(f.requests(), 0, "mount alone must not subscribe");
     const waiting = f.delayNextTransport();
-    const off = f.state.sub(owner.value.rowsAtom, () => {});
+    const off = createRoot((dispose) => {
+      createEffect(owner.value.rows, () => {});
+      return dispose;
+    });
+    await flush();
     f.refresh();
     await flush();
     assert.equal(
@@ -314,25 +333,28 @@ for (const kind of ["roots", "directory"] as const) {
     f.refresh();
     await flush();
     assert.deepEqual(
-      f.state.get(owner.value.rowsAtom),
+      (flushSolid(), owner.value.rows()),
       [],
       "queued old events must not populate the next subscription",
     );
     const latest = f.channels.at(-1)!;
     latest.stream.send({ type: "snapshot", rows: [entry("new")] });
     await flush();
-    assert.equal(f.state.get(owner.value.rowsAtom)[0].name, "new");
+    assert.equal((flushSolid(), owner.value.rows())[0].name, "new");
     off();
     assert.equal(latest.stream.returns(), 1);
     const calls = f.requests();
     f.refresh();
     await flush();
     assert.equal(f.requests(), calls, "unobserved refresh must not subscribe");
-    const again = f.state.sub(owner.value.rowsAtom, () => {});
+    const again = createRoot((dispose) => {
+      createEffect(owner.value.rows, () => {});
+      return dispose;
+    });
     await flush();
     assert.equal(f.requests(), calls + 1);
     assert.deepEqual(
-      f.state.get(owner.value.rowsAtom).map((row) => row.name),
+      (flushSolid(), owner.value.rows()).map((row) => row.name),
       kind === "roots" ? ["new"] : [],
       "keep roots cache and directory reload semantics",
     );
@@ -352,7 +374,10 @@ for (const kind of ["roots", "directory"] as const) {
       b = f.get("b", "one");
     const stops = [a.mount(), otherTab.mount(), b.mount()];
     const rows = [a, otherTab, b].map((owner) =>
-      f.state.sub(owner.value.rowsAtom, () => {}),
+      createRoot((dispose) => {
+        createEffect(owner.value.rows, () => {});
+        return dispose;
+      }),
     );
     await flush();
     assert.equal(f.channels.length, 3);
@@ -362,9 +387,9 @@ for (const kind of ["roots", "directory"] as const) {
       channel.stream.send({ type: "snapshot", rows: [entry(String(index))] }),
     );
     await flush();
-    assert.equal(f.state.get(a.value.rowsAtom)[0].name, "0");
-    assert.equal(f.state.get(otherTab.value.rowsAtom)[0].name, "1");
-    assert.equal(f.state.get(b.value.rowsAtom)[0].name, "2");
+    assert.equal((flushSolid(), a.value.rows())[0].name, "0");
+    assert.equal((flushSolid(), otherTab.value.rows())[0].name, "1");
+    assert.equal((flushSolid(), b.value.rows())[0].name, "2");
     f.machines().selectMachine("b");
     await flush();
     assert.equal(
@@ -406,7 +431,10 @@ test("directory navigation replaces only its stream and ignores an old moved eve
   const f = fixture("directory"),
     owner = f.get(),
     stop = owner.mount();
-  const off = f.state.sub(owner.value.rowsAtom, () => {});
+  const off = createRoot((dispose) => {
+    createEffect(owner.value.rows, () => {});
+    return dispose;
+  });
   await flush();
   const navigation = f.navigation();
   f.channels[0].stream.send({
@@ -415,19 +443,19 @@ test("directory navigation replaces only its stream and ignores an old moved eve
   });
   navigation.navigate("/second");
   await flush();
-  assert.equal(f.state.get(navigation.directoryPathAtom), "/second");
+  assert.equal((flushSolid(), navigation.directoryPath()), "/second");
   assert.equal(f.channels.at(-1)!.path, "/second");
   f.channels
     .at(-1)!
     .stream.send({ type: "closed", reason: { type: "moved", to: "/renamed" } });
   await flush();
-  assert.equal(f.state.get(navigation.directoryPathAtom), "/renamed");
-  assert.deepEqual(f.state.get(navigation.historyAtom), []);
+  assert.equal((flushSolid(), navigation.directoryPath()), "/renamed");
+  assert.deepEqual((flushSolid(), navigation.history()), []);
   f.channels
     .at(-1)!
     .stream.send({ type: "snapshot", rows: [entry("renamed child")] });
   await flush();
-  assert.equal(f.state.get(owner.value.stateAtom).phase, "live");
+  assert.equal((flushSolid(), owner.value.state()).phase, "live");
   off();
   stop();
   f.store.dispose();
@@ -437,7 +465,10 @@ test("active invalid credentials still clear pairing while cancelled errors cann
     const f = fixture(kind),
       owner = f.get(),
       stop = owner.mount();
-    const off = f.state.sub(owner.value.rowsAtom, () => {});
+    const off = createRoot((dispose) => {
+      createEffect(owner.value.rows, () => {});
+      return dispose;
+    });
     await flush();
     f.channels[0].stream.fail(new RpcError("invalidCredentials", "old"));
     f.refresh();
@@ -450,7 +481,7 @@ test("active invalid credentials still clear pairing while cancelled errors cann
     await flush();
     assert.equal(f.invalidations(), 1);
     assert.equal(f.machines().findMachine("a")!.clientSecret, undefined);
-    assert.deepEqual(f.state.get(owner.value.stateAtom), {
+    assert.deepEqual((flushSolid(), owner.value.state()), {
       phase: "error",
       message: "Pairing is no longer valid. Pair this machine again.",
     });
@@ -466,7 +497,10 @@ test("pending transports cannot open streams after owner disposal with rows reta
       owner = f.get(),
       waiting = f.delayNextTransport();
     const stop = owner.mount();
-    const off = f.state.sub(owner.value.rowsAtom, () => {});
+    const off = createRoot((dispose) => {
+      createEffect(owner.value.rows, () => {});
+      return dispose;
+    });
     await flush();
     assert.equal(f.requests(), 1);
     assert.equal(f.channels.length, 0);
@@ -479,6 +513,25 @@ test("pending transports cannot open streams after owner disposal with rows reta
       "the dependency may resolve after its owner has gone",
     );
     off();
+    f.store.dispose();
+  }
+});
+
+test("navigation commands compose within one Solid update", () => {
+  const f = fixture("roots");
+  try {
+    const navigation = f.navigation();
+    navigation.navigate("/first");
+    navigation.navigate("/second");
+    navigation.goBack();
+    flushSolid();
+    assert.equal(navigation.currentPath(), "/first");
+    assert.deepEqual(navigation.history(), [{ type: "root" }]);
+    navigation.navigate("/third/child");
+    navigation.goUp();
+    flushSolid();
+    assert.equal(navigation.currentPath(), "/third");
+  } finally {
     f.store.dispose();
   }
 });

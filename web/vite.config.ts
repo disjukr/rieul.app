@@ -12,16 +12,16 @@ export default defineConfig({
     UnoCSS(),
     solid(),
     {
-      name: "verify-react-free-runtime",
+      name: "verify-native-solid-runtime",
       generateBundle() {
-        const reactModules = [...this.getModuleIds()].filter((id) =>
-          /[/\\]node_modules[/\\](?:\.pnpm[/\\][^/\\]+[/\\]node_modules[/\\])?(?:react|react-dom)(?:[/\\]|$)/.test(
+        const legacyModules = [...this.getModuleIds()].filter((id) =>
+          /[/\\]node_modules[/\\](?:\.pnpm[/\\][^/\\]+[/\\]node_modules[/\\])?(?:react|react-dom|jotai|unsaturated)(?:[/\\]|$)/.test(
             id,
           ),
         );
-        if (reactModules.length)
+        if (legacyModules.length)
           this.error(
-            `React runtime remains in the Solid build:\n${reactModules.join("\n")}`,
+            `Legacy state or React runtime remains in the Solid build:\n${legacyModules.join("\n")}`,
           );
       },
     },

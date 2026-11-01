@@ -1,9 +1,12 @@
-import { createContext, type Accessor } from "solid-js";
+import {
+  createContext,
+  createSignal,
+  createMemo,
+  untrack,
+  type Accessor,
+} from "solid-js";
 import { bunja } from "bunja";
 import { createScopeFromContext } from "../../../../../../solid/bunja.tsx";
-import { atom } from "jotai/vanilla";
-import { atomWithStorage } from "jotai/vanilla/utils";
-import { JotaiStoreScope } from "../../../../../../state/jotai-store.ts";
 import {
   type FsEntry,
   FsEntryKind,
@@ -43,40 +46,62 @@ export const fileViewerBunja = bunja(() => {
     fsEntryContext?.path === fsEntryPath
       ? fsEntryContext
       : fsEntryFromPath(fsEntryPath);
-  const store = bunja.use(JotaiStoreScope);
-  const stateAtom = atom<FileViewerState>({ phase: "detecting" });
-  const persistedSelectedImplAtom = atomWithStorage<string | undefined>(
-    fileViewerSelectedImplStorageKey(machine.machineId, tabId, fsEntry.path),
-    undefined,
-    undefined,
-    { getOnInit: true },
+  const [state, setState] = createSignal<FileViewerState>({
+    phase: "detecting",
+  });
+  const storageKey = fileViewerSelectedImplStorageKey(
+    machine.machineId,
+    tabId,
+    fsEntry.path,
   );
-  const selectedImplAtom = atom(
-    (get) => {
-      const selectedImpl = get(persistedSelectedImplAtom);
-      return selectedImpl !== undefined && isFileViewerImpl(selectedImpl)
-        ? selectedImpl
-        : undefined;
-    },
-    (_get, set, impl: FileViewerImplId) => {
-      set(persistedSelectedImplAtom, impl);
-    },
-  );
-  const implAtom = atom(
-    (get) => {
-      const selectedImpl = get(selectedImplAtom);
-      if (selectedImpl) return selectedImpl;
-      const state = get(stateAtom);
-      return state.phase === "ready" ? state.impl : undefined;
-    },
-    (_get, set, impl: FileViewerImplId) => {
-      set(selectedImplAtom, impl);
-    },
-  );
+  let savedImpl: FileViewerImplId | undefined;
+  let storage: Storage | undefined;
+  try {
+    storage = globalThis.localStorage;
+    const raw = storage?.getItem(storageKey);
+    if (raw !== null && raw !== undefined) {
+      const parsed: unknown = JSON.parse(raw);
+      if (typeof parsed === "string" && isFileViewerImpl(parsed))
+        savedImpl = parsed;
+    }
+  } catch {
+    /* Retain detected viewer when persisted preferences are unavailable. */
+  }
+  const [selectedImpl, setSelectedImpl] = createSignal(savedImpl);
+  const impl = createMemo(() => {
+    const selected = selectedImpl();
+    if (selected) return selected;
+    const current = state();
+    return current.phase === "ready" ? current.impl : undefined;
+  });
+  function setImpl(value: FileViewerImplId) {
+    setSelectedImpl(value);
+    storage?.setItem(storageKey, JSON.stringify(value));
+  }
   bunja.effect(() => {
-    const currentMachine = store.get(machine.machineAtom);
+    function onStorage(event: StorageEvent) {
+      if (
+        event.key !== storageKey ||
+        (event.storageArea && event.storageArea !== storage)
+      )
+        return;
+      let value: FileViewerImplId | undefined;
+      try {
+        const parsed: unknown =
+          event.newValue === null ? undefined : JSON.parse(event.newValue);
+        if (typeof parsed === "string" && isFileViewerImpl(parsed))
+          value = parsed;
+      } catch {
+        /* Invalid external preference falls back to detection. */
+      }
+      setSelectedImpl(value);
+    }
+    globalThis.addEventListener?.("storage", onStorage);
+    return () => globalThis.removeEventListener?.("storage", onStorage);
+  });
+  bunja.effect(() => {
+    const currentMachine = untrack(machine.machine);
     let cancelled = false;
-    store.set(stateAtom, { phase: "detecting" });
     void (async () => {
       const transport = await rpcSession.webTransport();
       if (cancelled) return;
@@ -86,14 +111,14 @@ export const fileViewerBunja = bunja(() => {
         transport,
       );
       if (cancelled) return;
-      store.set(stateAtom, {
+      setState({
         phase: "ready",
         initialBytes: result.initialBytes,
         impl: result.impl,
       });
     })().catch((error: unknown) => {
       if (!cancelled) {
-        store.set(stateAtom, {
+        setState({
           phase: "error",
           message: error instanceof Error ? error.message : String(error),
         });
@@ -105,9 +130,10 @@ export const fileViewerBunja = bunja(() => {
   });
   return {
     fsEntry,
-    implAtom,
-    machineAtom: machine.machineAtom,
-    stateAtom,
+    impl,
+    setImpl,
+    machine: machine.machine,
+    state,
     tabId,
     webTransport: rpcSession.webTransport,
   };

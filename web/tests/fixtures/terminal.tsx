@@ -1,9 +1,7 @@
-import { bunja, override } from "bunja";
-import { atom } from "jotai/vanilla";
+import { override } from "bunja";
 import { createSignal, Show } from "solid-js";
 import { render } from "@solidjs/web";
 import { BunjaProvider, useBunja } from "../../src/solid/bunja.tsx";
-import { JotaiProvider, useAtomValue } from "../../src/solid/jotai.tsx";
 import { MachineStorageContext } from "../../src/solid/scopes.ts";
 import {
   MachineIdContext,
@@ -11,7 +9,6 @@ import {
 } from "../../src/state/machine.tsx";
 import { machineStoreBunja } from "../../src/state/machine-store.ts";
 import { rpcSessionBunja } from "../../src/state/rpc-session.ts";
-import { JotaiStoreScope } from "../../src/state/jotai-store.ts";
 import {
   workbenchTabBunja,
   type WorkbenchTab,
@@ -143,15 +140,14 @@ const overrides = [
     rpcSessionStub(
       lateCreate
         ? {
-            daemonInstanceIdAtom: atom<string | undefined>("daemon"),
+            daemonInstanceId: createSignal<string | undefined>("daemon")[0],
             webTransport: async () => transport,
           }
         : {},
     ),
   ),
   override(workbenchTabBunja, () => {
-    const store = bunja.use(JotaiStoreScope);
-    const tabAtom = atom<WorkbenchTab | undefined>({
+    const [tab, setTab] = createSignal<WorkbenchTab | undefined>({
       id: "tab",
       tool: "terminal",
       title: "Terminal",
@@ -160,11 +156,11 @@ const overrides = [
     return {
       paneId: "pane",
       tabId: "tab",
-      tabAtom,
-      activeAtom: atom(true),
-      dirtyAtom: atom(false),
-      focusedAtom: atom(false),
-      showCloseAtom: atom(false),
+      tab,
+      active: createSignal(true)[0],
+      dirty: createSignal(false)[0],
+      focused: createSignal(false)[0],
+      showClose: createSignal(false)[0],
       selectTab: unused,
       setAgentSession: unused,
       setDaemonClientDetailId: unused,
@@ -174,7 +170,7 @@ const overrides = [
       setWindowDetailId: unused,
       setDirty: unused,
       setTerminalSessionSnapshot(snapshot) {
-        store.set(tabAtom, (current) =>
+        setTab((current) =>
           current
             ? { ...current, terminalLastKnownTitle: snapshot.lastKnownTitle }
             : current,
@@ -182,7 +178,7 @@ const overrides = [
       },
       setTerminalSessionId(id) {
         rpcMetrics.tabWrites++;
-        store.set(tabAtom, (current) =>
+        setTab((current) =>
           current ? { ...current, terminalSessionId: id } : current,
         );
       },
@@ -191,7 +187,7 @@ const overrides = [
 ];
 function Fixture() {
   const machines = useBunja(machineStoreBunja);
-  const selected = useAtomValue(() => machines().selectedAtom);
+  const selected = () => machines().selected();
   const [shown, setShown] = createSignal(true);
   function selectMachine() {
     if (!machines().findMachine("fixture"))
@@ -228,13 +224,11 @@ function Fixture() {
 }
 render(
   () => (
-    <JotaiProvider>
-      <BunjaProvider overrides={overrides}>
-        <MachineStorageContext value={() => memoryStorage}>
-          <Fixture />
-        </MachineStorageContext>
-      </BunjaProvider>
-    </JotaiProvider>
+    <BunjaProvider overrides={overrides}>
+      <MachineStorageContext value={() => memoryStorage}>
+        <Fixture />
+      </MachineStorageContext>
+    </BunjaProvider>
   ),
   document.getElementById("root")!,
 );

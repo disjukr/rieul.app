@@ -5,7 +5,6 @@ import {
   createRoot,
   getOwner,
   runWithOwner,
-  latest,
   untrack,
 } from "solid-js";
 import { bunja } from "bunja";
@@ -75,11 +74,9 @@ export const agentsBunja = bunja(() => {
       setProjects([]);
       setSessions([]);
       setError(undefined);
-      const machine = untrack(() => latest(machineState.machine));
-      const paired = untrack(() => latest(machineState.isPaired));
-      const daemonInstanceId = untrack(() =>
-        latest(rpcSession.daemonInstanceId),
-      );
+      const machine = untrack(machineState.machine);
+      const paired = untrack(machineState.isPaired);
+      const daemonInstanceId = untrack(rpcSession.daemonInstanceId);
       if (!machine || !paired || !daemonInstanceId) {
         setPhase("idle");
         return;

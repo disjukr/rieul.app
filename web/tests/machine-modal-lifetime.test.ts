@@ -1,17 +1,22 @@
+import { createRoot, flush as flushSolid } from "solid-js";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { bunja, createBunjaStore, createReadScopeFn, override } from "bunja";
-import { createStore } from "jotai/vanilla";
 import { machineModalBunja } from "../src/state/machine-modal.ts";
 import { machineStoreBunja } from "../src/state/machine-store.ts";
 import { MachineIdScope } from "../src/state/machine-scopes.ts";
 import { MachineStorageScope } from "../src/state/machine-storage.ts";
-import { JotaiStoreScope } from "../src/state/jotai-store.ts";
 import { rpcSessionBunja } from "../src/state/rpc-session.ts";
 import { rpcSessionStub } from "./helpers/rpc-session.ts";
 
+async function flush() {
+  for (let i = 0; i < 4; i++) {
+    flushSolid();
+    await Promise.resolve();
+  }
+}
+
 test("pending pairing waits for matching machine scope, shares consumption and stops on final release", async () => {
-  const state = createStore();
   const calls: Array<{
     id: string | undefined;
     pending: ReturnType<
@@ -20,6 +25,7 @@ test("pending pairing waits for matching machine scope, shares consumption and s
   }> = [];
   const storage = { getItem: () => null, setItem() {}, removeItem() {} };
   const store = createBunjaStore({
+    wrapInstance: (init) => createRoot(init),
     overrides: [
       override(rpcSessionBunja, () => {
         const id = bunja.use(MachineIdScope);
@@ -37,7 +43,6 @@ test("pending pairing waits for matching machine scope, shares consumption and s
   });
   const readA = createReadScopeFn(
     [
-      [JotaiStoreScope, state],
       [MachineStorageScope, storage],
       [MachineIdScope, "A"],
     ],
@@ -47,7 +52,6 @@ test("pending pairing waits for matching machine scope, shares consumption and s
   );
   const readB = createReadScopeFn(
     [
-      [JotaiStoreScope, state],
       [MachineStorageScope, storage],
       [MachineIdScope, "B"],
     ],
@@ -75,24 +79,34 @@ test("pending pairing waits for matching machine scope, shares consumption and s
     const stopA = a.mount(),
       stopSecondA = secondA.mount();
     machines.value.requestPairingForMachine("missing");
-    assert.equal(state.get(machines.value.selectedIdAtom), "A");
-    assert.equal(state.get(machines.value.pendingPairMachineIdAtom), undefined);
+    await flush();
+    assert.equal((flushSolid(), machines.value.selectedId()), "A");
+    assert.equal(
+      (flushSolid(), machines.value.pendingPairMachineId()),
+      undefined,
+    );
     machines.value.requestPairingForMachine("B");
-    assert.equal(state.get(machines.value.selectedIdAtom), "B");
-    assert.equal(state.get(machines.value.pendingPairMachineIdAtom), "B");
+    await flush();
+    assert.equal((flushSolid(), machines.value.selectedId()), "B");
+    assert.equal((flushSolid(), machines.value.pendingPairMachineId()), "B");
     assert.equal(calls.length, 0);
     const b = store.get(machineModalBunja, readB),
       secondB = store.get(machineModalBunja, readB);
     const stopB = b.mount(),
       stopSecondB = secondB.mount();
+    await flush();
     assert.deepEqual(
       calls.map((call) => call.id),
       ["B"],
     );
-    assert.equal(state.get(machines.value.pendingPairMachineIdAtom), undefined);
-    assert.equal(state.get(b.value.machineModalModeAtom), "pair");
+    assert.equal(
+      (flushSolid(), machines.value.pendingPairMachineId()),
+      undefined,
+    );
+    assert.equal((flushSolid(), b.value.machineModalMode()), "pair");
     stopA();
     machines.value.requestPairingForMachine("A");
+    await flush();
     assert.deepEqual(
       calls.map((call) => call.id),
       ["B", "A"],
@@ -100,17 +114,22 @@ test("pending pairing waits for matching machine scope, shares consumption and s
     stopSecondA();
     calls[1].pending.resolve({ pairingCodeExpiresAtUnix: 123 });
     await Promise.resolve();
-    assert.equal(state.get(a.value.pairingCodeExpiresAtUnixAtom), undefined);
+    assert.equal((flushSolid(), a.value.pairingCodeExpiresAtUnix()), undefined);
     machines.value.requestPairingForMachine("A");
+    await flush();
     assert.equal(calls.length, 2);
-    assert.equal(state.get(machines.value.pendingPairMachineIdAtom), "A");
+    assert.equal((flushSolid(), machines.value.pendingPairMachineId()), "A");
     const remountedA = store.get(machineModalBunja, readA);
     const stopRemountedA = remountedA.mount();
+    await flush();
     assert.deepEqual(
       calls.map((call) => call.id),
       ["B", "A", "A"],
     );
-    assert.equal(state.get(machines.value.pendingPairMachineIdAtom), undefined);
+    assert.equal(
+      (flushSolid(), machines.value.pendingPairMachineId()),
+      undefined,
+    );
     stopRemountedA();
     stopB();
     stopSecondB();

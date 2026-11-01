@@ -1,7 +1,6 @@
 import { type Bunja, bunja } from "bunja";
 import { createSignal, createEffect, For } from "solid-js";
 import { render } from "@solidjs/web";
-import { useAtomValue, JotaiProvider } from "../../src/solid/jotai.tsx";
 import { BunjaProvider, useBunja } from "../../src/solid/bunja.tsx";
 import { machineStoreBunja } from "../../src/state/machine-store.ts";
 import { MachineStorageContext } from "../../src/solid/scopes.ts";
@@ -45,7 +44,7 @@ function Consumer(props: { name: string }) {
   createEffect(state, (current) => {
     diagnostics.lastStore = current;
   });
-  const machines = useAtomValue(() => state().machinesAtom);
+  const machines = () => state().machines();
   return (
     <section>
       <output aria-label={props.name}>{machines().length}</output>
@@ -82,11 +81,9 @@ function Fixture() {
 }
 render(
   () => (
-    <JotaiProvider>
-      <BunjaProvider>
-        <Fixture />
-      </BunjaProvider>
-    </JotaiProvider>
+    <BunjaProvider>
+      <Fixture />
+    </BunjaProvider>
   ),
   document.getElementById("root")!,
 );

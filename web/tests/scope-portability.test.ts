@@ -4,12 +4,11 @@ import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 const exec = promisify(execFile);
 
-test("machine and workbench identities can be imported without any React adapter", async () => {
+test("machine and workbench identities can be imported without React or Jotai", async () => {
   const modules = [
     "machine-scopes.ts",
     "workbench-scopes.ts",
     "machine-storage.ts",
-    "jotai-store.ts",
     "now.ts",
     "machine-store.ts",
   ].map((name) => new URL(`../src/state/${name}`, import.meta.url).href);
@@ -20,7 +19,7 @@ test("machine and workbench identities can be imported without any React adapter
     import { createBunjaStore, bunja, createReadScopeFn } from "bunja";
     import assert from "node:assert/strict";
     registerHooks({ resolve(specifier, context, next) {
-      if (specifier === "react" || specifier.startsWith("react/") || specifier === "bunja/react") throw new Error("React leaked into domain identity: " + specifier);
+      if (specifier === "jotai" || specifier.startsWith("jotai/") || specifier === "react" || specifier.startsWith("react/") || specifier === "bunja/react") throw new Error("React leaked into domain identity: " + specifier);
       return next(specifier, context);
     } });
     const machine = await import(${JSON.stringify(modules[0])});

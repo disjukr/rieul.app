@@ -1,3 +1,4 @@
+import type { Accessor } from "solid-js";
 import { rpcSessionBunja } from "../../src/state/rpc-session.ts";
 import { rpcSessionStub } from "../helpers/rpc-session.ts";
 import { encodeRootsTableEventValue } from "../../src/protocol/generated/rpc.ts";
@@ -10,8 +11,6 @@ import { createSignal, For } from "solid-js";
 import { render } from "@solidjs/web";
 import { bunja, override } from "bunja";
 import { BunjaProvider, useBunja } from "../../src/solid/bunja.tsx";
-import type { Atom } from "jotai/vanilla";
-import { useAtomValue, JotaiProvider } from "../../src/solid/jotai.tsx";
 import { explorerRootsBunja } from "../../src/state/explorer.ts";
 import { MachineIdContext } from "../../src/state/machine.tsx";
 import { WorkbenchTabIdContext } from "../../src/state/workbench-context.ts";
@@ -96,8 +95,8 @@ const overrides = [
     });
   }),
 ];
-function Rows(props: { atom: Atom<FsEntry[]>; name: string }) {
-  const entries = useAtomValue(() => props.atom);
+function Rows(props: { rows: Accessor<FsEntry[]>; name: string }) {
+  const entries = () => props.rows();
   return (
     <output aria-label={props.name}>
       {entries()
@@ -109,7 +108,7 @@ function Rows(props: { atom: Atom<FsEntry[]>; name: string }) {
 function Owner(props: { name: string }) {
   const source = useBunja(explorerRootsBunja);
   // Exercise row observation together with its Bunja owner effect.
-  return <Rows atom={source().rootsAtom} name={props.name} />;
+  return <Rows rows={source().roots} name={props.name} />;
 }
 function Fixture() {
   const [count, setCount] = createSignal(2);
@@ -129,13 +128,11 @@ function Fixture() {
 }
 render(
   () => (
-    <JotaiProvider>
-      <BunjaProvider overrides={overrides}>
-        <MachineStorageContext value={() => storage}>
-          <Fixture />
-        </MachineStorageContext>
-      </BunjaProvider>
-    </JotaiProvider>
+    <BunjaProvider overrides={overrides}>
+      <MachineStorageContext value={() => storage}>
+        <Fixture />
+      </MachineStorageContext>
+    </BunjaProvider>
   ),
   document.getElementById("root")!,
 );

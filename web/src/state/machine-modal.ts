@@ -6,7 +6,6 @@ import {
   getOwner,
   runWithOwner,
   onFlush,
-  latest,
   untrack,
 } from "solid-js";
 import { bunja } from "bunja";
@@ -48,7 +47,7 @@ export const machineModalBunja = bunja(() => {
     active = true;
     function consumePendingPair() {
       if (!active) return;
-      const machineId = untrack(() => latest(machines.pendingPairMachineId));
+      const machineId = untrack(machines.pendingPairMachineId);
       if (!machineId) return;
       if (!machines.findMachine(machineId)) {
         machines.clearPendingPairMachine(machineId);
@@ -56,7 +55,7 @@ export const machineModalBunja = bunja(() => {
       }
       // Selection changes the UI's scope. An old instance must not start a
       // request on its previous RPC session; the new instance consumes on mount.
-      if (untrack(() => latest(machines.selectedId)) !== machineId) {
+      if (untrack(machines.selectedId) !== machineId) {
         machines.selectMachine(machineId);
       }
       if (machineState.machineId !== machineId) return;
@@ -83,7 +82,7 @@ export const machineModalBunja = bunja(() => {
     setMachineFormError("");
     let normalizedBaseUrl;
     try {
-      normalizedBaseUrl = normalizeMachineUrl(untrack(() => latest(baseUrl)));
+      normalizedBaseUrl = normalizeMachineUrl(untrack(baseUrl));
     } catch (err) {
       setMachineFormError(errorMessage(err));
       return;
@@ -91,7 +90,7 @@ export const machineModalBunja = bunja(() => {
     const machine: Machine = {
       id: crypto.randomUUID(),
       name:
-        untrack(() => latest(machineName)).trim() ||
+        untrack(machineName).trim() ||
         inferMachineNameFromUrl(normalizedBaseUrl),
       baseUrl: normalizedBaseUrl,
     };
@@ -104,8 +103,8 @@ export const machineModalBunja = bunja(() => {
   }
   function closeMachineModal() {
     if (
-      untrack(() => latest(machines.machines)).length === 0 &&
-      untrack(() => latest(machineModalMode)) !== "add"
+      untrack(machines.machines).length === 0 &&
+      untrack(machineModalMode) !== "add"
     )
       return;
     setMachineName("");
@@ -124,7 +123,7 @@ export const machineModalBunja = bunja(() => {
     setMachineFormError("");
     cancelPairingRequest();
     resetPairingCode();
-    if (untrack(() => latest(machines.machines)).length === 0) {
+    if (untrack(machines.machines).length === 0) {
       setMachineModalMode(undefined);
       return;
     }
@@ -174,18 +173,16 @@ export const machineModalBunja = bunja(() => {
     setMachineModalMode("delete");
   }
   function saveMachineConfig() {
-    const selected = untrack(() => latest(machines.selected));
+    const selected = untrack(machines.selected);
     if (!selected) return;
-    const name = untrack(() => latest(configNameDraft)).trim();
+    const name = untrack(configNameDraft).trim();
     if (!name) {
       setMachineFormError("Name is required");
       return;
     }
     let normalizedBaseUrl;
     try {
-      normalizedBaseUrl = normalizeMachineUrl(
-        untrack(() => latest(configUrlDraft)),
-      );
+      normalizedBaseUrl = normalizeMachineUrl(untrack(configUrlDraft));
     } catch (err) {
       setMachineFormError(errorMessage(err));
       return;
@@ -207,9 +204,9 @@ export const machineModalBunja = bunja(() => {
     setMachineModalMode(undefined);
   }
   async function pairSelected() {
-    const selected = untrack(() => latest(machines.selected));
+    const selected = untrack(machines.selected);
     if (!selected || pairingInFlight) return;
-    const code = untrack(() => latest(pairingCode)).trim();
+    const code = untrack(pairingCode).trim();
     if (!code) return;
     const serial = pairingRequestSerial;
     pairingInFlight = true;
@@ -257,7 +254,7 @@ export const machineModalBunja = bunja(() => {
     })();
   }
   function requestSelectedPairingCode() {
-    const selected = untrack(() => latest(machines.selected));
+    const selected = untrack(machines.selected);
     if (!selected) return;
     requestPairingCode(selected);
   }
@@ -276,8 +273,8 @@ export const machineModalBunja = bunja(() => {
     return (
       active &&
       serial === pairingRequestSerial &&
-      untrack(() => latest(machineModalMode)) === "pair" &&
-      untrack(() => latest(machines.selected))?.id === machine.id &&
+      untrack(machineModalMode) === "pair" &&
+      untrack(machines.selected)?.id === machine.id &&
       !!machines.findMachine(machine.id)
     );
   }
@@ -287,7 +284,7 @@ export const machineModalBunja = bunja(() => {
   }
   function updateBaseUrlDraft(value: string) {
     setBaseUrl(value);
-    if (!untrack(() => latest(machineNameEdited))) {
+    if (!untrack(machineNameEdited)) {
       setMachineName(inferMachineNameFromUrl(value));
     }
   }

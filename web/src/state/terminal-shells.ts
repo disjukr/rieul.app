@@ -5,7 +5,6 @@ import {
   createRoot,
   getOwner,
   runWithOwner,
-  latest,
   untrack,
 } from "solid-js";
 import { bunja } from "bunja";
@@ -41,8 +40,8 @@ export const terminalShellsBunja = bunja(() => {
       stopCurrent?.();
       stopCurrent = undefined;
       setTerminalShells([]);
-      const machine = untrack(() => latest(machines.machine));
-      if (!machine || !untrack(() => latest(machines.isPaired))) return;
+      const machine = untrack(machines.machine);
+      if (!machine || !untrack(machines.isPaired)) return;
       let cancelled = false;
       let iterator: AsyncGenerator<AvailableShellsTableEvent> | undefined;
       stopCurrent = () => {
