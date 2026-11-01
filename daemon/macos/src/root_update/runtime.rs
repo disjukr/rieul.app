@@ -202,6 +202,15 @@ pub fn startup() -> Result<bool> {
     ensure!(unsafe { libc::geteuid() } == 0, "root service required");
     let state = Dir::open(Path::new(STATE), 0, true)?;
     state.require_private()?;
+    if state.exists("migration.json")? {
+        let service = trusted_service(&state)?;
+        let hash = verify::digest(service.read_file("rieul-macos-system")?)?;
+        if let Some(park) =
+            super::migration::startup(&state, &mut launchd::Native { state: &state }, &hash)?
+        {
+            return Ok(park);
+        }
+    }
     if cleanup_retired(&state)? {
         state.remove("parked.json")?;
         return Ok(false);

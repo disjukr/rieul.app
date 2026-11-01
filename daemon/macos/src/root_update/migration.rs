@@ -2,6 +2,7 @@
 //! after stopping the legacy job, recover forward to the protected runtime.
 //! Never restore root execution from the publicly replaceable app directory.
 use super::{
+    Policy, SERVICE, Version,
     destination::AppDestination,
     gate,
     launchd::{self, Control, Job},
@@ -9,9 +10,8 @@ use super::{
     runtime,
     store::Dir,
     verify::{self, Identity, Manifest},
-    Policy, Version, SERVICE,
 };
-use anyhow::{ensure, Result};
+use anyhow::{Result, ensure};
 use serde::{Deserialize, Serialize};
 use std::{
     io::{Read, Write},
@@ -34,6 +34,41 @@ struct Migration {
     phase: Phase,
     identity: Identity,
     nonce: String,
+}
+/// A migration worker holds the state lock while waiting for readiness.
+/// Startup must inspect its atomic record without acquiring that same lock.
+/// Only the bound runtime and a live fixed-identity system worker may authorize
+/// opening the DB; all other migration phases recover through that worker.
+pub(super) fn startup(
+    state: &Dir,
+    control: &mut impl Control,
+    own_hash: &str,
+) -> Result<Option<bool>> {
+    let Some(m) = state.load::<Migration>("migration.json")? else {
+        return Ok(None);
+    };
+    ensure!(m.schema == 1, "unsupported migration");
+    let expected = Request {
+        nonce: m.nonce,
+        daemon_sha256: m.identity.daemon_sha256,
+    };
+    expected.validate()?;
+    ensure!(
+        expected.daemon_sha256 == own_hash,
+        "unknown runtime during migration"
+    );
+    let worker_running = control
+        .inspect(Job::Worker)?
+        .and_then(|job| job.pid)
+        .is_some();
+    let allowed = matches!(m.phase, Phase::Starting | Phase::Complete)
+        && state.load::<Request>("start-request.json")?.as_ref() == Some(&expected)
+        && worker_running;
+    if allowed {
+        return Ok(Some(false));
+    }
+    runtime::ensure_worker(state, control)?;
+    Ok(Some(true))
 }
 trait Steps {
     fn validate(&mut self, m: &Migration) -> Result<()>;
@@ -200,7 +235,9 @@ impl Steps for Native<'_> {
             .flatten()
             .is_some()
         {
-            anyhow::bail!("initial installer must stop the legacy service in an explicitly approved maintenance window");
+            anyhow::bail!(
+                "initial installer must stop the legacy service in an explicitly approved maintenance window"
+            );
         }
         // A resumed migration may already have the protected service registered.
         if self.control.inspect(Job::System)?.is_some() {
@@ -270,7 +307,10 @@ impl Steps for Native<'_> {
                     }
                 }
             }
-            ensure!(Instant::now()<deadline,"protected service did not become ready; retry migration, do not restore unsafe legacy execution");
+            ensure!(
+                Instant::now() < deadline,
+                "protected service did not become ready; retry migration, do not restore unsafe legacy execution"
+            );
             std::thread::sleep(Duration::from_millis(100));
         }
     }
@@ -296,6 +336,80 @@ pub(super) fn worker(state: &Dir) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    struct LiveWorker;
+    impl Control for LiveWorker {
+        fn sessions(&mut self) -> Result<Vec<u32>> {
+            unreachable!()
+        }
+        fn inspect(&mut self, job: Job) -> Result<Option<launchd::JobState>> {
+            assert_eq!(job, Job::Worker);
+            Ok(Some(launchd::JobState { pid: Some(42) }))
+        }
+        fn stop(&mut self, _: Job) -> Result<()> {
+            unreachable!()
+        }
+        fn start(&mut self, _: Job) -> Result<()> {
+            unreachable!()
+        }
+        fn submit_worker(&mut self) -> Result<()> {
+            unreachable!()
+        }
+    }
+    #[test]
+    fn migration_readiness_starts_while_worker_holds_lock_only_for_bound_request() {
+        use std::os::unix::fs::PermissionsExt;
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::set_permissions(tmp.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+        let state = Dir::open(
+            &tmp.path().canonicalize().unwrap(),
+            unsafe { libc::geteuid() },
+            false,
+        )
+        .unwrap();
+        let mut m = Migration {
+            schema: 1,
+            phase: Phase::Starting,
+            identity: Identity {
+                version: Version(0, 0, 1),
+                daemon_sha256: "a".repeat(64),
+                app_dev: 1,
+                app_ino: 1,
+            },
+            nonce: "b".repeat(64),
+        };
+        let mut request = Request {
+            nonce: m.nonce.clone(),
+            daemon_sha256: m.identity.daemon_sha256.clone(),
+        };
+        state.save("migration.json", &m).unwrap();
+        state.save("start-request.json", &request).unwrap();
+        let _worker_lock = state.lock().unwrap();
+        for phase in [Phase::Starting, Phase::Complete] {
+            m.phase = phase;
+            state.save("migration.json", &m).unwrap();
+            assert_eq!(
+                startup(&state, &mut LiveWorker, &"a".repeat(64)).unwrap(),
+                Some(false)
+            );
+        }
+        for phase in [Phase::Prepared, Phase::Stopping, Phase::Registered] {
+            m.phase = phase;
+            state.save("migration.json", &m).unwrap();
+            assert_eq!(
+                startup(&state, &mut LiveWorker, &"a".repeat(64)).unwrap(),
+                Some(true)
+            );
+        }
+        m.phase = Phase::Starting;
+        state.save("migration.json", &m).unwrap();
+        request.nonce = "c".repeat(64);
+        state.save("start-request.json", &request).unwrap();
+        assert_eq!(
+            startup(&state, &mut LiveWorker, &"a".repeat(64)).unwrap(),
+            Some(true)
+        );
+        assert!(startup(&state, &mut LiveWorker, &"d".repeat(64)).is_err());
+    }
     struct Fake {
         events: Vec<&'static str>,
         fail: Option<&'static str>,
