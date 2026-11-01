@@ -315,12 +315,26 @@ impl<C: Control> Effects for NativeEffects<'_, C> {
 /// Ambiguous domain errors propagate so transaction finalization retains them.
 pub(super) fn restore_saved_guis(state: &Dir, control: &mut impl Control) -> Result<()> {
     let sessions: Sessions = state.load("gui-sessions.json")?.unwrap_or_default();
+    let mut failures = Vec::new();
     for uid in sessions.uids {
-        ensure!(uid > 0, "invalid GUI uid");
-        if control.gui_domain(uid)? {
-            control.start(Job::Gui(uid))?;
+        let result = (|| -> Result<()> {
+            ensure!(uid > 0, "invalid GUI uid");
+            if control.gui_domain(uid)? {
+                control.start(Job::Gui(uid))?;
+            }
+            Ok(())
+        })();
+        if let Err(error) = result {
+            failures.push(format!("UID {uid}: {error:#}"));
         }
     }
+    // Preserve the durable list and journal until every obligation is resolved.
+    // Successful users must not wait for another user's recovery to succeed.
+    ensure!(
+        failures.is_empty(),
+        "GUI recovery incomplete: {}",
+        failures.join("; ")
+    );
     Ok(())
 }
 

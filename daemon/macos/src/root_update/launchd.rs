@@ -212,6 +212,41 @@ fn discovered_gui(uid: u32, code: i32, text: &str) -> Result<Option<JobState>> {
     }
     inspected_job(Job::Gui(uid), code, text)
 }
+// Shared by the real adapter and scripted launchctl tests. A registered GUI
+// without a PID is still a recovery obligation. Every print validates identity.
+fn start_gui(
+    uid: u32,
+    timeout: Duration,
+    mut command: impl FnMut(&[&str]) -> Result<(i32, String)>,
+) -> Result<()> {
+    let job = Job::Gui(uid);
+    let target = job.target()?;
+    let (code, text) = command(&["print", &target])?;
+    let registered = inspected_job(job, code, &text)?;
+    if registered.as_ref().is_some_and(|state| state.pid.is_some()) {
+        return Ok(());
+    }
+    if registered.is_none() {
+        let domain = format!("gui/{uid}");
+        let (code, _) = command(&["bootstrap", &domain, GUI_PLIST])?;
+        ensure!(code == 0, "GUI bootstrap failed ({code})");
+    }
+    let (code, _) = command(&["kickstart", &target])?;
+    ensure!(code == 0, "GUI kickstart failed ({code})");
+    let deadline = Instant::now() + timeout;
+    loop {
+        let (code, text) = command(&["print", &target])?;
+        if inspected_job(job, code, &text)?.is_some_and(|state| state.pid.is_some()) {
+            return Ok(());
+        }
+        ensure!(
+            Instant::now() < deadline,
+            "GUI did not start within recovery bound"
+        );
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
 pub(super) struct Native<'a> {
     pub state: &'a Dir,
 }
@@ -261,6 +296,11 @@ impl Control for Native<'_> {
         Ok(())
     }
     fn start(&mut self, job: Job) -> Result<()> {
+        if let Job::Gui(uid) = job {
+            return start_gui(uid, Duration::from_secs(30), |args| {
+                run(self.state, "/bin/launchctl", args)
+            });
+        }
         if self.inspect(job)?.is_some() {
             return Ok(());
         }
@@ -313,6 +353,81 @@ fn write_worker_registration(state: &Dir) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn gui_text(pid: Option<u32>) -> String {
+        format!(
+            "\tpath = {GUI_PLIST}\n\tprogram = {LAUNCHER}\n\targuments = {{\n\t\t{LAUNCHER}\n\t}}\n{}",
+            pid.map(|pid| format!("\tpid = {pid}\n"))
+                .unwrap_or_default()
+        )
+    }
+    #[test]
+    fn gui_bootstrap_then_failed_kickstart_is_retried_without_false_success() {
+        let mut registered = false;
+        let mut running = false;
+        let mut kickstarts = 0;
+        let mut bootstraps = 0;
+        let mut prints_after_kickstart = 0;
+        let mut command = |args: &[&str]| -> Result<(i32, String)> {
+            match args {
+                ["print", "gui/501/app.rieul.gui"] => {
+                    if !registered {
+                        return Ok((113, "Could not find service".into()));
+                    }
+                    if kickstarts == 2 {
+                        prints_after_kickstart += 1;
+                        running = prints_after_kickstart >= 2;
+                    }
+                    Ok((0, gui_text(running.then_some(1234))))
+                }
+                ["bootstrap", "gui/501", GUI_PLIST] => {
+                    assert!(!registered);
+                    registered = true;
+                    bootstraps += 1;
+                    Ok((0, String::new()))
+                }
+                ["kickstart", "gui/501/app.rieul.gui"] => {
+                    kickstarts += 1;
+                    Ok((if kickstarts == 1 { 5 } else { 0 }, String::new()))
+                }
+                _ => panic!("unexpected launchctl arguments: {args:?}"),
+            }
+        };
+        assert!(start_gui(501, Duration::from_secs(1), &mut command)
+            .unwrap_err()
+            .to_string()
+            .contains("kickstart"));
+        start_gui(501, Duration::from_secs(1), &mut command).unwrap();
+        // An already running, identity-checked job needs no further kickstart.
+        start_gui(501, Duration::from_secs(1), &mut command).unwrap();
+        assert_eq!(bootstraps, 1);
+        assert_eq!(kickstarts, 2);
+        assert!(running);
+    }
+    #[test]
+    fn registered_gui_without_pid_times_out_and_identity_errors_propagate() {
+        let mut kickstarts = 0;
+        assert!(start_gui(502, Duration::ZERO, |args| {
+            match args {
+                ["print", "gui/502/app.rieul.gui"] => Ok((0, gui_text(None))),
+                ["kickstart", "gui/502/app.rieul.gui"] => {
+                    kickstarts += 1;
+                    Ok((0, String::new()))
+                }
+                _ => panic!("must not bootstrap a registered job"),
+            }
+        })
+        .unwrap_err()
+        .to_string()
+        .contains("recovery bound"));
+        assert_eq!(kickstarts, 1);
+        let mut calls = 0;
+        assert!(start_gui(502, Duration::ZERO, |_| {
+            calls += 1;
+            Ok((0, gui_text(Some(1234)).replace(LAUNCHER, "/tmp/untrusted")))
+        })
+        .is_err());
+        assert_eq!(calls, 1);
+    }
     #[test]
     fn observed_absent_gui_domains_do_not_hide_system_or_authorization_errors() {
         let absent = "Bad request.\nCould not find domain for user gui: 24\n";
