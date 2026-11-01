@@ -14,6 +14,8 @@ const filter = (source) =>
 for (const name of [
   "Cargo.toml",
   "Cargo.lock",
+  "bdl.yaml",
+  "pnpm-lock.yaml",
   "daemon",
   "pairing",
   "protocol",

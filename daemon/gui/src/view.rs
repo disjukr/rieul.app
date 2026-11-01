@@ -226,13 +226,14 @@ impl View {
             _ => None,
         };
         let code_button = id.as_ref() == "copy-pairing-code";
+        let candidate_button = id.starts_with("candidate-");
         let keyboard_action = action.clone();
         let disabled = self.resolved && matches!(action, Action::Resolve(..));
         let focus = (!disabled).then(|| {
             self.button_focus
                 .borrow_mut()
                 .entry(id.clone())
-                .or_insert_with(|| cx.focus_handle().tab_index(0))
+                .or_insert_with(|| cx.focus_handle().tab_index(0).tab_stop(true))
                 .clone()
         });
         let radius = px(if code_button || id.starts_with("candidate-") {
@@ -245,7 +246,7 @@ impl View {
             .accessibility_id(id)
             .aria_label(label.clone())
             .role(Role::Button)
-            .when_some(focus.as_ref(), |b, focus| b.track_focus(focus))
+            .when_some(focus.as_ref(), |b, focus| b.track_focus(focus).tab_index(0))
             .flex()
             .items_center()
             .justify_center()
@@ -253,7 +254,15 @@ impl View {
             .px(px(8.))
             .rounded(px(4.))
             .when(!disabled, |b| {
-                b.cursor_pointer().hover(|s| s.bg(rgb(0xf7f8fb)))
+                b.cursor_pointer().hover(|s| {
+                    if code_button {
+                        s.bg(rgb(0xfafafb)).border_color(rgb(0x4f8cff))
+                    } else if candidate_button {
+                        s.bg(rgb(0xfcfcfd)).border_color(rgb(0x4f8cff))
+                    } else {
+                        s.bg(rgb(0xf7f8fb))
+                    }
+                })
             })
             .on_click(cx.listener(move |this, _, window, cx| {
                 if !disabled {
@@ -515,7 +524,6 @@ impl Render for View {
                             .flex_1()
                             .rounded(px(12.))
                             .bg(rgb(0xf8f8f8))
-                            .hover(|s| s.bg(rgb(0xfafafb)).border_color(rgb(0x4f8cff)))
                             .border_1()
                             .border_color(rgba(0xffffff75))
                             .shadow(small_shadow())
@@ -582,9 +590,6 @@ impl Render for View {
                         .border_1()
                         .border_color(rgb(0xd8dde7))
                         .bg(rgb(0xf9f9fa))
-                        .when(!self.resolved, |b| {
-                            b.hover(|s| s.bg(rgb(0xfcfcfd)).border_color(rgb(0x4f8cff)))
-                        })
                         .text_size(px(28.))
                         .line_height(px(42.))
                         .shadow(small_shadow())
@@ -694,6 +699,11 @@ impl Render for View {
                                     div()
                                         .flex()
                                         .gap(px(6.))
+                                        .mt(px(match self.feedback.as_str() {
+                                            "Approval sent." => 8.,
+                                            "Pairing cancelled." => 16.,
+                                            _ => 0.,
+                                        }))
                                         .when(self.feedback.contains("did not match"), |d| {
                                             d.text_color(rgb(0xb42318)).child(
                                                 svg()
