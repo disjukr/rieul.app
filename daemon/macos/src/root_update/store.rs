@@ -414,11 +414,28 @@ impl Dir {
             }
         }
         let f = self.read_file("lock")?;
-        ensure!(
-            unsafe { libc::flock(f.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0,
-            "another updater is active"
-        );
+        if unsafe { libc::flock(f.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
+            return Err(std::io::Error::last_os_error()).context("acquire updater lock");
+        }
         Ok(Lock(f))
+    }
+    /// Only worker handoff uses a bounded wait; ordinary callers remain fail-fast.
+    pub fn lock_wait(&self, timeout: std::time::Duration) -> Result<Lock> {
+        let deadline = std::time::Instant::now() + timeout;
+        loop {
+            match self.lock() {
+                Ok(lock) => return Ok(lock),
+                Err(error)
+                    if error
+                        .downcast_ref::<std::io::Error>()
+                        .is_some_and(|e| e.kind() == std::io::ErrorKind::WouldBlock)
+                        && std::time::Instant::now() < deadline =>
+                {
+                    std::thread::sleep(std::time::Duration::from_millis(25));
+                }
+                Err(error) => return Err(error),
+            }
+        }
     }
     pub fn symlink(&self, name: &str, target: &Path) -> Result<()> {
         ensure!(

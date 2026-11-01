@@ -115,6 +115,10 @@ pub(super) fn prepare_locked(dir: &Dir, old: Identity, new: Identity) -> Result<
 }
 pub(super) fn resume(dir: &Dir, effects: &mut impl Effects) -> Result<Phase> {
     let _lock = dir.lock()?;
+    resume_locked(dir, effects)
+}
+/// Worker keeps the handoff lock through execution and durable result publication.
+pub(super) fn resume_locked(dir: &Dir, effects: &mut impl Effects) -> Result<Phase> {
     let Some(mut j) = dir.load::<Journal>("journal.json")? else {
         let last: Journal = dir
             .load("last-result.json")?

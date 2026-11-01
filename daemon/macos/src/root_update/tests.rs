@@ -729,7 +729,13 @@ fn dispatch_failures_remain_durable_until_confirmed_retry() {
         })
         .unwrap();
         assert_eq!(attempts, 2);
-        assert!(!dir.exists("worker-result.json").unwrap());
+        // Submit succeeded, but only worker acquisition can acknowledge handoff.
+        assert!(dir
+            .load::<super::runtime::WorkerResult>("worker-result.json")
+            .unwrap()
+            .unwrap()
+            .error
+            .is_some());
     }
 }
 #[test]

@@ -82,9 +82,27 @@ pub fn worker() -> Result<()> {
     );
     let state = Dir::open(Path::new(STATE), 0, true)?;
     state.require_private()?;
+    if state.exists("migration.json")? {
+        verify_worker(&state)?;
+        if let Err(error) = super::migration::worker(&state) {
+            state.save("worker-result.json", &WorkerResult::failure(None, &error))?;
+        }
+        return Ok(());
+    }
+    run_transaction_worker(
+        &state,
+        || verify_worker(&state),
+        |state| {
+            let control = launchd::Native { state };
+            let mut effects = NativeEffects::new(state, control)?;
+            transaction::resume_locked(state, &mut effects)
+        },
+    )
+}
+fn verify_worker(state: &Dir) -> Result<()> {
     state.read_file("worker")?;
     launchd::checked(
-        &state,
+        state,
         "/usr/bin/codesign",
         &[
             "--verify",
@@ -94,28 +112,39 @@ pub fn worker() -> Result<()> {
             launchd::WORKER,
         ],
     )?;
-    if state.exists("migration.json")? {
-        if let Err(error) = super::migration::worker(&state) {
-            state.save("worker-result.json", &WorkerResult::failure(None, &error))?;
-        }
+    Ok(())
+}
+fn run_transaction_worker(
+    state: &Dir,
+    verify_worker: impl FnOnce() -> Result<()>,
+    execute: impl FnOnce(&Dir) -> Result<Phase>,
+) -> Result<()> {
+    // launchctl submit may start us before its caller releases the dispatch
+    // lock. Wait only here, bounded beyond the native command's 45s timeout.
+    let _handoff_lock = state.lock_wait(std::time::Duration::from_secs(60))?;
+    let Some(journal) = state.load::<Journal>("journal.json")? else {
+        verify_worker()?;
+        transaction::cleanup_pending_locked(state)?;
         return Ok(());
-    }
-    if cleanup_retired(&state)? {
-        return Ok(());
-    }
-    let nonce = state
-        .load::<Journal>("journal.json")?
-        .ok_or_else(|| anyhow::anyhow!("transaction disappeared"))?
-        .nonce;
+    };
+    let nonce = journal.nonce;
     let outcome = (|| {
-        let control = launchd::Native { state: &state };
-        let mut effects = NativeEffects::new(&state, control)?;
-        transaction::resume(&state, &mut effects)
+        verify_worker()?;
+        // Only this verified worker, with the lock and current journal nonce,
+        // can acknowledge handoff. Submission alone never clears failure state.
+        state.save(
+            "worker-result.json",
+            &WorkerResult {
+                nonce: Some(nonce.clone()),
+                phase: "accepted".into(),
+                error: None,
+                deferred: false,
+            },
+        )?;
+        execute(state)
     })();
-    // Serialize result publication with dispatch's write-ahead marker. An early
-    // adapter failure must not be erased by the submitter, nor may an old worker
-    // overwrite a newer transaction's failure/drain state.
-    let _result_lock = state.lock()?;
+    // Keep the acquired handoff lock through result publication. There is no
+    // second nonblocking acquisition that can lose an early failure report.
     if let Some(current) = state.load::<Journal>("journal.json")? {
         if current.nonce != nonce {
             return Ok(());
@@ -275,7 +304,7 @@ pub(super) fn dispatch_attempt(
         submit(state)
     })();
     match outcome {
-        Ok(()) => state.remove("worker-result.json"),
+        Ok(()) => Ok(()),
         Err(error) => {
             state.save(
                 "worker-result.json",
@@ -289,6 +318,125 @@ pub(super) fn dispatch_attempt(
 #[cfg(test)]
 mod result_tests {
     use super::*;
+    fn handoff_fixture() -> (tempfile::TempDir, Dir) {
+        use std::os::unix::fs::PermissionsExt;
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::set_permissions(tmp.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+        let state = Dir::open(
+            &tmp.path().canonicalize().unwrap(),
+            unsafe { libc::geteuid() },
+            false,
+        )
+        .unwrap();
+        let identity = |n| super::super::verify::Identity {
+            version: super::super::Version(1, 0, n),
+            daemon_sha256: format!("{n:064x}"),
+            app_dev: 1,
+            app_ino: n,
+        };
+        transaction::prepare(&state, identity(1), identity(2)).unwrap();
+        (tmp, state)
+    }
+    #[test]
+    fn worker_waits_for_dispatch_lock_and_owns_result_publication() {
+        use std::sync::mpsc;
+        use std::time::Duration;
+        let (_tmp, state) = handoff_fixture();
+        let (started_tx, started_rx) = mpsc::channel();
+        let (acquired_tx, acquired_rx) = mpsc::channel();
+        std::thread::scope(|scope| {
+            let mut handle = None;
+            dispatch_attempt(&state, false, |state| {
+                let path = state.path.clone();
+                handle = Some(scope.spawn(move || {
+                    let worker = Dir::open(&path, unsafe { libc::geteuid() }, false).unwrap();
+                    started_tx.send(()).unwrap();
+                    run_transaction_worker(
+                        &worker,
+                        || {
+                            acquired_tx.send(()).unwrap();
+                            Ok(())
+                        },
+                        |state| {
+                            assert!(
+                                state.lock().is_err(),
+                                "worker must retain the lock during execution"
+                            );
+                            let mut j: Journal = state.load("journal.json")?.unwrap();
+                            let accepted: WorkerResult = state.load("worker-result.json")?.unwrap();
+                            assert_eq!(accepted.nonce.as_deref(), Some(j.nonce.as_str()));
+                            assert_eq!(accepted.phase, "accepted");
+                            j.phase = Phase::Committed;
+                            state.save("journal.json", &j)?;
+                            Ok(Phase::Committed)
+                        },
+                    )
+                    .unwrap();
+                }));
+                started_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+                assert!(acquired_rx
+                    .recv_timeout(Duration::from_millis(100))
+                    .is_err());
+                assert!(state
+                    .load::<WorkerResult>("worker-result.json")?
+                    .unwrap()
+                    .error
+                    .is_some());
+                Ok(())
+            })
+            .unwrap();
+            handle.unwrap().join().unwrap();
+        });
+        acquired_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        let result: WorkerResult = state.load("worker-result.json").unwrap().unwrap();
+        assert_eq!(result.phase, "Committed");
+        assert!(result.error.is_none());
+    }
+    #[test]
+    fn successful_submit_then_early_signature_failure_remains_durable() {
+        let (_tmp, state) = handoff_fixture();
+        dispatch_attempt(&state, false, |_| Ok(())).unwrap();
+        assert!(state
+            .load::<WorkerResult>("worker-result.json")
+            .unwrap()
+            .unwrap()
+            .error
+            .is_some());
+        run_transaction_worker(
+            &state,
+            || anyhow::bail!("early worker signature rejection"),
+            |_| panic!("must not execute transaction"),
+        )
+        .unwrap();
+        let j: Journal = state.load("journal.json").unwrap().unwrap();
+        assert_eq!(j.phase, Phase::Prepared);
+        let result: WorkerResult = state.load("worker-result.json").unwrap().unwrap();
+        assert_eq!(result.nonce.as_deref(), Some(j.nonce.as_str()));
+        assert_eq!(
+            result.error.as_deref(),
+            Some("early worker signature rejection")
+        );
+        assert!(requires_confirmed_retry(&state, &j).unwrap());
+        assert!(dispatch_attempt(&state, false, |_| panic!("must require confirmation")).is_err());
+    }
+    #[test]
+    fn bounded_handoff_timeout_does_not_clear_dispatch_marker() {
+        let (_tmp, state) = handoff_fixture();
+        dispatch_attempt(&state, false, |_| Ok(())).unwrap();
+        let lock = state.lock().unwrap();
+        let before = std::time::Instant::now();
+        assert!(state
+            .lock_wait(std::time::Duration::from_millis(50))
+            .is_err());
+        assert!(before.elapsed() < std::time::Duration::from_secs(2));
+        drop(lock);
+        assert!(state
+            .load::<WorkerResult>("worker-result.json")
+            .unwrap()
+            .unwrap()
+            .error
+            .is_some());
+    }
     #[test]
     fn startup_and_worker_cleanup_entry_replays_retirement_but_skips_active_transaction() {
         use std::os::unix::fs::PermissionsExt;
