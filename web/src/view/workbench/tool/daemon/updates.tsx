@@ -1,3 +1,4 @@
+import { style } from "../../../../zyzz.config.ts";
 import { createSignal } from "solid-js";
 import { useBunja } from "bunja/solid";
 import {
@@ -27,9 +28,9 @@ export function DaemonUpdateSection() {
       UpdatePhase.Restarting,
     ].includes(status()?.phase ?? UpdatePhase.Idle);
   return (
-    <section class="mt-[18px] min-w-0" aria-label="Daemon updates">
-      <div class="mb-[8px] text-[1rem] font-800 text-[#667085]">Updates</div>
-      <div class="grid gap-[8px] rounded-[8px] border border-[#d8dde7] bg-[#fbfcfe] p-[1rem]">
+    <section {...styles.section()} aria-label="Daemon updates">
+      <div {...styles.div()}>Updates</div>
+      <div {...styles.div2()}>
         <div role="status" aria-live="polite">
           {!supported()
             ? "This daemon does not support update management."
@@ -43,12 +44,10 @@ export function DaemonUpdateSection() {
         {status()?.targetVersion ? (
           <div>Available: {status()!.targetVersion}</div>
         ) : null}
-        {status()?.reason ? (
-          <p class="text-[#667085]">{status()!.reason}</p>
-        ) : null}
+        {status()?.reason ? <p {...styles.p()}>{status()!.reason}</p> : null}
         {message() ? <p role="alert">{message()}</p> : null}
         {supported() && status()?.phase !== UpdatePhase.Unavailable ? (
-          <div class="flex flex-wrap gap-[8px]">
+          <div {...styles.div3()}>
             <Button disabled={working()} onClick={() => void updates().check()}>
               Check for updates
             </Button>
@@ -64,7 +63,7 @@ export function DaemonUpdateSection() {
           <div
             role="alertdialog"
             aria-label="Confirm server update"
-            class="grid gap-[8px] border-t border-[#d8dde7] pt-[1rem]"
+            {...styles.div4()}
           >
             <p>
               Installing restarts the server and disconnects all clients. You
@@ -74,7 +73,7 @@ export function DaemonUpdateSection() {
               Active terminals, commands, file transfers and agent runtimes will
               postpone installation. They will not be forcibly terminated.
             </p>
-            <div class="flex gap-[8px]">
+            <div {...styles.div5()}>
               <Button onClick={() => setConfirmedToken(undefined)}>
                 Cancel
               </Button>
@@ -93,4 +92,45 @@ export function DaemonUpdateSection() {
       </div>
     </section>
   );
+}
+
+namespace styles {
+  export const section = style({
+    marginTop: "18px",
+    minWidth: "0",
+  });
+  export const div = style({
+    marginBottom: "8px",
+    fontSize: "1rem",
+    color: "rgb(102 112 133 / 1)",
+    fontWeight: 800,
+  });
+  export const div2 = style({
+    display: "grid",
+    gap: "8px",
+    borderWidth: "1px",
+    borderColor: "rgb(216 221 231 / 1)",
+    borderRadius: "8px",
+    backgroundColor: "rgb(251 252 254 / 1)",
+    padding: "1rem",
+  });
+  export const p = style({
+    color: "rgb(102 112 133 / 1)",
+  });
+  export const div3 = style({
+    display: "flex",
+    flexWrap: "wrap",
+    gap: "8px",
+  });
+  export const div4 = style({
+    display: "grid",
+    gap: "8px",
+    borderTopWidth: "1px",
+    borderColor: "rgb(216 221 231 / 1)",
+    paddingTop: "1rem",
+  });
+  export const div5 = style({
+    display: "flex",
+    gap: "8px",
+  });
 }

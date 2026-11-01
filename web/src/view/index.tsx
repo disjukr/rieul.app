@@ -1,3 +1,4 @@
+import { style, theme } from "../zyzz.config.ts";
 import type { JSX } from "@solidjs/web";
 import { createEffect } from "solid-js";
 
@@ -10,56 +11,6 @@ import { MachineModalHost } from "./machine-panel/index.tsx";
 import { layoutBunja } from "./state.tsx";
 import { TopBarRegion } from "./top-bar/index.tsx";
 import { WorkbenchRegion } from "./workbench/index.tsx";
-
-const appShellClassName = [
-  "app-shell relative isolate grid h-full min-h-0 overflow-hidden bg-rieul-canvas",
-  "[background:var(--rieul-canvas-background)]",
-  "[&>*]:relative [&>*]:z-[1]",
-  "[grid-template-columns:var(--rail-width,204px)_minmax(0,1fr)]",
-  "[grid-template-rows:minmax(0,1fr)]",
-  "[&.machine-panel-transitioning]:[transition:grid-template-columns_180ms_ease]",
-  "max-[980px]:[grid-template-columns:var(--rail-width,184px)_minmax(0,1fr)]",
-  "max-[680px]:![grid-template-columns:100%_100%]",
-  "max-[680px]:![grid-template-rows:minmax(0,1fr)]",
-  "max-[680px]:!overflow-x-auto max-[680px]:!overflow-y-hidden",
-  "max-[680px]:[scroll-snap-type:x_mandatory] max-[680px]:[overscroll-behavior-x:contain]",
-  "max-[680px]:[&.workbench-tab-dnd-active]:!overflow-x-hidden",
-  "max-[680px]:[&.workbench-tab-dnd-active]:![scroll-snap-type:none]",
-  "max-[680px]:[&.workbench-tab-dnd-active]:select-none",
-  "max-[680px]:[scrollbar-width:none] max-[680px]:[&::-webkit-scrollbar]:hidden",
-  "max-[680px]:[&_.app-rail]:sticky max-[680px]:[&_.app-rail]:left-0",
-  "[&.machine-panel-collapsed_.app-rail-label]:hidden",
-  "[&.machine-panel-collapsed_.app-rail-expanded]:hidden",
-  "[&.machine-panel-collapsed_.app-rail]:items-center",
-  "[&.machine-panel-collapsed_.workbench]:rounded-tl-rieul-2xl",
-  "[&.machine-panel-transitioning_.app-rail-label]:inline",
-  "[&.machine-panel-transitioning_.app-rail-expanded]:inline-flex",
-  "[&.machine-panel-transitioning_.app-rail]:!items-stretch",
-  "[&.machine-panel-transitioning_.app-rail-section]:!w-[var(--rail-open-section-width)]",
-  "max-[680px]:[&.machine-panel-transitioning_.app-rail-section]:!w-full",
-  "max-[680px]:[&.machine-panel-collapsed_.app-rail-label]:!inline",
-  "max-[680px]:[&.machine-panel-collapsed_.app-rail-expanded]:!inline-flex",
-  "max-[680px]:[&.machine-panel-collapsed_.app-rail]:!items-stretch",
-].join(" ");
-const mobileRailSnapAnchorClassName = [
-  "hidden pointer-events-none",
-  "max-[680px]:block max-[680px]:[grid-column:1] max-[680px]:[grid-row:1]",
-  "max-[680px]:w-full max-[680px]:h-full",
-  "max-[680px]:[scroll-snap-align:start] max-[680px]:[scroll-snap-stop:always]",
-].join(" ");
-const appRailResizerClassName = [
-  "app-rail-resizer !absolute top-0 bottom-0 !z-[20] w-[8px]",
-  "left-[calc(var(--rail-width,204px)+2px)] cursor-col-resize touch-none bg-transparent",
-  "before:content-[''] before:absolute before:rounded-full",
-  "before:bg-[rgba(108,126,151,0.22)] before:opacity-0 before:rieul-transition",
-  "before:top-[18px] before:bottom-[18px] before:left-[3px] before:w-[2px]",
-  "after:content-[''] after:absolute after:rounded-full after:bg-white/38",
-  "after:opacity-0 after:rieul-transition",
-  "after:top-[42%] after:left-[2px] after:h-[16%] after:w-[4px]",
-  "hover:before:opacity-100 hover:after:opacity-92",
-  "focus-visible:before:opacity-100 focus-visible:after:opacity-92",
-  "focus-visible:outline-0 max-[680px]:hidden",
-].join(" ");
 
 export default function View() {
   return (
@@ -107,7 +58,7 @@ function Layout(componentProps: LayoutProps) {
         shellRef.current = el;
       }}
       class={className(
-        appShellClassName,
+        styles.appShell({ className: "app-shell" }).class,
         machinePanelCollapsed() && "machine-panel-collapsed",
         machinePanelTransitioning() && "machine-panel-transitioning",
       )}
@@ -120,10 +71,10 @@ function Layout(componentProps: LayoutProps) {
         } as JSX.CSSProperties
       }
     >
-      <div class={mobileRailSnapAnchorClassName} aria-hidden="true" />
+      <div {...styles.mobileRailSnapAnchor()} aria-hidden="true" />
       {machinePanelCollapsed() ? null : (
         <div
-          class={appRailResizerClassName}
+          {...styles.appRailResizer({ className: "app-rail-resizer" })}
           role="separator"
           aria-label="Resize app rail"
           aria-orientation="vertical"
@@ -150,4 +101,161 @@ function SelectedMachineIdProvider(componentProps: { children?: JSX.Element }) {
       </MachineBaseUrlContext>
     </MachineIdContext>
   );
+}
+
+namespace styles {
+  export const appShell = style({
+    selectors: {
+      "&.machine-panel-transitioning": {
+        transition: "grid-template-columns 180ms ease",
+      },
+      "&>*": {
+        position: "relative",
+        zIndex: 1,
+      },
+      "&.machine-panel-transitioning .app-rail-label": {
+        display: "inline",
+      },
+      "&.machine-panel-collapsed .app-rail-expanded": {
+        display: "none",
+      },
+      "&.machine-panel-collapsed .app-rail-label": {
+        display: "none",
+      },
+      "&.machine-panel-transitioning .app-rail-section": {
+        width: "var(--rail-open-section-width) !important",
+      },
+      "&.machine-panel-transitioning .app-rail-expanded": {
+        display: "inline-flex",
+      },
+      "&.machine-panel-collapsed .app-rail": {
+        alignItems: "center",
+      },
+      "&.machine-panel-transitioning .app-rail": {
+        alignItems: "stretch !important",
+      },
+      "&.machine-panel-collapsed .workbench": {
+        borderTopLeftRadius: theme.radius2xl,
+      },
+    },
+    background: theme.canvasBackground,
+    gridTemplateColumns: "var(--rail-width,204px) minmax(0,1fr)",
+    gridTemplateRows: "minmax(0,1fr)",
+    position: "relative",
+    isolation: "isolate",
+    display: "grid",
+    height: "100%",
+    minHeight: "0",
+    overflow: "hidden",
+    backgroundColor: theme.bgCanvas,
+    "@media (max-width: 680px)": {
+      gridTemplateColumns: "100% 100% !important",
+      gridTemplateRows: "minmax(0,1fr) !important",
+      selectors: {
+        "&.workbench-tab-dnd-active": {
+          scrollSnapType: "none !important",
+          WebkitUserSelect: "none",
+          userSelect: "none",
+          overflowX: "hidden !important",
+        },
+        "& .app-rail": {
+          position: "sticky",
+          left: "0",
+        },
+        "&.machine-panel-collapsed .app-rail-label": {
+          display: "inline !important",
+        },
+        "&::-webkit-scrollbar": {
+          display: "none",
+        },
+        "&.machine-panel-transitioning .app-rail-section": {
+          width: "100% !important",
+        },
+        "&.machine-panel-collapsed .app-rail-expanded": {
+          display: "inline-flex !important",
+        },
+        "&.machine-panel-collapsed .app-rail": {
+          alignItems: "stretch !important",
+        },
+      },
+      overscrollBehaviorX: "contain",
+      scrollSnapType: "x mandatory",
+      scrollbarWidth: "none",
+      overflowX: "auto !important",
+      overflowY: "hidden !important",
+    },
+    "@media (max-width: 980px)": {
+      gridTemplateColumns: "var(--rail-width,184px) minmax(0,1fr)",
+    },
+  });
+  export const mobileRailSnapAnchor = style({
+    pointerEvents: "none",
+    display: "none",
+    "@media (max-width: 680px)": {
+      gridColumn: "1",
+      gridRow: "1",
+      scrollSnapAlign: "start",
+      scrollSnapStop: "always",
+      display: "block",
+      height: "100%",
+      width: "100%",
+    },
+  });
+  export const appRailResizer = style({
+    selectors: {
+      "&::before": {
+        transition:
+          "background var(--rieul-duration-fast,100ms) var(--rieul-ease-out,cubic-bezier(0.16,1,0.3,1)),color var(--rieul-duration-fast,100ms) var(--rieul-ease-out,cubic-bezier(0.16,1,0.3,1)),border-color var(--rieul-duration-fast,100ms) var(--rieul-ease-out,cubic-bezier(0.16,1,0.3,1)),box-shadow var(--rieul-duration-fast,100ms) var(--rieul-ease-out,cubic-bezier(0.16,1,0.3,1))",
+        position: "absolute",
+        bottom: "18px",
+        left: "3px",
+        top: "18px",
+        width: "2px",
+        borderRadius: "9999px",
+        backgroundColor: "rgba(108, 126, 151, 0.22)",
+        opacity: 0,
+        content: "''",
+      },
+      "&::after": {
+        transition:
+          "background var(--rieul-duration-fast,100ms) var(--rieul-ease-out,cubic-bezier(0.16,1,0.3,1)),color var(--rieul-duration-fast,100ms) var(--rieul-ease-out,cubic-bezier(0.16,1,0.3,1)),border-color var(--rieul-duration-fast,100ms) var(--rieul-ease-out,cubic-bezier(0.16,1,0.3,1)),box-shadow var(--rieul-duration-fast,100ms) var(--rieul-ease-out,cubic-bezier(0.16,1,0.3,1))",
+        position: "absolute",
+        left: "2px",
+        top: "42%",
+        height: "16%",
+        width: "4px",
+        borderRadius: "9999px",
+        backgroundColor: "rgb(255 255 255 / 0.38)",
+        opacity: 0,
+        content: "''",
+      },
+      "&:hover::after": {
+        opacity: 0.92,
+      },
+      "&:hover::before": {
+        opacity: 1,
+      },
+      "&:focus-visible::after": {
+        opacity: 0.92,
+      },
+      "&:focus-visible::before": {
+        opacity: 1,
+      },
+      "&:focus-visible": {
+        outlineWidth: "0px",
+      },
+    },
+    position: "absolute !important",
+    bottom: "0",
+    left: "calc(var(--rail-width,204px) + 2px)",
+    top: "0",
+    zIndex: "20 !important",
+    width: "8px",
+    cursor: "col-resize",
+    touchAction: "none",
+    backgroundColor: "transparent",
+    "@media (max-width: 680px)": {
+      display: "none",
+    },
+  });
 }

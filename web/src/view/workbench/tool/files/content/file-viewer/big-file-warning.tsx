@@ -1,3 +1,4 @@
+import { style } from "../../../../../../zyzz.config.ts";
 import { createMemo } from "solid-js";
 import { useBunja } from "bunja/solid";
 import { FileText } from "../../../../../../solid/icons.tsx";
@@ -9,30 +10,7 @@ interface BigFileWarningProps {
   onConfirm: () => void;
   viewerName: string;
 }
-const bigFileWarningClassName = [
-  "grid place-items-center w-full h-full min-w-0 min-h-0",
-  "overflow-auto bg-white p-[24px]",
-].join(" ");
-const bigFileWarningPanelClassName = [
-  "grid [grid-template-columns:auto_minmax(0,1fr)] gap-[14px]",
-  "w-[min(520px,100%)] border border-[#d8dde7] rounded-[8px]",
-  "bg-[#fbfcfe] p-[16px]",
-].join(" ");
-const bigFileWarningIconClassName = [
-  "grid place-items-center w-[42px] h-[42px] rounded-[8px]",
-  "bg-[#eef3fb] text-[#4f8cff]",
-].join(" ");
-const bigFileWarningCopyClassName = [
-  "grid gap-[5px] min-w-0",
-  "[&_h2]:min-w-0 [&_h2]:m-0 [&_h2]:overflow-hidden",
-  "[&_h2]:text-[#20242d] [&_h2]:text-[16px] [&_h2]:tracking-[0]",
-  "[&_h2]:text-ellipsis [&_h2]:whitespace-nowrap",
-  "[&_p]:min-w-0 [&_p]:m-0 [&_p]:[overflow-wrap:anywhere]",
-  "[&_p]:text-[#667085] [&_p]:text-[13px]",
-  "[&_strong]:text-[#303642] [&_strong]:text-[14px]",
-].join(" ");
-const bigFileWarningActionsClassName =
-  "[grid-column:1/-1] flex justify-end gap-[8px]";
+
 export function BigFileWarning(props: BigFileWarningProps) {
   const viewer = useBunja(fileViewerBunja);
   const fsEntry = createMemo(() => viewer().fsEntry);
@@ -40,12 +18,12 @@ export function BigFileWarning(props: BigFileWarningProps) {
     fsEntry().size === undefined ? "Unknown size" : formatSize(fsEntry().size),
   );
   return (
-    <section class={bigFileWarningClassName}>
-      <div class={bigFileWarningPanelClassName}>
-        <div class={bigFileWarningIconClassName}>
+    <section {...styles.bigFileWarning()}>
+      <div {...styles.bigFileWarningPanel()}>
+        <div {...styles.bigFileWarningIcon()}>
           <FileText size={24} />
         </div>
-        <div class={bigFileWarningCopyClassName}>
+        <div {...styles.bigFileWarningCopy()}>
           <h2>{displayName(fsEntry())}</h2>
           <p>
             This file is <strong>{sizeLabel()}</strong>. Do you want to open it{" "}
@@ -53,7 +31,7 @@ export function BigFileWarning(props: BigFileWarningProps) {
           </p>
           <p>{fsEntry().path}</p>
         </div>
-        <div class={bigFileWarningActionsClassName}>
+        <div {...styles.bigFileWarningActions()}>
           <Button onClick={props.onCancel}>Cancel</Button>
           <Button onClick={props.onConfirm}>
             <FileText size={16} />
@@ -63,4 +41,72 @@ export function BigFileWarning(props: BigFileWarningProps) {
       </div>
     </section>
   );
+}
+
+namespace styles {
+  export const bigFileWarning = style({
+    display: "grid",
+    height: "100%",
+    minHeight: "0",
+    minWidth: "0",
+    width: "100%",
+    placeItems: "center",
+    overflow: "auto",
+    backgroundColor: "rgb(255 255 255 / 1)",
+    padding: "24px",
+  });
+  export const bigFileWarningPanel = style({
+    gridTemplateColumns: "auto minmax(0,1fr)",
+    display: "grid",
+    width: "min(520px,100%)",
+    gap: "14px",
+    borderWidth: "1px",
+    borderColor: "rgb(216 221 231 / 1)",
+    borderRadius: "8px",
+    backgroundColor: "rgb(251 252 254 / 1)",
+    padding: "16px",
+  });
+  export const bigFileWarningIcon = style({
+    display: "grid",
+    height: "42px",
+    width: "42px",
+    placeItems: "center",
+    borderRadius: "8px",
+    backgroundColor: "rgb(238 243 251 / 1)",
+    color: "rgb(79 140 255 / 1)",
+  });
+  export const bigFileWarningCopy = style({
+    selectors: {
+      "& p": {
+        overflowWrap: "anywhere",
+        margin: "0",
+        minWidth: "0",
+        fontSize: "13px",
+        color: "rgb(102 112 133 / 1)",
+      },
+      "& h2": {
+        margin: "0",
+        minWidth: "0",
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
+        fontSize: "16px",
+        color: "rgb(32 36 45 / 1)",
+        letterSpacing: "0",
+      },
+      "& strong": {
+        fontSize: "14px",
+        color: "rgb(48 54 66 / 1)",
+      },
+    },
+    display: "grid",
+    minWidth: "0",
+    gap: "5px",
+  });
+  export const bigFileWarningActions = style({
+    gridColumn: "1/-1",
+    display: "flex",
+    justifyContent: "flex-end",
+    gap: "8px",
+  });
 }

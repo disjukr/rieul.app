@@ -1,3 +1,4 @@
+import { style } from "../../zyzz.config.ts";
 import { createMemo } from "solid-js";
 import {
   KeyRound,
@@ -33,7 +34,7 @@ export function MachineContextMenu(componentProps: MachineContextMenuProps) {
 
   return (
     <FloatingMenu
-      className="z-[30] w-[176px]"
+      className={styles.floatingMenu().class}
       position={{ left: componentProps.menu.x, top: componentProps.menu.y }}
     >
       <FloatingMenuItem onClick={() => componentProps.onReconnect()}>
@@ -70,4 +71,11 @@ export function MachineContextMenu(componentProps: MachineContextMenuProps) {
       </FloatingMenuItem>
     </FloatingMenu>
   );
+}
+
+namespace styles {
+  export const floatingMenu = style({
+    zIndex: 30,
+    width: "176px",
+  });
 }

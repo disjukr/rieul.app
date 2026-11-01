@@ -1,3 +1,4 @@
+import { style, theme } from "../../zyzz.config.ts";
 import { createMemo } from "solid-js";
 
 import {
@@ -12,44 +13,6 @@ import type { MachineModalMode } from "../../state/types.ts";
 import { Button } from "../ui/button.tsx";
 import { ModalDialog } from "../ui/dialog.tsx";
 import { AddMachineForm } from "./add-machine-form.tsx";
-
-const machineModalFormClassName = [
-  "grid gap-[0.5rem] p-[16px]",
-  "[&_label]:grid [&_label]:gap-[0.5rem] [&_label]:min-w-0",
-  "[&_label_span]:text-rieul-text-2 [&_label_span]:text-[13px] [&_label_span]:font-600",
-  "[&_input]:min-w-0 [&_input]:min-h-[34px] [&_input]:border [&_input]:border-rieul-border-medium",
-  "[&_input]:rounded-rieul-md [&_input]:bg-rieul-surface [&_input]:px-[10px] [&_input]:text-rieul-text",
-  "[&_input]:[font:inherit] [&_input:focus]:outline [&_input:focus]:outline-2",
-  "[&_input:focus]:outline-rieul-accent [&_input:focus]:outline-offset-1",
-].join(" ");
-const modalMachineSummaryClassName = [
-  "grid gap-[0.5rem] min-w-0 border border-rieul-border rounded-rieul-lg",
-  "bg-rieul-surface-2 p-[10px]",
-  "[&_strong]:min-w-0 [&_strong]:overflow-hidden [&_strong]:text-ellipsis",
-  "[&_strong]:whitespace-nowrap [&_strong]:text-rieul-text [&_strong]:text-[14px]",
-  "[&_span]:min-w-0 [&_span]:overflow-hidden [&_span]:text-ellipsis",
-  "[&_span]:whitespace-nowrap [&_span]:text-rieul-text-3 [&_span]:text-[13px]",
-].join(" ");
-const fieldErrorClassName = "text-rieul-danger text-[13px]";
-const modalActionsClassName = "flex justify-end gap-[0.5rem]";
-const modalWarningClassName = "m-0 text-rieul-text-2 text-[13px]";
-const dangerActionClassName = [
-  "border-rieul-danger bg-rieul-danger-soft text-rieul-danger",
-  "hover:border-rieul-danger hover:bg-rieul-danger-soft hover:text-rieul-danger",
-].join(" ");
-const pairingControlClassName = [
-  "flex items-center justify-between gap-[0.5rem] rounded-rieul-lg",
-  "border border-rieul-border bg-rieul-surface-2 px-[10px] py-[8px]",
-].join(" ");
-const pairingStepClassName = [
-  "grid min-h-[174px] place-items-center gap-[0.5rem] rounded-rieul-lg",
-  "border border-rieul-border bg-rieul-surface px-[16px] py-[18px] text-center",
-].join(" ");
-const confirmationCodeClassName = [
-  "grid h-[96px] min-w-[156px] place-items-center rounded-rieul-lg",
-  "border border-rieul-border-medium bg-rieul-surface-2 px-[18px]",
-  "font-800 text-rieul-text text-[56px] leading-none tracking-[0]",
-].join(" ");
 
 interface MachineModalProps {
   baseUrl: string;
@@ -212,7 +175,7 @@ function PairMachineForm(componentProps: PairMachineFormProps) {
   );
   return (
     <form
-      class={machineModalFormClassName}
+      {...styles.machineModalForm()}
       onSubmit={(event) => componentProps.onSubmit(event)}
     >
       <PairingRestartControl
@@ -237,7 +200,7 @@ function PairMachineForm(componentProps: PairMachineFormProps) {
           isRequestingPairingCode={componentProps.isRequestingPairingCode}
         />
       )}
-      <div class={modalActionsClassName}>
+      <div {...styles.modalActions()}>
         <Button onClick={() => componentProps.onClose()}>Skip</Button>
         {hasPairingCode() ? (
           <Button
@@ -249,7 +212,7 @@ function PairMachineForm(componentProps: PairMachineFormProps) {
             }
           >
             {componentProps.isPairing ? (
-              <Loader2 size={16} className="animate-spin" />
+              <Loader2 size={16} className={styles.loader2().class} />
             ) : (
               <KeyRound size={16} />
             )}
@@ -263,15 +226,13 @@ function PairMachineForm(componentProps: PairMachineFormProps) {
 
 function PairingRestartControl(componentProps: PairingRestartControlProps) {
   return (
-    <div class={pairingControlClassName}>
-      <span class="flex min-w-0 items-center gap-[0.5rem] text-rieul-text-2 text-[13px]">
-        <span class="shrink-0">Pairing to</span>
-        <strong class="min-w-0 truncate font-700 text-rieul-text">
-          {componentProps.machineName}
-        </strong>
+    <div {...styles.pairingControl()}>
+      <span {...styles.span()}>
+        <span {...styles.span2()}>Pairing to</span>
+        <strong {...styles.strong()}>{componentProps.machineName}</strong>
       </span>
       <Button
-        className="min-w-[36px] px-[10px]"
+        className={styles.button().class}
         disabled={componentProps.disabled}
         onClick={() => componentProps.onRequestPairingCode()}
         title="Restart pairing"
@@ -285,21 +246,19 @@ function PairingRestartControl(componentProps: PairingRestartControlProps) {
 
 function PairingConfirmationStep(componentProps: PairingConfirmationStepProps) {
   return (
-    <section class={pairingStepClassName}>
-      <div class="grid justify-items-center gap-[0.5rem]">
-        <span class="text-rieul-text-2 text-[13px] font-600">
-          Confirmation code
-        </span>
-        <div class={confirmationCodeClassName}>
+    <section {...styles.pairingStep()}>
+      <div {...styles.div()}>
+        <span {...styles.span3()}>Confirmation code</span>
+        <div {...styles.confirmationCode()}>
           {componentProps.confirmationCode ?? "--"}
         </div>
       </div>
-      <p class="m-0 max-w-[320px] text-rieul-text-3 text-[14px] leading-[1.45]">
+      <p {...styles.p()}>
         Select this code on the daemon to reveal the pairing code.
       </p>
       {componentProps.isRequestingPairingCode ? (
-        <div class="flex items-center gap-[0.5rem] text-rieul-text-2 text-[13px]">
-          <Loader2 size={14} className="animate-spin" />
+        <div {...styles.div2()}>
+          <Loader2 size={14} className={styles.loader2().class} />
           Waiting for confirmation
         </div>
       ) : null}
@@ -309,8 +268,8 @@ function PairingConfirmationStep(componentProps: PairingConfirmationStepProps) {
 
 function PairingCodeStep(componentProps: PairingCodeStepProps) {
   return (
-    <section class={pairingStepClassName}>
-      <label class="w-full">
+    <section {...styles.pairingStep()}>
+      <label {...styles.label()}>
         <span>Pairing code</span>
         <input
           ref={(el) => {
@@ -331,11 +290,9 @@ function PairingCodeStep(componentProps: PairingCodeStepProps) {
       </label>
       {componentProps.pairingCodeExpiresInSeconds !== undefined ? (
         componentProps.pairingCodeExpiresInSeconds <= 0 ? (
-          <p class="m-0 text-rieul-danger text-[13px]">
-            Pairing code expired. Restart pairing.
-          </p>
+          <p {...styles.p2()}>Pairing code expired. Restart pairing.</p>
         ) : (
-          <p class="m-0 text-rieul-text-3 text-[13px]">
+          <p {...styles.p3()}>
             Pairing code expires in{" "}
             {formatRemainingTime(componentProps.pairingCodeExpiresInSeconds)}.
           </p>
@@ -357,10 +314,10 @@ function formatRemainingTime(totalSeconds: number): string {
 function MachineConfigForm(componentProps: MachineConfigFormProps) {
   return (
     <form
-      class={machineModalFormClassName}
+      {...styles.machineModalForm()}
       onSubmit={(event) => componentProps.onSubmit(event)}
     >
-      <div class={modalMachineSummaryClassName}>
+      <div {...styles.modalMachineSummary()}>
         <strong>{componentProps.selected.name}</strong>
         <span>{componentProps.selected.baseUrl}</span>
       </div>
@@ -390,9 +347,9 @@ function MachineConfigForm(componentProps: MachineConfigFormProps) {
         />
       </label>
       {componentProps.error ? (
-        <div class={fieldErrorClassName}>{componentProps.error}</div>
+        <div {...styles.fieldError()}>{componentProps.error}</div>
       ) : null}
-      <div class={modalActionsClassName}>
+      <div {...styles.modalActions()}>
         <Button onClick={() => componentProps.onClose()}>Cancel</Button>
         <Button type="submit">
           <Settings size={16} />
@@ -405,18 +362,18 @@ function MachineConfigForm(componentProps: MachineConfigFormProps) {
 
 function DeleteMachineForm(componentProps: DeleteMachineFormProps) {
   return (
-    <div class={machineModalFormClassName}>
-      <div class={modalMachineSummaryClassName}>
+    <div {...styles.machineModalForm()}>
+      <div {...styles.modalMachineSummary()}>
         <strong>{componentProps.selected.name}</strong>
         <span>{componentProps.selected.baseUrl}</span>
       </div>
-      <p class={modalWarningClassName}>
+      <p {...styles.modalWarning()}>
         This removes the machine from this browser.
       </p>
-      <div class={modalActionsClassName}>
+      <div {...styles.modalActions()}>
         <Button onClick={() => componentProps.onClose()}>Cancel</Button>
         <Button
-          className={dangerActionClassName}
+          className={styles.dangerAction().class}
           onClick={() => componentProps.onDelete()}
         >
           <Trash2 size={16} />
@@ -425,4 +382,207 @@ function DeleteMachineForm(componentProps: DeleteMachineFormProps) {
       </div>
     </div>
   );
+}
+
+namespace styles {
+  export const machineModalForm = style({
+    selectors: {
+      "& input": {
+        font: "inherit",
+        minHeight: "34px",
+        minWidth: "0",
+        borderWidth: "1px",
+        borderColor: theme.borderMedium,
+        borderRadius: theme.radiusMd,
+        backgroundColor: theme.bgPrimary,
+        paddingLeft: "10px",
+        paddingRight: "10px",
+        color: theme.textPrimary,
+      },
+      "& label": {
+        display: "grid",
+        minWidth: "0",
+        gap: "0.5rem",
+      },
+      "& label span": {
+        fontSize: "13px",
+        color: theme.textSecondary,
+        fontWeight: 600,
+      },
+      "& input:focus": {
+        outlineWidth: "2px",
+        outlineColor: theme.accent,
+        outlineOffset: "1px",
+        outlineStyle: "solid",
+      },
+    },
+    display: "grid",
+    gap: "0.5rem",
+    padding: "16px",
+  });
+  export const modalMachineSummary = style({
+    display: "grid",
+    selectors: {
+      "& span": {
+        minWidth: "0",
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
+        fontSize: "13px",
+        color: theme.textTertiary,
+      },
+      "& strong": {
+        minWidth: "0",
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
+        fontSize: "14px",
+        color: theme.textPrimary,
+      },
+    },
+    minWidth: "0",
+    gap: "0.5rem",
+    borderWidth: "1px",
+    borderColor: theme.borderLight,
+    borderRadius: theme.radiusLg,
+    backgroundColor: theme.bgSecondary,
+    padding: "10px",
+  });
+  export const fieldError = style({
+    fontSize: "13px",
+    color: theme.danger,
+  });
+  export const modalActions = style({
+    display: "flex",
+    justifyContent: "flex-end",
+    gap: "0.5rem",
+  });
+  export const modalWarning = style({
+    margin: "0",
+    fontSize: "13px",
+    color: theme.textSecondary,
+  });
+  export const dangerAction = style({
+    borderColor: theme.danger,
+    selectors: {
+      "&:hover": {
+        borderColor: theme.danger,
+        backgroundColor: theme.dangerSoft,
+        color: theme.danger,
+      },
+    },
+    backgroundColor: theme.dangerSoft,
+    color: theme.danger,
+  });
+  export const pairingControl = style({
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: "0.5rem",
+    borderWidth: "1px",
+    borderColor: theme.borderLight,
+    borderRadius: theme.radiusLg,
+    backgroundColor: theme.bgSecondary,
+    paddingLeft: "10px",
+    paddingRight: "10px",
+    paddingTop: "8px",
+    paddingBottom: "8px",
+  });
+  export const pairingStep = style({
+    display: "grid",
+    minHeight: "174px",
+    placeItems: "center",
+    gap: "0.5rem",
+    borderWidth: "1px",
+    borderColor: theme.borderLight,
+    borderRadius: theme.radiusLg,
+    backgroundColor: theme.bgPrimary,
+    paddingLeft: "16px",
+    paddingRight: "16px",
+    paddingTop: "18px",
+    paddingBottom: "18px",
+    textAlign: "center",
+  });
+  export const confirmationCode = style({
+    display: "grid",
+    height: "96px",
+    minWidth: "156px",
+    placeItems: "center",
+    borderWidth: "1px",
+    borderColor: theme.borderMedium,
+    borderRadius: theme.radiusLg,
+    backgroundColor: theme.bgSecondary,
+    paddingLeft: "18px",
+    paddingRight: "18px",
+    fontSize: "56px",
+    color: theme.textPrimary,
+    fontWeight: 800,
+    lineHeight: 1,
+    letterSpacing: "0",
+  });
+  export const loader2 = style({
+    animation: "spin 1s linear infinite",
+  });
+  export const span = style({
+    minWidth: "0",
+    display: "flex",
+    alignItems: "center",
+    gap: "0.5rem",
+    fontSize: "13px",
+    color: theme.textSecondary,
+  });
+  export const span2 = style({
+    flexShrink: 0,
+  });
+  export const strong = style({
+    minWidth: "0",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    color: theme.textPrimary,
+    fontWeight: 700,
+  });
+  export const button = style({
+    minWidth: "36px",
+    paddingLeft: "10px",
+    paddingRight: "10px",
+  });
+  export const div = style({
+    display: "grid",
+    justifyItems: "center",
+    gap: "0.5rem",
+  });
+  export const span3 = style({
+    fontSize: "13px",
+    color: theme.textSecondary,
+    fontWeight: 600,
+  });
+  export const p = style({
+    margin: "0",
+    maxWidth: "320px",
+    fontSize: "14px",
+    color: theme.textTertiary,
+    lineHeight: 1.45,
+  });
+  export const div2 = style({
+    display: "flex",
+    alignItems: "center",
+    gap: "0.5rem",
+    fontSize: "13px",
+    color: theme.textSecondary,
+  });
+
+  export const label = style({
+    width: "100%",
+  });
+  export const p2 = style({
+    margin: "0",
+    fontSize: "13px",
+    color: theme.danger,
+  });
+  export const p3 = style({
+    margin: "0",
+    fontSize: "13px",
+    color: theme.textTertiary,
+  });
 }

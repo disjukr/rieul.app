@@ -1,3 +1,4 @@
+import { style, theme } from "../../zyzz.config.ts";
 import { Portal, type JSX } from "@solidjs/web";
 import { createEffect, createSignal, createUniqueId } from "solid-js";
 interface AppTooltipProps {
@@ -52,7 +53,7 @@ export function AppTooltip(props: AppTooltipProps) {
   return (
     <span
       ref={anchor}
-      class="contents"
+      {...styles.span()}
       onMouseEnter={show}
       onMouseLeave={() => setOpen(false)}
       onFocusIn={show}
@@ -68,7 +69,7 @@ export function AppTooltip(props: AppTooltipProps) {
             ref={popup}
             id={id}
             role="tooltip"
-            class={`fixed z-[140] max-w-[calc(100vw-16px)] rounded-[var(--rieul-radius-md)] bg-[var(--rieul-bg-inverse)] text-[var(--rieul-text-inverse)] px-[9px] py-[6px] text-[12px] font-650 pointer-events-none ${props.className ?? ""}`}
+            class={`${styles.tooltip().class} ${props.className ?? ""}`}
           >
             {props.label}
           </span>
@@ -76,4 +77,25 @@ export function AppTooltip(props: AppTooltipProps) {
       ) : null}
     </span>
   );
+}
+
+namespace styles {
+  export const tooltip = style({
+    pointerEvents: "none",
+    position: "fixed",
+    zIndex: 140,
+    maxWidth: "calc(100vw - 16px)",
+    borderRadius: theme.radiusMd,
+    backgroundColor: theme.bgInverse,
+    paddingLeft: "9px",
+    paddingRight: "9px",
+    paddingTop: "6px",
+    paddingBottom: "6px",
+    fontSize: "12px",
+    color: theme.textInverse,
+    fontWeight: 650,
+  });
+  export const span = style({
+    display: "contents",
+  });
 }

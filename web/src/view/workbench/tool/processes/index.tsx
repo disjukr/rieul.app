@@ -1,3 +1,4 @@
+import { style, theme } from "../../../../zyzz.config.ts";
 import type {
   FsEntry,
   ProcessDetail,
@@ -87,105 +88,7 @@ interface ProcessTreeNode {
   depth: number;
   process: ProcessInfo;
 }
-const processesToolClassName = [
-  "flex h-full min-h-0 w-full flex-col",
-  "overflow-hidden bg-white text-[#20242d]",
-].join(" ");
-const processesContentClassName =
-  "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden";
-const emptyWorkspaceClassName = [
-  "grid content-center justify-items-center w-full h-full gap-[10px]",
-  "min-h-0 bg-white text-[#667085]",
-  "[&_h2]:m-0 [&_h2]:text-[#303642] [&_h2]:text-[18px] [&_h2]:tracking-[0]",
-  "[&_p]:m-0 [&_p]:max-w-[360px] [&_p]:text-center [&_p]:leading-[1.45]",
-].join(" ");
-const processTableClassName = [
-  "grid min-h-0 min-w-0 flex-1 overflow-auto leading-[1.6]",
-  "[grid-template-columns:minmax(72px,96px)_minmax(72px,96px)_minmax(180px,1fr)_minmax(104px,132px)]",
-  "auto-rows-[2rem] bg-white",
-].join(" ");
-const processTreeTableClassName = [
-  "grid min-h-0 min-w-0 flex-1 overflow-auto leading-[1.6]",
-  "[grid-template-columns:minmax(240px,1fr)_minmax(72px,96px)_minmax(72px,96px)_minmax(104px,132px)]",
-  "auto-rows-[2rem] bg-white",
-].join(" ");
-const processResourceTableClassName = [
-  "grid min-h-0 min-w-0 flex-1 overflow-auto leading-[1.6]",
-  "[grid-template-columns:minmax(180px,1fr)_minmax(136px,168px)_minmax(96px,120px)_minmax(120px,168px)]",
-  "auto-rows-[2rem] bg-white",
-].join(" ");
-const processSocketTableClassName = [
-  "grid min-h-0 min-w-0 flex-1 overflow-auto leading-[1.6]",
-  "[grid-template-columns:minmax(96px,120px)_minmax(180px,1fr)_minmax(180px,1fr)_minmax(96px,120px)]",
-  "auto-rows-[2rem] bg-white",
-].join(" ");
-const processSocketTableEmptyClassName = [
-  "grid min-h-0 min-w-0 flex-1 overflow-auto leading-[1.6]",
-  "[grid-template-columns:minmax(96px,120px)_minmax(180px,1fr)_minmax(180px,1fr)_minmax(96px,120px)]",
-  "[grid-template-rows:2rem_minmax(0,1fr)] bg-white",
-].join(" ");
-const processModuleTableClassName = [
-  "grid min-h-0 min-w-0 flex-1 overflow-auto leading-[1.6]",
-  "[grid-template-columns:minmax(180px,1fr)_minmax(120px,148px)_minmax(136px,168px)_minmax(96px,120px)_minmax(240px,2fr)]",
-  "auto-rows-[2rem] bg-white",
-].join(" ");
-const processHeadClassName = [
-  "sticky top-0 z-[1] flex h-[2rem] box-border items-center",
-  "border-b border-b-[#d8dde7] bg-[#f6f8fb] px-[8px]",
-  "font-700 text-[#667085]",
-].join(" ");
-const processRowClassName = [
-  "grid [grid-column:1/-1] [grid-template-columns:subgrid]",
-  "h-[2rem] min-h-[2rem] box-border border-0 border-b border-b-[#eef1f5]",
-  "cursor-default bg-white hover:bg-[#f7f9fc]",
-].join(" ");
-const processCellClassName = [
-  "flex min-w-0 items-center overflow-hidden px-[8px]",
-  "text-ellipsis whitespace-nowrap text-[#303642]",
-].join(" ");
-const processFirstColumnClassName = "pl-[1rem]";
-const processPidCellClassName = `${processCellClassName} font-mono text-[#475467]`;
-const processMetaCellClassName = `${processCellClassName} text-[#667085]`;
-const processNameClassName =
-  "min-w-0 overflow-hidden text-ellipsis whitespace-nowrap";
-const processSocketEmptyCellClassName = [
-  "col-start-1 col-end-[-1] flex min-h-0 min-w-0 flex-col",
-  "items-center justify-center gap-1 px-[1rem] py-[0.5rem] text-center",
-  "text-[#303642]",
-].join(" ");
-const processesFooterClassName = [
-  "flex h-[2rem] min-h-[2rem] items-center justify-end border-t border-t-[#d8dde7]",
-  "bg-[#fbfcfe] px-[8px] leading-[1.6] text-[#667085]",
-].join(" ");
-const processDetailScrollClassName = "min-h-0 flex-1 overflow-auto";
-const processDetailBodyClassName =
-  "grid min-w-0 content-start gap-[14px] px-[18px] py-[16px]";
-const processDetailNoteClassName = "text-[13px] text-[#667085]";
-const processDetailFooterClassName = [
-  "flex h-[2rem] min-h-[2rem] items-center justify-end border-t border-t-[#d8dde7]",
-  "bg-[#fbfcfe] px-[8px] leading-[1.6] text-[#667085]",
-].join(" ");
-const processDetailActionsClassName =
-  "flex min-w-0 flex-wrap items-center justify-start gap-[0.5rem]";
-const processKillConfirmClassName = [
-  "flex min-w-0 flex-wrap items-center gap-[0.5rem] rounded-[6px]",
-  "border border-[var(--rieul-danger-border)] bg-[var(--rieul-danger-soft)]",
-  "px-[0.75rem] py-[0.5rem]",
-].join(" ");
-const processKillMessageClassName =
-  "mr-auto text-[1rem] text-[var(--rieul-danger)]";
-const processKillErrorClassName = "text-[1rem] text-[var(--rieul-danger)]";
-const processResourceDetailPanelClassName = [
-  "relative max-h-[40%] min-h-[9rem] overflow-auto border-t border-t-[#d8dde7]",
-  "bg-[#fbfcfe] px-[18px] py-[16px] pr-[3rem]",
-].join(" ");
-const processResourceDetailCloseButtonClassName = [
-  "absolute right-[0.75rem] top-[0.75rem]",
-  "grid h-[1.6rem] w-[1.6rem] place-items-center rounded-[0.25rem]",
-  "border border-transparent bg-transparent p-0 text-[#667085]",
-  "cursor-pointer [font-family:inherit]",
-  "hover:bg-[#eef3fb] hover:text-[#344054]",
-].join(" ");
+
 export function ProcessesTool() {
   const machineModal = useBunja(machineModalBunja);
   const machineStore = useBunja(machineStoreBunja);
@@ -242,7 +145,7 @@ export function ProcessesTool() {
       {(() => {
         if (!machine()) {
           return (
-            <section class={emptyWorkspaceClassName}>
+            <section {...styles.emptyWorkspace()}>
               <HardDrive size={28} />
               <h2>No machine selected</h2>
             </section>
@@ -250,7 +153,7 @@ export function ProcessesTool() {
         }
         if (!isPaired()) {
           return (
-            <section class={emptyWorkspaceClassName}>
+            <section {...styles.emptyWorkspace()}>
               <KeyRound size={28} />
               <h2>Pairing required</h2>
               <Button
@@ -265,7 +168,7 @@ export function ProcessesTool() {
           );
         }
         return (
-          <section class={processesToolClassName}>
+          <section {...styles.processesTool()}>
             <ProcessesBreadcrumb
               selectedPage={selectedPage()}
               selectedPid={selectedPid()}
@@ -431,7 +334,7 @@ function ProcessesBreadcrumb(props: ProcessesBreadcrumbProps) {
         return (
           <Breadcrumb
             ariaLabel="Process location"
-            className="flex-[0_0_auto] border-b border-b-[#d8dde7] bg-[#fbfcfe] px-[0.5rem]"
+            className={styles.breadcrumb().class}
             items={items.map((item, index) => ({
               ...item,
               muted: index === items.length - 1,
@@ -453,15 +356,15 @@ function ProcessListView(props: ProcessListViewProps) {
       {(() => {
         if (state().phase === "loading") {
           return (
-            <section class={emptyWorkspaceClassName}>
-              <Loader2 size={24} className="animate-spin" />
+            <section {...styles.emptyWorkspace()}>
+              <Loader2 size={24} className={styles.loader2().class} />
               <h2>Loading processes</h2>
             </section>
           );
         }
         if (state().phase === "unsupported" || state().phase === "error") {
           return (
-            <section class={emptyWorkspaceClassName}>
+            <section {...styles.emptyWorkspace()}>
               <Activity size={28} />
               <h2>
                 {state().phase === "unsupported"
@@ -473,59 +376,61 @@ function ProcessListView(props: ProcessListViewProps) {
           );
         }
         return (
-          <div class={processesContentClassName}>
-            <div
-              class={processTableClassName}
-              role="grid"
-              aria-label="Processes"
-            >
+          <div {...styles.processesContent()}>
+            <div {...styles.processTable()} role="grid" aria-label="Processes">
               <div
-                class={`${processHeadClassName} ${processFirstColumnClassName}`}
+                class={`${styles.processHead().class} ${styles.processFirstColumn().class}`}
                 role="columnheader"
               >
                 PID
               </div>
-              <div class={processHeadClassName} role="columnheader">
+              <div {...styles.processHead()} role="columnheader">
                 PPID
               </div>
-              <div class={processHeadClassName} role="columnheader">
+              <div {...styles.processHead()} role="columnheader">
                 Name
               </div>
-              <div class={processHeadClassName} role="columnheader">
+              <div {...styles.processHead()} role="columnheader">
                 Status
               </div>
               {state().rows.length === 0 ? (
-                <div class={`${processCellClassName} [grid-column:1/-1]`}>
+                <div
+                  class={`${styles.processCell().class} ${styles.fullRow().class}`}
+                >
                   No processes
                 </div>
               ) : (
                 state().rows.map((process) => (
                   <div
-                    class={`${processRowClassName} !cursor-pointer`}
+                    class={`${styles.processRow().class} ${styles.interactiveRow().class} `}
                     role="row"
                     onDblClick={() => props.onOpenProcess(process)}
                   >
                     <span
-                      class={`${processPidCellClassName} ${processFirstColumnClassName}`}
+                      class={`${`${styles.processCell().class} ${styles.monospaceCell().class} `} ${styles.processFirstColumn().class}`}
                     >
                       {process.pid}
                     </span>
-                    <span class={processPidCellClassName}>
+                    <span
+                      class={`${styles.processCell().class} ${styles.monospaceCell().class} `}
+                    >
                       {process.ppid ?? ""}
                     </span>
-                    <span class={processCellClassName}>
-                      <span class={processNameClassName}>
+                    <span {...styles.processCell()}>
+                      <span {...styles.processName()}>
                         {process.name || "(unnamed)"}
                       </span>
                     </span>
-                    <span class={processMetaCellClassName}>
+                    <span
+                      class={`${styles.processCell().class} ${styles.mutedCell().class} `}
+                    >
                       {processStatusLabel(process.status)}
                     </span>
                   </div>
                 ))
               )}
             </div>
-            <footer class={processesFooterClassName}>
+            <footer {...styles.processesFooter()}>
               {state().rows.length}{" "}
               {state().rows.length === 1 ? "process" : "processes"}
             </footer>
@@ -548,15 +453,15 @@ function ProcessChildrenView(props: ProcessChildrenViewProps) {
       {(() => {
         if (state().phase === "loading") {
           return (
-            <section class={emptyWorkspaceClassName}>
-              <Loader2 size={24} className="animate-spin" />
+            <section {...styles.emptyWorkspace()}>
+              <Loader2 size={24} className={styles.loader2().class} />
               <h2>Loading child processes</h2>
             </section>
           );
         }
         if (state().phase === "unsupported" || state().phase === "error") {
           return (
-            <section class={emptyWorkspaceClassName}>
+            <section {...styles.emptyWorkspace()}>
               <Activity size={28} />
               <h2>
                 {state().phase === "unsupported"
@@ -568,60 +473,70 @@ function ProcessChildrenView(props: ProcessChildrenViewProps) {
           );
         }
         return (
-          <div class={processesContentClassName}>
+          <div {...styles.processesContent()}>
             <div
-              class={processTreeTableClassName}
+              {...styles.processTreeTable()}
               role="grid"
               aria-label="Child process tree"
             >
               <div
-                class={`${processHeadClassName} ${processFirstColumnClassName}`}
+                class={`${styles.processHead().class} ${styles.processFirstColumn().class}`}
                 role="columnheader"
               >
                 Name
               </div>
-              <div class={processHeadClassName} role="columnheader">
+              <div {...styles.processHead()} role="columnheader">
                 PID
               </div>
-              <div class={processHeadClassName} role="columnheader">
+              <div {...styles.processHead()} role="columnheader">
                 PPID
               </div>
-              <div class={processHeadClassName} role="columnheader">
+              <div {...styles.processHead()} role="columnheader">
                 Status
               </div>
               {tree().length === 0 ? (
-                <div class={`${processCellClassName} [grid-column:1/-1]`}>
+                <div
+                  class={`${styles.processCell().class} ${styles.fullRow().class}`}
+                >
                   No child processes
                 </div>
               ) : (
                 tree().map(({ depth, process }) => (
                   <div
-                    class={`${processRowClassName} !cursor-pointer`}
+                    class={`${styles.processRow().class} ${styles.interactiveRow().class} `}
                     role="row"
                     onDblClick={() => props.onOpenProcess(process)}
                   >
                     <span
-                      class={processCellClassName}
+                      {...styles.processCell()}
                       style={{
                         "padding-left": `calc(1rem + ${depth * 1.25}rem)`,
                       }}
                     >
-                      <span class={processNameClassName}>
+                      <span {...styles.processName()}>
                         {process.name || "(unnamed)"}
                       </span>
                     </span>
-                    <span class={processPidCellClassName}>{process.pid}</span>
-                    <span class={processPidCellClassName}>
+                    <span
+                      class={`${styles.processCell().class} ${styles.monospaceCell().class} `}
+                    >
+                      {process.pid}
+                    </span>
+                    <span
+                      class={`${styles.processCell().class} ${styles.monospaceCell().class} `}
+                    >
                       {process.ppid ?? ""}
                     </span>
-                    <span class={processMetaCellClassName}>
+                    <span
+                      class={`${styles.processCell().class} ${styles.mutedCell().class} `}
+                    >
                       {processStatusLabel(process.status)}
                     </span>
                   </div>
                 ))
               )}
             </div>
-            <footer class={processesFooterClassName}>
+            <footer {...styles.processesFooter()}>
               {tree().length} {tree().length === 1 ? "process" : "processes"}
             </footer>
           </div>
@@ -762,15 +677,15 @@ function ProcessDetailView(props: ProcessDetailViewProps) {
       {(() => {
         if (state().phase === "loading" || props.daemonInfoPhase !== "ready") {
           return (
-            <section class={emptyWorkspaceClassName}>
-              <Loader2 size={24} className="animate-spin" />
+            <section {...styles.emptyWorkspace()}>
+              <Loader2 size={24} className={styles.loader2().class} />
               <h2>Loading process</h2>
             </section>
           );
         }
         if (state().phase === "unsupported" || state().phase === "error") {
           return (
-            <section class={emptyWorkspaceClassName}>
+            <section {...styles.emptyWorkspace()}>
               <Activity size={28} />
               <h2>
                 {state().phase === "unsupported"
@@ -783,14 +698,14 @@ function ProcessDetailView(props: ProcessDetailViewProps) {
         }
         if (!state().detail) {
           return (
-            <section class={emptyWorkspaceClassName}>
+            <section {...styles.emptyWorkspace()}>
               <Activity size={28} />
               <h2>No process detail</h2>
             </section>
           );
         }
         return (
-          <div class={processesContentClassName}>
+          <div {...styles.processesContent()}>
             <ProcessDetailSummary
               detail={state().detail!}
               exited={state().phase === "exited"}
@@ -808,7 +723,7 @@ function ProcessDetailView(props: ProcessDetailViewProps) {
               resourcesSupported={props.resourcesSupported}
               socketsSupported={props.socketsSupported}
             />
-            <footer class={processDetailFooterClassName}>
+            <footer {...styles.processesFooter()}>
               {state().phase === "exited"
                 ? "Process exited"
                 : `PID ${state().detail!.info.pid}`}
@@ -844,8 +759,8 @@ function ProcessDetailSummary(props: ProcessDetailSummaryProps) {
     <>
       {(() => {
         return (
-          <div class={processDetailScrollClassName}>
-            <div class={processDetailBodyClassName}>
+          <div {...styles.processDetailScroll()}>
+            <div {...styles.processDetailBody()}>
               <PropertyList>
                 <ProcessDetailItem
                   label="Name"
@@ -889,7 +804,7 @@ function ProcessDetailSummary(props: ProcessDetailSummaryProps) {
                   value={_value().metadata.cwd ?? "Unknown"}
                 />
               </PropertyList>
-              <div class={processDetailActionsClassName}>
+              <div {...styles.processDetailActions()}>
                 <Button
                   onClick={props.onShowChildren}
                   title="Show process tree rooted at this process"
@@ -954,8 +869,8 @@ function ProcessDetailSummary(props: ProcessDetailSummaryProps) {
               </div>
               {props.killPhase === "confirming" ||
               props.killPhase === "killing" ? (
-                <div class={processKillConfirmClassName}>
-                  <span class={processKillMessageClassName}>
+                <div {...styles.processKillConfirm()}>
+                  <span {...styles.processKillMessage()}>
                     Forcefully terminate PID {_value().info.pid}?
                   </span>
                   <Button
@@ -978,7 +893,7 @@ function ProcessDetailSummary(props: ProcessDetailSummaryProps) {
                   </Button>
                 </div>
               ) : props.killPhase === "error" ? (
-                <span class={processKillErrorClassName}>{props.killError}</span>
+                <span {...styles.processKillError()}>{props.killError}</span>
               ) : null}
               <ProcessResourceUsageTable usage={_value().usage} />
             </div>
@@ -1133,15 +1048,15 @@ function ProcessResourcesInUseView(props: ProcessResourcesInUseViewProps) {
       {(() => {
         if (state().phase === "loading" || props.daemonInfoPhase !== "ready") {
           return (
-            <section class={emptyWorkspaceClassName}>
-              <Loader2 size={24} className="animate-spin" />
+            <section {...styles.emptyWorkspace()}>
+              <Loader2 size={24} className={styles.loader2().class} />
               <h2>Loading resources in use</h2>
             </section>
           );
         }
         if (state().phase === "unsupported" || state().phase === "error") {
           return (
-            <section class={emptyWorkspaceClassName}>
+            <section {...styles.emptyWorkspace()}>
               <Activity size={28} />
               <h2>
                 {state().phase === "unsupported"
@@ -1153,29 +1068,31 @@ function ProcessResourcesInUseView(props: ProcessResourcesInUseViewProps) {
           );
         }
         return (
-          <div class={processesContentClassName}>
+          <div {...styles.processesContent()}>
             <div
-              class={processResourceTableClassName}
+              {...styles.processResourceTable()}
               role="grid"
               aria-label="Process resources in use"
             >
               <div
-                class={`${processHeadClassName} ${processFirstColumnClassName}`}
+                class={`${styles.processHead().class} ${styles.processFirstColumn().class}`}
                 role="columnheader"
               >
                 Name
               </div>
-              <div class={processHeadClassName} role="columnheader">
+              <div {...styles.processHead()} role="columnheader">
                 Kind
               </div>
-              <div class={processHeadClassName} role="columnheader">
+              <div {...styles.processHead()} role="columnheader">
                 Access
               </div>
-              <div class={processHeadClassName} role="columnheader">
+              <div {...styles.processHead()} role="columnheader">
                 ID
               </div>
               {state().rows.length === 0 ? (
-                <div class={`${processCellClassName} [grid-column:1/-1]`}>
+                <div
+                  class={`${styles.processCell().class} ${styles.fullRow().class}`}
+                >
                   No resources in use
                 </div>
               ) : (
@@ -1184,7 +1101,7 @@ function ProcessResourcesInUseView(props: ProcessResourcesInUseViewProps) {
                   const selected = resource.resourceId === selectedResourceId();
                   return (
                     <div
-                      class={`${processRowClassName} ${canOpen ? "!cursor-pointer" : ""} ${selected ? "!bg-[#eef4ff] hover:!bg-[#e7f0ff]" : ""}`}
+                      class={`${styles.processRow().class} ${canOpen ? styles.interactiveRow().class : ""} ${selected ? styles.selectedRow().class : ""}`}
                       role="row"
                       title={resource.name ?? resource.resourceId}
                       onClick={() =>
@@ -1201,19 +1118,25 @@ function ProcessResourcesInUseView(props: ProcessResourcesInUseViewProps) {
                       }
                     >
                       <span
-                        class={`${processCellClassName} ${processFirstColumnClassName}`}
+                        class={`${styles.processCell().class} ${styles.processFirstColumn().class}`}
                       >
-                        <span class={processNameClassName}>
+                        <span {...styles.processName()}>
                           {resource.name ?? resource.resourceId}
                         </span>
                       </span>
-                      <span class={processMetaCellClassName}>
+                      <span
+                        class={`${styles.processCell().class} ${styles.mutedCell().class} `}
+                      >
                         {processResourceInUseKindLabel(resource.kind)}
                       </span>
-                      <span class={processMetaCellClassName}>
+                      <span
+                        class={`${styles.processCell().class} ${styles.mutedCell().class} `}
+                      >
                         {processResourceInUseAccessLabel(resource)}
                       </span>
-                      <span class={processMetaCellClassName}>
+                      <span
+                        class={`${styles.processCell().class} ${styles.mutedCell().class} `}
+                      >
                         {resource.resourceId}
                       </span>
                     </div>
@@ -1227,7 +1150,7 @@ function ProcessResourcesInUseView(props: ProcessResourcesInUseViewProps) {
                 onClose={() => setSelectedResourceId(undefined)}
               />
             ) : null}
-            <footer class={processesFooterClassName}>
+            <footer {...styles.processesFooter()}>
               {state().phase === "exited"
                 ? "Process exited"
                 : `${state().rows.length} ${state().rows.length === 1 ? "resource" : "resources"}`}
@@ -1353,15 +1276,15 @@ function ProcessSocketsInUseView(props: ProcessSocketsInUseViewProps) {
       {(() => {
         if (state().phase === "loading" || props.daemonInfoPhase !== "ready") {
           return (
-            <section class={emptyWorkspaceClassName}>
-              <Loader2 size={24} className="animate-spin" />
+            <section {...styles.emptyWorkspace()}>
+              <Loader2 size={24} className={styles.loader2().class} />
               <h2>Loading sockets in use</h2>
             </section>
           );
         }
         if (state().phase === "unsupported" || state().phase === "error") {
           return (
-            <section class={emptyWorkspaceClassName}>
+            <section {...styles.emptyWorkspace()}>
               <Activity size={28} />
               <h2>
                 {state().phase === "unsupported"
@@ -1373,35 +1296,35 @@ function ProcessSocketsInUseView(props: ProcessSocketsInUseViewProps) {
           );
         }
         return (
-          <div class={processesContentClassName}>
+          <div {...styles.processesContent()}>
             <div
               class={
                 state().rows.length === 0
-                  ? processSocketTableEmptyClassName
-                  : processSocketTableClassName
+                  ? styles.processSocketTableEmpty().class
+                  : styles.processSocketTable().class
               }
               role="grid"
               aria-label="Process sockets in use"
             >
               <div
-                class={`${processHeadClassName} ${processFirstColumnClassName}`}
+                class={`${styles.processHead().class} ${styles.processFirstColumn().class}`}
                 role="columnheader"
               >
                 Kind
               </div>
-              <div class={processHeadClassName} role="columnheader">
+              <div {...styles.processHead()} role="columnheader">
                 Local
               </div>
-              <div class={processHeadClassName} role="columnheader">
+              <div {...styles.processHead()} role="columnheader">
                 Remote
               </div>
-              <div class={processHeadClassName} role="columnheader">
+              <div {...styles.processHead()} role="columnheader">
                 Listening
               </div>
               {state().rows.length === 0 ? (
-                <div class={processSocketEmptyCellClassName}>
+                <div {...styles.processSocketEmptyCell()}>
                   <span>No sockets in use by PID {props.pid}</span>
-                  <span class="text-slate-500">
+                  <span {...styles.span()}>
                     Multi-process apps may keep sockets in a separate network
                     service process.
                   </span>
@@ -1409,33 +1332,35 @@ function ProcessSocketsInUseView(props: ProcessSocketsInUseViewProps) {
               ) : (
                 state().rows.map((socket) => (
                   <div
-                    class={processRowClassName}
+                    {...styles.processRow()}
                     role="row"
                     title={socket.socketId}
                   >
                     <span
-                      class={`${processMetaCellClassName} ${processFirstColumnClassName}`}
+                      class={`${`${styles.processCell().class} ${styles.mutedCell().class} `} ${styles.processFirstColumn().class}`}
                     >
                       {processSocketInUseKindLabel(socket.kind)}
                     </span>
-                    <span class={processCellClassName}>
-                      <span class={processNameClassName}>
+                    <span {...styles.processCell()}>
+                      <span {...styles.processName()}>
                         {socketEndpointLabel(socket.localEndpoint)}
                       </span>
                     </span>
-                    <span class={processCellClassName}>
-                      <span class={processNameClassName}>
+                    <span {...styles.processCell()}>
+                      <span {...styles.processName()}>
                         {socketEndpointLabel(socket.remoteEndpoint)}
                       </span>
                     </span>
-                    <span class={processMetaCellClassName}>
+                    <span
+                      class={`${styles.processCell().class} ${styles.mutedCell().class} `}
+                    >
                       {socketListeningLabel(socket.listening)}
                     </span>
                   </div>
                 ))
               )}
             </div>
-            <footer class={processesFooterClassName}>
+            <footer {...styles.processesFooter()}>
               {state().phase === "exited"
                 ? "Process exited"
                 : `${state().rows.length} ${state().rows.length === 1 ? "socket" : "sockets"}`}
@@ -1561,15 +1486,15 @@ function ProcessModulesView(props: ProcessModulesViewProps) {
       {(() => {
         if (state().phase === "loading" || props.daemonInfoPhase !== "ready") {
           return (
-            <section class={emptyWorkspaceClassName}>
-              <Loader2 size={24} className="animate-spin" />
+            <section {...styles.emptyWorkspace()}>
+              <Loader2 size={24} className={styles.loader2().class} />
               <h2>Loading modules</h2>
             </section>
           );
         }
         if (state().phase === "unsupported" || state().phase === "error") {
           return (
-            <section class={emptyWorkspaceClassName}>
+            <section {...styles.emptyWorkspace()}>
               <Activity size={28} />
               <h2>
                 {state().phase === "unsupported"
@@ -1581,32 +1506,34 @@ function ProcessModulesView(props: ProcessModulesViewProps) {
           );
         }
         return (
-          <div class={processesContentClassName}>
+          <div {...styles.processesContent()}>
             <div
-              class={processModuleTableClassName}
+              {...styles.processModuleTable()}
               role="grid"
               aria-label="Process modules"
             >
               <div
-                class={`${processHeadClassName} ${processFirstColumnClassName}`}
+                class={`${styles.processHead().class} ${styles.processFirstColumn().class}`}
                 role="columnheader"
               >
                 Name
               </div>
-              <div class={processHeadClassName} role="columnheader">
+              <div {...styles.processHead()} role="columnheader">
                 Kind
               </div>
-              <div class={processHeadClassName} role="columnheader">
+              <div {...styles.processHead()} role="columnheader">
                 Base address
               </div>
-              <div class={processHeadClassName} role="columnheader">
+              <div {...styles.processHead()} role="columnheader">
                 Size
               </div>
-              <div class={processHeadClassName} role="columnheader">
+              <div {...styles.processHead()} role="columnheader">
                 Path
               </div>
               {state().rows.length === 0 ? (
-                <div class={`${processCellClassName} [grid-column:1/-1]`}>
+                <div
+                  class={`${styles.processCell().class} ${styles.fullRow().class}`}
+                >
                   No modules
                 </div>
               ) : (
@@ -1615,7 +1542,7 @@ function ProcessModulesView(props: ProcessModulesViewProps) {
                     module.path !== undefined && module.path.length > 0;
                   return (
                     <div
-                      class={`${processRowClassName} ${canOpen ? "!cursor-pointer" : ""}`}
+                      class={`${styles.processRow().class} ${canOpen ? styles.interactiveRow().class : ""}`}
                       role="row"
                       title={module.path ?? module.name}
                       onDblClick={
@@ -1625,23 +1552,29 @@ function ProcessModulesView(props: ProcessModulesViewProps) {
                       }
                     >
                       <span
-                        class={`${processCellClassName} ${processFirstColumnClassName}`}
+                        class={`${styles.processCell().class} ${styles.processFirstColumn().class}`}
                       >
-                        <span class={processNameClassName}>{module.name}</span>
+                        <span {...styles.processName()}>{module.name}</span>
                       </span>
-                      <span class={processMetaCellClassName}>
+                      <span
+                        class={`${styles.processCell().class} ${styles.mutedCell().class} `}
+                      >
                         {processModuleKindLabel(module.kind)}
                       </span>
-                      <span class={processMetaCellClassName}>
+                      <span
+                        class={`${styles.processCell().class} ${styles.mutedCell().class} `}
+                      >
                         {module.baseAddress ?? ""}
                       </span>
-                      <span class={processMetaCellClassName}>
+                      <span
+                        class={`${styles.processCell().class} ${styles.mutedCell().class} `}
+                      >
                         {module.sizeBytes === undefined
                           ? ""
                           : formatBytes(module.sizeBytes)}
                       </span>
-                      <span class={processCellClassName}>
-                        <span class={processNameClassName}>
+                      <span {...styles.processCell()}>
+                        <span {...styles.processName()}>
                           {module.path ?? ""}
                         </span>
                       </span>
@@ -1650,7 +1583,7 @@ function ProcessModulesView(props: ProcessModulesViewProps) {
                 })
               )}
             </div>
-            <footer class={processesFooterClassName}>
+            <footer {...styles.processesFooter()}>
               {state().phase === "exited"
                 ? "Process exited"
                 : `${state().rows.length} ${state().rows.length === 1 ? "module" : "modules"}`}
@@ -1670,10 +1603,10 @@ function ProcessResourceInUseDetail(props: ProcessResourceInUseDetailProps) {
     <>
       {(() => {
         return (
-          <div class={processResourceDetailPanelClassName}>
+          <div {...styles.processResourceDetailPanel()}>
             <button
               type="button"
-              class={processResourceDetailCloseButtonClassName}
+              {...styles.processResourceDetailCloseButton()}
               onClick={props.onClose}
               title="Close resource detail"
             >
@@ -1757,7 +1690,7 @@ function ProcessDetailItem(props: ProcessDetailItemProps) {
           <PropertyListItem label={props.label}>
             <PropertyValue>{props.value}</PropertyValue>
             {props.note ? (
-              <span class={processDetailNoteClassName}>{props.note}</span>
+              <span {...styles.processDetailNote()}>{props.note}</span>
             ) : null}
           </PropertyListItem>
         );
@@ -2162,4 +2095,336 @@ function formatDurationSeconds(totalSeconds: number): string {
   if (minutes > 0 || parts.length > 0) parts.push(`${minutes}m`);
   parts.push(`${seconds}s`);
   return parts.join(" ");
+}
+
+namespace styles {
+  export const interactiveRow = style({
+    cursor: "pointer !important",
+  });
+  export const monospaceCell = style({
+    color: "rgb(71 84 103 / 1)",
+    fontFamily:
+      'ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace',
+  });
+
+  export const mutedCell = style({
+    color: "rgb(102 112 133 / 1)",
+  });
+
+  export const fullRow = style({
+    gridColumn: "1/-1",
+  });
+
+  export const selectedRow = style({
+    backgroundColor: "rgb(238 244 255 / 1 ) !important",
+    selectors: {
+      "&:hover": {
+        backgroundColor: "rgb(231 240 255 / 1 ) !important",
+      },
+    },
+  });
+
+  export const processesTool = style({
+    height: "100%",
+    minHeight: "0",
+    width: "100%",
+    display: "flex",
+    flexDirection: "column",
+    overflow: "hidden",
+    backgroundColor: "rgb(255 255 255 / 1)",
+    color: "rgb(32 36 45 / 1)",
+  });
+  export const processesContent = style({
+    minHeight: "0",
+    minWidth: "0",
+    display: "flex",
+    flex: "1 1 0%",
+    flexDirection: "column",
+    overflow: "hidden",
+  });
+  export const emptyWorkspace = style({
+    display: "grid",
+    selectors: {
+      "& h2": {
+        margin: "0",
+        fontSize: "18px",
+        color: "rgb(48 54 66 / 1)",
+        letterSpacing: "0",
+      },
+      "& p": {
+        margin: "0",
+        maxWidth: "360px",
+        textAlign: "center",
+        lineHeight: 1.45,
+      },
+    },
+    height: "100%",
+    minHeight: "0",
+    width: "100%",
+    alignContent: "center",
+    justifyItems: "center",
+    gap: "10px",
+    backgroundColor: "rgb(255 255 255 / 1)",
+    color: "rgb(102 112 133 / 1)",
+  });
+  export const processTable = style({
+    gridTemplateColumns:
+      "minmax(72px,96px) minmax(72px,96px) minmax(180px,1fr) minmax(104px,132px)",
+    display: "grid",
+    gridAutoRows: "2rem",
+    minHeight: "0",
+    minWidth: "0",
+    flex: "1 1 0%",
+    overflow: "auto",
+    backgroundColor: "rgb(255 255 255 / 1)",
+    lineHeight: 1.6,
+  });
+  export const processTreeTable = style({
+    gridTemplateColumns:
+      "minmax(240px,1fr) minmax(72px,96px) minmax(72px,96px) minmax(104px,132px)",
+    display: "grid",
+    gridAutoRows: "2rem",
+    minHeight: "0",
+    minWidth: "0",
+    flex: "1 1 0%",
+    overflow: "auto",
+    backgroundColor: "rgb(255 255 255 / 1)",
+    lineHeight: 1.6,
+  });
+  export const processResourceTable = style({
+    gridTemplateColumns:
+      "minmax(180px,1fr) minmax(136px,168px) minmax(96px,120px) minmax(120px,168px)",
+    display: "grid",
+    gridAutoRows: "2rem",
+    minHeight: "0",
+    minWidth: "0",
+    flex: "1 1 0%",
+    overflow: "auto",
+    backgroundColor: "rgb(255 255 255 / 1)",
+    lineHeight: 1.6,
+  });
+  export const processSocketTable = style({
+    gridTemplateColumns:
+      "minmax(96px,120px) minmax(180px,1fr) minmax(180px,1fr) minmax(96px,120px)",
+    display: "grid",
+    gridAutoRows: "2rem",
+    minHeight: "0",
+    minWidth: "0",
+    flex: "1 1 0%",
+    overflow: "auto",
+    backgroundColor: "rgb(255 255 255 / 1)",
+    lineHeight: 1.6,
+  });
+  export const processSocketTableEmpty = style({
+    gridTemplateColumns:
+      "minmax(96px,120px) minmax(180px,1fr) minmax(180px,1fr) minmax(96px,120px)",
+    gridTemplateRows: "2rem minmax(0,1fr)",
+    display: "grid",
+    minHeight: "0",
+    minWidth: "0",
+    flex: "1 1 0%",
+    overflow: "auto",
+    backgroundColor: "rgb(255 255 255 / 1)",
+    lineHeight: 1.6,
+  });
+  export const processModuleTable = style({
+    gridTemplateColumns:
+      "minmax(180px,1fr) minmax(120px,148px) minmax(136px,168px) minmax(96px,120px) minmax(240px,2fr)",
+    display: "grid",
+    gridAutoRows: "2rem",
+    minHeight: "0",
+    minWidth: "0",
+    flex: "1 1 0%",
+    overflow: "auto",
+    backgroundColor: "rgb(255 255 255 / 1)",
+    lineHeight: 1.6,
+  });
+  export const processHead = style({
+    position: "sticky",
+    top: "0",
+    zIndex: 1,
+    boxSizing: "border-box",
+    height: "2rem",
+    display: "flex",
+    alignItems: "center",
+    borderBottomWidth: "1px",
+    borderBottomColor: "rgb(216 221 231 / 1)",
+    backgroundColor: "rgb(246 248 251 / 1)",
+    paddingLeft: "8px",
+    paddingRight: "8px",
+    color: "rgb(102 112 133 / 1)",
+    fontWeight: 700,
+  });
+  export const processRow = style({
+    gridColumn: "1/-1",
+    gridTemplateColumns: "subgrid",
+    display: "grid",
+    boxSizing: "border-box",
+    height: "2rem",
+    minHeight: "2rem",
+    cursor: "default",
+    borderWidth: "0px",
+    borderBottomWidth: "1px",
+    borderBottomColor: "rgb(238 241 245 / 1)",
+    backgroundColor: "rgb(255 255 255 / 1)",
+    selectors: {
+      "&:hover": {
+        backgroundColor: "rgb(247 249 252 / 1)",
+      },
+    },
+  });
+  export const processCell = style({
+    minWidth: "0",
+    display: "flex",
+    alignItems: "center",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    paddingLeft: "8px",
+    paddingRight: "8px",
+    color: "rgb(48 54 66 / 1)",
+  });
+  export const processFirstColumn = style({
+    paddingLeft: "1rem",
+  });
+  export const processName = style({
+    minWidth: "0",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  });
+  export const processSocketEmptyCell = style({
+    gridColumnStart: "1",
+    gridColumnEnd: "-1",
+    minHeight: "0",
+    minWidth: "0",
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: "0.25rem",
+    paddingLeft: "1rem",
+    paddingRight: "1rem",
+    paddingTop: "0.5rem",
+    paddingBottom: "0.5rem",
+    textAlign: "center",
+    color: "rgb(48 54 66 / 1)",
+  });
+  export const processesFooter = style({
+    height: "2rem",
+    minHeight: "2rem",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    borderTopWidth: "1px",
+    borderTopColor: "rgb(216 221 231 / 1)",
+    backgroundColor: "rgb(251 252 254 / 1)",
+    paddingLeft: "8px",
+    paddingRight: "8px",
+    color: "rgb(102 112 133 / 1)",
+    lineHeight: 1.6,
+  });
+  export const processDetailScroll = style({
+    minHeight: "0",
+    flex: "1 1 0%",
+    overflow: "auto",
+  });
+  export const processDetailBody = style({
+    display: "grid",
+    minWidth: "0",
+    alignContent: "flex-start",
+    gap: "14px",
+    paddingLeft: "18px",
+    paddingRight: "18px",
+    paddingTop: "16px",
+    paddingBottom: "16px",
+  });
+  export const processDetailNote = style({
+    fontSize: "13px",
+    color: "rgb(102 112 133 / 1)",
+  });
+
+  export const processDetailActions = style({
+    minWidth: "0",
+    display: "flex",
+    flexWrap: "wrap",
+    alignItems: "center",
+    justifyContent: "flex-start",
+    gap: "0.5rem",
+  });
+  export const processKillConfirm = style({
+    minWidth: "0",
+    display: "flex",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: "0.5rem",
+    borderWidth: "1px",
+    borderColor: theme.dangerBorder,
+    borderRadius: "6px",
+    backgroundColor: theme.dangerSoft,
+    paddingLeft: "0.75rem",
+    paddingRight: "0.75rem",
+    paddingTop: "0.5rem",
+    paddingBottom: "0.5rem",
+  });
+  export const processKillMessage = style({
+    marginRight: "auto",
+    fontSize: "1rem",
+    color: theme.danger,
+  });
+  export const processKillError = style({
+    fontSize: "1rem",
+    color: theme.danger,
+  });
+  export const processResourceDetailPanel = style({
+    position: "relative",
+    maxHeight: "40%",
+    minHeight: "9rem",
+    overflow: "auto",
+    borderTopWidth: "1px",
+    borderTopColor: "rgb(216 221 231 / 1)",
+    backgroundColor: "rgb(251 252 254 / 1)",
+    paddingLeft: "18px",
+    paddingRight: "3rem",
+    paddingTop: "16px",
+    paddingBottom: "16px",
+  });
+  export const processResourceDetailCloseButton = style({
+    fontFamily: "inherit",
+    position: "absolute",
+    right: "0.75rem",
+    top: "0.75rem",
+    display: "grid",
+    height: "1.6rem",
+    width: "1.6rem",
+    cursor: "pointer",
+    placeItems: "center",
+    borderWidth: "1px",
+    borderColor: "transparent",
+    borderRadius: "0.25rem",
+    backgroundColor: "transparent",
+    selectors: {
+      "&:hover": {
+        backgroundColor: "rgb(238 243 251 / 1)",
+        color: "rgb(52 64 84 / 1)",
+      },
+    },
+    padding: "0",
+    color: "rgb(102 112 133 / 1)",
+  });
+  export const breadcrumb = style({
+    flex: "0 0 auto",
+    borderBottomWidth: "1px",
+    borderBottomColor: "rgb(216 221 231 / 1)",
+    backgroundColor: "rgb(251 252 254 / 1)",
+    paddingLeft: "0.5rem",
+    paddingRight: "0.5rem",
+  });
+  export const loader2 = style({
+    animation: "spin 1s linear infinite",
+  });
+
+  export const span = style({
+    color: "rgb(100 116 139 / 1)",
+  });
 }

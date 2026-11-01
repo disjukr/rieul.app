@@ -1,3 +1,4 @@
+import { style, theme } from "../../../zyzz.config.ts";
 import { onCleanup, type Accessor } from "solid-js";
 import {
   layoutReducer,
@@ -97,9 +98,37 @@ export function PaneDivider(props: {
         (props.layout().nodes[props.nodeId] as BranchNode).ratios[props.index] *
           100,
       )}
-      class={`relative z-[5] shrink-0 touch-none bg-transparent hover:bg-rieul-accent/20 focus-visible:bg-rieul-accent/20 ${props.direction === "horizontal" ? "w-[8px] cursor-col-resize" : "h-[8px] cursor-row-resize"}`}
+      class={`${styles.divider().class} ${props.direction === "horizontal" ? styles.horizontal().class : styles.vertical().class}`}
       onPointerDown={pointer}
       onKeyDown={key}
     />
   );
+}
+
+namespace styles {
+  export const divider = style({
+    position: "relative",
+    zIndex: 5,
+    flexShrink: 0,
+    touchAction: "none",
+    backgroundColor: "transparent",
+    selectors: {
+      "&:hover": {
+        backgroundColor: theme.accent,
+      },
+      "&:focus-visible": {
+        backgroundColor: theme.accent,
+      },
+    },
+  });
+
+  export const vertical = style({
+    height: "8px",
+    cursor: "row-resize",
+  });
+
+  export const horizontal = style({
+    width: "8px",
+    cursor: "col-resize",
+  });
 }

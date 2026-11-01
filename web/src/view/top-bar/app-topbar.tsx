@@ -1,3 +1,4 @@
+import { style, theme } from "../../zyzz.config.ts";
 import { Dynamic } from "@solidjs/web";
 import { createMemo, createSignal } from "solid-js";
 import type { AvailableShellInfo } from "../../protocol/generated/rpc.ts";
@@ -45,165 +46,6 @@ import {
 } from "../ui/floating-menu.tsx";
 
 const projectLogoUrl = new URL("../../assets/rieul.svg", import.meta.url).href;
-
-const globalTopbarClassName = [
-  "app-rail relative [grid-column:1] [grid-row:1] flex flex-col",
-  "h-full min-h-0 min-w-0 overflow-hidden",
-  "box-border bg-transparent",
-  "gap-[12px] py-[14px] pl-[12px] pr-0 leading-[1.45] text-rieul-text-2",
-  "max-[680px]:[grid-column:1] max-[680px]:[grid-row:1]",
-  "max-[680px]:h-full max-[680px]:w-full max-[680px]:overflow-x-hidden max-[680px]:overflow-y-auto",
-  "max-[680px]:items-stretch max-[680px]:justify-start max-[680px]:gap-[14px]",
-  "max-[680px]:px-[14px] max-[680px]:py-[14px]",
-].join(" ");
-const globalTopbarLeftClassName = ["app-rail-section grid min-w-0"].join(" ");
-const globalTopbarCenterClassName = "min-w-0 pointer-events-none hidden";
-const globalTopbarRightClassName =
-  "app-rail-section grid min-w-0 content-start gap-[12px]";
-const topbarBrandClassName = [
-  "inline-flex h-[34px] min-w-0 items-center gap-[8px] px-[2px]",
-  "text-[13px] font-780 text-rieul-text",
-  "[&_img]:h-[23px] [&_img]:w-[23px]",
-].join(" ");
-const topbarLeftDividerClassName = "hidden";
-const globalIconButtonClassName = [
-  "inline-flex appearance-none items-center justify-center w-[28px] min-w-[28px] h-[28px] min-h-[28px]",
-  "box-border cursor-pointer border border-transparent rounded-rieul-md bg-transparent text-rieul-text-3 p-0 leading-none",
-  "[font-family:inherit]",
-  "opacity-72 hover:opacity-100 hover:border-white/44 hover:bg-white/36 hover:text-rieul-text-2",
-  "active:bg-rieul-active",
-  "max-[680px]:hidden",
-].join(" ");
-const toolSwitcherClassName = [
-  "rail-tool-switcher grid w-full min-w-0 content-start gap-[2px] rounded-[14px]",
-  "border border-white/34 bg-[rgba(248,248,248,0.28)] p-[6px] backdrop-blur-2xl",
-  "shadow-[inset_0_1px_0_rgba(255,255,255,0.68),0_8px_18px_rgba(18,25,38,0.045)]",
-  "max-[680px]:gap-[6px]",
-].join(" ");
-const toolSplitClassName = [
-  "inline-flex h-[31px] w-full min-w-0 items-center rounded-[10px]",
-  "border border-transparent text-[12px] font-650 text-rieul-text-3/68",
-  "rieul-transition",
-  "hover:bg-white/20 hover:text-rieul-text-2",
-  "[&.active]:border-white/74 [&.active]:bg-[rgba(255,255,255,0.72)] [&.active]:text-rieul-text",
-  "[&.active]:shadow-[0_6px_14px_rgba(20,30,46,0.095),inset_0_1px_0_rgba(255,255,255,0.86),inset_0_-1px_0_rgba(32,48,70,0.035)]",
-  "max-[680px]:h-[42px] max-[680px]:justify-start",
-].join(" ");
-const toolNameButtonClassName = [
-  "inline-flex h-[29px] min-w-0 flex-1 appearance-none items-center justify-start gap-[7px]",
-  "rounded-[9px] border-0 bg-transparent px-[8px] py-0 text-inherit [font-family:inherit]",
-  "cursor-pointer rieul-transition",
-  "hover:bg-white/18 hover:text-rieul-text",
-  "[&_svg]:flex-[0_0_auto] [&_svg]:opacity-86 [&_span]:min-w-0 [&_span]:overflow-hidden [&_span]:text-ellipsis [&_span]:whitespace-nowrap",
-  "max-[680px]:h-full max-[680px]:justify-start max-[680px]:gap-[8px] max-[680px]:px-[9px]",
-].join(" ");
-const toolMenuButtonClassName = [
-  "app-rail-expanded inline-flex h-[29px] w-[28px] min-w-[28px] appearance-none items-center justify-center",
-  "rounded-[9px] border-0 bg-transparent p-0 text-inherit [font-family:inherit]",
-  "cursor-pointer opacity-72 rieul-transition",
-  "hover:bg-white/18 hover:text-rieul-text hover:opacity-100",
-  "focus-visible:bg-white/18 focus-visible:text-rieul-text focus-visible:opacity-100 focus-visible:outline-0",
-  "max-[680px]:h-full",
-].join(" ");
-const toolNameLabelClassName = "app-rail-label";
-const topbarMenuClassName = [
-  "z-[60] w-[244px] gap-[2px] rounded-rieul-lg p-[4px]",
-  "rieul-material-floating text-rieul-text",
-].join(" ");
-const topbarMenuHeaderClassName = [
-  "px-[8px] py-[6px] text-[11px] font-740 text-rieul-text-3",
-].join(" ");
-const topbarMenuMetaClassName =
-  "ml-auto min-w-0 max-w-[92px] overflow-hidden text-ellipsis whitespace-nowrap text-[12px] text-rieul-text-3";
-const machineMenuClassName = [
-  "z-[60] w-[216px] gap-[3px] rounded-rieul-lg p-[5px]",
-  "rieul-material-floating text-rieul-text",
-].join(" ");
-const mobileMachineMenuClassName = [
-  machineMenuClassName,
-  "max-[680px]:w-[252px]",
-].join(" ");
-const machineMenuHeaderClassName =
-  "px-[8px] pb-[5px] pt-[6px] text-[11px] font-760 tracking-[0] text-rieul-text-3";
-const machineMenuDividerClassName =
-  "mx-[5px] my-[5px] h-px bg-[rgba(18,25,38,0.12)] shadow-[0_1px_0_rgba(255,255,255,0.64)]";
-const machineMenuDangerItemClassName = [
-  "text-rieul-danger hover:bg-rieul-danger-soft hover:text-rieul-danger",
-  "[&_svg]:text-rieul-danger",
-].join(" ");
-const statusDotClassName = "h-[6px] w-[6px] rounded-full";
-const railBrandActionsClassName = "inline-flex items-center gap-[4px]";
-const railStatusButtonClassName = [
-  "inline-flex h-[28px] min-w-[22px] appearance-none items-center justify-center",
-  "rounded-rieul-md border border-transparent bg-transparent p-0 [font-family:inherit]",
-  "cursor-pointer opacity-82 rieul-transition",
-  "hover:border-white/44 hover:bg-white/36 hover:opacity-100",
-  "disabled:cursor-default disabled:opacity-45",
-].join(" ");
-const connectionPopoverClassName = [
-  "z-[60] w-[320px] gap-0 rounded-rieul-xl p-0",
-  "rieul-material-floating text-rieul-text",
-].join(" ");
-const popoverHeaderClassName = [
-  "grid gap-[8px] border-b border-b-black/6 px-[12px] py-[11px]",
-].join(" ");
-const popoverTitleClassName =
-  "flex min-w-0 items-center gap-[8px] text-[13px] font-760";
-const popoverMetaClassName =
-  "min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-[12px] font-650 text-rieul-text-3";
-const popoverRowClassName = [
-  "grid min-h-[32px] grid-cols-[92px_minmax(0,1fr)] items-center gap-[10px]",
-  "border-b border-b-black/5 px-[12px] text-[12px] last:border-b-0",
-].join(" ");
-const popoverLabelClassName = "font-650 text-rieul-text-3";
-const popoverValueClassName =
-  "min-w-0 overflow-hidden text-right text-ellipsis whitespace-nowrap font-720 text-rieul-text-2";
-const railBrandRowClassName =
-  "flex min-w-0 items-center justify-between gap-[6px]";
-const railMachineNameClassName = [
-  "app-rail-expanded min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap",
-  "text-[13px] font-720 text-rieul-text-2",
-].join(" ");
-const railMachineListClassName = [
-  "app-rail-section grid min-w-0 grid-cols-[repeat(auto-fill,38px)] justify-start gap-[7px]",
-  "rounded-[15px] border border-white/28 bg-[rgba(248,248,248,0.28)] p-[7px] backdrop-blur-xl",
-  "max-[680px]:grid-cols-[repeat(auto-fill,48px)] max-[680px]:gap-[8px] max-[680px]:p-[8px]",
-].join(" ");
-const railMachineButtonClassName = [
-  "group relative inline-flex h-[38px] w-[38px] min-w-[38px] appearance-none items-center justify-center",
-  "rounded-[12px] border border-transparent bg-white/18 px-0",
-  "text-[12px] font-650 text-rieul-text-3 [font-family:inherit]",
-  "cursor-pointer rieul-transition hover:border-white/48 hover:bg-white/34 hover:text-rieul-text-2",
-  "[&.active]:border-white/74 [&.active]:bg-white/70 [&.active]:text-rieul-text",
-  "[&.active]:shadow-[inset_0_1px_0_rgba(255,255,255,0.86),0_6px_16px_rgba(18,25,38,0.08)]",
-  "[&_svg]:[stroke-width:2]",
-  "max-[680px]:h-[48px] max-[680px]:w-[48px] max-[680px]:min-w-[48px]",
-].join(" ");
-const railAddMachineButtonClassName = [
-  "inline-flex h-[38px] w-[38px] min-w-[38px] appearance-none items-center justify-center",
-  "rounded-[12px] border border-dashed border-white/34 bg-white/10 px-0",
-  "text-rieul-text-3 [font-family:inherit]",
-  "cursor-pointer rieul-transition hover:border-white/48 hover:bg-white/34 hover:text-rieul-text",
-  "max-[680px]:mt-0 max-[680px]:h-[44px] max-[680px]:w-[44px] max-[680px]:min-w-[44px]",
-  "max-[680px]:rounded-[14px] max-[680px]:px-0 max-[680px]:text-rieul-text-2",
-  "max-[680px]:[&_span]:hidden",
-].join(" ");
-const mobileMachineButtonClassName = [
-  "hidden h-[44px] w-[44px] min-w-[44px] appearance-none items-center justify-center",
-  "relative rounded-[14px] border border-transparent bg-white/18 p-0 text-rieul-text-2",
-  "[font-family:inherit] cursor-pointer rieul-transition",
-  "hover:border-white/48 hover:bg-white/34 hover:text-rieul-text",
-].join(" ");
-const railMachineIconDotClassName = [
-  "absolute bottom-[5px] right-[5px] h-[5px] w-[5px] rounded-full",
-  "bg-rieul-text-3/42 group-[.active]:bg-rieul-accent",
-].join(" ");
-const iconPickerMenuClassName = [
-  "grid grid-cols-[repeat(4,minmax(0,1fr))] gap-[5px] px-[5px] pb-[2px]",
-].join(" ");
-const iconPickerItemClassName = [
-  "!h-[38px] !min-h-[38px] !justify-center !rounded-rieul-md !px-0",
-].join(" ");
 
 const topbarTools: {
   icon: typeof Folder;
@@ -472,12 +314,12 @@ export function AppTopbar(componentProps: AppTopbarProps) {
     return (
       <span
         class={className(
-          statusDotClassName,
+          styles.statusDot().class,
           componentProps.connection?.phase === "reachable"
-            ? "bg-rieul-success"
+            ? styles.span().class
             : componentProps.connection?.phase === "idle"
-              ? "bg-rieul-warning"
-              : "bg-rieul-danger",
+              ? styles.span2().class
+              : styles.span3().class,
         )}
       />
     );
@@ -539,11 +381,11 @@ export function AppTopbar(componentProps: AppTopbarProps) {
     if (!toolMenu()) return null;
     return (
       <FloatingMenu
-        className={topbarMenuClassName}
+        className={styles.topbarMenu().class}
         menuRef={toolMenuRef}
         position={toolMenu()!.position}
       >
-        <div class={topbarMenuHeaderClassName}>
+        <div {...styles.topbarMenuHeader()}>
           New {toolMenuTitle(toolMenu()!.tool)}
         </div>
         {toolMenu()!.tool === "files" ? (
@@ -573,7 +415,7 @@ export function AppTopbar(componentProps: AppTopbarProps) {
                 <Terminal size={14} />
                 <span>{shell.name}</span>
                 {shell.isDefault ? (
-                  <span class={topbarMenuMetaClassName}>Default</span>
+                  <span {...styles.topbarMenuMeta()}>Default</span>
                 ) : null}
               </FloatingMenuItem>
             ))
@@ -602,14 +444,16 @@ export function AppTopbar(componentProps: AppTopbarProps) {
     return (
       <FloatingMenu
         className={
-          mobileMenu ? mobileMachineMenuClassName : machineMenuClassName
+          mobileMenu
+            ? [styles.machineMenu().class, styles.mobileMenuWidth().class].join(
+                " ",
+              )
+            : styles.machineMenu().class
         }
         menuRef={machineMenuRef}
         position={position}
       >
-        <div class={machineMenuHeaderClassName}>
-          {deviceName(targetMachine)}
-        </div>
+        <div {...styles.machineMenuHeader()}>{deviceName(targetMachine)}</div>
         <FloatingMenuItem
           disabled={!machineId}
           onClick={() =>
@@ -628,7 +472,7 @@ export function AppTopbar(componentProps: AppTopbarProps) {
           <Settings size={15} />
           Configure
         </FloatingMenuItem>
-        <div class={machineMenuDividerClassName} aria-hidden="true" />
+        <div {...styles.machineMenuDivider()} aria-hidden="true" />
         <FloatingMenuItem
           disabled={!machineId || !isPaired(targetMachine)}
           onClick={() =>
@@ -638,12 +482,12 @@ export function AppTopbar(componentProps: AppTopbarProps) {
           <Unlink size={15} />
           Unpair
         </FloatingMenuItem>
-        <div class={machineMenuDividerClassName} aria-hidden="true" />
-        <div class={machineMenuHeaderClassName}>Icon</div>
-        <div class={iconPickerMenuClassName} role="group">
+        <div {...styles.machineMenuDivider()} aria-hidden="true" />
+        <div {...styles.machineMenuHeader()}>Icon</div>
+        <div {...styles.iconPickerMenu()} role="group">
           {machineIconOptions.map(({ icon: Icon, label, name }) => (
             <FloatingMenuItem
-              className={iconPickerItemClassName}
+              className={styles.iconPickerItem().class}
               disabled={!machineId}
               onClick={() => machineId && selectMachineIcon(machineId, name)}
               title={label}
@@ -653,10 +497,10 @@ export function AppTopbar(componentProps: AppTopbarProps) {
             </FloatingMenuItem>
           ))}
         </div>
-        <div class={machineMenuDividerClassName} aria-hidden="true" />
+        <div {...styles.machineMenuDivider()} aria-hidden="true" />
         {mobileMenu ? (
           <>
-            <div class={machineMenuHeaderClassName}>Other Devices</div>
+            <div {...styles.machineMenuHeader()}>Other Devices</div>
             {otherMachines.length === 0 ? (
               <FloatingMenuItem disabled>
                 <Monitor size={15} />
@@ -676,12 +520,12 @@ export function AppTopbar(componentProps: AppTopbarProps) {
               <Plus size={15} />
               Add Machine
             </FloatingMenuItem>
-            <div class={machineMenuDividerClassName} aria-hidden="true" />
+            <div {...styles.machineMenuDivider()} aria-hidden="true" />
           </>
         ) : null}
         <FloatingMenuItem
           tone="danger"
-          className={machineMenuDangerItemClassName}
+          className={styles.machineMenuDangerItem().class}
           disabled={!machineId}
           onClick={() =>
             runMachineAction(machineId, componentProps.onDeleteMachine)
@@ -716,7 +560,7 @@ export function AppTopbar(componentProps: AppTopbarProps) {
     return (
       <button
         type="button"
-        class={railStatusButtonClassName}
+        {...styles.railStatusButton()}
         aria-haspopup="dialog"
         aria-expanded={machineMenu()?.kind === "connection" ? "true" : "false"}
         aria-label={`Connection: ${connectionDetail(componentProps.connection, componentProps.daemonInfo)}`}
@@ -739,13 +583,13 @@ export function AppTopbar(componentProps: AppTopbarProps) {
       <div
         class={className(
           "group",
-          toolSplitClassName,
+          styles.toolSplit().class,
           componentProps.activeTool === tool && "active",
         )}
       >
         <button
           type="button"
-          class={toolNameButtonClassName}
+          {...styles.toolNameButton()}
           aria-haspopup="menu"
           aria-label={label}
           onClick={() => selectLatestToolTab(tool)}
@@ -757,12 +601,12 @@ export function AppTopbar(componentProps: AppTopbarProps) {
           title={label}
         >
           <Icon size={13} />
-          <span class={toolNameLabelClassName}>{label}</span>
+          <span class={"app-rail-label"}>{label}</span>
         </button>
         {hasToolMenu(tool) ? (
           <button
             type="button"
-            class={toolMenuButtonClassName}
+            {...styles.toolMenuButton({ className: "app-rail-expanded" })}
             aria-label={`${label} menu`}
             aria-haspopup="menu"
             aria-expanded={toolMenu()?.tool === tool ? "true" : "false"}
@@ -781,12 +625,15 @@ export function AppTopbar(componentProps: AppTopbarProps) {
 
   function renderMachineLaunchers() {
     return (
-      <nav class={railMachineListClassName} aria-label="Machines">
+      <nav
+        {...styles.railMachineList({ className: "app-rail-section" })}
+        aria-label="Machines"
+      >
         {componentProps.machines.map((item) => (
           <button
             type="button"
             class={className(
-              railMachineButtonClassName,
+              styles.railMachineButton({ className: "group" }).class,
               item.id === componentProps.selectedMachineId && "active",
             )}
             onClick={() => componentProps.onSelectMachine(item.id)}
@@ -802,12 +649,12 @@ export function AppTopbar(componentProps: AppTopbarProps) {
             }
           >
             <MachineIcon name={item.icon} size={18} />
-            <span class={railMachineIconDotClassName} />
+            <span {...styles.railMachineIconDot()} />
           </button>
         ))}
         <button
           type="button"
-          class={railAddMachineButtonClassName}
+          {...styles.railAddMachineButton()}
           onClick={() => componentProps.onAddMachine()}
           title="Add machine"
           aria-label="Add machine"
@@ -822,7 +669,7 @@ export function AppTopbar(componentProps: AppTopbarProps) {
     return (
       <button
         type="button"
-        class={mobileMachineButtonClassName}
+        {...styles.mobileMachineButton()}
         aria-haspopup="menu"
         aria-expanded={
           machineMenu()?.kind === "actions" &&
@@ -840,28 +687,32 @@ export function AppTopbar(componentProps: AppTopbarProps) {
         title="Device management"
       >
         <MachineIcon name={componentProps.machine?.icon} size={18} />
-        <span class={railMachineIconDotClassName} />
+        <span {...styles.railMachineIconDot()} />
       </button>
     );
   }
 
   return (
     <>
-      <header class={globalTopbarClassName}>
-        <div class={globalTopbarLeftClassName}>
-          <div class={railBrandRowClassName}>
+      <header {...styles.globalTopbar({ className: "app-rail" })}>
+        <div {...styles.globalTopbarLeft({ className: "app-rail-section" })}>
+          <div {...styles.railBrandRow()}>
             <div
-              class={className(topbarBrandClassName, "app-rail-expanded")}
+              class={className(styles.topbarBrand().class, "app-rail-expanded")}
               aria-label="Rieul"
             >
               <img src={projectLogoUrl} alt="" aria-hidden="true" />
             </div>
-            <div class={railMachineNameClassName}>{deviceName()}</div>
-            <div class={railBrandActionsClassName}>
+            <div
+              {...styles.railMachineName({ className: "app-rail-expanded" })}
+            >
+              {deviceName()}
+            </div>
+            <div {...styles.railBrandActions()}>
               {renderConnectionStatusButton()}
               <button
                 type="button"
-                class={globalIconButtonClassName}
+                {...styles.globalIconButton()}
                 onClick={() => componentProps.onToggleMachinePanel()}
                 title={
                   componentProps.machinePanelCollapsed
@@ -886,13 +737,16 @@ export function AppTopbar(componentProps: AppTopbarProps) {
             </div>
           </div>
         </div>
-        <div class={topbarLeftDividerClassName} aria-hidden="true" />
+        <div {...styles.topbarLeftDivider()} aria-hidden="true" />
         {renderMachineLaunchers()}
-        <div class={topbarLeftDividerClassName} aria-hidden="true" />
+        <div {...styles.topbarLeftDivider()} aria-hidden="true" />
         {renderMobileMachineButton()}
-        <div class={globalTopbarCenterClassName} aria-hidden="true" />
-        <div class={globalTopbarRightClassName}>
-          <nav class={toolSwitcherClassName} aria-label="Workbench tools">
+        <div {...styles.globalTopbarCenter()} aria-hidden="true" />
+        <div {...styles.globalTopbarRight({ className: "app-rail-section" })}>
+          <nav
+            {...styles.toolSwitcher({ className: "rail-tool-switcher" })}
+            aria-label="Workbench tools"
+          >
             {renderToolLaunchers()}
           </nav>
         </div>
@@ -918,22 +772,22 @@ function ConnectionPopover(componentProps: {
   );
   return (
     <FloatingMenu
-      className={connectionPopoverClassName}
+      className={styles.connectionPopover().class}
       menuRef={componentProps.menuRef}
       position={componentProps.position}
       role="dialog"
       aria-label={`${componentProps.machine?.name ?? "Machine"} connection`}
     >
-      <div class={popoverHeaderClassName}>
-        <div class={popoverTitleClassName}>
+      <div {...styles.popoverHeader()}>
+        <div {...styles.popoverTitle()}>
           {componentProps.connection?.phase === "reachable" ? (
-            <CheckCircle2 size={14} className="text-rieul-success" />
+            <CheckCircle2 size={14} className={styles.checkCircle2().class} />
           ) : (
-            <Radio size={14} className="text-rieul-text-3" />
+            <Radio size={14} className={styles.radio().class} />
           )}
           <span>{componentProps.machine?.name ?? "No machine"}</span>
         </div>
-        <div class={popoverMetaClassName}>
+        <div {...styles.popoverMeta()}>
           {connectionDetail(
             componentProps.connection,
             componentProps.daemonInfo,
@@ -972,9 +826,9 @@ function ConnectionPopover(componentProps: {
 
 function ConnectionRow(componentProps: { label: string; value: string }) {
   return (
-    <div class={popoverRowClassName}>
-      <span class={popoverLabelClassName}>{componentProps.label}</span>
-      <span class={popoverValueClassName}>{componentProps.value}</span>
+    <div {...styles.popoverRow()}>
+      <span {...styles.popoverLabel()}>{componentProps.label}</span>
+      <span {...styles.popoverValue()}>{componentProps.value}</span>
     </div>
   );
 }
@@ -1047,4 +901,645 @@ function MachineIcon(componentProps: { name?: MachineIconName; size: number }) {
       ) ?? machineIconOptions[0],
   );
   return <Dynamic component={option().icon} size={componentProps.size} />;
+}
+
+namespace styles {
+  export const mobileMenuWidth = style({
+    "@media (max-width: 680px)": {
+      width: "252px",
+    },
+  });
+
+  export const globalTopbar = style({
+    gridColumn: "1",
+    gridRow: "1",
+    position: "relative",
+    boxSizing: "border-box",
+    height: "100%",
+    minHeight: "0",
+    minWidth: "0",
+    display: "flex",
+    flexDirection: "column",
+    gap: "12px",
+    overflow: "hidden",
+    backgroundColor: "transparent",
+    paddingTop: "14px",
+    paddingBottom: "14px",
+    paddingLeft: "12px",
+    paddingRight: "0",
+    color: theme.textSecondary,
+    lineHeight: 1.45,
+    "@media (max-width: 680px)": {
+      gridColumn: "1",
+      gridRow: "1",
+      height: "100%",
+      width: "100%",
+      alignItems: "stretch",
+      justifyContent: "flex-start",
+      gap: "14px",
+      overflowX: "hidden",
+      overflowY: "auto",
+      paddingLeft: "14px",
+      paddingRight: "14px",
+      paddingTop: "14px",
+      paddingBottom: "14px",
+    },
+  });
+  export const globalTopbarLeft = style({
+    display: "grid",
+    minWidth: "0",
+  });
+  export const globalTopbarCenter = style({
+    pointerEvents: "none",
+    display: "none",
+    minWidth: "0",
+  });
+  export const globalTopbarRight = style({
+    display: "grid",
+    minWidth: "0",
+    alignContent: "flex-start",
+    gap: "12px",
+  });
+  export const topbarBrand = style({
+    selectors: {
+      "& img": {
+        height: "23px",
+        width: "23px",
+      },
+    },
+    height: "34px",
+    minWidth: "0",
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "8px",
+    paddingLeft: "2px",
+    paddingRight: "2px",
+    fontSize: "13px",
+    color: theme.textPrimary,
+    fontWeight: 780,
+  });
+  export const topbarLeftDivider = style({
+    display: "none",
+  });
+  export const globalIconButton = style({
+    fontFamily: "inherit",
+    boxSizing: "border-box",
+    height: "28px",
+    minHeight: "28px",
+    minWidth: "28px",
+    width: "28px",
+    display: "inline-flex",
+    cursor: "pointer",
+    WebkitAppearance: "none",
+    appearance: "none",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: "1px",
+    borderColor: "transparent",
+    selectors: {
+      "&:hover": {
+        borderColor: "rgb(255 255 255 / 0.44)",
+        backgroundColor: "rgb(255 255 255 / 0.36)",
+        color: theme.textSecondary,
+        opacity: 1,
+      },
+      "&:active": {
+        backgroundColor: theme.bgActive,
+      },
+    },
+    borderRadius: theme.radiusMd,
+    backgroundColor: "transparent",
+    padding: "0",
+    color: theme.textTertiary,
+    lineHeight: 1,
+    opacity: 0.72,
+    "@media (max-width: 680px)": {
+      display: "none",
+    },
+  });
+  export const toolSwitcher = style({
+    display: "grid",
+    minWidth: "0",
+    width: "100%",
+    alignContent: "flex-start",
+    gap: "2px",
+    borderWidth: "1px",
+    borderColor: "rgb(255 255 255 / 0.34)",
+    borderRadius: "14px",
+    backgroundColor: "rgba(248, 248, 248, 0.28)",
+    padding: "6px",
+    boxShadow:
+      "0 0 rgb(0 0 0 / 0), 0 0 rgb(0 0 0 / 0), inset 0 1px 0 rgba(255,255,255,0.68),0 8px 18px rgba(18,25,38,0.045)",
+    WebkitBackdropFilter: "blur(40px)",
+    backdropFilter: "blur(40px)",
+    "@media (max-width: 680px)": {
+      gap: "6px",
+    },
+  });
+  export const toolSplit = style({
+    transition:
+      "background var(--rieul-duration-fast,100ms) var(--rieul-ease-out,cubic-bezier(0.16,1,0.3,1)),color var(--rieul-duration-fast,100ms) var(--rieul-ease-out,cubic-bezier(0.16,1,0.3,1)),border-color var(--rieul-duration-fast,100ms) var(--rieul-ease-out,cubic-bezier(0.16,1,0.3,1)),box-shadow var(--rieul-duration-fast,100ms) var(--rieul-ease-out,cubic-bezier(0.16,1,0.3,1))",
+    height: "31px",
+    minWidth: "0",
+    width: "100%",
+    display: "inline-flex",
+    alignItems: "center",
+    borderWidth: "1px",
+    selectors: {
+      "&.active": {
+        borderColor: "rgb(255 255 255 / 0.74)",
+        backgroundColor: "rgba(255, 255, 255, 0.72)",
+        color: theme.textPrimary,
+        boxShadow:
+          "0 0 rgb(0 0 0 / 0), 0 0 rgb(0 0 0 / 0), 0 6px 14px rgba(20,30,46,0.095),inset 0 1px 0 rgba(255,255,255,0.86),inset 0 -1px 0 rgba(32,48,70,0.035)",
+      },
+      "&:hover": {
+        backgroundColor: "rgb(255 255 255 / 0.2)",
+        color: theme.textSecondary,
+      },
+    },
+    borderColor: "transparent",
+    borderRadius: "10px",
+    fontSize: "12px",
+    color: theme.textTertiary,
+    fontWeight: 650,
+    "@media (max-width: 680px)": {
+      height: "42px",
+      justifyContent: "flex-start",
+    },
+  });
+  export const toolNameButton = style({
+    transition:
+      "background var(--rieul-duration-fast,100ms) var(--rieul-ease-out,cubic-bezier(0.16,1,0.3,1)),color var(--rieul-duration-fast,100ms) var(--rieul-ease-out,cubic-bezier(0.16,1,0.3,1)),border-color var(--rieul-duration-fast,100ms) var(--rieul-ease-out,cubic-bezier(0.16,1,0.3,1)),box-shadow var(--rieul-duration-fast,100ms) var(--rieul-ease-out,cubic-bezier(0.16,1,0.3,1))",
+    fontFamily: "inherit",
+    selectors: {
+      "& span": {
+        minWidth: "0",
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
+      },
+      "& svg": {
+        flex: "0 0 auto",
+        opacity: 0.86,
+      },
+      "&:hover": {
+        backgroundColor: "rgb(255 255 255 / 0.18)",
+        color: theme.textPrimary,
+      },
+    },
+    minWidth: "0",
+    height: "29px",
+    display: "inline-flex",
+    flex: "1 1 0%",
+    cursor: "pointer",
+    WebkitAppearance: "none",
+    appearance: "none",
+    alignItems: "center",
+    justifyContent: "flex-start",
+    gap: "7px",
+    borderWidth: "0px",
+    borderRadius: "9px",
+    backgroundColor: "transparent",
+    paddingLeft: "8px",
+    paddingRight: "8px",
+    paddingTop: "0",
+    paddingBottom: "0",
+    color: "inherit",
+    "@media (max-width: 680px)": {
+      height: "100%",
+      justifyContent: "flex-start",
+      gap: "8px",
+      paddingLeft: "9px",
+      paddingRight: "9px",
+    },
+  });
+  export const toolMenuButton = style({
+    transition:
+      "background var(--rieul-duration-fast,100ms) var(--rieul-ease-out,cubic-bezier(0.16,1,0.3,1)),color var(--rieul-duration-fast,100ms) var(--rieul-ease-out,cubic-bezier(0.16,1,0.3,1)),border-color var(--rieul-duration-fast,100ms) var(--rieul-ease-out,cubic-bezier(0.16,1,0.3,1)),box-shadow var(--rieul-duration-fast,100ms) var(--rieul-ease-out,cubic-bezier(0.16,1,0.3,1))",
+    fontFamily: "inherit",
+    height: "29px",
+    minWidth: "28px",
+    width: "28px",
+    display: "inline-flex",
+    cursor: "pointer",
+    WebkitAppearance: "none",
+    appearance: "none",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: "0px",
+    borderRadius: "9px",
+    backgroundColor: "transparent",
+    selectors: {
+      "&:hover": {
+        backgroundColor: "rgb(255 255 255 / 0.18)",
+        color: theme.textPrimary,
+        opacity: 1,
+      },
+      "&:focus-visible": {
+        backgroundColor: "rgb(255 255 255 / 0.18)",
+        color: theme.textPrimary,
+        opacity: 1,
+        outlineWidth: "0px",
+      },
+    },
+    padding: "0",
+    color: "inherit",
+    opacity: 0.72,
+    "@media (max-width: 680px)": {
+      height: "100%",
+    },
+  });
+  export const topbarMenu = style({
+    borderWidth: "1px",
+    borderColor: "rgb(255 255 255 / 0.42)",
+    backgroundColor: theme.materialFloatingBg,
+    boxShadow:
+      "0 0 rgb(0 0 0 / 0), 0 0 rgb(0 0 0 / 0), 0 24px 70px rgb(18 25 38 / 22%),0 4px 16px rgb(18 25 38 / 10%),inset 0 1px 0 rgb(255 255 255 / 82%)",
+    WebkitBackdropFilter: "blur(40px)",
+    backdropFilter: "blur(40px)",
+    zIndex: 60,
+    width: "244px",
+    gap: "2px",
+    borderRadius: theme.radiusLg,
+    padding: "4px",
+    color: theme.textPrimary,
+  });
+  export const topbarMenuHeader = style({
+    paddingLeft: "8px",
+    paddingRight: "8px",
+    paddingTop: "6px",
+    paddingBottom: "6px",
+    fontSize: "11px",
+    color: theme.textTertiary,
+    fontWeight: 740,
+  });
+  export const topbarMenuMeta = style({
+    marginLeft: "auto",
+    maxWidth: "92px",
+    minWidth: "0",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    fontSize: "12px",
+    color: theme.textTertiary,
+  });
+  export const machineMenu = style({
+    borderWidth: "1px",
+    borderColor: "rgb(255 255 255 / 0.42)",
+    backgroundColor: theme.materialFloatingBg,
+    boxShadow:
+      "0 0 rgb(0 0 0 / 0), 0 0 rgb(0 0 0 / 0), 0 24px 70px rgb(18 25 38 / 22%),0 4px 16px rgb(18 25 38 / 10%),inset 0 1px 0 rgb(255 255 255 / 82%)",
+    WebkitBackdropFilter: "blur(40px)",
+    backdropFilter: "blur(40px)",
+    zIndex: 60,
+    width: "216px",
+    gap: "3px",
+    borderRadius: theme.radiusLg,
+    padding: "5px",
+    color: theme.textPrimary,
+  });
+  export const machineMenuHeader = style({
+    paddingLeft: "8px",
+    paddingRight: "8px",
+    paddingBottom: "5px",
+    paddingTop: "6px",
+    fontSize: "11px",
+    color: theme.textTertiary,
+    fontWeight: 760,
+    letterSpacing: "0",
+  });
+  export const machineMenuDivider = style({
+    marginLeft: "5px",
+    marginRight: "5px",
+    marginTop: "5px",
+    marginBottom: "5px",
+    height: "1px",
+    backgroundColor: "rgba(18, 25, 38, 0.12)",
+    boxShadow:
+      "0 0 rgb(0 0 0 / 0), 0 0 rgb(0 0 0 / 0), 0 1px 0 rgba(255, 255, 255, 0.64)",
+  });
+  export const machineMenuDangerItem = style({
+    selectors: {
+      "&:hover": {
+        backgroundColor: theme.dangerSoft,
+        color: theme.danger,
+      },
+      "& svg": {
+        color: theme.danger,
+      },
+    },
+    color: theme.danger,
+  });
+  export const statusDot = style({
+    height: "6px",
+    width: "6px",
+    borderRadius: "9999px",
+  });
+  export const railBrandActions = style({
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "4px",
+  });
+  export const railStatusButton = style({
+    transition:
+      "background var(--rieul-duration-fast,100ms) var(--rieul-ease-out,cubic-bezier(0.16,1,0.3,1)),color var(--rieul-duration-fast,100ms) var(--rieul-ease-out,cubic-bezier(0.16,1,0.3,1)),border-color var(--rieul-duration-fast,100ms) var(--rieul-ease-out,cubic-bezier(0.16,1,0.3,1)),box-shadow var(--rieul-duration-fast,100ms) var(--rieul-ease-out,cubic-bezier(0.16,1,0.3,1))",
+    fontFamily: "inherit",
+    height: "28px",
+    minWidth: "22px",
+    display: "inline-flex",
+    selectors: {
+      "&:disabled": {
+        cursor: "default",
+        opacity: 0.45,
+      },
+      "&:hover": {
+        borderColor: "rgb(255 255 255 / 0.44)",
+        backgroundColor: "rgb(255 255 255 / 0.36)",
+        opacity: 1,
+      },
+    },
+    cursor: "pointer",
+    WebkitAppearance: "none",
+    appearance: "none",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: "1px",
+    borderColor: "transparent",
+    borderRadius: theme.radiusMd,
+    backgroundColor: "transparent",
+    padding: "0",
+    opacity: 0.82,
+  });
+  export const connectionPopover = style({
+    borderWidth: "1px",
+    borderColor: "rgb(255 255 255 / 0.42)",
+    backgroundColor: theme.materialFloatingBg,
+    boxShadow:
+      "0 0 rgb(0 0 0 / 0), 0 0 rgb(0 0 0 / 0), 0 24px 70px rgb(18 25 38 / 22%),0 4px 16px rgb(18 25 38 / 10%),inset 0 1px 0 rgb(255 255 255 / 82%)",
+    WebkitBackdropFilter: "blur(40px)",
+    backdropFilter: "blur(40px)",
+    zIndex: 60,
+    width: "320px",
+    gap: "0",
+    borderRadius: theme.radiusXl,
+    padding: "0",
+    color: theme.textPrimary,
+  });
+  export const popoverHeader = style({
+    display: "grid",
+    gap: "8px",
+    borderBottomWidth: "1px",
+    borderBottomColor: "rgb(0 0 0 / 0.06)",
+    paddingLeft: "12px",
+    paddingRight: "12px",
+    paddingTop: "11px",
+    paddingBottom: "11px",
+  });
+  export const popoverTitle = style({
+    minWidth: "0",
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+    fontSize: "13px",
+    fontWeight: 760,
+  });
+  export const popoverMeta = style({
+    minWidth: "0",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    fontSize: "12px",
+    color: theme.textTertiary,
+    fontWeight: 650,
+  });
+  export const popoverRow = style({
+    display: "grid",
+    gridTemplateColumns: "92px minmax(0,1fr)",
+    minHeight: "32px",
+    alignItems: "center",
+    gap: "10px",
+    borderBottomWidth: "1px",
+    selectors: {
+      "&:last-child": {
+        borderBottomWidth: "0px",
+      },
+    },
+    borderBottomColor: "rgb(0 0 0 / 0.05)",
+    paddingLeft: "12px",
+    paddingRight: "12px",
+    fontSize: "12px",
+  });
+  export const popoverLabel = style({
+    color: theme.textTertiary,
+    fontWeight: 650,
+  });
+  export const popoverValue = style({
+    minWidth: "0",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    textAlign: "right",
+    color: theme.textSecondary,
+    fontWeight: 720,
+  });
+  export const railBrandRow = style({
+    minWidth: "0",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: "6px",
+  });
+  export const railMachineName = style({
+    minWidth: "0",
+    flex: "1 1 0%",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    fontSize: "13px",
+    color: theme.textSecondary,
+    fontWeight: 720,
+  });
+  export const railMachineList = style({
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fill,38px)",
+    minWidth: "0",
+    justifyContent: "flex-start",
+    gap: "7px",
+    borderWidth: "1px",
+    borderColor: "rgb(255 255 255 / 0.28)",
+    borderRadius: "15px",
+    backgroundColor: "rgba(248, 248, 248, 0.28)",
+    padding: "7px",
+    WebkitBackdropFilter: "blur(24px)",
+    backdropFilter: "blur(24px)",
+    "@media (max-width: 680px)": {
+      gridTemplateColumns: "repeat(auto-fill,48px)",
+      gap: "8px",
+      padding: "8px",
+    },
+  });
+  export const railMachineButton = style({
+    transition:
+      "background var(--rieul-duration-fast,100ms) var(--rieul-ease-out,cubic-bezier(0.16,1,0.3,1)),color var(--rieul-duration-fast,100ms) var(--rieul-ease-out,cubic-bezier(0.16,1,0.3,1)),border-color var(--rieul-duration-fast,100ms) var(--rieul-ease-out,cubic-bezier(0.16,1,0.3,1)),box-shadow var(--rieul-duration-fast,100ms) var(--rieul-ease-out,cubic-bezier(0.16,1,0.3,1))",
+    selectors: {
+      "& svg": {
+        strokeWidth: 2,
+      },
+      "&.active": {
+        borderColor: "rgb(255 255 255 / 0.74)",
+        backgroundColor: "rgb(255 255 255 / 0.7)",
+        color: theme.textPrimary,
+        boxShadow:
+          "0 0 rgb(0 0 0 / 0), 0 0 rgb(0 0 0 / 0), inset 0 1px 0 rgba(255,255,255,0.86),0 6px 16px rgba(18,25,38,0.08)",
+      },
+      "&:hover": {
+        borderColor: "rgb(255 255 255 / 0.48)",
+        backgroundColor: "rgb(255 255 255 / 0.34)",
+        color: theme.textSecondary,
+      },
+    },
+    fontFamily: "inherit",
+    position: "relative",
+    height: "38px",
+    minWidth: "38px",
+    width: "38px",
+    display: "inline-flex",
+    cursor: "pointer",
+    WebkitAppearance: "none",
+    appearance: "none",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: "1px",
+    borderColor: "transparent",
+    borderRadius: "12px",
+    backgroundColor: "rgb(255 255 255 / 0.18)",
+    paddingLeft: "0",
+    paddingRight: "0",
+    fontSize: "12px",
+    color: theme.textTertiary,
+    fontWeight: 650,
+    "@media (max-width: 680px)": {
+      height: "48px",
+      minWidth: "48px",
+      width: "48px",
+    },
+  });
+  export const railAddMachineButton = style({
+    transition:
+      "background var(--rieul-duration-fast,100ms) var(--rieul-ease-out,cubic-bezier(0.16,1,0.3,1)),color var(--rieul-duration-fast,100ms) var(--rieul-ease-out,cubic-bezier(0.16,1,0.3,1)),border-color var(--rieul-duration-fast,100ms) var(--rieul-ease-out,cubic-bezier(0.16,1,0.3,1)),box-shadow var(--rieul-duration-fast,100ms) var(--rieul-ease-out,cubic-bezier(0.16,1,0.3,1))",
+    fontFamily: "inherit",
+    height: "38px",
+    minWidth: "38px",
+    width: "38px",
+    display: "inline-flex",
+    cursor: "pointer",
+    WebkitAppearance: "none",
+    appearance: "none",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: "1px",
+    borderColor: "rgb(255 255 255 / 0.34)",
+    selectors: {
+      "&:hover": {
+        borderColor: "rgb(255 255 255 / 0.48)",
+        backgroundColor: "rgb(255 255 255 / 0.34)",
+        color: theme.textPrimary,
+      },
+    },
+    borderRadius: "12px",
+    borderStyle: "dashed",
+    backgroundColor: "rgb(255 255 255 / 0.1)",
+    paddingLeft: "0",
+    paddingRight: "0",
+    color: theme.textTertiary,
+    "@media (max-width: 680px)": {
+      marginTop: "0",
+      selectors: {
+        "& span": {
+          display: "none",
+        },
+      },
+      height: "44px",
+      minWidth: "44px",
+      width: "44px",
+      borderRadius: "14px",
+      paddingLeft: "0",
+      paddingRight: "0",
+      color: theme.textSecondary,
+    },
+  });
+  export const mobileMachineButton = style({
+    transition:
+      "background var(--rieul-duration-fast,100ms) var(--rieul-ease-out,cubic-bezier(0.16,1,0.3,1)),color var(--rieul-duration-fast,100ms) var(--rieul-ease-out,cubic-bezier(0.16,1,0.3,1)),border-color var(--rieul-duration-fast,100ms) var(--rieul-ease-out,cubic-bezier(0.16,1,0.3,1)),box-shadow var(--rieul-duration-fast,100ms) var(--rieul-ease-out,cubic-bezier(0.16,1,0.3,1))",
+    fontFamily: "inherit",
+    position: "relative",
+    display: "none",
+    height: "44px",
+    minWidth: "44px",
+    width: "44px",
+    cursor: "pointer",
+    WebkitAppearance: "none",
+    appearance: "none",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: "1px",
+    borderColor: "transparent",
+    selectors: {
+      "&:hover": {
+        borderColor: "rgb(255 255 255 / 0.48)",
+        backgroundColor: "rgb(255 255 255 / 0.34)",
+        color: theme.textPrimary,
+      },
+    },
+    borderRadius: "14px",
+    backgroundColor: "rgb(255 255 255 / 0.18)",
+    padding: "0",
+    color: theme.textSecondary,
+  });
+  export const railMachineIconDot = style({
+    position: "absolute",
+    bottom: "5px",
+    right: "5px",
+    height: "5px",
+    width: "5px",
+    borderRadius: "9999px",
+    selectors: {
+      ".group.active &": {
+        backgroundColor: theme.accent,
+      },
+    },
+    backgroundColor: theme.textTertiary,
+  });
+  export const iconPickerMenu = style({
+    display: "grid",
+    gridTemplateColumns: "repeat(4,minmax(0,1fr))",
+    gap: "5px",
+    paddingLeft: "5px",
+    paddingRight: "5px",
+    paddingBottom: "2px",
+  });
+  export const iconPickerItem = style({
+    height: "38px !important",
+    minHeight: "38px !important",
+    justifyContent: "center !important",
+    borderRadius: "var(--rieul-radius-md) !important",
+    paddingLeft: "0 !important",
+    paddingRight: "0 !important",
+  });
+  export const span = style({
+    backgroundColor: theme.success,
+  });
+  export const span2 = style({
+    backgroundColor: theme.warning,
+  });
+  export const span3 = style({
+    backgroundColor: theme.danger,
+  });
+  export const checkCircle2 = style({
+    color: theme.success,
+  });
+  export const radio = style({
+    color: theme.textTertiary,
+  });
 }

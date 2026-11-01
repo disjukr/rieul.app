@@ -1,3 +1,4 @@
+import { style, theme } from "../../../zyzz.config.ts";
 import type { WorkbenchTab } from "../../../state/workbench.ts";
 import type { TabSplitDropSide, WorkbenchTabDropTarget } from "./tab-drag.ts";
 import { ModalDialog } from "../../ui/dialog.tsx";
@@ -63,96 +64,9 @@ interface TabContextMenuState {
   x: number;
   y: number;
 }
-const workbenchPaneOuterClassName = [
-  "workbench-pane relative",
-  "m-[4px] h-[calc(100%-8px)] w-[calc(100%-8px)] min-w-0 min-h-0",
-  "overflow-visible rounded-[14px]",
-  "transition-[filter,opacity,transform] duration-150 ease-out",
-  "[&:not(.active)]:opacity-86",
-  "[&:not(.active)_.workbench-pane-head]:opacity-80",
-  "[&:not(.active)_.workbench-tab.active]:opacity-72",
-  "[&:not(.active)_.workbench-pane-actions]:opacity-54",
-  "[&:not(.active)_.file-row.selected]:bg-[rgba(62,84,116,0.09)]",
-  "[&:not(.active)_.file-row.selected]:shadow-none",
-  "[&:not(.active)_.file-row.selected_.file-cell]:text-rieul-text-2",
-  "[&.active_.workbench-pane-surface]:after:border-[3px]",
-  "[&.active_.workbench-pane-surface]:after:border-rieul-focus",
-  "max-[680px]:m-0 max-[680px]:h-full max-[680px]:w-full",
-  "max-[680px]:rounded-none",
-  "max-[680px]:[&_.workbench-pane-surface]:after:hidden",
-].join(" ");
-const workbenchPaneSurfaceClassName = [
-  "workbench-pane-surface relative grid h-full w-full min-w-0 min-h-0",
-  "[grid-template-rows:auto_minmax(0,1fr)] overflow-hidden rounded-[14px]",
-  "border border-transparent bg-[rgba(248,248,249,0.72)] backdrop-blur-xl",
-  "after:content-[''] after:pointer-events-none after:absolute after:inset-0",
-  "after:z-[8] after:box-border after:rounded-[14px]",
-  "after:border-[1.5px] after:border-[rgba(108,126,151,0.38)]",
-  "after:transition-[border-color,border-width] after:duration-150 after:ease-out",
-  "max-[680px]:rounded-none max-[680px]:border-x-0 max-[680px]:border-t-0",
-].join(" ");
-const workbenchPaneHeadClassName = [
-  "workbench-pane-head",
-  "grid [grid-template-columns:1em_minmax(0,1fr)_auto]",
-  "items-center h-[36px] min-h-[36px] box-border overflow-visible leading-none",
-  "rounded-t-[14px] bg-transparent",
-  "px-[6px] pt-0 backdrop-blur-2xl",
-  "max-[680px]:[grid-template-columns:minmax(0,1fr)_auto]",
-  "max-[680px]:h-[34px] max-[680px]:min-h-[34px] max-[680px]:rounded-none",
-  "max-[680px]:px-[4px]",
-].join(" ");
-const paneHandleClassName =
-  "flex items-center justify-center self-stretch text-rieul-muted cursor-grab max-[680px]:hidden";
-const workbenchTabsClassName = [
-  "workbench-tabs flex h-full min-w-0 flex-1 items-center gap-[4px] overflow-x-auto overflow-y-visible",
-  "[scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
-].join(" ");
-const paneAddTabButtonWrapClassName = [
-  "sticky right-0 z-[12] flex h-[28px] flex-[0_0_auto]",
-  "bg-[rgba(248,248,249,0.86)] pl-[4px]",
-  "shadow-[-10px_0_14px_rgba(248,248,249,0.86)] backdrop-blur-xl",
-].join(" ");
-const paneActionsClassName = "workbench-pane-actions flex items-center";
-const paneActionButtonGroupClassName =
-  "inline-flex h-[28px] items-center gap-[4px] box-border p-0";
-const paneOverflowMenuWrapClassName = "relative flex h-full";
-const compactIconButtonClassName =
-  "!w-[28px] !min-w-[28px] !h-full !min-h-0 !box-border !rounded-rieul-sm !p-0 !border-transparent !bg-transparent !text-rieul-text-3 hover:!border-transparent hover:!bg-white/24 hover:!text-rieul-text";
-const buttonGroupFirstClassName = "";
-const buttonGroupLastClassName = "";
-const standaloneButtonClassName = "!rounded-[4px]";
-const paneCreateMenuClassName = "top-full right-0 z-[12] w-[188px]";
-const paneOverflowMenuClassName = "top-full right-0 z-[12] w-[172px]";
+
 const tabContextMenuWidth = 168;
-const paneOverflowMenuItemClassName = "";
-const paneMobileTabMenuDividerClassName =
-  "hidden max-[680px]:block border-t border-t-rieul-border";
-const paneMobileTabMenuItemClassName = "hidden max-[680px]:inline-flex";
-const workbenchPaneBodyClassName = [
-  "workbench-pane-body relative w-full h-full min-w-0 min-h-0 overflow-hidden",
-  "rounded-[12px] border border-white/58 bg-[rgba(253,253,253,0.94)]",
-  "max-[680px]:rounded-none max-[680px]:border-x-0 max-[680px]:border-b-0",
-  "before:content-[''] before:absolute before:z-[4]",
-  "before:border-2 before:border-rieul-accent",
-  "before:bg-rieul-accent-muted before:opacity-0 before:pointer-events-none",
-  "[&.tab-split-left::before]:top-0 [&.tab-split-left::before]:bottom-0",
-  "[&.tab-split-left::before]:left-0 [&.tab-split-left::before]:w-1/2",
-  "[&.tab-split-left::before]:opacity-100",
-  "[&.tab-split-right::before]:top-0 [&.tab-split-right::before]:right-0",
-  "[&.tab-split-right::before]:bottom-0 [&.tab-split-right::before]:w-1/2",
-  "[&.tab-split-right::before]:opacity-100",
-  "[&.tab-split-top::before]:top-0 [&.tab-split-top::before]:right-0",
-  "[&.tab-split-top::before]:left-0 [&.tab-split-top::before]:h-1/2",
-  "[&.tab-split-top::before]:opacity-100",
-  "[&.tab-split-bottom::before]:right-0 [&.tab-split-bottom::before]:bottom-0",
-  "[&.tab-split-bottom::before]:left-0 [&.tab-split-bottom::before]:h-1/2",
-  "[&.tab-split-bottom::before]:opacity-100",
-].join(" ");
-const workbenchTabPageClassName = [
-  "block w-full h-full min-w-0 min-h-0 overflow-hidden",
-  "[container:workbench-tab-page_/_inline-size]",
-  "[&[hidden]]:hidden",
-].join(" ");
+
 export function WorkbenchPaneView(props: WorkbenchPaneViewProps) {
   const machineStore = useBunja(machineStoreBunja);
   const rpcSession = useBunja(rpcSessionBunja);
@@ -478,7 +392,8 @@ export function WorkbenchPaneView(props: WorkbenchPaneViewProps) {
         if (!hasPane()) return null;
         const paneBodyClassName = createMemo(() =>
           className(
-            workbenchPaneBodyClassName,
+            styles.workbenchPaneBody({ className: "workbench-pane-body" })
+              .class,
             props.tabSplitDropSide === "left" && "tab-split-left",
             props.tabSplitDropSide === "right" && "tab-split-right",
             props.tabSplitDropSide === "top" && "tab-split-top",
@@ -494,24 +409,35 @@ export function WorkbenchPaneView(props: WorkbenchPaneViewProps) {
         return (
           <section
             ref={(element) => (paneRef.current = element)}
-            class={className(workbenchPaneOuterClassName, active() && "active")}
+            class={className(
+              styles.workbenchPaneOuter({ className: "workbench-pane" }).class,
+              active() && "active",
+            )}
             data-node-id={props.nodeId}
             data-pane-id={paneState().paneId}
             onPointerDown={paneState().focusPane}
             onFocusIn={paneState().focusPane}
           >
-            <div class={workbenchPaneSurfaceClassName}>
-              <header class={workbenchPaneHeadClassName}>
+            <div
+              {...styles.workbenchPaneSurface({
+                className: "workbench-pane-surface",
+              })}
+            >
+              <header
+                {...styles.workbenchPaneHead({
+                  className: "workbench-pane-head",
+                })}
+              >
                 <button
                   type="button"
                   data-pane-drag
                   aria-label="Move pane"
-                  class={paneHandleClassName}
+                  {...styles.paneHandle()}
                 >
                   <GripVertical size={13} strokeWidth={1.8} />
                 </button>
                 <div
-                  class={workbenchTabsClassName}
+                  {...styles.workbenchTabs({ className: "workbench-tabs" })}
                   ref={(element) => {
                     tabsRef.current = element;
                   }}
@@ -541,7 +467,7 @@ export function WorkbenchPaneView(props: WorkbenchPaneViewProps) {
                     )}
                   </For>
                   <div
-                    class={paneAddTabButtonWrapClassName}
+                    {...styles.paneAddTabButtonWrap()}
                     ref={(element) => (paneCreateMenuRef.current = element)}
                     role="presentation"
                   >
@@ -549,8 +475,8 @@ export function WorkbenchPaneView(props: WorkbenchPaneViewProps) {
                       size="icon"
                       variant="ghost"
                       className={className(
-                        compactIconButtonClassName,
-                        standaloneButtonClassName,
+                        styles.compactIconButton().class,
+                        styles.standaloneButton().class,
                       )}
                       onClick={() => {
                         setPaneOverflowMenuOpen(false);
@@ -567,39 +493,36 @@ export function WorkbenchPaneView(props: WorkbenchPaneViewProps) {
                       <FloatingMenu
                         align="end"
                         anchorRef={paneCreateMenuRef}
-                        className={paneCreateMenuClassName}
+                        className={styles.paneCreateMenu().class}
                         strategy="absolute"
                       >
                         <FloatingMenuItem
-                          className={paneOverflowMenuItemClassName}
+                          className={""}
                           onClick={openDaemonTab}
                         >
                           <Info size={14} />
                           New Daemon Tab
                         </FloatingMenuItem>
-                        <FloatingMenuItem
-                          className={paneOverflowMenuItemClassName}
-                          onClick={openFilesTab}
-                        >
+                        <FloatingMenuItem className={""} onClick={openFilesTab}>
                           <Folder size={14} />
                           New Files Tab
                         </FloatingMenuItem>
                         <FloatingMenuItem
-                          className={paneOverflowMenuItemClassName}
+                          className={""}
                           onClick={openTerminalTab}
                         >
                           <Terminal size={14} />
                           New Terminal Tab
                         </FloatingMenuItem>
                         <FloatingMenuItem
-                          className={paneOverflowMenuItemClassName}
+                          className={""}
                           onClick={openProcessesTab}
                         >
                           <Activity size={14} />
                           New Processes Tab
                         </FloatingMenuItem>
                         <FloatingMenuItem
-                          className={paneOverflowMenuItemClassName}
+                          className={""}
                           onClick={openWindowsTab}
                         >
                           <AppWindow size={14} />
@@ -609,15 +532,19 @@ export function WorkbenchPaneView(props: WorkbenchPaneViewProps) {
                     ) : null}
                   </div>
                 </div>
-                <div class={paneActionsClassName}>
-                  <div class={paneActionButtonGroupClassName}>
+                <div
+                  {...styles.paneActions({
+                    className: "workbench-pane-actions",
+                  })}
+                >
+                  <div {...styles.paneActionButtonGroup()}>
                     {props.topRight && props.canSplit ? (
                       <Button
                         size="icon"
                         variant="ghost"
                         className={className(
-                          compactIconButtonClassName,
-                          buttonGroupFirstClassName,
+                          styles.compactIconButton().class,
+                          "",
                         )}
                         onClick={() => splitPane(preferredSplitDirection())}
                         title={splitButtonLabel()}
@@ -631,17 +558,15 @@ export function WorkbenchPaneView(props: WorkbenchPaneViewProps) {
                       </Button>
                     ) : null}
                     <div
-                      class={paneOverflowMenuWrapClassName}
+                      {...styles.paneOverflowMenuWrap()}
                       ref={(element) => (paneOverflowMenuRef.current = element)}
                     >
                       <Button
                         size="icon"
                         variant="ghost"
                         className={className(
-                          compactIconButtonClassName,
-                          props.topRight
-                            ? buttonGroupLastClassName
-                            : standaloneButtonClassName,
+                          styles.compactIconButton().class,
+                          props.topRight ? "" : styles.standaloneButton().class,
                         )}
                         onClick={() => {
                           setPaneCreateMenuOpen(false);
@@ -660,17 +585,17 @@ export function WorkbenchPaneView(props: WorkbenchPaneViewProps) {
                         <FloatingMenu
                           align="end"
                           anchorRef={paneOverflowMenuRef}
-                          className={paneOverflowMenuClassName}
+                          className={styles.paneOverflowMenu().class}
                           strategy="absolute"
                         >
                           {activeTab() ? (
                             <>
                               <div
-                                class={paneMobileTabMenuDividerClassName}
+                                {...styles.paneMobileTabMenuDivider()}
                                 aria-hidden="true"
                               />
                               <FloatingMenuItem
-                                className={paneMobileTabMenuItemClassName}
+                                className={styles.paneMobileTabMenuItem().class}
                                 onClick={() =>
                                   duplicateWorkbenchTab(activeTab()!.id)
                                 }
@@ -680,7 +605,9 @@ export function WorkbenchPaneView(props: WorkbenchPaneViewProps) {
                               </FloatingMenuItem>
                               {activeTab()!.tool === "terminal" ? (
                                 <FloatingMenuItem
-                                  className={paneMobileTabMenuItemClassName}
+                                  className={
+                                    styles.paneMobileTabMenuItem().class
+                                  }
                                   onClick={() =>
                                     detachTerminalTab(activeTab()!.id)
                                   }
@@ -690,7 +617,7 @@ export function WorkbenchPaneView(props: WorkbenchPaneViewProps) {
                                 </FloatingMenuItem>
                               ) : null}
                               <FloatingMenuItem
-                                className={paneMobileTabMenuItemClassName}
+                                className={styles.paneMobileTabMenuItem().class}
                                 tone={activeTab()!.dirty ? "danger" : "neutral"}
                                 onClick={() =>
                                   requestCloseWorkbenchTab(activeTab()!.id)
@@ -700,7 +627,7 @@ export function WorkbenchPaneView(props: WorkbenchPaneViewProps) {
                                 Close tab
                               </FloatingMenuItem>
                               <div
-                                class={paneMobileTabMenuDividerClassName}
+                                {...styles.paneMobileTabMenuDivider()}
                                 aria-hidden="true"
                               />
                             </>
@@ -708,14 +635,14 @@ export function WorkbenchPaneView(props: WorkbenchPaneViewProps) {
                           {props.canSplit ? (
                             <>
                               <FloatingMenuItem
-                                className={paneOverflowMenuItemClassName}
+                                className={""}
                                 onClick={() => splitPane("horizontal")}
                               >
                                 <Columns2 size={14} />
                                 Split right
                               </FloatingMenuItem>
                               <FloatingMenuItem
-                                className={paneOverflowMenuItemClassName}
+                                className={""}
                                 onClick={() => splitPane("vertical")}
                               >
                                 <Rows2 size={14} />
@@ -724,7 +651,7 @@ export function WorkbenchPaneView(props: WorkbenchPaneViewProps) {
                             </>
                           ) : null}
                           <FloatingMenuItem
-                            className={paneOverflowMenuItemClassName}
+                            className={""}
                             onClick={requestClosePane}
                             disabled={!canClosePane()}
                           >
@@ -742,7 +669,7 @@ export function WorkbenchPaneView(props: WorkbenchPaneViewProps) {
                   {(tabId) => (
                     <WorkbenchTabIdContext value={() => tabId}>
                       <section
-                        class={workbenchTabPageClassName}
+                        {...styles.workbenchTabPage()}
                         hidden={tabId !== pane()?.activeTabId}
                       >
                         <WorkbenchToolContent />
@@ -754,7 +681,7 @@ export function WorkbenchPaneView(props: WorkbenchPaneViewProps) {
             </div>
             {tabContextMenu() ? (
               <FloatingMenu
-                className="z-[30] w-[168px]"
+                className={styles.floatingMenu().class}
                 menuRef={tabContextMenuRef}
                 position={{
                   left: tabContextMenu()!.x,
@@ -839,7 +766,7 @@ function UnsavedCloseConfirmModal(props: UnsavedCloseConfirmModalProps) {
       eyebrow="Unsaved changes"
       onClose={props.onCancel}
       size="sm"
-      bodyClassName="p-4"
+      bodyClassName={styles.dialogBody().class}
     >
       <p>
         {props.dirtyCount === 1
@@ -847,7 +774,7 @@ function UnsavedCloseConfirmModal(props: UnsavedCloseConfirmModalProps) {
           : `${props.dirtyCount} tabs have unsaved changes.`}{" "}
         Closing will discard them.
       </p>
-      <div class="flex justify-end gap-2">
+      <div {...styles.div()}>
         <Button onClick={props.onCancel}>Cancel</Button>
         <Button tone="danger" variant="solid" onClick={props.onConfirm}>
           Discard and close
@@ -855,4 +782,311 @@ function UnsavedCloseConfirmModal(props: UnsavedCloseConfirmModalProps) {
       </div>
     </ModalDialog>
   );
+}
+
+namespace styles {
+  export const dialogBody = style({
+    padding: "1rem",
+  });
+
+  export const workbenchPaneOuter = style({
+    position: "relative",
+    margin: "4px",
+    height: "calc(100% - 8px)",
+    minHeight: "0",
+    minWidth: "0",
+    width: "calc(100% - 8px)",
+    overflow: "visible",
+    selectors: {
+      "&.active .workbench-pane-surface::after": {
+        borderWidth: "3px",
+        borderColor: theme.focus,
+      },
+      "&:not(.active) .file-row.selected": {
+        backgroundColor: "rgba(62, 84, 116, 0.09)",
+        boxShadow: "0 0 rgb(0 0 0 / 0), 0 0 rgb(0 0 0 / 0), 0 0 rgb(0 0 0 / 0)",
+      },
+      "&:not(.active) .file-row.selected .file-cell": {
+        color: theme.textSecondary,
+      },
+      "&:not(.active) .workbench-pane-actions": {
+        opacity: 0.54,
+      },
+      "&:not(.active) .workbench-pane-head": {
+        opacity: 0.8,
+      },
+      "&:not(.active) .workbench-tab.active": {
+        opacity: 0.72,
+      },
+      "&:not(.active)": {
+        opacity: 0.86,
+      },
+    },
+    borderRadius: "14px",
+    transitionProperty: "filter,opacity,transform",
+    transitionTimingFunction: "cubic-bezier(0, 0, 0.2, 1)",
+    transitionDuration: "150ms",
+    "@media (max-width: 680px)": {
+      margin: "0",
+      selectors: {
+        "& .workbench-pane-surface::after": {
+          display: "none",
+        },
+      },
+      height: "100%",
+      width: "100%",
+      borderRadius: "0",
+    },
+  });
+  export const workbenchPaneSurface = style({
+    gridTemplateRows: "auto minmax(0,1fr)",
+    selectors: {
+      "&::after": {
+        pointerEvents: "none",
+        position: "absolute",
+        inset: "0",
+        zIndex: 8,
+        boxSizing: "border-box",
+        borderWidth: "1.5px",
+        borderColor: "rgba(108, 126, 151, 0.38)",
+        borderRadius: "14px",
+        transitionProperty: "border-color,border-width",
+        transitionTimingFunction: "cubic-bezier(0, 0, 0.2, 1)",
+        transitionDuration: "150ms",
+        content: "''",
+      },
+    },
+    position: "relative",
+    display: "grid",
+    height: "100%",
+    minHeight: "0",
+    minWidth: "0",
+    width: "100%",
+    overflow: "hidden",
+    borderWidth: "1px",
+    borderColor: "transparent",
+    borderRadius: "14px",
+    backgroundColor: "rgba(248, 248, 249, 0.72)",
+    WebkitBackdropFilter: "blur(24px)",
+    backdropFilter: "blur(24px)",
+    "@media (max-width: 680px)": {
+      borderLeftWidth: "0px",
+      borderRightWidth: "0px",
+      borderTopWidth: "0px",
+      borderRadius: "0",
+    },
+  });
+  export const workbenchPaneHead = style({
+    gridTemplateColumns: "1em minmax(0,1fr) auto",
+    display: "grid",
+    boxSizing: "border-box",
+    height: "36px",
+    minHeight: "36px",
+    alignItems: "center",
+    overflow: "visible",
+    borderTopLeftRadius: "14px",
+    borderTopRightRadius: "14px",
+    backgroundColor: "transparent",
+    paddingLeft: "6px",
+    paddingRight: "6px",
+    paddingTop: "0",
+    lineHeight: 1,
+    WebkitBackdropFilter: "blur(40px)",
+    backdropFilter: "blur(40px)",
+    "@media (max-width: 680px)": {
+      gridTemplateColumns: "minmax(0,1fr) auto",
+      height: "34px",
+      minHeight: "34px",
+      borderRadius: "0",
+      paddingLeft: "4px",
+      paddingRight: "4px",
+    },
+  });
+  export const paneHandle = style({
+    display: "flex",
+    cursor: "grab",
+    alignItems: "center",
+    alignSelf: "stretch",
+    justifyContent: "center",
+    color: theme.textDisabled,
+    "@media (max-width: 680px)": {
+      display: "none",
+    },
+  });
+  export const workbenchTabs = style({
+    scrollbarWidth: "none",
+    selectors: {
+      "&::-webkit-scrollbar": {
+        display: "none",
+      },
+    },
+    height: "100%",
+    minWidth: "0",
+    display: "flex",
+    flex: "1 1 0%",
+    alignItems: "center",
+    gap: "4px",
+    overflowX: "auto",
+    overflowY: "visible",
+  });
+  export const paneAddTabButtonWrap = style({
+    position: "sticky",
+    right: "0",
+    zIndex: 12,
+    height: "28px",
+    display: "flex",
+    flex: "0 0 auto",
+    backgroundColor: "rgba(248, 248, 249, 0.86)",
+    paddingLeft: "4px",
+    boxShadow:
+      "0 0 rgb(0 0 0 / 0), 0 0 rgb(0 0 0 / 0), -10px 0 14px rgba(248, 248, 249, 0.86)",
+    WebkitBackdropFilter: "blur(24px)",
+    backdropFilter: "blur(24px)",
+  });
+  export const paneActions = style({
+    display: "flex",
+    alignItems: "center",
+  });
+  export const paneActionButtonGroup = style({
+    boxSizing: "border-box",
+    height: "28px",
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "4px",
+    padding: "0",
+  });
+  export const paneOverflowMenuWrap = style({
+    position: "relative",
+    height: "100%",
+    display: "flex",
+  });
+  export const compactIconButton = style({
+    boxSizing: "border-box !important",
+    height: "100% !important",
+    minHeight: "0 !important",
+    minWidth: "28px !important",
+    width: "28px !important",
+    borderColor: "transparent !important",
+    selectors: {
+      "&:hover": {
+        borderColor: "transparent !important",
+        backgroundColor: "rgb(255 255 255 / 0.24) !important",
+        color: "var(--rieul-text-primary) !important",
+      },
+    },
+    borderRadius: "var(--rieul-radius-sm) !important",
+    backgroundColor: "transparent !important",
+    padding: "0 !important",
+    color: "var(--rieul-text-tertiary) !important",
+  });
+  export const standaloneButton = style({
+    borderRadius: "4px !important",
+  });
+  export const paneCreateMenu = style({
+    right: "0",
+    top: "100%",
+    zIndex: 12,
+    width: "188px",
+  });
+  export const paneOverflowMenu = style({
+    right: "0",
+    top: "100%",
+    zIndex: 12,
+    width: "172px",
+  });
+  export const paneMobileTabMenuDivider = style({
+    display: "none",
+    borderTopWidth: "1px",
+    borderTopColor: theme.borderLight,
+    "@media (max-width: 680px)": {
+      display: "block",
+    },
+  });
+  export const paneMobileTabMenuItem = style({
+    display: "none",
+    "@media (max-width: 680px)": {
+      display: "inline-flex",
+    },
+  });
+  export const workbenchPaneBody = style({
+    selectors: {
+      "&::before": {
+        pointerEvents: "none",
+        position: "absolute",
+        zIndex: 4,
+        borderWidth: "2px",
+        borderColor: theme.accent,
+        backgroundColor: theme.accentOverlay,
+        opacity: 0,
+        content: "''",
+      },
+      "&.tab-split-bottom::before": {
+        bottom: "0",
+        left: "0",
+        right: "0",
+        height: "50%",
+        opacity: 1,
+      },
+      "&.tab-split-left::before": {
+        bottom: "0",
+        left: "0",
+        top: "0",
+        width: "50%",
+        opacity: 1,
+      },
+      "&.tab-split-right::before": {
+        bottom: "0",
+        right: "0",
+        top: "0",
+        width: "50%",
+        opacity: 1,
+      },
+      "&.tab-split-top::before": {
+        left: "0",
+        right: "0",
+        top: "0",
+        height: "50%",
+        opacity: 1,
+      },
+    },
+    position: "relative",
+    height: "100%",
+    minHeight: "0",
+    minWidth: "0",
+    width: "100%",
+    overflow: "hidden",
+    borderWidth: "1px",
+    borderColor: "rgb(255 255 255 / 0.58)",
+    borderRadius: "12px",
+    backgroundColor: "rgba(253, 253, 253, 0.94)",
+    "@media (max-width: 680px)": {
+      borderLeftWidth: "0px",
+      borderRightWidth: "0px",
+      borderBottomWidth: "0px",
+      borderRadius: "0",
+    },
+  });
+  export const workbenchTabPage = style({
+    container: "workbench-tab-page / inline-size",
+    display: "block",
+    selectors: {
+      "&[hidden]": {
+        display: "none",
+      },
+    },
+    height: "100%",
+    minHeight: "0",
+    minWidth: "0",
+    width: "100%",
+    overflow: "hidden",
+  });
+  export const floatingMenu = style({
+    zIndex: 30,
+    width: "168px",
+  });
+  export const div = style({
+    display: "flex",
+    justifyContent: "flex-end",
+    gap: "0.5rem",
+  });
 }

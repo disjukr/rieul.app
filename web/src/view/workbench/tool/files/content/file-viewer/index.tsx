@@ -1,3 +1,4 @@
+import { style } from "../../../../../../zyzz.config.ts";
 import { Dynamic } from "@solidjs/web";
 import { createMemo, Loading } from "solid-js";
 import { useBunja } from "bunja/solid";
@@ -6,16 +7,7 @@ import { Loader2 } from "../../../../../../solid/icons.tsx";
 import { FileViewerFooter } from "./footer/index.tsx";
 import { getFileViewerImpl } from "./impl/index.ts";
 import { fileViewerBunja } from "./state.tsx";
-const fileViewerStatusClassName = [
-  "flex items-center justify-center gap-[8px] min-w-0 min-h-0",
-  "text-[#667085] text-[14px]",
-  "[&.error]:items-start [&.error]:justify-start [&.error]:overflow-auto",
-  "[&.error]:text-[#b42318] [&.error]:p-[14px]",
-].join(" ");
-const fileViewerClassName = [
-  "grid [grid-template-rows:minmax(0,1fr)_auto]",
-  "w-full h-full min-w-0 min-h-0 overflow-hidden bg-white",
-].join(" ");
+
 export function FileViewer() {
   const viewer = useBunja(fileViewerBunja);
   const state = () => viewer().state();
@@ -29,21 +21,21 @@ export function FileViewer() {
     return value.phase === "error" ? value.message : "";
   });
   return (
-    <section class={fileViewerClassName}>
+    <section {...styles.fileViewer()}>
       {state().phase === "detecting" ? (
-        <div class={fileViewerStatusClassName}>
-          <Loader2 size={18} className="animate-spin" />
+        <div {...styles.fileViewerStatus()}>
+          <Loader2 size={18} className={styles.loader2().class} />
           <span>Detecting viewer</span>
         </div>
       ) : state().phase === "error" ? (
-        <div role="alert" class={`${fileViewerStatusClassName} error`}>
+        <div role="alert" class={`${styles.fileViewerStatus().class} error`}>
           {errorMessage()}
         </div>
       ) : Impl() ? (
         <Loading
           fallback={
-            <div class={fileViewerStatusClassName}>
-              <Loader2 size={18} className="animate-spin" />
+            <div {...styles.fileViewerStatus()}>
+              <Loader2 size={18} className={styles.loader2().class} />
               <span>Loading viewer</span>
             </div>
           }
@@ -54,4 +46,39 @@ export function FileViewer() {
       <FileViewerFooter />
     </section>
   );
+}
+
+namespace styles {
+  export const fileViewerStatus = style({
+    minHeight: "0",
+    minWidth: "0",
+    display: "flex",
+    selectors: {
+      "&.error": {
+        alignItems: "flex-start",
+        justifyContent: "flex-start",
+        overflow: "auto",
+        padding: "14px",
+        color: "rgb(180 35 24 / 1)",
+      },
+    },
+    alignItems: "center",
+    justifyContent: "center",
+    gap: "8px",
+    fontSize: "14px",
+    color: "rgb(102 112 133 / 1)",
+  });
+  export const fileViewer = style({
+    gridTemplateRows: "minmax(0,1fr) auto",
+    display: "grid",
+    height: "100%",
+    minHeight: "0",
+    minWidth: "0",
+    width: "100%",
+    overflow: "hidden",
+    backgroundColor: "rgb(255 255 255 / 1)",
+  });
+  export const loader2 = style({
+    animation: "spin 1s linear infinite",
+  });
 }

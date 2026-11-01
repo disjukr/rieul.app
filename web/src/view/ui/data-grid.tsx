@@ -1,108 +1,180 @@
+import { className as joinClassName } from "../class-name.ts";
+import { variants, theme } from "../../zyzz.config.ts";
 import type { JSX } from "@solidjs/web";
 import { omit } from "solid-js";
 
-import { cva, type VariantProps } from "class-variance-authority";
-import { className as joinClassName } from "../class-name.ts";
+import type { Props } from "zyzz";
 
-const dataGridVariants = cva(
-  "grid min-h-0 min-w-0 overflow-auto bg-[var(--rieul-bg-primary)] leading-[1.6]",
-  {
-    variants: {
-      density: {
-        compact: "auto-rows-[2em]",
-        regular: "auto-rows-[2rem]",
+const dataGridVariants = variants({
+  base: {
+    display: "grid",
+    minHeight: "0",
+    minWidth: "0",
+    overflow: "auto",
+    backgroundColor: theme.bgPrimary,
+    lineHeight: 1.6,
+  },
+  variants: {
+    density: {
+      compact: {
+        gridAutoRows: "2em",
       },
-    },
-    defaultVariants: {
-      density: "compact",
+      regular: {
+        gridAutoRows: "2rem",
+      },
     },
   },
-);
+  defaultVariants: {
+    density: "compact",
+  },
+});
 
-const dataGridHeaderCellVariants = cva(
-  [
-    "sticky top-0 z-[1] flex box-border items-center",
-    "border-b border-b-[var(--rieul-border-light)] bg-[var(--rieul-bg-header)]",
-    "font-700 text-[var(--rieul-text-tertiary)]",
-  ],
-  {
-    variants: {
-      density: {
-        compact: "h-[2em] px-[8px]",
-        regular: "h-[2rem] px-[8px]",
+const dataGridHeaderCellVariants = variants({
+  base: {
+    position: "sticky",
+    top: "0",
+    zIndex: 1,
+    boxSizing: "border-box",
+    display: "flex",
+    alignItems: "center",
+    borderBottomWidth: "1px",
+    borderBottomColor: theme.borderLight,
+    backgroundColor: theme.bgHeader,
+    color: theme.textTertiary,
+    fontWeight: 700,
+  },
+  variants: {
+    density: {
+      compact: {
+        height: "2em",
+        paddingLeft: "8px",
+        paddingRight: "8px",
       },
-    },
-    defaultVariants: {
-      density: "compact",
+      regular: {
+        height: "2rem",
+        paddingLeft: "8px",
+        paddingRight: "8px",
+      },
     },
   },
-);
+  defaultVariants: {
+    density: "compact",
+  },
+});
 
-const dataGridRowVariants = cva(
-  [
-    "grid [grid-column:1/-1] [grid-template-columns:subgrid]",
-    "box-border rounded-0 border-0 border-b border-b-[var(--rieul-bg-muted)]",
-    "bg-[var(--rieul-bg-primary)] text-left leading-[1.6]",
-  ],
-  {
-    variants: {
-      density: {
-        compact: "h-[2em] min-h-[2em]",
-        regular: "h-[2rem] min-h-[2rem]",
+const dataGridRowVariants = variants({
+  base: {
+    gridColumn: "1/-1",
+    gridTemplateColumns: "subgrid",
+    display: "grid",
+    boxSizing: "border-box",
+    borderWidth: "0px",
+    borderBottomWidth: "1px",
+    borderBottomColor: theme.bgMuted,
+    borderRadius: "0",
+    backgroundColor: theme.bgPrimary,
+    textAlign: "left",
+    lineHeight: 1.6,
+  },
+  variants: {
+    density: {
+      compact: {
+        height: "2em",
+        minHeight: "2em",
       },
-      interactive: {
-        false: "",
-        true: "appearance-none cursor-pointer p-0 [font-family:inherit] hover:bg-[var(--rieul-bg-hover-weak)]",
-      },
-      selected: {
-        false: "",
-        true: "bg-[var(--rieul-bg-selected)]",
+      regular: {
+        height: "2rem",
+        minHeight: "2rem",
       },
     },
-    defaultVariants: {
-      density: "compact",
-      interactive: false,
-      selected: false,
+    interactive: {
+      false: {},
+      true: {
+        fontFamily: "inherit",
+        cursor: "pointer",
+        WebkitAppearance: "none",
+        appearance: "none",
+        selectors: {
+          "&:hover": {
+            backgroundColor: theme.bgHoverWeak,
+          },
+        },
+        padding: "0",
+      },
+    },
+    selected: {
+      false: {},
+      true: {
+        backgroundColor: theme.bgSelected,
+      },
     },
   },
-);
+  defaultVariants: {
+    density: "compact",
+    interactive: false,
+    selected: false,
+  },
+});
 
-const dataGridCellVariants = cva(
-  "flex min-w-0 items-center overflow-hidden px-[8px] text-ellipsis whitespace-nowrap",
-  {
-    variants: {
-      tone: {
-        primary: "text-[var(--rieul-text-strong)]",
-        secondary: "text-[var(--rieul-text-tertiary)]",
+const dataGridCellVariants = variants({
+  base: {
+    minWidth: "0",
+    display: "flex",
+    alignItems: "center",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    paddingLeft: "8px",
+    paddingRight: "8px",
+  },
+  variants: {
+    tone: {
+      primary: {
+        color: theme.textStrong,
+      },
+      secondary: {
+        color: theme.textTertiary,
       },
     },
-    defaultVariants: {
-      tone: "primary",
-    },
   },
-);
+  defaultVariants: {
+    tone: "primary",
+  },
+});
 
 export interface DataGridProps
   extends JSX.HTMLAttributes<HTMLDivElement>,
-    VariantProps<typeof dataGridVariants> {
+    Omit<
+      Props.Variants<typeof dataGridVariants>,
+      "className" | "style" | "vars"
+    > {
   className?: string;
 }
 
 export interface DataGridHeaderCellProps
   extends JSX.HTMLAttributes<HTMLDivElement>,
-    VariantProps<typeof dataGridHeaderCellVariants> {
+    Omit<
+      Props.Variants<typeof dataGridHeaderCellVariants>,
+      "className" | "style" | "vars"
+    > {
   className?: string;
 }
 
 export interface DataGridRowProps
   extends JSX.HTMLAttributes<HTMLDivElement>,
-    VariantProps<typeof dataGridRowVariants> {
+    Omit<
+      Props.Variants<typeof dataGridRowVariants>,
+      "className" | "style" | "vars"
+    > {
   className?: string;
 }
 
 export interface DataGridCellProps
   extends JSX.HTMLAttributes<HTMLDivElement>,
-    VariantProps<typeof dataGridCellVariants> {
+    Omit<
+      Props.Variants<typeof dataGridCellVariants>,
+      "className" | "style" | "vars"
+    > {
   className?: string;
 }
 
@@ -112,10 +184,10 @@ export function DataGrid(componentProps: DataGridProps) {
   return (
     <div
       {...otherProps}
-      class={joinClassName(
-        dataGridVariants({ density: componentProps.density }),
-        componentProps.className,
-      )}
+      {...dataGridVariants({
+        density: componentProps.density,
+        className: joinClassName(componentProps.className ?? ""),
+      })}
     />
   );
 }
@@ -126,10 +198,10 @@ export function DataGridHeaderCell(componentProps: DataGridHeaderCellProps) {
   return (
     <div
       {...otherProps}
-      class={joinClassName(
-        dataGridHeaderCellVariants({ density: componentProps.density }),
-        componentProps.className,
-      )}
+      {...dataGridHeaderCellVariants({
+        density: componentProps.density,
+        className: joinClassName(componentProps.className ?? ""),
+      })}
     />
   );
 }
@@ -146,14 +218,12 @@ export function DataGridRow(componentProps: DataGridRowProps) {
   return (
     <div
       {...otherProps}
-      class={joinClassName(
-        dataGridRowVariants({
-          density: componentProps.density,
-          interactive: componentProps.interactive,
-          selected: componentProps.selected,
-        }),
-        componentProps.className,
-      )}
+      {...dataGridRowVariants({
+        density: componentProps.density,
+        interactive: componentProps.interactive,
+        selected: componentProps.selected,
+        className: joinClassName(componentProps.className ?? ""),
+      })}
     />
   );
 }
@@ -164,10 +234,10 @@ export function DataGridCell(componentProps: DataGridCellProps) {
   return (
     <div
       {...otherProps}
-      class={joinClassName(
-        dataGridCellVariants({ tone: componentProps.tone }),
-        componentProps.className,
-      )}
+      {...dataGridCellVariants({
+        tone: componentProps.tone,
+        className: joinClassName(componentProps.className ?? ""),
+      })}
     />
   );
 }

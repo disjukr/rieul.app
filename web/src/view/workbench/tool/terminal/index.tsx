@@ -1,3 +1,4 @@
+import { style } from "../../../../zyzz.config.ts";
 import {
   createEffect,
   createSignal,
@@ -36,69 +37,7 @@ import {
   type WorkbenchTerminalSessionSnapshot,
 } from "../../../../state/workbench.ts";
 import { Button } from "../../../ui/button.tsx";
-const terminalToolClassName = [
-  "grid [grid-template-rows:minmax(0,1fr)_auto_auto]",
-  "w-full h-full min-w-0 min-h-0 overflow-hidden",
-  "rounded-b-[12px]",
-  "bg-[rgba(8,12,20,0.72)] text-[#d8dee9] backdrop-blur-2xl",
-  "max-[680px]:rounded-none",
-].join(" ");
-const terminalSurfaceClassName =
-  "relative w-full h-full min-w-0 min-h-0 overflow-hidden";
-const emptyWorkspaceClassName = [
-  "grid content-center justify-items-center w-full h-full gap-[10px]",
-  "min-h-0 bg-[rgba(8,12,20,0.72)] text-[#9aa6b8] backdrop-blur-2xl",
-  "[&_h2]:m-0 [&_h2]:text-[#eef3fa] [&_h2]:text-[18px] [&_h2]:tracking-[0]",
-].join(" ");
-const terminalFooterClassName = [
-  "flex items-center justify-end gap-[12px] h-[2rem] min-h-[2rem] box-border",
-  "rounded-b-[12px]",
-  "border-t border-t-white/8 bg-black/14 text-[#9aa6b8] backdrop-blur-xl",
-  "shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]",
-  "px-[8px] leading-[1.6]",
-  "max-[680px]:rounded-none",
-  "[@container_workbench-tab-page_(min-width:520px)]:justify-between",
-].join(" ");
-const terminalFooterDetailsClassName = [
-  "hidden min-w-0 items-center gap-[8px]",
-  "[@container_workbench-tab-page_(min-width:520px)]:flex",
-  "[&_strong]:min-w-0 [&_strong]:overflow-hidden [&_strong]:text-ellipsis",
-  "[&_strong]:whitespace-nowrap [&_strong]:font-650 [&_strong]:text-[#dce6f4]",
-  "[&_span]:min-w-0 [&_span]:overflow-hidden [&_span]:text-ellipsis",
-  "[&_span]:whitespace-nowrap",
-].join(" ");
-const terminalFooterSizeClassName = "flex-[0_0_auto]";
-const terminalHostClassName = [
-  "box-border w-full h-full min-w-0 min-h-0 overflow-hidden",
-  "bg-[#0b0f16] px-[8px]",
-  "[&_.xterm]:box-border [&_.xterm]:h-full [&_.xterm]:bg-[#0b0f16]",
-  "[&_.xterm]:pr-[12px]",
-  "[&_.xterm-viewport]:bg-[#0b0f16]",
-  "[&_.xterm-viewport]:[scrollbar-gutter:stable]",
-].join(" ");
-const terminalOverlayNoticeClassName = [
-  "absolute inset-0 z-[2] grid place-items-center bg-[rgba(8,12,20,0.78)] backdrop-blur-2xl",
-  "px-[18px] text-center text-[#d0d5dd]",
-  "[&_div]:grid [&_div]:max-w-[360px] [&_div]:justify-items-center",
-  "[&_div]:gap-[10px]",
-  "[&_h2]:m-0 [&_h2]:text-[18px] [&_h2]:font-750 [&_h2]:text-[#f2f4f7]",
-  "[&_p]:m-0 [&_p]:text-[13px] [&_p]:leading-[1.45]",
-].join(" ");
-const terminalWaitingNoticeClassName = [
-  "absolute inset-0 z-[1] grid place-items-center bg-[rgba(8,12,20,0.68)] backdrop-blur-xl",
-  "px-[18px] text-[#d0d5dd]",
-  "[&_div]:flex [&_div]:items-center [&_div]:gap-[8px]",
-  "[&_span]:text-[13px] [&_span]:leading-[1.6]",
-].join(" ");
-const terminalStatusNoticeClassName = [
-  "flex min-h-[2rem] items-center gap-[8px] border-t border-t-white/8",
-  "bg-black/18 px-[8px] leading-[1.6] text-[#98a2b3] backdrop-blur-xl",
-  "[&_strong]:flex-[0_0_auto] [&_strong]:font-650 [&_strong]:text-[#d0d5dd]",
-  "[&_span]:min-w-0 [&_span]:flex-[1_1_auto] [&_span]:overflow-hidden",
-  "[&_span]:text-ellipsis [&_span]:whitespace-nowrap",
-].join(" ");
-const terminalNoticeButtonClassName =
-  "!h-[1.5rem] !min-h-[1.5rem] !rounded-[4px] !border-[#38465a] !bg-[#111827] !px-[6px] !leading-none !text-[#d0d5dd] hover:!bg-[#172033]";
+
 interface TerminalRuntime {
   terminal: XTerm;
   fitAddon: FitAddon;
@@ -750,7 +689,7 @@ export function TerminalTool() {
   }
   function TerminalHost() {
     onCleanup(() => setHostElement(undefined));
-    return <div ref={setHostElement} class={terminalHostClassName} />;
+    return <div ref={setHostElement} {...styles.terminalHost()} />;
   }
   const terminalNotice = createMemo(() =>
     terminalNoticeFromState(status(), sessionInfo()),
@@ -762,7 +701,7 @@ export function TerminalTool() {
     <Show
       when={machine()}
       fallback={
-        <section class={emptyWorkspaceClassName}>
+        <section {...styles.emptyWorkspace()}>
           <HardDrive size={28} />
           <h2>No machine selected</h2>
         </section>
@@ -771,7 +710,7 @@ export function TerminalTool() {
       <Show
         when={isPaired()}
         fallback={
-          <section class={emptyWorkspaceClassName}>
+          <section {...styles.emptyWorkspace()}>
             <KeyRound size={28} />
             <h2>Pairing required</h2>
             <Button
@@ -783,25 +722,25 @@ export function TerminalTool() {
           </section>
         }
       >
-        <section class={terminalToolClassName}>
-          <div class={terminalSurfaceClassName}>
+        <section {...styles.terminalTool()}>
+          <div {...styles.terminalSurface()}>
             <TerminalHost />
             {status().phase === "waiting" ? (
-              <div class={terminalWaitingNoticeClassName}>
+              <div {...styles.terminalWaitingNotice()}>
                 <div>
-                  <Loader2 size={16} className="animate-spin" />
+                  <Loader2 size={16} className={styles.loader2().class} />
                   <span>{status().message}</span>
                 </div>
               </div>
             ) : null}
             {terminalNotice()?.presentation === "overlay" ? (
-              <div class={terminalOverlayNoticeClassName}>
+              <div {...styles.terminalOverlayNotice()}>
                 <div>
                   <h2>{terminalNotice()!.title}</h2>
                   <p>{terminalNotice()!.message}</p>
                   {canOpenNewTerminal() ? (
                     <Button
-                      className={terminalNoticeButtonClassName}
+                      className={styles.terminalNoticeButton().class}
                       onClick={() => void openNewTerminalSession()}
                     >
                       {terminalNotice()!.actionLabel}
@@ -812,12 +751,12 @@ export function TerminalTool() {
             ) : null}
           </div>
           {terminalNotice()?.presentation === "banner" ? (
-            <div class={terminalStatusNoticeClassName}>
+            <div {...styles.terminalStatusNotice()}>
               <strong>{terminalNotice()!.title}</strong>
               <span>{terminalNotice()!.message}</span>
               {canOpenNewTerminal() ? (
                 <Button
-                  className={terminalNoticeButtonClassName}
+                  className={styles.terminalNoticeButton().class}
                   onClick={() => void openNewTerminalSession()}
                 >
                   {terminalNotice()!.actionLabel}
@@ -825,14 +764,14 @@ export function TerminalTool() {
               ) : null}
             </div>
           ) : null}
-          <div class={terminalFooterClassName}>
-            <div class={terminalFooterDetailsClassName}>
+          <div {...styles.terminalFooter()}>
+            <div {...styles.terminalFooterDetails()}>
               <strong>{terminalLaunchName(sessionInfo())}</strong>
               {sessionInfo()?.lastKnownCwd ? (
                 <span>{sessionInfo()!.lastKnownCwd}</span>
               ) : null}
             </div>
-            <span class={terminalFooterSizeClassName}>
+            <span {...styles.terminalFooterSize()}>
               {sessionInfo()?.cols ?? terminalDimensions().cols}
               {" x "}
               {sessionInfo()?.rows ?? terminalDimensions().rows}
@@ -996,4 +935,238 @@ function humanizeCode(code: string, fallback: string): string {
 }
 function capitalize(text: string): string {
   return text.length === 0 ? text : text[0]!.toUpperCase() + text.slice(1);
+}
+
+namespace styles {
+  export const terminalTool = style({
+    gridTemplateRows: "minmax(0,1fr) auto auto",
+    display: "grid",
+    height: "100%",
+    minHeight: "0",
+    minWidth: "0",
+    width: "100%",
+    overflow: "hidden",
+    borderBottomLeftRadius: "12px",
+    borderBottomRightRadius: "12px",
+    backgroundColor: "rgba(8, 12, 20, 0.72)",
+    color: "rgb(216 222 233 / 1)",
+    WebkitBackdropFilter: "blur(40px)",
+    backdropFilter: "blur(40px)",
+    "@media (max-width: 680px)": {
+      borderRadius: "0",
+    },
+  });
+  export const terminalSurface = style({
+    position: "relative",
+    height: "100%",
+    minHeight: "0",
+    minWidth: "0",
+    width: "100%",
+    overflow: "hidden",
+  });
+  export const emptyWorkspace = style({
+    display: "grid",
+    selectors: {
+      "& h2": {
+        margin: "0",
+        fontSize: "18px",
+        color: "rgb(238 243 250 / 1)",
+        letterSpacing: "0",
+      },
+    },
+    height: "100%",
+    minHeight: "0",
+    width: "100%",
+    alignContent: "center",
+    justifyItems: "center",
+    gap: "10px",
+    backgroundColor: "rgba(8, 12, 20, 0.72)",
+    color: "rgb(154 166 184 / 1)",
+    WebkitBackdropFilter: "blur(40px)",
+    backdropFilter: "blur(40px)",
+  });
+  export const terminalFooter = style({
+    boxSizing: "border-box",
+    height: "2rem",
+    minHeight: "2rem",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    gap: "12px",
+    borderTopWidth: "1px",
+    borderTopColor: "rgb(255 255 255 / 0.08)",
+    borderBottomLeftRadius: "12px",
+    borderBottomRightRadius: "12px",
+    backgroundColor: "rgb(0 0 0 / 0.14)",
+    paddingLeft: "8px",
+    paddingRight: "8px",
+    color: "rgb(154 166 184 / 1)",
+    lineHeight: 1.6,
+    boxShadow:
+      "0 0 rgb(0 0 0 / 0), 0 0 rgb(0 0 0 / 0), inset 0 1px 0 rgba(255, 255, 255, 0.05)",
+    WebkitBackdropFilter: "blur(24px)",
+    backdropFilter: "blur(24px)",
+    "@container workbench-tab-page (min-width:520px)": {
+      justifyContent: "space-between",
+    },
+    "@media (max-width: 680px)": {
+      borderRadius: "0",
+    },
+  });
+  export const terminalFooterDetails = style({
+    display: "none",
+    selectors: {
+      "& span": {
+        minWidth: "0",
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
+      },
+      "& strong": {
+        minWidth: "0",
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
+        color: "rgb(220 230 244 / 1)",
+        fontWeight: 650,
+      },
+    },
+    minWidth: "0",
+    alignItems: "center",
+    gap: "8px",
+    "@container workbench-tab-page (min-width:520px)": {
+      display: "flex",
+    },
+  });
+  export const terminalFooterSize = style({
+    flex: "0 0 auto",
+  });
+  export const terminalHost = style({
+    selectors: {
+      "& .xterm-viewport": {
+        scrollbarGutter: "stable",
+        backgroundColor: "rgb(11 15 22 / 1)",
+      },
+      "& .xterm": {
+        boxSizing: "border-box",
+        height: "100%",
+        backgroundColor: "rgb(11 15 22 / 1)",
+        paddingRight: "12px",
+      },
+    },
+    boxSizing: "border-box",
+    height: "100%",
+    minHeight: "0",
+    minWidth: "0",
+    width: "100%",
+    overflow: "hidden",
+    backgroundColor: "rgb(11 15 22 / 1)",
+    paddingLeft: "8px",
+    paddingRight: "8px",
+  });
+  export const terminalOverlayNotice = style({
+    position: "absolute",
+    inset: "0",
+    zIndex: 2,
+    selectors: {
+      "& div": {
+        display: "grid",
+        maxWidth: "360px",
+        justifyItems: "center",
+        gap: "10px",
+      },
+      "& h2": {
+        margin: "0",
+        fontSize: "18px",
+        color: "rgb(242 244 247 / 1)",
+        fontWeight: 750,
+      },
+      "& p": {
+        margin: "0",
+        fontSize: "13px",
+        lineHeight: 1.45,
+      },
+    },
+    display: "grid",
+    placeItems: "center",
+    backgroundColor: "rgba(8, 12, 20, 0.78)",
+    paddingLeft: "18px",
+    paddingRight: "18px",
+    textAlign: "center",
+    color: "rgb(208 213 221 / 1)",
+    WebkitBackdropFilter: "blur(40px)",
+    backdropFilter: "blur(40px)",
+  });
+  export const terminalWaitingNotice = style({
+    position: "absolute",
+    inset: "0",
+    zIndex: 1,
+    display: "grid",
+    selectors: {
+      "& div": {
+        display: "flex",
+        alignItems: "center",
+        gap: "8px",
+      },
+      "& span": {
+        fontSize: "13px",
+        lineHeight: 1.6,
+      },
+    },
+    placeItems: "center",
+    backgroundColor: "rgba(8, 12, 20, 0.68)",
+    paddingLeft: "18px",
+    paddingRight: "18px",
+    color: "rgb(208 213 221 / 1)",
+    WebkitBackdropFilter: "blur(24px)",
+    backdropFilter: "blur(24px)",
+  });
+  export const terminalStatusNotice = style({
+    selectors: {
+      "& span": {
+        minWidth: "0",
+        flex: "1 1 auto",
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
+      },
+      "& strong": {
+        flex: "0 0 auto",
+        color: "rgb(208 213 221 / 1)",
+        fontWeight: 650,
+      },
+    },
+    minHeight: "2rem",
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+    borderTopWidth: "1px",
+    borderTopColor: "rgb(255 255 255 / 0.08)",
+    backgroundColor: "rgb(0 0 0 / 0.18)",
+    paddingLeft: "8px",
+    paddingRight: "8px",
+    color: "rgb(152 162 179 / 1)",
+    lineHeight: 1.6,
+    WebkitBackdropFilter: "blur(24px)",
+    backdropFilter: "blur(24px)",
+  });
+  export const terminalNoticeButton = style({
+    height: "1.5rem !important",
+    minHeight: "1.5rem !important",
+    borderColor: "rgb(56 70 90 / 1 ) !important",
+    borderRadius: "4px !important",
+    backgroundColor: "rgb(17 24 39 / 1 ) !important",
+    selectors: {
+      "&:hover": {
+        backgroundColor: "rgb(23 32 51 / 1 ) !important",
+      },
+    },
+    paddingLeft: "6px !important",
+    paddingRight: "6px !important",
+    color: "rgb(208 213 221 / 1 ) !important",
+    lineHeight: "1 !important",
+  });
+  export const loader2 = style({
+    animation: "spin 1s linear infinite",
+  });
 }

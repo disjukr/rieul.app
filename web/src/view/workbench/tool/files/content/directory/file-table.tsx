@@ -1,3 +1,4 @@
+import { style, theme } from "../../../../../../zyzz.config.ts";
 import { createEffect, For } from "solid-js";
 import {
   type FsEntry,
@@ -33,65 +34,7 @@ interface FileTableProps {
   onRenameCommit: (entry: FsEntry) => void;
   onRenameDraftChange: (value: string) => void;
 }
-const fileTableClassName = [
-  "file-table relative grid",
-  "[grid-template-columns:minmax(220px,1fr)_minmax(96px,130px)_minmax(88px,120px)_minmax(140px,190px)]",
-  "[@container_workbench-tab-page_(max-width:680px)]:[grid-template-columns:minmax(200px,1fr)_96px_88px]",
-  "auto-rows-[25px] min-w-0 min-h-0 overflow-auto",
-  "rounded-[8px] border border-white/56",
-  "bg-[rgba(251,251,252,0.98)] leading-[1.38]",
-  "pt-[2px]",
-].join(" ");
-const hideInNarrowContainerClassName =
-  "[@container_workbench-tab-page_(max-width:680px)]:hidden";
-const fileHeadClassName = [
-  "file-head sticky top-0 z-[2] flex items-center h-[21px] box-border",
-  "border-b border-b-[#e7e9ee] bg-[#fdfdfd] px-[8px]",
-  "text-[10px] font-620 text-rieul-text-3",
-].join(" ");
-const fileRowClassName = [
-  "file-row relative z-[1] grid [grid-column:1/-1] [grid-template-columns:subgrid]",
-  "mx-[7px] h-[25px] min-h-[25px] box-border border-0 rounded-[6px]",
-  "appearance-none cursor-pointer bg-transparent p-0 text-left leading-[1.38] [font-family:inherit]",
-  "hover:bg-[rgba(48,64,86,0.026)]",
-  "[&.selected]:bg-[rgba(62,84,116,0.15)]",
-  "[&.selected]:before:content-[''] [&.selected]:before:absolute [&.selected]:before:left-[3px] [&.selected]:before:top-[5px] [&.selected]:before:bottom-[5px]",
-  "[&.selected]:before:w-[2px] [&.selected]:before:rounded-full [&.selected]:before:bg-rieul-accent",
-  "[&.selected_.file-cell]:text-rieul-text [&.selected_.file-cell.name]:font-670",
-  "[&.selected_.file-cell_svg]:text-[rgba(35,84,168,0.82)]",
-  "[&.selected]:[box-shadow:inset_0_1px_0_rgba(255,255,255,0.78),inset_0_-1px_0_rgba(18,25,38,0.04),0_2px_6px_rgba(25,38,56,0.045)]",
-].join(" ");
-const fileCellBaseClassName = [
-  "file-cell flex items-center min-w-0 overflow-hidden text-rieul-text",
-  "px-[8px] text-[12.5px] text-ellipsis whitespace-nowrap",
-].join(" ");
-const fileFirstColumnClassName = "pl-[10px]";
-const fileNameCellClassName = `${fileCellBaseClassName} ${fileFirstColumnClassName} name gap-[7px]`;
-const fileMetaCellClassName = `${fileCellBaseClassName} font-500 text-rieul-text-3`;
-const fileNameClassName =
-  "min-w-0 overflow-hidden text-ellipsis whitespace-nowrap leading-[1.38]";
-const fileNameInputClassName = [
-  "block min-w-0 min-h-0 w-full h-[1.8rem] box-border appearance-none rounded-[3px]",
-  "border border-transparent bg-rieul-surface px-[3px] py-0",
-  "text-rieul-text [font:inherit] leading-[1.6rem]",
-  "outline-none [outline-offset:0] focus:outline-none focus:[outline:none] focus:[outline-offset:0]",
-  "focus:border-rieul-accent",
-  "disabled:opacity-64",
-].join(" ");
-const fileRenameErrorClassName = [
-  "min-w-0 overflow-hidden text-ellipsis whitespace-nowrap",
-  "text-rieul-danger",
-].join(" ");
-const readonlyClassName = [
-  "flex-[0_0_auto] border border-rieul-warning rounded-full bg-rieul-warning-soft",
-  "text-rieul-warning px-[4px] py-0 leading-[1]",
-].join(" ");
-const tableEmptyClassName =
-  "[grid-column:1/-1] flex items-center text-rieul-text-3 px-[12px]";
-const tableBottomPaddingClassName = [
-  "relative z-[1] [grid-column:1/-1] mx-[8px] mt-[8px] h-[78px] rounded-[10px]",
-  "bg-[rgba(246,246,247,0.18)]",
-].join(" ");
+
 const newFileEntry: FsEntry = {
   kind: FsEntryKind.File,
   name: "",
@@ -109,27 +52,27 @@ export function FileTable(props: FileTableProps) {
   }
   return (
     <div
-      class={fileTableClassName}
+      {...styles.fileTable()}
       role="grid"
       aria-label="Files"
       onContextMenu={openFolderContextMenu}
     >
       <div
-        class={`${fileHeadClassName} ${fileFirstColumnClassName} name`}
+        class={`${styles.fileHead({ className: "file-head" }).class} ${styles.fileFirstColumn().class} name`}
         role="columnheader"
         data-file-table-head
       >
         Name
       </div>
       <div
-        class={`${fileHeadClassName} kind`}
+        class={`${styles.fileHead({ className: "file-head" }).class} kind`}
         role="columnheader"
         data-file-table-head
       >
         Kind
       </div>
       <div
-        class={`${fileHeadClassName} size`}
+        class={`${styles.fileHead({ className: "file-head" }).class} size`}
         role="columnheader"
         data-file-table-head
       >
@@ -137,9 +80,9 @@ export function FileTable(props: FileTableProps) {
       </div>
       <div
         class={className(
-          fileHeadClassName,
+          styles.fileHead({ className: "file-head" }).class,
           "modified",
-          hideInNarrowContainerClassName,
+          styles.hideInNarrowContainer().class,
         )}
         role="columnheader"
         data-file-table-head
@@ -147,7 +90,7 @@ export function FileTable(props: FileTableProps) {
         Modified
       </div>
       {props.rows.length === 0 && !props.createIsEditing ? (
-        <div class={tableEmptyClassName}>No rows</div>
+        <div {...styles.tableEmpty()}>No rows</div>
       ) : (
         <For each={props.rows}>
           {(entry) => {
@@ -155,7 +98,10 @@ export function FileTable(props: FileTableProps) {
             const selected = () => entry.path === props.selectedPath;
             return (
               <div
-                class={className(fileRowClassName, selected() && "selected")}
+                class={className(
+                  styles.fileRow({ className: "file-row" }).class,
+                  selected() && "selected",
+                )}
                 role="row"
                 aria-selected={selected() ? "true" : "false"}
                 tabindex={0}
@@ -169,7 +115,9 @@ export function FileTable(props: FileTableProps) {
                 }}
                 data-file-table-row
               >
-                <span class={fileNameCellClassName}>
+                <span
+                  class={`${styles.fileCellBase({ className: "file-cell" }).class} ${styles.fileFirstColumn().class} ${styles.nameGap({ className: "name" }).class} `}
+                >
                   <EntryIcon entry={entry} />
                   {renaming() ? (
                     <NameInput
@@ -181,23 +129,27 @@ export function FileTable(props: FileTableProps) {
                       onCommit={() => props.onRenameCommit(entry)}
                     />
                   ) : (
-                    <span class={fileNameClassName}>{displayName(entry)}</span>
+                    <span {...styles.fileName()}>{displayName(entry)}</span>
                   )}
                   {entry.readonly ? (
-                    <span class={readonlyClassName}>readonly</span>
+                    <span {...styles.readonly()}>readonly</span>
                   ) : null}
                 </span>
-                <span class={`${fileMetaCellClassName} kind`}>
+                <span
+                  class={`${`${styles.fileCellBase({ className: "file-cell" }).class} ${styles.metadata().class} `} kind`}
+                >
                   {kindLabel(entry.kind)}
                 </span>
-                <span class={`${fileMetaCellClassName} size`}>
+                <span
+                  class={`${`${styles.fileCellBase({ className: "file-cell" }).class} ${styles.metadata().class} `} size`}
+                >
                   {formatSize(entry.size)}
                 </span>
                 <span
                   class={className(
-                    fileMetaCellClassName,
+                    `${styles.fileCellBase({ className: "file-cell" }).class} font-500 text-rieul-text-3`,
                     "modified",
-                    hideInNarrowContainerClassName,
+                    styles.hideInNarrowContainer().class,
                   )}
                 >
                   {formatDate(entry.modifiedAtMs)}
@@ -209,12 +161,17 @@ export function FileTable(props: FileTableProps) {
       )}
       {props.createIsEditing ? (
         <div
-          class={className(fileRowClassName, "selected")}
+          class={className(
+            styles.fileRow({ className: "file-row" }).class,
+            "selected",
+          )}
           role="row"
           aria-selected="true"
           data-file-table-row
         >
-          <span class={fileNameCellClassName}>
+          <span
+            class={`${styles.fileCellBase({ className: "file-cell" }).class} ${styles.fileFirstColumn().class} ${styles.nameGap({ className: "name" }).class} `}
+          >
             <EntryIcon entry={newFileEntry} />
             <NameInput
               disabled={props.createIsCreating}
@@ -225,20 +182,24 @@ export function FileTable(props: FileTableProps) {
               onCommit={props.onCreateCommit}
             />
           </span>
-          <span class={`${fileMetaCellClassName} kind`}>
+          <span
+            class={`${`${styles.fileCellBase({ className: "file-cell" }).class} ${styles.metadata().class} `} kind`}
+          >
             {kindLabel(FsEntryKind.File)}
           </span>
-          <span class={`${fileMetaCellClassName} size`} />
+          <span
+            class={`${`${styles.fileCellBase({ className: "file-cell" }).class} ${styles.metadata().class} `} size`}
+          />
           <span
             class={className(
-              fileMetaCellClassName,
+              `${styles.fileCellBase({ className: "file-cell" }).class} font-500 text-rieul-text-3`,
               "modified",
-              hideInNarrowContainerClassName,
+              styles.hideInNarrowContainer().class,
             )}
           />
         </div>
       ) : null}
-      <div class={tableBottomPaddingClassName} aria-hidden="true" />
+      <div {...styles.tableBottomPadding()} aria-hidden="true" />
     </div>
   );
 }
@@ -262,10 +223,10 @@ function NameInput(props: NameInputProps) {
     },
   );
   return (
-    <span class="inline-flex min-w-0 max-w-full flex-[1_1_auto] self-center">
+    <span {...styles.span()}>
       <input
         ref={(element) => (inputRef.current = element)}
-        class={fileNameInputClassName}
+        {...styles.fileNameInput()}
         disabled={props.disabled}
         value={props.value}
         onBlur={props.onCommit}
@@ -287,8 +248,217 @@ function NameInput(props: NameInputProps) {
         }}
       />
       {props.error ? (
-        <span class={fileRenameErrorClassName}>{props.error}</span>
+        <span {...styles.fileRenameError()}>{props.error}</span>
       ) : null}
     </span>
   );
+}
+
+namespace styles {
+  export const nameGap = style({
+    gap: "7px",
+  });
+  export const metadata = style({
+    color: theme.textTertiary,
+    fontWeight: 500,
+  });
+
+  export const fileTable = style({
+    gridTemplateColumns:
+      "minmax(220px,1fr) minmax(96px,130px) minmax(88px,120px) minmax(140px,190px)",
+    position: "relative",
+    display: "grid",
+    gridAutoRows: "25px",
+    minHeight: "0",
+    minWidth: "0",
+    selectors: {
+      "&::file-selector-button": {
+        display: "table",
+      },
+    },
+    overflow: "auto",
+    borderWidth: "1px",
+    borderColor: "rgb(255 255 255 / 0.56)",
+    borderRadius: "8px",
+    backgroundColor: "rgba(251, 251, 252, 0.98)",
+    paddingTop: "2px",
+    lineHeight: 1.38,
+    "@container workbench-tab-page (max-width:680px)": {
+      gridTemplateColumns: "minmax(200px,1fr) 96px 88px",
+    },
+  });
+  export const hideInNarrowContainer = style({
+    "@container workbench-tab-page (max-width:680px)": {
+      display: "none",
+    },
+  });
+  export const fileHead = style({
+    position: "sticky",
+    top: "0",
+    zIndex: 2,
+    boxSizing: "border-box",
+    height: "21px",
+    display: "flex",
+    alignItems: "center",
+    borderBottomWidth: "1px",
+    borderBottomColor: "rgb(231 233 238 / 1)",
+    backgroundColor: "rgb(253 253 253 / 1)",
+    paddingLeft: "8px",
+    paddingRight: "8px",
+    fontSize: "10px",
+    color: theme.textTertiary,
+    fontWeight: 620,
+  });
+  export const fileRow = style({
+    selectors: {
+      "&.selected": {
+        boxShadow:
+          "inset 0 1px 0 rgba(255,255,255,0.78),inset 0 -1px 0 rgba(18,25,38,0.04),0 2px 6px rgba(25,38,56,0.045)",
+        backgroundColor: "rgba(62, 84, 116, 0.15)",
+      },
+      "&.selected::before": {
+        position: "absolute",
+        bottom: "5px",
+        left: "3px",
+        top: "5px",
+        width: "2px",
+        borderRadius: "9999px",
+        backgroundColor: theme.accent,
+        content: "''",
+      },
+      "&:hover": {
+        backgroundColor: "rgba(48, 64, 86, 0.026)",
+      },
+      "&.selected .file-cell svg": {
+        color: "rgba(35, 84, 168, 0.82)",
+      },
+      "&.selected .file-cell": {
+        color: theme.textPrimary,
+      },
+      "&.selected .file-cell.name": {
+        fontWeight: 670,
+      },
+    },
+    fontFamily: "inherit",
+    gridColumn: "1/-1",
+    gridTemplateColumns: "subgrid",
+    position: "relative",
+    zIndex: 1,
+    display: "grid",
+    marginLeft: "7px",
+    marginRight: "7px",
+    boxSizing: "border-box",
+    height: "25px",
+    minHeight: "25px",
+    cursor: "pointer",
+    WebkitAppearance: "none",
+    appearance: "none",
+    borderWidth: "0px",
+    borderRadius: "6px",
+    backgroundColor: "transparent",
+    padding: "0",
+    textAlign: "left",
+    lineHeight: 1.38,
+  });
+  export const fileCellBase = style({
+    minWidth: "0",
+    display: "flex",
+    alignItems: "center",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    paddingLeft: "8px",
+    paddingRight: "8px",
+    fontSize: "12.5px",
+    color: theme.textPrimary,
+  });
+  export const fileFirstColumn = style({
+    paddingLeft: "10px",
+  });
+  export const fileName = style({
+    minWidth: "0",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    lineHeight: 1.38,
+  });
+  export const fileNameInput = style({
+    font: "inherit",
+    outlineOffset: "2px",
+    selectors: {
+      "&:focus": {
+        outlineOffset: "2px",
+        outline: "2px solid transparent",
+        borderColor: theme.accent,
+      },
+      "&:disabled": {
+        opacity: 0.64,
+      },
+    },
+    boxSizing: "border-box",
+    display: "block",
+    height: "1.8rem",
+    minHeight: "0",
+    minWidth: "0",
+    width: "100%",
+    WebkitAppearance: "none",
+    appearance: "none",
+    borderWidth: "1px",
+    borderColor: "transparent",
+    borderRadius: "3px",
+    backgroundColor: theme.bgPrimary,
+    paddingLeft: "3px",
+    paddingRight: "3px",
+    paddingTop: "0",
+    paddingBottom: "0",
+    color: theme.textPrimary,
+    lineHeight: "1.6rem",
+    outline: "2px solid transparent",
+  });
+  export const fileRenameError = style({
+    minWidth: "0",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    color: theme.danger,
+  });
+  export const readonly = style({
+    flex: "0 0 auto",
+    borderWidth: "1px",
+    borderColor: theme.warning,
+    borderRadius: "9999px",
+    backgroundColor: theme.warningSoft,
+    paddingLeft: "4px",
+    paddingRight: "4px",
+    paddingTop: "0",
+    paddingBottom: "0",
+    color: theme.warning,
+    lineHeight: 1,
+  });
+  export const tableEmpty = style({
+    gridColumn: "1/-1",
+    display: "flex",
+    alignItems: "center",
+    paddingLeft: "12px",
+    paddingRight: "12px",
+    color: theme.textTertiary,
+  });
+  export const tableBottomPadding = style({
+    gridColumn: "1/-1",
+    position: "relative",
+    zIndex: 1,
+    marginLeft: "8px",
+    marginRight: "8px",
+    marginTop: "8px",
+    height: "78px",
+    borderRadius: "10px",
+    backgroundColor: "rgba(246, 246, 247, 0.18)",
+  });
+  export const span = style({
+    maxWidth: "100%",
+    minWidth: "0",
+    display: "inline-flex",
+    flex: "1 1 auto",
+    alignSelf: "center",
+  });
 }

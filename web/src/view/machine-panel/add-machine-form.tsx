@@ -1,19 +1,6 @@
+import { style, theme } from "../../zyzz.config.ts";
 import { Plus } from "../../solid/icons.tsx";
 import { Button } from "../ui/button.tsx";
-
-const machineModalFormClassName = [
-  "grid gap-[12px] p-[18px]",
-  "[&_label]:grid [&_label]:gap-[7px] [&_label]:min-w-0",
-  "[&_label_span]:text-rieul-text-2 [&_label_span]:text-[13px] [&_label_span]:font-700",
-  "[&_input]:min-w-0 [&_input]:min-h-[40px] [&_input]:border [&_input]:border-rieul-border-medium",
-  "[&_input]:rounded-rieul-lg [&_input]:bg-rieul-surface-2 [&_input]:px-[12px] [&_input]:text-rieul-text",
-  "[&_input]:shadow-[inset_0_1px_0_rgba(255,255,255,0.75)]",
-  "[&_input]:[font:inherit] [&_input:focus]:outline [&_input:focus]:outline-2",
-  "[&_input:focus]:bg-rieul-surface [&_input:focus]:outline-rieul-accent [&_input:focus]:outline-offset-1",
-].join(" ");
-const fieldErrorClassName =
-  "rounded-rieul-lg bg-rieul-danger-soft px-[10px] py-[8px] text-rieul-danger text-[13px]";
-const modalActionsClassName = "mt-[4px] flex justify-end gap-[0.5rem]";
 
 interface AddMachineFormProps {
   baseUrl: string;
@@ -30,7 +17,7 @@ interface AddMachineFormProps {
 export function AddMachineForm(componentProps: AddMachineFormProps) {
   return (
     <form
-      class={machineModalFormClassName}
+      {...styles.machineModalForm()}
       onSubmit={(event) => componentProps.onSubmit(event)}
     >
       <label>
@@ -59,20 +46,88 @@ export function AddMachineForm(componentProps: AddMachineFormProps) {
         />
       </label>
       {componentProps.error ? (
-        <div class={fieldErrorClassName}>{componentProps.error}</div>
+        <div {...styles.fieldError()}>{componentProps.error}</div>
       ) : null}
-      <div class={modalActionsClassName}>
+      <div {...styles.modalActions()}>
         {componentProps.showCancel ? (
           <Button onClick={() => componentProps.onCancel()}>Cancel</Button>
         ) : null}
-        <Button
-          type="submit"
-          className="border-rieul-chrome bg-rieul-chrome px-[12px] !text-rieul-inverse hover:border-rieul-chrome hover:bg-rieul-chrome-muted hover:!text-rieul-inverse"
-        >
+        <Button type="submit" className={styles.button().class}>
           <Plus size={16} />
           Continue
         </Button>
       </div>
     </form>
   );
+}
+
+namespace styles {
+  export const machineModalForm = style({
+    selectors: {
+      "& input": {
+        font: "inherit",
+        minHeight: "40px",
+        minWidth: "0",
+        borderWidth: "1px",
+        borderColor: theme.borderMedium,
+        borderRadius: theme.radiusLg,
+        backgroundColor: theme.bgSecondary,
+        paddingLeft: "12px",
+        paddingRight: "12px",
+        color: theme.textPrimary,
+        boxShadow:
+          "0 0 rgb(0 0 0 / 0), 0 0 rgb(0 0 0 / 0), inset 0 1px 0 rgba(255, 255, 255, 0.75)",
+      },
+      "& label": {
+        display: "grid",
+        minWidth: "0",
+        gap: "7px",
+      },
+      "& input:focus": {
+        backgroundColor: theme.bgPrimary,
+        outlineWidth: "2px",
+        outlineColor: theme.accent,
+        outlineOffset: "1px",
+        outlineStyle: "solid",
+      },
+      "& label span": {
+        fontSize: "13px",
+        color: theme.textSecondary,
+        fontWeight: 700,
+      },
+    },
+    display: "grid",
+    gap: "12px",
+    padding: "18px",
+  });
+  export const fieldError = style({
+    borderRadius: theme.radiusLg,
+    backgroundColor: theme.dangerSoft,
+    paddingLeft: "10px",
+    paddingRight: "10px",
+    paddingTop: "8px",
+    paddingBottom: "8px",
+    fontSize: "13px",
+    color: theme.danger,
+  });
+  export const modalActions = style({
+    marginTop: "4px",
+    display: "flex",
+    justifyContent: "flex-end",
+    gap: "0.5rem",
+  });
+  export const button = style({
+    borderColor: theme.chrome,
+    selectors: {
+      "&:hover": {
+        borderColor: theme.chrome,
+        backgroundColor: theme.chromeMuted,
+        color: "var(--rieul-text-inverse) !important",
+      },
+    },
+    backgroundColor: theme.chrome,
+    paddingLeft: "12px",
+    paddingRight: "12px",
+    color: "var(--rieul-text-inverse) !important",
+  });
 }

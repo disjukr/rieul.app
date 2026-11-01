@@ -1,5 +1,5 @@
+import { style, variants, theme } from "../../zyzz.config.ts";
 import type { JSX } from "@solidjs/web";
-import { cva } from "class-variance-authority";
 import {
   createContext,
   createSignal,
@@ -9,30 +9,6 @@ import {
   type Accessor,
 } from "solid-js";
 import { className as joinClassName } from "../class-name.ts";
-const tabListClassName =
-  "flex min-w-0 items-end overflow-visible border-b border-b-[var(--rieul-border-light)] bg-[var(--rieul-bg-header)]";
-const tabClassName = cva(
-  [
-    "inline-flex min-w-0 appearance-none items-center justify-center",
-    "border-0 bg-[var(--rieul-bg-muted)] text-[var(--rieul-text-control)]",
-    "[font-family:inherit] font-700 leading-[1.6] cursor-pointer",
-    "data-[selected]:bg-[var(--rieul-bg-primary)]",
-    "data-[selected]:text-[var(--rieul-text-primary)]",
-  ],
-  {
-    variants: {
-      density: {
-        compact: "h-[2em] px-[6px]",
-        regular: "h-[34px] px-[10px]",
-      },
-    },
-    defaultVariants: {
-      density: "compact",
-    },
-  },
-);
-const tabPanelClassName =
-  "block h-full min-h-0 w-full min-w-0 overflow-hidden [hidden]:hidden";
 
 const TabsContext = createContext<{
   value: Accessor<string>;
@@ -69,7 +45,7 @@ export function TabsList(
     <div
       {...rest}
       role="tablist"
-      class={joinClassName(tabListClassName, props.className)}
+      class={joinClassName(styles.tabList().class, props.className)}
       onKeyDown={(event) => {
         const tabs = [
           ...event.currentTarget.querySelectorAll<HTMLButtonElement>(
@@ -115,10 +91,49 @@ export function TabsTab(props: TabsTabProps) {
       aria-selected={context.value() === props.value ? "true" : "false"}
       tabindex={context.value() === props.value ? 0 : -1}
       data-selected={context.value() === props.value ? "" : undefined}
-      class={joinClassName(
-        tabClassName({ density: props.density }),
-        props.className,
-      )}
+      {...variants({
+        base: {
+          fontFamily: "inherit",
+          minWidth: "0",
+          display: "inline-flex",
+          cursor: "pointer",
+          WebkitAppearance: "none",
+          appearance: "none",
+          alignItems: "center",
+          justifyContent: "center",
+          borderWidth: "0px",
+          backgroundColor: theme.bgMuted,
+          selectors: {
+            "&[data-selected]": {
+              backgroundColor: theme.bgPrimary,
+              color: theme.textPrimary,
+            },
+          },
+          color: theme.textControl,
+          fontWeight: 700,
+          lineHeight: 1.6,
+        },
+        variants: {
+          density: {
+            compact: {
+              height: "2em",
+              paddingLeft: "6px",
+              paddingRight: "6px",
+            },
+            regular: {
+              height: "34px",
+              paddingLeft: "10px",
+              paddingRight: "10px",
+            },
+          },
+        },
+        defaultVariants: {
+          density: "compact",
+        },
+      })({
+        density: props.density,
+        className: joinClassName(props.className ?? ""),
+      })}
       onClick={() => context.select(props.value)}
     />
   );
@@ -138,7 +153,27 @@ export function TabsPanel(
       id={`${context.id}-panel-${props.value}`}
       aria-labelledby={`${context.id}-tab-${props.value}`}
       hidden={context.value() !== props.value}
-      class={joinClassName(tabPanelClassName, props.className)}
+      class={joinClassName(styles.tabPanel().class, props.className)}
     />
   );
+}
+
+namespace styles {
+  export const tabList = style({
+    minWidth: "0",
+    display: "flex",
+    alignItems: "flex-end",
+    overflow: "visible",
+    borderBottomWidth: "1px",
+    borderBottomColor: theme.borderLight,
+    backgroundColor: theme.bgHeader,
+  });
+  export const tabPanel = style({
+    display: "block",
+    height: "100%",
+    minHeight: "0",
+    minWidth: "0",
+    width: "100%",
+    overflow: "hidden",
+  });
 }
