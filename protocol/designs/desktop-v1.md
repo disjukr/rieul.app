@@ -1,10 +1,10 @@
-# Desktop v1 host/transport checkpoint (native backend not enabled)
+# Desktop v1 user-session integration (native execution validation pending)
 
-This change defines IDs 66–72 and generated Rust/TypeScript codecs. The daemon
-registers the control/input RPCs, but its default runtime has no native backend:
-capabilities explicitly report Unsupported and attach cannot start. A test-only
-backend exercises the same host path over certificate-verified localhost QUIC.
-No real desktop is captured and no OS input is sent.
+Desktop RPC IDs 66–72 use the existing authenticated WebTransport session. The
+system runtime now selects a private user-session IPC proxy on macOS and Windows.
+Construction does not capture or inject input. Capabilities remain Unsupported
+when an authenticated helper, permissions or a verified encoder are unavailable.
+No user host screen/input or permission settings were accessed during development.
 
 ## Contract
 
@@ -96,8 +96,8 @@ macOS uses ScreenCaptureKit, CGEvent and hardware-required VideoToolbox H.264.
 The adapter refuses root and checks active console ownership and existing Screen
 Recording/Accessibility authorization without prompting. Windows uses DXGI Desktop
 Duplication, SendInput and hardware-only Media Foundation H.264 transforms in an
-interactive Default desktop worker. Neither adapter is installed or connected to
-the production root/system runtime yet. Both currently emit one independent
+interactive Default desktop worker. Both adapters are connected through private authenticated IPC; installation and
+actual capture/input execution remain untested in an isolated guest. Both currently emit one independent
 keyframe per group; delta-GOP efficiency and sustained latency remain unmeasured.
 
 The synthetic black NV12 fixture was encoded by VideoToolbox hardware, then decoded
@@ -120,33 +120,70 @@ that hint, and Media Capabilities `powerEfficient` is not a hardware guarantee:
 https://www.w3.org/TR/webcodecs/#hardware-acceleration
 https://www.w3.org/TR/media-capabilities/#media-capabilities-info
 
-Both current native adapters expose only the H.264 codec derived from an actual
-hardware-produced SPS. Neither advertises AV1. A future native/browser integration
-that supplies verified AV1 decoding must also implement bounded AV1 failure to
-H.264 reattachment, with fresh epochs and no restored control; the current browser
-path cannot select AV1 and does not pretend such a runtime fallback was tested.
+macOS currently exposes H.264 derived from an actual hardware-produced SPS. An
+explicit VideoToolbox hardware-only AV1 session probe on the development Mac Studio
+returned unavailable; macOS AV1 packet production is not implemented or advertised.
+Windows now enumerates hardware-only AV1 MFTs as well as H.264, forces a clean-point
+synthetic encode and validates a supported 8-bit main-profile sequence before
+advertising AV1. Its conservative OBU parser rejects timing models, multiple
+operating points and unsupported bit depths. Windows AV1 API types and pure packet
+bounds are checked; real AV1 GPU encode/decode is still unverified.
 
-## Integration work still required
+The server respects the client's ordered codec list rather than choosing its own
+priority. A client that supplies separately verified hardware decoding evidence can
+include AV1 through `supportedDesktopCodecs`. AV1 configure/decode/encoder failure
+reattaches once with H.264 and never restores control. Tests simulate verified
+hardware to exercise those three failures; they do not claim browser hardware
+attestation. The ordinary browser still has no authoritative evidence source, so
+its automatic selection remains H.264. A trusted native decoder/browser integration
+is needed before calling AV1 selection complete in the shipping browser viewer.
 
-- Authenticated per-user desktop IPC and production adapter selection. The system
-  runtime intentionally remains Unsupported. IPC must bind peer OS identity and
-  active login session, release all held state on loss, bound media/control queues,
-  and preserve updater workload protection through actual native shutdown.
-- macOS GUI helper/packaging integration crosses files owned by the GUI migration;
-  coordinate that boundary before changing their startup and dependency graph.
-- Windows x64 full package/link CI and isolated interactive GPU execution. Current
-  cross-target checks cover Windows API types and the adapter; pure crop/NV12,
-  key mapping, Annex-B and PNG tests run independently on the development host.
-- Windows per-monitor DPI, rotated displays and monochrome/animated cursor shape
-  semantics are not implemented. Current display metadata reports scale 1 / DPI 96;
-  Windows input supports line-unit wheel only. macOS supports pixel and line wheel.
-- Native testing needs a separate isolated fixture. The updater VM and its data are
-  reserved. A new macOS arm64 guest needs an interactive user and explicitly granted
-  Screen Recording/Accessibility for only the fixture helper. GPU encoding in a VM
-  must be measured. Windows needs a separate licensed guest with working GPU APIs;
-  ARM virtualization alone cannot validate an x64/GPU deployment.
-- IME, relative pointer, OS-reserved shortcuts and real hardware latency/quality
-  are not claimed. No host capture, OS input injection, permission changes or
-  service installation has been performed.
+## Private user-session IPC
 
-GUI/packaging and updater sources remain untouched by this native checkpoint.
+`HostUserDesktop` (private IPC ID 10) owns one input/capture lifetime. Request IDs
+are monotonic, requests are bounded to 64 KiB and replies to 17 MiB. At most 16
+calls and eight native group jobs are pending; reply queues hold two messages.
+The root proxy never reconnects or replays after an established channel fails.
+EOF, malformed messages, duplicate IDs, parent shutdown or missed heartbeats drain
+native work, release held input and stop tracks. Failed/uncertain cleanup retains
+update workload protection until daemon restart. Blocking IPC and native releases
+run outside the transport's async executor. Cancellation after attach still owns
+an attachment cleanup guard.
+
+On macOS the installed GPUI app starts the existing bundled system binary in its
+new `desktop-user` mode as the GUI user, using a stdin pipe to bind its lifetime.
+GUI exit requests cleanup by EOF, not SIGKILL. An empty helper may restart after a
+daemon update; no viewer/control state is restored. Each peer is checked using
+kernel UID/PID and the expected root-owned installed executable path and ancestors.
+The user socket directory is private, symlinks are rejected, and a file lock prevents
+competing helper ownership. Console UID plus Quartz console/login state are checked;
+Screen Recording and Accessibility preflight never prompts or changes permissions.
+
+Windows starts a separate local-only desktop pipe alongside the existing user PTY
+service. It verifies the LocalSystem client, active session and installed user-process
+image path. Desktop pipe retirement does not terminate terminal sessions. Native
+operations run on the interactive Default desktop with per-monitor DPI awareness;
+display scale and line-wheel conversion use OS settings. The existing packaged user
+binary and macOS LaunchServices binary are reused; no new installer component is
+required. GUI/native startup source is compiled without launching the helper.
+
+## Remaining validation and limitations
+
+- Signed, installed macOS helper/GUI startup and permissions need a separate guest.
+  The reserved updater VM and its data were not modified. A new arm64 guest needs an
+  interactive fixture account and explicit Screen Recording/Accessibility permission
+  for the fixture app/helper only. GPU encoder support inside that guest is unknown.
+- Windows x64 native runtime and AV1 hardware MFT execution need an isolated GPU
+  environment. An ARM VM on Mac Studio cannot alone prove x64/GPU behavior. No
+  Windows image/license download or agreement was performed.
+- Ordinary browser AV1 hardware verification is unavailable; no standard API result
+  is treated as proof. Client fallback logic is implemented and tested independently.
+- A lost private IPC channel requires daemon restart; transparent login-session
+  migration/recovery is not implemented. Failure deliberately cannot restore control.
+- Native adapters currently use one-frame GOPs. Multi-frame encoder efficiency and
+  sustained hardware latency/quality remain unmeasured. Private IPC currently carries
+  one bounded complete group; incremental multi-frame IPC is still needed before
+  enabling longer native GOPs.
+- Rotated Windows outputs and monochrome/animated cursor semantics are unsupported.
+  Windows wheel supports line units, macOS pixel/line units. IME, relative pointer
+  and reserved OS shortcuts are not claimed.

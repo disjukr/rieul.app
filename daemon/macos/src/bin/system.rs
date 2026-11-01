@@ -40,6 +40,9 @@ enum Command {
     InternalUpdateWorker,
     #[cfg(target_os = "macos")]
     #[command(hide = true)]
+    DesktopUser { #[arg(long)] config: Option<PathBuf> },
+    #[cfg(target_os = "macos")]
+    #[command(hide = true)]
     MigrateUpdater,
     Run {
         #[arg(long)]
@@ -80,6 +83,7 @@ async fn main() -> Result<()> {
         .init();
 
     match Args::parse().command {
+        Command::DesktopUser { config } => rieul_macos_daemon::desktop_ipc::run(&config.unwrap_or_else(macos_system_config_path)).await,
         Command::MigrateUpdater => rieul_macos_daemon::root_update::prepare_migration(),
         Command::InternalUpdateWorker => rieul_macos_daemon::root_update::run_worker(),
         Command::Run { listen, config } => {
@@ -96,6 +100,7 @@ async fn main() -> Result<()> {
             } else {
                 None
             };
+            let desktop_backend = rieul_macos_daemon::desktop_ipc::proxy(&config_path);
             run_system_server_with_readiness(
                 listen,
                 config_path,
@@ -106,6 +111,7 @@ async fn main() -> Result<()> {
                 Some(Arc::new(MacProcessModulesService)),
                 Some(Arc::new(pairing_notifier)),
                 None,
+                Some(desktop_backend),
                 "macOS system daemon",
                 ready,
                 rieul_macos_daemon::root_update::maintenance_hooks()?,

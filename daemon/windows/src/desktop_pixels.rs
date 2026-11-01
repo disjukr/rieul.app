@@ -215,11 +215,7 @@ pub fn annex_b_headers(bytes: &[u8]) -> Vec<u8> {
             pps |= kind == 8;
         }
     }
-    if sps && pps {
-        output
-    } else {
-        vec![]
-    }
+    if sps && pps { output } else { vec![] }
 }
 
 /// Bounded RGBA PNG using stored DEFLATE blocks; avoids an image-library/codec
@@ -298,5 +294,218 @@ mod codec_tests {
         assert_eq!(&png[..8], &[137, 80, 78, 71, 13, 10, 26, 10]);
         assert_eq!(&png[png.len() - 8..], &[73, 69, 78, 68, 174, 66, 96, 130]);
         assert!(cursor_png(129, 1, &[]).is_none());
+    }
+}
+
+/// Conservative AV1 low-overhead OBU profile: one operating point, no timing model,
+/// main profile, 8-bit 4:2:0. Other streams remain unadvertised rather than guessed.
+pub fn av1_sequence_codec(sequence: &[u8]) -> Option<String> {
+    struct Bits<'a>(&'a [u8], usize);
+    impl Bits<'_> {
+        fn take(&mut self, n: usize) -> Option<u32> {
+            if n > 32 || self.1.checked_add(n)? > self.0.len() * 8 {
+                return None;
+            }
+            let mut v = 0;
+            for _ in 0..n {
+                v = (v << 1) | ((self.0[self.1 / 8] >> (7 - self.1 % 8)) & 1) as u32;
+                self.1 += 1;
+            }
+            Some(v)
+        }
+    }
+    let mut b = Bits(sequence, 0);
+    if b.take(3)? != 0 {
+        return None;
+    }
+    let still = b.take(1)?;
+    let reduced = b.take(1)?;
+    if reduced != 0 || still != 0 || b.take(1)? != 0 {
+        return None;
+    }
+    let delay = b.take(1)?;
+    if b.take(5)? != 0 || b.take(12)? != 0 {
+        return None;
+    }
+    let level = b.take(5)?;
+    if level > 23 {
+        return None;
+    }
+    let tier = if level > 7 { b.take(1)? } else { 0 };
+    if delay != 0 && b.take(1)? != 0 {
+        b.take(4)?;
+    }
+    let wb = b.take(4)? as usize + 1;
+    let hb = b.take(4)? as usize + 1;
+    b.take(wb)?;
+    b.take(hb)?;
+    if b.take(1)? != 0 {
+        b.take(7)?;
+    }
+    b.take(3)?; // superblock/filter-intra/intra-edge
+    b.take(4)?; // inter-intra/masked compound/warped motion/dual filter
+    let order = b.take(1)?;
+    if order != 0 {
+        b.take(2)?;
+    }
+    let screen = if b.take(1)? != 0 { 2 } else { b.take(1)? };
+    if screen != 0 && b.take(1)? == 0 {
+        b.take(1)?;
+    }
+    if order != 0 {
+        b.take(3)?;
+    }
+    b.take(3)?; // superres/CDEF/restoration
+    if b.take(1)? != 0 || b.take(1)? != 0 {
+        return None;
+    } // high bitdepth / monochrome
+    Some(format!(
+        "av01.0.{level:02}{}.08",
+        if tier == 0 { 'M' } else { 'H' }
+    ))
+}
+/// Normalize a clean-point sample to one independently decodable temporal unit.
+/// `sequence` persists only within one codec epoch. No cross-group frame references.
+pub fn av1_independent(bytes: &[u8], sequence: &mut Vec<u8>) -> Option<(String, Vec<u8>)> {
+    if bytes.len() > 4 * 1024 * 1024 {
+        return None;
+    }
+    let mut i = 0usize;
+    let mut body = Vec::new();
+    let mut seq = sequence.clone();
+    let mut frame = false;
+    while i < bytes.len() {
+        let start = i;
+        let header = *bytes.get(i)?;
+        i += 1;
+        if header & 0x85 != 0 || header & 2 == 0 {
+            return None;
+        } // no forbidden/reserved/extension bits
+        let kind = (header >> 3) & 15;
+        let mut size = 0usize;
+        let mut finished = false;
+        for shift in (0..56).step_by(7) {
+            let v = *bytes.get(i)?;
+            i += 1;
+            size = size.checked_add(((v & 127) as usize).checked_shl(shift)?)?;
+            if v & 128 == 0 {
+                finished = true;
+                break;
+            }
+        }
+        if !finished {
+            return None;
+        }
+        let end = i.checked_add(size)?;
+        let payload = bytes.get(i..end)?;
+        match kind {
+            1 => {
+                if frame || av1_sequence_codec(payload).is_none() {
+                    return None;
+                }
+                seq = bytes[start..end].to_vec();
+            }
+            2 => {
+                if size != 0 || frame {
+                    return None;
+                }
+            }
+            3 | 6 => {
+                if frame || payload.first()? >> 4 != 1 {
+                    return None;
+                }
+                frame = true;
+                body.extend_from_slice(&bytes[start..end]);
+            }
+            _ => body.extend_from_slice(&bytes[start..end]),
+        }
+        i = end;
+    }
+    if !frame || seq.is_empty() {
+        return None;
+    }
+    // Parse the stored sequence's LEB length again without trusting cached offsets.
+    let mut offset = 1;
+    while *seq.get(offset)? & 128 != 0 {
+        offset += 1;
+        if offset > 8 {
+            return None;
+        }
+    }
+    offset += 1;
+    let codec = av1_sequence_codec(seq.get(offset..)?)?;
+    let mut packet = vec![0x12, 0];
+    packet.extend_from_slice(&seq);
+    packet.extend_from_slice(&body);
+    if packet.len() > 4 * 1024 * 1024 {
+        return None;
+    }
+    *sequence = seq;
+    Some((codec, packet))
+}
+#[cfg(test)]
+mod av1_tests {
+    use super::*;
+    fn sequence() -> Vec<u8> {
+        let fields: &[(u32, usize)] = &[
+            (0, 3),
+            (0, 1),
+            (0, 1),
+            (0, 1),
+            (0, 1),
+            (0, 5),
+            (0, 12),
+            (13, 5),
+            (0, 1),
+            (0, 4),
+            (0, 4),
+            (0, 1),
+            (0, 1),
+            (0, 1),
+            (0, 3),
+            (0, 4),
+            (0, 1),
+            (0, 1),
+            (0, 1),
+            (0, 3),
+            (0, 1),
+            (0, 1),
+        ];
+        let mut bits = vec![];
+        for &(v, n) in fields {
+            for i in (0..n).rev() {
+                bits.push(((v >> i) & 1) as u8);
+            }
+        }
+        let mut bytes = vec![0; bits.len().div_ceil(8)];
+        for (i, v) in bits.into_iter().enumerate() {
+            bytes[i / 8] |= v << (7 - i % 8);
+        }
+        bytes
+    }
+    #[test]
+    fn sequence_and_group_bounds() {
+        let s = sequence();
+        assert_eq!(av1_sequence_codec(&s).as_deref(), Some("av01.0.13M.08"));
+        let mut bytes = vec![0x0a, s.len() as u8];
+        bytes.extend_from_slice(&s);
+        bytes.extend([0x32, 1, 0x10]);
+        let mut headers = vec![];
+        let (codec, packet) = av1_independent(&bytes, &mut headers).unwrap();
+        assert_eq!(codec, "av01.0.13M.08");
+        assert!(packet.starts_with(&[0x12, 0]));
+        assert!(av1_independent(&[0x32, 1, 0x10], &mut headers).is_some());
+        for bytes in [
+            &[0x32, 1, 0x20][..],
+            &[0x32, 4, 0x10],
+            &[0x0a, 0xff],
+            &[0x36, 0],
+        ] {
+            assert!(av1_independent(bytes, &mut headers).is_none());
+        }
+        assert!(av1_independent(&[0x32, 1, 0x10], &mut vec![]).is_none());
+        for n in 0..s.len() {
+            assert!(av1_sequence_codec(&s[..n]).is_none());
+        }
     }
 }

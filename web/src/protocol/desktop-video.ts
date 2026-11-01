@@ -24,10 +24,11 @@ export function desktopCodecOrder(
 
 export async function supportedDesktopCodecs(
   codecs: DesktopCodec[],
+  hardwareDecoded: ReadonlySet<string> = new Set(),
 ): Promise<string[]> {
   if (typeof VideoDecoder === "undefined") return [];
   const supported: string[] = [];
-  for (const codec of desktopCodecOrder(codecs.slice(0, 16))) {
+  for (const codec of desktopCodecOrder(codecs.slice(0, 16), hardwareDecoded)) {
     try {
       if (
         (
@@ -37,7 +38,9 @@ export async function supportedDesktopCodecs(
               ? new Uint8Array(codec.description)
               : undefined,
             optimizeForLatency: true,
-            hardwareAcceleration: "prefer-hardware",
+            hardwareAcceleration: codec.codec.startsWith("av01.")
+              ? "prefer-hardware"
+              : "no-preference",
           })
         ).supported
       )
@@ -81,6 +84,7 @@ export class DesktopVideoReceiver {
     private render: (viewportId: string, frame: VideoFrame) => void,
     private stats: (stats: DesktopVideoStats) => void,
     private failed: (message: string) => void,
+    private codecFailed?: (codec: string) => void,
   ) {
     this.reader = transport.incomingUnidirectionalStreams.getReader();
     void this.receive();
@@ -99,7 +103,9 @@ export class DesktopVideoReceiver {
             ? new Uint8Array(track.codec.description)
             : undefined,
           optimizeForLatency: true,
-          hardwareAcceleration: "prefer-hardware",
+          hardwareAcceleration: track.codec.codec.startsWith("av01.")
+            ? "prefer-hardware"
+            : "no-preference",
         };
         if (!(await VideoDecoder.isConfigSupported(config)).supported)
           throw new Error(`Browser cannot decode ${track.codec.codec}`);
@@ -144,7 +150,12 @@ export class DesktopVideoReceiver {
               });
           },
           error: () => {
-            /* The next independent group recreates this decoder. */
+            if (
+              !this.closed &&
+              this.tracks.get(track.trackId) === state &&
+              state.decoder === decoder
+            )
+              this.codecFailed?.(track.codec.codec);
           },
         });
         return decoder;
@@ -220,7 +231,12 @@ export class DesktopVideoReceiver {
             current.decoder = current.makeDecoder();
           current.timings.clear();
           current.decoder.reset();
-          current.decoder.configure(current.config);
+          try {
+            current.decoder.configure(current.config);
+          } catch (error) {
+            this.codecFailed?.(current.track.codec.codec);
+            throw error;
+          }
           return {
             attachId: this.attachId,
             trackId: first.trackId,
@@ -241,13 +257,18 @@ export class DesktopVideoReceiver {
           throw new Error("Desktop decoder backpressure");
         const started = performance.now();
         state.timings.set(object.timestampMicros, started);
-        state.decoder.decode(
-          new EncodedVideoChunk({
-            type: object.keyframe ? "key" : "delta",
-            timestamp: object.timestampMicros,
-            data: new Uint8Array(object.data),
-          }),
-        );
+        try {
+          state.decoder.decode(
+            new EncodedVideoChunk({
+              type: object.keyframe ? "key" : "delta",
+              timestamp: object.timestampMicros,
+              data: new Uint8Array(object.data),
+            }),
+          );
+        } catch (error) {
+          this.codecFailed?.(state.track.codec.codec);
+          throw error;
+        }
       }
       if (state && state.group === groupId) {
         let timer: ReturnType<typeof setTimeout>;

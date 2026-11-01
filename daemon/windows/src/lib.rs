@@ -17,3 +17,6 @@ pub mod desktop_pixels;
 
 #[cfg(windows)]
 pub mod desktop;
+
+#[cfg(windows)]
+pub mod desktop_ipc;

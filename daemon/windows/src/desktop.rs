@@ -157,7 +157,8 @@ struct Worker {
     buttons: BTreeSet<u64>,
     point: (i32, i32),
     clock: Instant,
-    codec: Option<String>,
+    codecs: Vec<String>,
+    probed: bool,
     wheel: (f64, f64),
 }
 impl Default for Worker {
@@ -168,7 +169,8 @@ impl Default for Worker {
             buttons: BTreeSet::new(),
             point: (0, 0),
             clock: Instant::now(),
-            codec: None,
+            codecs: vec![],
+            probed: false,
             wheel: (0.0, 0.0),
         }
     }
@@ -184,27 +186,45 @@ impl Worker {
         }
         match command {
             Command::Capabilities => {
-                if self.codec.is_none() {
-                    let encoder = native::HardwareEncoder::new(640, 480, 60, 2_000_000)
-                        .map_err(|_| Error::Unsupported)?;
-                    let mut pixels = vec![128; 640 * 480 * 3 / 2];
-                    pixels[..640 * 480].fill(16);
-                    let packet = encoder
-                        .encode_keyframe(&pixels, 0)
-                        .map_err(|_| Error::Unsupported)?;
-                    self.codec = avc_codec(&packet);
+                if !self.probed {
+                    self.probed = true;
+                    for format in [native::Codec::H264, native::Codec::Av1] {
+                        let Ok(encoder) =
+                            native::HardwareEncoder::with_codec(640, 480, 60, 2_000_000, format)
+                        else {
+                            continue;
+                        };
+                        let mut pixels = vec![128; 640 * 480 * 3 / 2];
+                        pixels[..640 * 480].fill(16);
+                        let Ok(packet) = encoder.encode_keyframe(&pixels, 0) else {
+                            continue;
+                        };
+                        let codec = if format == native::Codec::Av1 {
+                            crate::desktop_pixels::av1_independent(&packet, &mut vec![])
+                                .map(|(codec, _)| codec)
+                        } else {
+                            avc_codec(&packet)
+                        };
+                        if let Some(codec) = codec {
+                            self.codecs.push(codec);
+                        }
+                    }
                 }
                 let mut caps =
-                    unavailable("Hardware encoder did not produce an independent H.264 keyframe");
-                if let Some(codec) = &self.codec {
+                    unavailable("No hardware encoder produced a supported independent keyframe");
+                if !self.codecs.is_empty() {
                     caps.capture = DesktopAvailability::Available;
                     caps.input = DesktopAvailability::Available;
                     caps.reason=Some("Physical keys and line-unit wheel only; IME, pixel/page wheel, rotated displays and secure desktops are unavailable".into());
-                    caps.codecs = vec![DesktopCodec {
-                        codec: codec.clone(),
-                        description: None,
-                        hardware: true,
-                    }];
+                    caps.codecs = self
+                        .codecs
+                        .iter()
+                        .map(|codec| DesktopCodec {
+                            codec: codec.clone(),
+                            description: None,
+                            hardware: true,
+                        })
+                        .collect();
                 }
                 Ok(Reply::Capabilities(caps))
             }
@@ -243,8 +263,8 @@ impl Worker {
                             width: d.width as u64,
                             height: d.height as u64,
                         },
-                        scale: 1.0,
-                        dpi: 96.0,
+                        scale: d.scale,
+                        dpi: 96.0 * d.scale,
                     })
                     .collect(),
             )),
@@ -265,11 +285,16 @@ impl Worker {
                         o.parse().map_err(|_| Error::Invalid)?,
                     )
                     .map_err(|_| Error::Backend)?;
-                    let encoder = native::HardwareEncoder::new(
+                    let encoder = native::HardwareEncoder::with_codec(
                         v.width.try_into().map_err(|_| Error::Limit)?,
                         v.height.try_into().map_err(|_| Error::Limit)?,
                         v.fps.try_into().map_err(|_| Error::Limit)?,
                         v.bitrate.try_into().map_err(|_| Error::Limit)?,
+                        if track.codec.codec.starts_with("av01.") {
+                            native::Codec::Av1
+                        } else {
+                            native::Codec::H264
+                        },
                     )
                     .map_err(|_| Error::Backend)?;
                     self.tracks.insert(key, Track { capture, encoder });
@@ -295,7 +320,13 @@ impl Worker {
                     .encoder
                     .encode_keyframe(&pixels, timestamp)
                     .map_err(|_| Error::Backend)?;
-                if avc_codec(&packet).as_deref() != Some(&track.codec.codec) {
+                let actual = if track.codec.codec.starts_with("av01.") {
+                    crate::desktop_pixels::av1_independent(&packet, &mut vec![])
+                        .map(|(codec, _)| codec)
+                } else {
+                    avc_codec(&packet)
+                };
+                if actual.as_deref() != Some(&track.codec.codec) {
                     return Err(Error::Unsupported);
                 }
                 Ok(Reply::Frames(vec![EncodedFrame::new(
@@ -402,8 +433,10 @@ impl Worker {
                 if unit != DesktopWheelUnit::Lines {
                     return Err(Error::Unsupported);
                 }
-                self.wheel.0 += dx * 120.0;
-                self.wheel.1 += dy * 120.0;
+                let (x_units, y_units) =
+                    native::wheel_units_per_line().map_err(|_| Error::Unsupported)?;
+                self.wheel.0 += dx * x_units;
+                self.wheel.1 += dy * y_units;
                 let (x, y) = (self.wheel.0.trunc() as i32, self.wheel.1.trunc() as i32);
                 native::wheel(x, y).map_err(|_| Error::Backend)?;
                 self.wheel.0 -= x as f64;

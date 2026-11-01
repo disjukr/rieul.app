@@ -198,6 +198,7 @@ pub async fn run_system_server(
     process_modules: Option<SharedProcessModulesService>,
     pairing_notifier: Option<SharedPairingNotifier>,
     terminal_backend: Option<SharedTerminalBackend>,
+    desktop_backend: Option<Arc<dyn crate::desktop::Backend>>,
     log_label: &'static str,
 ) -> Result<()> {
     run_system_server_with_readiness(
@@ -210,6 +211,7 @@ pub async fn run_system_server(
         process_modules,
         pairing_notifier,
         terminal_backend,
+        desktop_backend,
         log_label,
         None,
         None,
@@ -230,6 +232,7 @@ pub async fn run_system_server_with_readiness(
     process_modules: Option<SharedProcessModulesService>,
     pairing_notifier: Option<SharedPairingNotifier>,
     terminal_backend: Option<SharedTerminalBackend>,
+    desktop_backend: Option<Arc<dyn crate::desktop::Backend>>,
     log_label: &'static str,
     on_ready: Option<Arc<dyn Fn() -> Result<()> + Send + Sync>>,
     maintenance: Option<Arc<crate::maintenance::MaintenanceHooks>>,
@@ -256,6 +259,7 @@ pub async fn run_system_server_with_readiness(
             process_modules.clone(),
             pairing_notifier.clone(),
             terminal_backend.clone(),
+            desktop_backend.clone(),
             log_label,
             on_ready.clone(),
             maintenance.clone(),
@@ -298,6 +302,7 @@ async fn run_system_server_once(
     process_modules: Option<SharedProcessModulesService>,
     pairing_notifier: Option<SharedPairingNotifier>,
     terminal_backend: Option<SharedTerminalBackend>,
+    desktop_backend: Option<Arc<dyn crate::desktop::Backend>>,
     log_label: &'static str,
     on_ready: Option<Arc<dyn Fn() -> Result<()> + Send + Sync>>,
     maintenance: Option<Arc<crate::maintenance::MaintenanceHooks>>,
@@ -356,7 +361,7 @@ async fn run_system_server_once(
     let connections = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let mut maintenance_tick = tokio::time::interval(std::time::Duration::from_millis(250));
     let admission = Arc::new(crate::maintenance::WorkGate::default());
-    let desktop = crate::desktop::Runtime::new(admission.clone(), None);
+    let desktop = crate::desktop::Runtime::new(admission.clone(), desktop_backend);
     let (disconnect_tx, _) = watch::channel(0u64);
     let mut drain: Option<(
         String,

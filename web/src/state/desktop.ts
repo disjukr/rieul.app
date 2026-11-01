@@ -82,6 +82,9 @@ export const desktopBunja = bunja(() => {
     attachTimeout: ReturnType<typeof setTimeout> | undefined;
   let configKey = "",
     configVersion = 0;
+  let offeredCodecs: string[] = [],
+    currentCodec = "",
+    h264Fallback = false;
   let inputFeatures: Pick<DesktopCapabilities, "physicalKeys" | "wheelUnits"> =
     {};
   const surfaces = new Map<string, Set<HTMLCanvasElement>>();
@@ -104,6 +107,8 @@ export const desktopBunja = bunja(() => {
     transport = undefined;
     events = undefined;
     configKey = "";
+    offeredCodecs = [];
+    currentCodec = "";
     inputFeatures = {};
     for (const [popup, cleanup] of popups) {
       cleanup();
@@ -125,6 +130,15 @@ export const desktopBunja = bunja(() => {
     setPhase("idle");
   }
   function failed(error: unknown) {
+    if (
+      active &&
+      !h264Fallback &&
+      currentCodec.startsWith("av01.") &&
+      offeredCodecs.some((c) => /^avc[13]\./.test(c))
+    ) {
+      void connect(true);
+      return;
+    }
     disconnect();
     if (active) {
       setPhase("error");
@@ -165,22 +179,29 @@ export const desktopBunja = bunja(() => {
       popup.close();
     }
     popups.clear();
+    if (next.tracks.some((t) => !offeredCodecs.includes(t.codec.codec)))
+      throw new Error("Daemon selected an unoffered desktop codec");
+    currentCodec = next.tracks[0]?.codec.codec ?? "";
     await video?.configure(next);
     if (token !== generation) return;
     setConfiguration(next);
   }
-  async function configure(ids: string[]) {
-    if (!transport || !attachId() || busy()) return;
+  async function configure(
+    ids: string[],
+    attachment = attachId(),
+    layout?: DesktopDisplay[],
+  ) {
+    if (!transport || !attachment || (busy() && !layout)) return;
     const token = generation,
       version = ++configVersion;
     setBusy(true);
     try {
-      const selected = displays()
+      const selected = (layout ?? displays())
         .filter((d) => ids.includes(d.displayId))
         .slice(0, 8);
       const totalBitrate = 20_000_000;
       const next = await configureDesktopViewports(transport, {
-        attachId: attachId()!,
+        attachId: attachment,
         layoutEpoch,
         totalBitrate,
         viewports: selected.map((d) => {
@@ -213,8 +234,9 @@ export const desktopBunja = bunja(() => {
       if (token === generation) setBusy(false);
     }
   }
-  async function connect() {
+  async function connect(h264Only = false) {
     disconnect();
+    h264Fallback = h264Only;
     if (!active) return;
     const token = generation;
     setMessage(undefined);
@@ -232,7 +254,10 @@ export const desktopBunja = bunja(() => {
         );
         return;
       }
-      const codecs = await supportedDesktopCodecs(caps.codecs);
+      const supportedCodecs = await supportedDesktopCodecs(caps.codecs);
+      const codecs = h264Only
+        ? supportedCodecs.filter((c) => /^avc[13]\./.test(c))
+        : supportedCodecs;
       if (token !== generation) return;
       if (!codecs.length) {
         setPhase("unsupported");
@@ -241,6 +266,7 @@ export const desktopBunja = bunja(() => {
         );
         return;
       }
+      offeredCodecs = codecs;
       transport = nextTransport;
       eventsAbort = new AbortController();
       const iterator = desktopEvents(
@@ -319,6 +345,10 @@ export const desktopBunja = bunja(() => {
                 (error) => {
                   if (token === generation) failed(error);
                 },
+                (codec) => {
+                  if (token === generation && codec.startsWith("av01."))
+                    failed(new Error("AV1 decoder failed"));
+                },
               );
               setPhase("viewing");
               renew = setInterval(
@@ -334,6 +364,8 @@ export const desktopBunja = bunja(() => {
               );
               await configure(
                 event.displays.slice(0, 8).map((d) => d.displayId),
+                event.attachId,
+                event.displays,
               );
             } else if (event.type === "control") {
               setControl(event.control);
@@ -346,6 +378,8 @@ export const desktopBunja = bunja(() => {
               setDisplays(event.displays);
               await configure(
                 event.displays.slice(0, 8).map((d) => d.displayId),
+                attachId(),
+                event.displays,
               );
             } else if (event.type === "cursor") setCursor(event);
             else if (event.type === "closed") throw new Error(event.reason);

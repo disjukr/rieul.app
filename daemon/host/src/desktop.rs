@@ -894,7 +894,7 @@ impl Runtime {
         use rieul_daemon_core::generated::rpc::*;
         self.backend
             .as_ref()
-            .map(|b| b.capabilities())
+            .and_then(|b| self.gate.enter().map(|_work| b.capabilities()))
             .unwrap_or(DesktopCapabilities {
                 profile: PROFILE,
                 feedback: Some(true),
@@ -961,9 +961,10 @@ impl Runtime {
             let id = d.attach(auth, connection, client, request.keyboard_mode, now)?;
             self.codecs.lock().map_err(|_| Error::Backend)?.insert(
                 id.clone(),
-                caps.codecs
+                request
+                    .codecs
                     .iter()
-                    .find(|c| request.codecs.contains(&c.codec))
+                    .find_map(|wanted| caps.codecs.iter().find(|c| &c.codec == wanted))
                     .unwrap()
                     .clone(),
             );
@@ -1030,19 +1031,38 @@ pub(crate) struct InputGuard {
     epoch: u64,
     pub complete: bool,
 }
+pub(crate) fn cleanup(work: impl FnOnce() + Send + 'static) {
+    if let Ok(handle) = tokio::runtime::Handle::try_current() {
+        handle.spawn_blocking(work);
+    } else {
+        work();
+    }
+}
 impl Drop for InputGuard {
     fn drop(&mut self) {
-        if !self.complete {
-            let _ = self.runtime.mutate(|d| {
-                if d.holder.as_deref() == Some(&self.id) && d.epoch == self.epoch {
-                    d.release()?;
-                }
-                Ok(())
-            });
+        if self.complete {
+            if let Ok(mut streams) = self.runtime.streams.lock() {
+                streams.remove(&self.id);
+            }
+            return;
         }
-        if let Ok(mut streams) = self.runtime.streams.lock() {
-            streams.remove(&self.id);
-        }
+        let runtime = self.runtime.clone();
+        let id = self.id.clone();
+        let epoch = self.epoch;
+        let complete = self.complete;
+        cleanup(move || {
+            if !complete {
+                let _ = runtime.mutate(|d| {
+                    if d.holder.as_deref() == Some(&id) && d.epoch == epoch {
+                        d.release()?;
+                    }
+                    Ok(())
+                });
+            }
+            if let Ok(mut streams) = runtime.streams.lock() {
+                streams.remove(&id);
+            }
+        });
     }
 }
 

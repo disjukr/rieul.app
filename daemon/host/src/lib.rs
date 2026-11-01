@@ -14,3 +14,5 @@ pub mod maintenance;
 pub mod updates;
 
 pub mod desktop;
+
+pub mod desktop_ipc;

@@ -36,6 +36,8 @@ unsafe extern "C" {
     fn rd_displays(out: *mut Display, capacity: usize) -> usize;
     fn rd_hardware_codec(codec: *mut u32) -> bool;
     #[cfg(test)]
+    fn rd_av1_hardware_encoder_available() -> bool;
+    #[cfg(test)]
     fn rd_synthetic_packet(
         emit: extern "C" fn(*mut c_void, *const u8, usize, u64) -> bool,
         context: *mut c_void,
@@ -50,6 +52,7 @@ unsafe extern "C" {
         height: u32,
         fps: u32,
         bitrate: u32,
+        shutdown_failed: *mut bool,
     ) -> *mut c_void;
     fn rd_capture_destroy(handle: *mut c_void) -> bool;
     fn rd_capture_next(
@@ -97,6 +100,7 @@ impl InputState {
     }
 }
 pub struct MacDesktop {
+    shutdown_uncertain: std::sync::atomic::AtomicBool,
     tracks: Mutex<BTreeMap<(u64, u64), Capture>>,
     input: Mutex<InputState>,
     clock: Instant,
@@ -108,6 +112,7 @@ impl MacDesktop {
             return Err(Error::Unauthorized);
         }
         Ok(Self {
+            shutdown_uncertain: Default::default(),
             tracks: Mutex::new(BTreeMap::new()),
             input: Mutex::new(InputState::default()),
             clock: Instant::now(),
@@ -389,10 +394,18 @@ impl Backend for MacDesktop {
         if let Some(mut capture) = capture {
             let handle = std::mem::replace(&mut capture.0, std::ptr::null_mut());
             if !unsafe { rd_capture_destroy(handle) } {
-                return Err(Error::Backend);
+                self.shutdown_uncertain
+                    .store(true, std::sync::atomic::Ordering::SeqCst);
             }
         }
-        Ok(())
+        if self
+            .shutdown_uncertain
+            .load(std::sync::atomic::Ordering::SeqCst)
+        {
+            Err(Error::Backend)
+        } else {
+            Ok(())
+        }
     }
     fn group(&self, track: &DesktopTrack) -> Result<Vec<EncodedFrame>, Error> {
         if !track.codec.codec.starts_with("avc1.42") {
@@ -411,6 +424,7 @@ impl Backend for MacDesktop {
                 .find(|d| d.id.to_string() == v.display_id)
                 .ok_or(Error::Stale)?;
             map_point(v, &d, 0.0, 0.0)?;
+            let mut shutdown_failed = false;
             let handle = unsafe {
                 rd_capture_create(
                     d.id,
@@ -422,8 +436,13 @@ impl Backend for MacDesktop {
                     v.height.try_into().map_err(|_| Error::Limit)?,
                     v.fps.try_into().map_err(|_| Error::Limit)?,
                     v.bitrate.try_into().map_err(|_| Error::Limit)?,
+                    &mut shutdown_failed,
                 )
             };
+            if shutdown_failed {
+                self.shutdown_uncertain
+                    .store(true, std::sync::atomic::Ordering::SeqCst);
+            }
             if handle.is_null() {
                 return Err(Error::Backend);
             }
@@ -595,6 +614,14 @@ mod tests {
         if let Ok(path) = std::env::var("RIEUL_DESKTOP_SYNTHETIC_OUT") {
             std::fs::write(path, data).unwrap();
         }
+    }
+    #[test]
+    #[ignore = "hardware encoder session availability only; no capture or input"]
+    fn av1_hardware_encoder_availability() {
+        eprintln!(
+            "VideoToolbox hardware AV1 encoder session available: {}",
+            unsafe { rd_av1_hardware_encoder_available() }
+        );
     }
     #[test]
     fn physical_side_and_keypad_mapping() {

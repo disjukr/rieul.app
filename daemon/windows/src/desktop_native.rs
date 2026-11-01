@@ -1,11 +1,10 @@
 //! Native user-session primitives. Constructors perform capture only when called
 //! explicitly by the desktop helper; no service startup path constructs these.
 use std::{
-    mem::{size_of, ManuallyDrop},
+    mem::{ManuallyDrop, size_of},
     time::{Duration, Instant},
 };
 use windows::{
-    core::{Error, Interface, Result, HRESULT},
     Win32::{
         Foundation::HMODULE,
         Graphics::{
@@ -17,12 +16,16 @@ use windows::{
         System::{Com::*, Variant::VARIANT},
         UI::Input::KeyboardAndMouse::*,
     },
+    core::{Error, HRESULT, Interface, Result},
 };
 fn invalid() -> Error {
     Error::from_hresult(HRESULT(0x80070057u32 as i32))
 }
 /// Keep this guard and all native objects on their owning worker thread.
-pub struct Apartment(std::marker::PhantomData<std::rc::Rc<()>>);
+pub struct Apartment(
+    std::marker::PhantomData<std::rc::Rc<()>>,
+    windows::Win32::UI::HiDpi::DPI_AWARENESS_CONTEXT,
+);
 impl Apartment {
     pub fn enter() -> Result<Self> {
         unsafe {
@@ -32,13 +35,26 @@ impl Apartment {
                 return Err(e);
             }
         }
-        Ok(Self(std::marker::PhantomData))
+        let previous = unsafe {
+            windows::Win32::UI::HiDpi::SetThreadDpiAwarenessContext(
+                windows::Win32::UI::HiDpi::DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
+            )
+        };
+        if previous.0.is_null() {
+            unsafe {
+                let _ = MFShutdown();
+                CoUninitialize();
+            }
+            return Err(invalid());
+        }
+        Ok(Self(std::marker::PhantomData, previous))
     }
 }
 impl Drop for Apartment {
     fn drop(&mut self) {
         unsafe {
             let _ = MFShutdown();
+            windows::Win32::UI::HiDpi::SetThreadDpiAwarenessContext(self.1);
             CoUninitialize();
         }
     }
@@ -154,7 +170,13 @@ impl Duplication {
 }
 /// Hardware-only asynchronous Media Foundation encoder. NV12 input, Annex B H.264
 /// output, one forced independent keyframe per group in this initial adapter.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Codec {
+    H264,
+    Av1,
+}
 pub struct HardwareEncoder {
+    codec: Codec,
     transform: IMFTransform,
     events: IMFMediaEventGenerator,
     width: u32,
@@ -165,6 +187,15 @@ pub struct HardwareEncoder {
 }
 impl HardwareEncoder {
     pub fn new(width: u32, height: u32, fps: u32, bitrate: u32) -> Result<Self> {
+        Self::with_codec(width, height, fps, bitrate, Codec::H264)
+    }
+    pub fn with_codec(
+        width: u32,
+        height: u32,
+        fps: u32,
+        bitrate: u32,
+        format: Codec,
+    ) -> Result<Self> {
         unsafe {
             if width == 0
                 || height == 0
@@ -181,9 +212,14 @@ impl HardwareEncoder {
                 guidMajorType: MFMediaType_Video,
                 guidSubtype: MFVideoFormat_NV12,
             };
+            let subtype = if format == Codec::Av1 {
+                MFVideoFormat_AV1
+            } else {
+                MFVideoFormat_H264
+            };
             let output = MFT_REGISTER_TYPE_INFO {
                 guidMajorType: MFMediaType_Video,
-                guidSubtype: MFVideoFormat_H264,
+                guidSubtype: subtype,
             };
             let mut list = std::ptr::null_mut();
             let mut count = 0;
@@ -214,10 +250,16 @@ impl HardwareEncoder {
                     }
                     attributes.SetUINT32(&MF_TRANSFORM_ASYNC_UNLOCK, 1)?;
                     attributes.SetUINT32(&MF_LOW_LATENCY, 1)?;
-                    let output = media_type(MFVideoFormat_H264, width, height, fps)?;
+                    let output = media_type(subtype, width, height, fps)?;
                     output.SetUINT32(&MF_MT_AVG_BITRATE, bitrate)?;
-                    output.SetUINT32(&MF_MT_MPEG2_PROFILE, 66)?;
-                    output.SetUINT32(&MF_MT_MPEG2_LEVEL, 42)?;
+                    output.SetUINT32(
+                        &MF_MT_MPEG2_PROFILE,
+                        if format == Codec::Av1 { 0 } else { 66 },
+                    )?;
+                    output.SetUINT32(
+                        &MF_MT_MPEG2_LEVEL,
+                        if format == Codec::Av1 { 13 } else { 42 },
+                    )?;
                     transform.SetOutputType(0, &output, 0)?;
                     transform.SetInputType(
                         0,
@@ -226,11 +268,17 @@ impl HardwareEncoder {
                     )?;
                     let codec: ICodecAPI = transform.cast()?;
                     codec.SetValue(&CODECAPI_AVLowLatencyMode, &VARIANT::from(true))?;
-                    codec.SetValue(&CODECAPI_AVEncMPVDefaultBPictureCount, &VARIANT::from(0u32))?;
+                    if format == Codec::H264 {
+                        codec.SetValue(
+                            &CODECAPI_AVEncMPVDefaultBPictureCount,
+                            &VARIANT::from(0u32),
+                        )?;
+                    }
                     transform.ProcessMessage(MFT_MESSAGE_NOTIFY_BEGIN_STREAMING, 0)?;
                     transform.ProcessMessage(MFT_MESSAGE_NOTIFY_START_OF_STREAM, 0)?;
                     let events = transform.cast()?;
                     Ok(Self {
+                        codec: format,
                         transform,
                         events,
                         width,
@@ -349,6 +397,14 @@ impl HardwareEncoder {
                         };
                         buffer.Unlock()?;
                         let bytes = bytes?;
+                        if self.codec == Codec::Av1 {
+                            return crate::desktop_pixels::av1_independent(
+                                &bytes,
+                                &mut self.headers.borrow_mut(),
+                            )
+                            .map(|(_, packet)| packet)
+                            .ok_or_else(invalid);
+                        }
                         // Never falsely advertise an arbitrary avcC/length-prefixed payload.
                         if !bytes.starts_with(&[0, 0, 0, 1]) && !bytes.starts_with(&[0, 0, 1]) {
                             return Err(invalid());
@@ -479,6 +535,7 @@ pub fn interactive() -> bool {
 }
 #[derive(Clone)]
 pub struct Display {
+    pub scale: f64,
     pub id: String,
     pub x: i32,
     pub y: i32,
@@ -505,7 +562,14 @@ pub fn displays() -> Result<Vec<Display>> {
                     continue;
                 }
                 let b = d.DesktopCoordinates;
+                let scale = windows::Win32::UI::Shell::GetScaleFactorForMonitor(d.Monitor)?.0
+                    as f64
+                    / 100.0;
+                if !(0.5..=5.0).contains(&scale) {
+                    return Err(invalid());
+                }
                 displays.push(Display {
+                    scale,
                     id: format!("{a}.{o}"),
                     x: b.left,
                     y: b.top,
@@ -648,7 +712,7 @@ pub fn cursor() -> Result<Cursor> {
         impl Drop for Bitmap {
             fn drop(&mut self) {
                 unsafe {
-                    let _ = DeleteObject(HGDIOBJ(self.0 .0));
+                    let _ = DeleteObject(HGDIOBJ(self.0.0));
                 }
             }
         }
@@ -728,5 +792,29 @@ pub fn cursor() -> Result<Cursor> {
         }
         result.shape = crate::desktop_pixels::cursor_png(w as usize, h as usize, &rgba);
         Ok(result)
+    }
+}
+
+pub fn wheel_units_per_line() -> Result<(f64, f64)> {
+    use windows::Win32::UI::WindowsAndMessaging::*;
+    unsafe {
+        let (mut x, mut y) = (0u32, 0u32);
+        SystemParametersInfoW(
+            SPI_GETWHEELSCROLLCHARS,
+            0,
+            Some((&mut x as *mut u32).cast()),
+            SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0),
+        )?;
+        SystemParametersInfoW(
+            SPI_GETWHEELSCROLLLINES,
+            0,
+            Some((&mut y as *mut u32).cast()),
+            SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0),
+        )?;
+        // Page scrolling has no line-equivalent. Never silently invent a conversion.
+        if x == 0 || y == 0 || x == u32::MAX || y == u32::MAX {
+            return Err(invalid());
+        }
+        Ok((120.0 / x as f64, 120.0 / y as f64))
     }
 }

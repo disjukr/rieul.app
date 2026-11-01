@@ -15,6 +15,11 @@ typedef bool (*RDPacket)(void *, const uint8_t *, size_t, uint64_t);
 int rd_permissions(void) {
     struct stat console;
     if(geteuid()==0 || stat("/dev/console",&console) || console.st_uid!=geteuid()) return 0;
+    CFDictionaryRef session=CGSessionCopyCurrentDictionary();
+    if(!session) return 0;
+    bool active=CFDictionaryGetValue(session,kCGSessionOnConsoleKey)==kCFBooleanTrue && CFDictionaryGetValue(session,kCGSessionLoginDoneKey)==kCFBooleanTrue;
+    CFRelease(session);
+    if(!active) return 0;
     return (CGPreflightScreenCaptureAccess() ? 1 : 0) | (AXIsProcessTrusted() ? 2 : 0);
 }
 size_t rd_displays(RDDisplay *out, size_t capacity) {
@@ -125,8 +130,9 @@ bool rd_hardware_codec(uint32_t *codec) { return synthetic_frame(codec,NULL,NULL
 bool rd_synthetic_packet(RDPacket emit,void *context) { uint32_t codec; return synthetic_frame(&codec,emit,context); }
 bool rd_capture_destroy(void *handle);
 // The returned object owns a bounded (latest only) frame slot and a hardware session.
-void *rd_capture_create(uint32_t id,double x,double y,double w,double h,uint32_t width,uint32_t height,uint32_t fps,uint32_t bitrate) {
+void *rd_capture_create(uint32_t id,double x,double y,double w,double h,uint32_t width,uint32_t height,uint32_t fps,uint32_t bitrate,bool *shutdown_failed) {
     @autoreleasepool {
+        *shutdown_failed=false;
         if(!(rd_permissions() & 1) || !width || !height || width>3840 || height>2160 || !fps || fps>120) return NULL;
         dispatch_semaphore_t done=dispatch_semaphore_create(0);
         __block SCShareableContent *content=nil;
@@ -149,7 +155,7 @@ void *rd_capture_create(uint32_t id,double x,double y,double w,double h,uint32_t
         if(![self->stream addStreamOutput:self type:SCStreamOutputTypeScreen sampleHandlerQueue:self->queue error:&error]) return NULL;
         __block BOOL ok=NO;
         [self->stream startCaptureWithCompletionHandler:^(NSError *error) { ok=error==nil; dispatch_semaphore_signal(done); }];
-        if(dispatch_semaphore_wait(done,dispatch_time(DISPATCH_TIME_NOW,2*NSEC_PER_SEC)) || !ok) { rd_capture_destroy((__bridge_retained void *)self); return NULL; }
+        if(dispatch_semaphore_wait(done,dispatch_time(DISPATCH_TIME_NOW,2*NSEC_PER_SEC)) || !ok) { *shutdown_failed=!rd_capture_destroy((__bridge_retained void *)self); return NULL; }
         return (__bridge_retained void *)self;
     }
 }
@@ -222,5 +228,22 @@ size_t rd_cursor(RDCursor *result,uint8_t *png,size_t capacity) {
         if(!data || data.length>capacity) return 0;
         result->visible=true;result->hotspot_x=(uint32_t)MAX(0,cursor.hotSpot.x*rep.pixelsWide/cursor.image.size.width);result->hotspot_y=(uint32_t)MAX(0,cursor.hotSpot.y*rep.pixelsHigh/cursor.image.size.height);
         memcpy(png,data.bytes,data.length);return data.length;
+    }
+}
+
+// Diagnostic availability probe only. This is not advertised as AV1 encoding:
+// an actual packet/OBU implementation and successful synthetic encode are required.
+bool rd_av1_hardware_encoder_available(void) {
+    @autoreleasepool {
+        VTCompressionSessionRef session=NULL;
+        NSDictionary *spec=@{(__bridge NSString *)kVTVideoEncoderSpecification_RequireHardwareAcceleratedVideoEncoder:@YES};
+        OSStatus status=VTCompressionSessionCreate(NULL,640,480,kCMVideoCodecType_AV1,(__bridge CFDictionaryRef)spec,NULL,NULL,NULL,NULL,&session);
+        if(status || !session) return false;
+        CFTypeRef value=NULL;
+        status=VTSessionCopyProperty(session,kVTCompressionPropertyKey_UsingHardwareAcceleratedVideoEncoder,NULL,&value);
+        bool hardware=status==noErr && value==kCFBooleanTrue;
+        if(value) CFRelease(value);
+        VTCompressionSessionInvalidate(session);CFRelease(session);
+        return hardware;
     }
 }
