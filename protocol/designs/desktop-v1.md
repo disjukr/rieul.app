@@ -187,3 +187,57 @@ required. GUI/native startup source is compiled without launching the helper.
 - Rotated Windows outputs and monochrome/animated cursor semantics are unsupported.
   Windows wheel supports line units, macOS pixel/line units. IME, relative pointer
   and reserved OS shortcuts are not claimed.
+
+## Hardware decoding evidence decision (2026-11-01)
+
+The requirement is confirmed hardware support on both ends, not merely an AV1
+codec string or a power-efficiency prediction. The shipping browser therefore
+selects H.264 when hardware evidence is unknown. This is a completed conservative
+policy decision, but does not constitute shipping automatic AV1 selection.
+
+| Environment/evidence                                                                                                                                | Decision                                                                                   |
+| --------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| Ordinary web page: WebCodecs support, including `prefer-hardware`                                                                                   | Unknown hardware; H.264                                                                    |
+| MediaCapabilities `supported`, `smooth`, `powerEfficient`                                                                                           | Prediction, not decoder identity; H.264                                                    |
+| Browser brand/version, GPU name or successful fast synthetic decode                                                                                 | Insufficient evidence of the selected decoder; H.264                                       |
+| Controlled native decoder or instrumented pinned browser, with hardware-only creation and successful actual output for the exact codec/profile/size | May supply verified evidence; AV1 only if the daemon also reports actual hardware encoding |
+| Evidence unavailable, stale after configuration/device changes, or encode/configure/decode failure                                                  | Fresh H.264 attachment; no restored control or replay                                      |
+
+[WebCodecs hardware acceleration](https://www.w3.org/TR/webcodecs/#hardware-acceleration)
+explicitly permits ignoring the preference. [Media Capabilities](https://www.w3.org/TR/media-capabilities/#media-capabilities-information)
+leaves power efficiency to the user agent, including efficient software codecs.
+Neither is a portable hardware attestation API.
+
+Chromium's current [support query implementation](https://github.com/chromium/chromium/blob/main/third_party/blink/renderer/modules/webcodecs/video_decoder.cc)
+checks GPU factories when hardware is preferred, and its [decoder broker](https://github.com/chromium/chromium/blob/main/third_party/blink/renderer/modules/webcodecs/video_decoder_broker.cc)
+excludes the default software decoder factory in that mode. This is useful evidence
+when auditing a controlled build, not a promise made by the WebCodecs standard or
+proof supplied to an arbitrary web page. Browser forks, future changes and backend
+selection must be independently validated. Do not add a user-agent allowlist or
+reinterpret `powerEfficient` as verified evidence. No controlled browser bridge is
+currently shipped; the existing evidence argument is an integration seam, not an
+implemented evidence provider. Before adding one, bind evidence to every actual
+track configuration and invalidate it on codec/layout/device changes.
+
+## Isolated execution fixture scope
+
+Read-only inspection found an existing Tart binary and an immutable cached macOS
+base image belonging to the updater environment. Tart supports copy-on-write clones.
+No clone or boot has been performed. The next proposed execution scope is:
+
+1. Create a separate clone with its own `TART_HOME` under this desktop task, disable
+   automatic pruning, and never address the updater VM or its writable disk.
+2. Boot only that clone; create a disposable interactive fixture account and install
+   the candidate package inside the guest. Test root/user peer authentication,
+   helper lifetime, login changes and installed-path permissions first.
+3. With explicit guest-only permission approval, grant Screen Recording and
+   Accessibility to the fixture app/helper and run synthetic windows/input targets.
+   Do not grant permissions to, capture, or inject input into the host desktop.
+4. Record hardware encoder availability separately. A virtual GPU may not expose
+   VideoToolbox encoding. Windows on an ARM Mac VM is not proof of Windows x64
+   hardware MFT/AV1 operation; that requires a separately available x64 GPU fixture.
+
+Guest creation/installation/permission execution remains pending; no OS image or
+license has been downloaded or accepted. There is no current auto-review denial
+for these unattempted actions. The remaining blocker is an approved, isolated
+interactive fixture with the required OS permissions and actual GPU capability.
