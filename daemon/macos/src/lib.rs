@@ -1,4 +1,6 @@
 pub mod fs;
+#[cfg(any(target_os = "macos", test))]
+pub mod update;
 #[cfg(target_os = "macos")]
 pub mod installer;
 mod installer_ui;

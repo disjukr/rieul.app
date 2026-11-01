@@ -17,6 +17,9 @@ struct Args {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Inspect the installed app's update migration requirements without changing it.
+    #[cfg(target_os = "macos")]
+    UpdateStatus,
     Run {
         #[arg(long)]
         config: Option<PathBuf>,
@@ -32,6 +35,16 @@ fn main() -> Result<()> {
         .command
         .unwrap_or(Command::Run { config: None });
     match command {
+        #[cfg(target_os = "macos")]
+        Command::UpdateStatus => {
+            let status = rieul_macos_daemon::update::installed_update_status()
+                .context("inspect installed Rieul update status (no changes made)")?;
+            println!("Automatic updates: unavailable");
+            for blocker in status.blockers {
+                println!("- {blocker}");
+            }
+            Ok(())
+        }
         Command::Run { config } => {
             if ensure_installed_or_prompt()? == StartupAction::Exit {
                 return Ok(());
