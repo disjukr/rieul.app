@@ -99,7 +99,8 @@ Branch: `codex/daemon-gpui`, isolated checkout on Mac Studio.
 
 Screenshots use an independently built GPUiX baseline from the base commit and the
 same disposable config, dimensions and font environment. The daemon-info screen
-matches all 230,400 pixels exactly. Other states preserve layout and text; random
+matches all 230,400 pixels exactly. Windows x64 pairing-code screenshots from
+the old and native CI builds also match all 230,400 pixels. Other states preserve layout and text; random
 candidate glyphs and pointer hover state must be controlled or excluded from pixel
 comparisons. Local images and comparison data are in ignored `tmp/gpui-visual/`.
 

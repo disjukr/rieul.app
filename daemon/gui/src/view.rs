@@ -980,7 +980,13 @@ pub fn run() -> anyhow::Result<()> {
                             .unwrap(),
                     )
                     .expect("native shell");
-                    shell.visible(args.iter().any(|s| s == "--show"));
+                    let show = args.iter().any(|s| s == "--show");
+                    if show {
+                        // Windows defers the requested bounds until GPUI activates
+                        // a hidden window. Raw ShowWindow would show CW_USEDEFAULT.
+                        window.activate_window();
+                    }
+                    shell.visible(show);
                     cx.spawn_in(window, async move |this, cx| {
                         loop {
                             cx.background_executor()
@@ -1096,7 +1102,7 @@ impl View {
                         }
                     };
                     Ok(
-                        serde_json::json!({"route":route,"generation":self.controller.generation,"renderedGeneration":self.rendered_generation,"visible":self.shell.is_visible(),"feedback":self.feedback,"error":self.error,"a11y":window.debug_a11y_tree_json()}),
+                        serde_json::json!({"route":route,"generation":self.controller.generation,"renderedGeneration":self.rendered_generation,"viewport":[f32::from(window.viewport_size().width),f32::from(window.viewport_size().height)],"visible":self.shell.is_visible(),"feedback":self.feedback,"error":self.error,"a11y":window.debug_a11y_tree_json()}),
                     )
                 }
                 "clipboardMatches" => Ok(serde_json::json!(

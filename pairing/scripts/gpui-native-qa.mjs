@@ -90,7 +90,11 @@ async function launch(name) {
     let state;
     for (let i = 0; i < 150; i++) {
       state = await snapshot();
-      if ((!state.visible || state.renderedGeneration === state.generation) && predicate(state)) return state;
+      const ready = !state.visible || (
+        state.renderedGeneration === state.generation &&
+        state.viewport[0] === 640 && state.viewport[1] === 360
+      );
+      if (ready && predicate(state)) return state;
       await delay(40);
     }
     throw Error(`native state wait timed out: ${JSON.stringify(state)}`);
