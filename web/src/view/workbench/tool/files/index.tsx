@@ -1,3 +1,4 @@
+import { style, theme } from "../../../../zyzz.config.ts";
 import { untrack, createMemo, createSignal, createEffect } from "solid-js";
 
 import { useBunja } from "bunja/solid";
@@ -55,49 +56,9 @@ import {
   FloatingMenuItem,
 } from "../../../ui/floating-menu.tsx";
 import { filesToolBunja } from "./state.ts";
-const emptyWorkspaceClassName = [
-  "grid content-center justify-items-center w-full h-full gap-[10px]",
-  "min-h-0 text-rieul-text-3",
-  "[&_h2]:m-0 [&_h2]:text-rieul-text [&_h2]:text-[18px] [&_h2]:tracking-[0]",
-].join(" ");
-const explorerClassName = [
-  "grid [grid-template-rows:auto_minmax(0,1fr)] gap-[5px]",
-  "w-full h-full min-h-0 overflow-hidden p-[6px]",
-  "bg-[rgba(247,247,248,0.72)]",
-].join(" ");
+
 const entryContextMenuWidth = 176;
-const modalBackdropClassName =
-  "fixed inset-0 z-[20] grid place-items-center bg-rieul-overlay p-[24px]";
-const modalClassName = [
-  "w-[min(460px,100%)] overflow-hidden border border-rieul-border",
-  "rounded-rieul-xl bg-rieul-surface shadow-rieul-lg",
-].join(" ");
-const modalHeadClassName = [
-  "flex items-center justify-between gap-[12px] border-b border-b-rieul-border",
-  "px-[16px] py-[14px]",
-  "[&_div]:grid [&_div]:gap-[2px] [&_div]:min-w-0",
-  "[&_span]:text-rieul-text-3 [&_span]:text-[13px] [&_span]:font-600",
-  "[&_h2]:m-0 [&_h2]:text-rieul-text [&_h2]:text-[18px] [&_h2]:tracking-[0]",
-].join(" ");
-const iconButtonClassName = "!w-[36px] !min-w-[36px] !p-0";
-const deleteDialogBodyClassName = [
-  "grid gap-[12px] p-[16px]",
-  "[&_p]:m-0 [&_p]:text-rieul-text-2 [&_p]:text-[14px] [&_p]:leading-[1.45]",
-].join(" ");
-const entrySummaryClassName = [
-  "grid gap-[2px] min-w-0 border border-rieul-border rounded-rieul-lg",
-  "bg-rieul-surface-2 p-[10px]",
-  "[&_strong]:min-w-0 [&_strong]:overflow-hidden [&_strong]:text-ellipsis",
-  "[&_strong]:whitespace-nowrap [&_strong]:text-rieul-text [&_strong]:text-[14px]",
-  "[&_span]:min-w-0 [&_span]:[overflow-wrap:anywhere]",
-  "[&_span]:text-rieul-text-3 [&_span]:text-[13px]",
-].join(" ");
-const modalActionsClassName = "flex justify-end gap-[8px]";
-const dangerActionClassName = [
-  "border-rieul-danger bg-rieul-danger-soft text-rieul-danger",
-  "hover:border-rieul-danger hover:bg-rieul-danger-soft hover:text-rieul-danger",
-].join(" ");
-const fieldErrorClassName = "text-rieul-danger text-[13px]";
+
 interface EntryMenuState {
   entry: FsEntry;
   x: number;
@@ -571,12 +532,12 @@ export function FilesTool() {
   return (
     <>
       {!machine() ? (
-        <section class={emptyWorkspaceClassName}>
+        <section {...styles.emptyWorkspace()}>
           <HardDrive size={28} />
           <h2>No machine selected</h2>
         </section>
       ) : !isPaired() ? (
-        <section class={emptyWorkspaceClassName}>
+        <section {...styles.emptyWorkspace()}>
           <KeyRound size={28} />
           <h2>Pairing required</h2>
           <Button
@@ -589,7 +550,7 @@ export function FilesTool() {
           </Button>
         </section>
       ) : (
-        <section class={explorerClassName}>
+        <section {...styles.explorer()}>
           <FilesExplorerContext value={() => explorer()}>
             <FilesActionsContext value={() => actions}>
               <FilesCreateFileContext value={() => createFileState()}>
@@ -604,7 +565,7 @@ export function FilesTool() {
 
           {entryMenu() ? (
             <FloatingMenu
-              className="z-[30] w-[176px]"
+              className={styles.floatingMenu().class}
               position={{ left: entryMenu()!.x, top: entryMenu()!.y }}
             >
               <FloatingMenuItem
@@ -635,7 +596,7 @@ export function FilesTool() {
 
           {folderMenu() ? (
             <FloatingMenu
-              className="z-[30] w-[176px]"
+              className={styles.floatingMenu().class}
               position={{ left: folderMenu()!.x, top: folderMenu()!.y }}
             >
               <FloatingMenuItem
@@ -712,7 +673,7 @@ function childPath(directory: string, name: string): string {
 function DeleteEntryModal(props: DeleteEntryModalProps) {
   return (
     <div
-      class={modalBackdropClassName}
+      {...styles.modalBackdrop()}
       onMouseDown={(event) => {
         if (event.target === event.currentTarget && !props.state.isDeleting) {
           props.onClose();
@@ -720,12 +681,12 @@ function DeleteEntryModal(props: DeleteEntryModalProps) {
       }}
     >
       <section
-        class={modalClassName}
+        {...styles.modal()}
         role="dialog"
         aria-modal="true"
         aria-labelledby="delete-entry-title"
       >
-        <header class={modalHeadClassName}>
+        <header {...styles.modalHead()}>
           <div>
             <span>File</span>
             <h2 id="delete-entry-title">Delete</h2>
@@ -735,32 +696,32 @@ function DeleteEntryModal(props: DeleteEntryModalProps) {
             title="Close"
             aria-label="Close delete dialog"
             disabled={props.state.isDeleting}
-            className={iconButtonClassName}
+            className={styles.iconButton().class}
           >
             <X size={16} />
           </Button>
         </header>
 
-        <div class={deleteDialogBodyClassName}>
-          <div class={entrySummaryClassName}>
+        <div {...styles.deleteDialogBody()}>
+          <div {...styles.entrySummary()}>
             <strong>{displayName(props.state.entry)}</strong>
             <span>{props.state.entry.path}</span>
           </div>
           <p>This moves the selected item to the system trash.</p>
           {props.state.error ? (
-            <div class={fieldErrorClassName}>{props.state.error}</div>
+            <div {...styles.fieldError()}>{props.state.error}</div>
           ) : null}
-          <div class={modalActionsClassName}>
+          <div {...styles.modalActions()}>
             <Button onClick={props.onClose} disabled={props.state.isDeleting}>
               Cancel
             </Button>
             <Button
-              className={dangerActionClassName}
+              className={styles.dangerAction().class}
               onClick={props.onDelete}
               disabled={props.state.isDeleting}
             >
               {props.state.isDeleting ? (
-                <Loader2 size={16} className="animate-spin" />
+                <Loader2 size={16} className={styles.loader2().class} />
               ) : (
                 <Trash2 size={16} />
               )}
@@ -771,4 +732,157 @@ function DeleteEntryModal(props: DeleteEntryModalProps) {
       </section>
     </div>
   );
+}
+
+namespace styles {
+  export const emptyWorkspace = style({
+    display: "grid",
+    selectors: {
+      "& h2": {
+        margin: "0",
+        fontSize: "18px",
+        color: theme.textPrimary,
+        letterSpacing: "0",
+      },
+    },
+    height: "100%",
+    minHeight: "0",
+    width: "100%",
+    alignContent: "center",
+    justifyItems: "center",
+    gap: "10px",
+    color: theme.textTertiary,
+  });
+  export const explorer = style({
+    gridTemplateRows: "auto minmax(0,1fr)",
+    display: "grid",
+    height: "100%",
+    minHeight: "0",
+    width: "100%",
+    gap: "5px",
+    overflow: "hidden",
+    backgroundColor: "rgba(247, 247, 248, 0.72)",
+    padding: "6px",
+  });
+  export const modalBackdrop = style({
+    position: "fixed",
+    inset: "0",
+    zIndex: 20,
+    display: "grid",
+    placeItems: "center",
+    backgroundColor: theme.bgOverlay,
+    padding: "24px",
+  });
+  export const modal = style({
+    width: "min(460px,100%)",
+    overflow: "hidden",
+    borderWidth: "1px",
+    borderColor: theme.borderLight,
+    borderRadius: theme.radiusXl,
+    backgroundColor: theme.bgPrimary,
+    boxShadow: "0 0 rgb(0 0 0 / 0), 0 0 rgb(0 0 0 / 0), var(--rieul-shadow-lg)",
+  });
+  export const modalHead = style({
+    selectors: {
+      "& div": {
+        display: "grid",
+        minWidth: "0",
+        gap: "2px",
+      },
+      "& h2": {
+        margin: "0",
+        fontSize: "18px",
+        color: theme.textPrimary,
+        letterSpacing: "0",
+      },
+      "& span": {
+        fontSize: "13px",
+        color: theme.textTertiary,
+        fontWeight: 600,
+      },
+    },
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: "12px",
+    borderBottomWidth: "1px",
+    borderBottomColor: theme.borderLight,
+    paddingLeft: "16px",
+    paddingRight: "16px",
+    paddingTop: "14px",
+    paddingBottom: "14px",
+  });
+  export const iconButton = style({
+    minWidth: "36px !important",
+    width: "36px !important",
+    padding: "0 !important",
+  });
+  export const deleteDialogBody = style({
+    display: "grid",
+    selectors: {
+      "& p": {
+        margin: "0",
+        fontSize: "14px",
+        color: theme.textSecondary,
+        lineHeight: 1.45,
+      },
+    },
+    gap: "12px",
+    padding: "16px",
+  });
+  export const entrySummary = style({
+    selectors: {
+      "& span": {
+        overflowWrap: "anywhere",
+        minWidth: "0",
+        fontSize: "13px",
+        color: theme.textTertiary,
+      },
+      "& strong": {
+        minWidth: "0",
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
+        fontSize: "14px",
+        color: theme.textPrimary,
+      },
+    },
+    display: "grid",
+    minWidth: "0",
+    gap: "2px",
+    borderWidth: "1px",
+    borderColor: theme.borderLight,
+    borderRadius: theme.radiusLg,
+    backgroundColor: theme.bgSecondary,
+    padding: "10px",
+  });
+  export const modalActions = style({
+    display: "flex",
+    justifyContent: "flex-end",
+    gap: "8px",
+  });
+  export const dangerAction = style({
+    borderColor: theme.danger,
+    selectors: {
+      "&:hover": {
+        borderColor: theme.danger,
+        backgroundColor: theme.dangerSoft,
+        color: theme.danger,
+      },
+    },
+    backgroundColor: theme.dangerSoft,
+    color: theme.danger,
+  });
+  export const fieldError = style({
+    fontSize: "13px",
+    color: theme.danger,
+  });
+  export const floatingMenu = style({
+    zIndex: 30,
+    width: "176px",
+  });
+
+  export const loader2 = style({
+    animation: "spin 1s linear infinite",
+  });
 }

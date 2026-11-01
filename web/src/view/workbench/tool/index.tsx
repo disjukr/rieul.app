@@ -1,3 +1,4 @@
+import { style, theme } from "../../../zyzz.config.ts";
 import { createMemo } from "solid-js";
 
 import { useBunja } from "bunja/solid";
@@ -17,7 +18,7 @@ export function WorkbenchToolContent() {
         if (!tool()) return null;
         if (tool() === "agent") {
           return (
-            <div class="p-4 text-rieul-text-2" role="status">
+            <div {...styles.div()} role="status">
               This saved tab is no longer available. Close it or open another
               tool.
             </div>
@@ -42,4 +43,11 @@ export function WorkbenchToolContent() {
       })()}
     </>
   );
+}
+
+namespace styles {
+  export const div = style({
+    padding: "1rem",
+    color: theme.textSecondary,
+  });
 }

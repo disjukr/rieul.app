@@ -1,43 +1,52 @@
+import { className as joinClassName } from "../class-name.ts";
+
+import { style, variants, theme } from "../../zyzz.config.ts";
 import { Portal, type JSX } from "@solidjs/web";
-import { cva, type VariantProps } from "class-variance-authority";
+import type { Props } from "zyzz";
 import { createEffect } from "solid-js";
 import { X } from "../../solid/icons.tsx";
-import { className as joinClassName } from "../class-name.ts";
 import { IconButton } from "./icon-button.tsx";
 
-const popupVariants = cva(
-  [
-    "fixed left-1/2 top-1/2 z-[101] max-h-[calc(100dvh-48px)]",
-    "w-[min(460px,calc(100vw-48px))] -translate-x-1/2 -translate-y-1/2",
-    "overflow-hidden",
-    "border border-[var(--rieul-border-light)] rounded-[var(--rieul-radius-lg)]",
-    "bg-[var(--rieul-bg-primary)] shadow-rieul-dialog outline-none",
-  ],
-  {
-    variants: {
-      size: {
-        md: "w-[min(460px,calc(100vw-48px))]",
-        sm: "w-[min(420px,calc(100vw-48px))]",
+const popupVariants = variants({
+  base: {
+    position: "fixed",
+    left: "50%",
+    top: "50%",
+    zIndex: 101,
+    maxHeight: "calc(100dvh - 48px)",
+    width: "min(460px,calc(100vw - 48px))",
+    transform:
+      "translateX(-50%) translateY(-50%) translateZ(0) rotate(0) rotateX(0) rotateY(0) rotateZ(0) skewX(0) skewY(0) scaleX(1) scaleY(1) scaleZ(1)",
+    overflow: "hidden",
+    borderWidth: "1px",
+    borderColor: theme.borderLight,
+    borderRadius: theme.radiusLg,
+    backgroundColor: theme.bgPrimary,
+    boxShadow:
+      "0 0 rgb(0 0 0 / 0), 0 0 rgb(0 0 0 / 0), var(--rieul-shadow-dialog)",
+    outline: "2px solid transparent",
+    outlineOffset: "2px",
+  },
+  variants: {
+    size: {
+      md: {
+        width: "min(460px,calc(100vw - 48px))",
+      },
+      sm: {
+        width: "min(420px,calc(100vw - 48px))",
       },
     },
-    defaultVariants: {
-      size: "md",
-    },
   },
-);
+  defaultVariants: {
+    size: "md",
+  },
+});
 
-const headerClassName = [
-  "flex items-center justify-between gap-[12px]",
-  "border-b border-b-[var(--rieul-border-muted)] px-[16px] py-[14px]",
-  "[&_div]:grid [&_div]:min-w-0 [&_div]:gap-[2px]",
-].join(" ");
-const eyebrowClassName =
-  "text-[12px] font-700 text-[var(--rieul-text-tertiary)]";
-const titleClassName =
-  "m-0 text-[18px] font-700 tracking-[0] text-[var(--rieul-text-primary)]";
-const iconButtonClassName = "!w-[36px] !min-w-[36px] !p-0";
-
-export interface ModalDialogProps extends VariantProps<typeof popupVariants> {
+export interface ModalDialogProps
+  extends Omit<
+    Props.Variants<typeof popupVariants>,
+    "className" | "style" | "vars"
+  > {
   bodyClassName?: string;
   children: JSX.Element;
   className?: string;
@@ -70,11 +79,13 @@ export function ModalDialog(props: ModalDialogProps) {
       <dialog
         ref={dialog}
         aria-labelledby={props.titleId}
-        class={joinClassName(
-          popupVariants({ size: props.size }),
-          "m-0 p-0 [&::backdrop]:bg-[var(--rieul-overlay-backdrop)]",
-          props.className,
-        )}
+        {...popupVariants({
+          size: props.size,
+          className: joinClassName(
+            styles.dialog().class ?? "",
+            props.className ?? "",
+          ),
+        })}
         onKeyDown={(event) => {
           if (event.key !== "Tab") return;
           const controls = [
@@ -124,12 +135,12 @@ export function ModalDialog(props: ModalDialogProps) {
           }
         }}
       >
-        <header class={headerClassName}>
+        <header {...styles.header()}>
           <div>
             {props.eyebrow ? (
-              <span class={eyebrowClassName}>{props.eyebrow}</span>
+              <span {...styles.eyebrow()}>{props.eyebrow}</span>
             ) : null}
-            <h2 id={props.titleId} class={titleClassName}>
+            <h2 id={props.titleId} {...styles.title()}>
               {props.title}
             </h2>
           </div>
@@ -139,7 +150,7 @@ export function ModalDialog(props: ModalDialogProps) {
               onClick={() => props.onClose()}
               title="Close"
               aria-label={props.closeLabel ?? "Close dialog"}
-              className={iconButtonClassName}
+              className={styles.iconButton().class}
             >
               <X size={16} />
             </IconButton>
@@ -149,4 +160,52 @@ export function ModalDialog(props: ModalDialogProps) {
       </dialog>
     </Portal>
   );
+}
+
+namespace styles {
+  export const header = style({
+    selectors: {
+      "& div": {
+        display: "grid",
+        minWidth: "0",
+        gap: "2px",
+      },
+    },
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: "12px",
+    borderBottomWidth: "1px",
+    borderBottomColor: theme.borderMuted,
+    paddingLeft: "16px",
+    paddingRight: "16px",
+    paddingTop: "14px",
+    paddingBottom: "14px",
+  });
+  export const eyebrow = style({
+    fontSize: "12px",
+    color: theme.textTertiary,
+    fontWeight: 700,
+  });
+  export const title = style({
+    margin: "0",
+    fontSize: "18px",
+    color: theme.textPrimary,
+    fontWeight: 700,
+    letterSpacing: "0",
+  });
+  export const iconButton = style({
+    minWidth: "36px !important",
+    width: "36px !important",
+    padding: "0 !important",
+  });
+  export const dialog = style({
+    margin: "0",
+    selectors: {
+      "&::backdrop": {
+        backgroundColor: theme.overlayBackdrop,
+      },
+    },
+    padding: "0",
+  });
 }

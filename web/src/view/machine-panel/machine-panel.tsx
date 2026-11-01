@@ -1,3 +1,4 @@
+import { style, theme } from "../../zyzz.config.ts";
 import { createMemo } from "solid-js";
 
 import { ChevronDown, Loader2, Wifi, WifiOff } from "../../solid/icons.tsx";
@@ -23,85 +24,25 @@ interface MachinePanelProps {
   ) => void;
 }
 
-const machinePanelClassName = [
-  "machine-panel relative [grid-column:2] [grid-row:1] grid",
-  "[grid-template-rows:auto_minmax(0,1fr)] min-w-0 min-h-0 overflow-hidden",
-  "border-r border-r-rieul-border bg-[rgba(242,242,243,0.74)] backdrop-blur-xl",
-  "shadow-[inset_-1px_0_0_rgba(255,255,255,0.54)] transition-[border-color,border-radius] duration-150 ease-out",
-  "max-[680px]:hidden",
-].join(" ");
-const machinePanelInnerClassName = [
-  "grid h-full min-h-0 w-[var(--machine-panel-open-width,264px)]",
-  "min-w-[var(--machine-panel-open-width,264px)]",
-  "[grid-template-rows:auto_minmax(0,1fr)]",
-  "max-[680px]:w-full max-[680px]:min-w-0 max-[680px]:[grid-template-rows:minmax(0,1fr)]",
-].join(" ");
-const machinePanelSummaryClassName = [
-  "grid h-[54px] min-h-[54px] border-b border-b-rieul-border px-[10px]",
-  "bg-[rgba(255,255,255,0.24)]",
-  "max-[680px]:hidden",
-].join(" ");
-const machineTitleClassName = [
-  "grid content-center min-w-0 gap-[3px]",
-  "[&_h1]:flex [&_h1]:items-center [&_h1]:m-0 [&_h1]:min-w-0",
-].join(" ");
-const machineTitleButtonClassName = [
-  "machine-title-button inline-flex appearance-none items-center justify-start gap-[0.5rem]",
-  "h-[28px] max-w-full min-h-[28px] overflow-visible",
-  "cursor-pointer border border-transparent rounded-rieul-sm bg-transparent text-rieul-text",
-  "px-[6px] text-[14px] font-700 leading-none tracking-[0] [font-family:inherit]",
-  "hover:bg-white/28 active:bg-rieul-active [&_svg]:flex-[0_0_auto]",
-].join(" ");
-const machineTitleTextClassName = [
-  "machine-title-text block flex-[1_1_auto] min-w-0 overflow-hidden",
-  "leading-[1.25] text-ellipsis whitespace-nowrap",
-].join(" ");
-const machineTitleStatusIconClassName = "flex-[0_0_auto] [stroke-width:2.4]";
-const machineConnectionLineClassName = [
-  "ml-[6px] flex min-w-0 items-center gap-[6px]",
-  "text-[12px] font-650 text-rieul-text-3",
-].join(" ");
-const machineConnectionDotClassName = ["h-[6px] w-[6px] rounded-full"].join(
-  " ",
-);
-const machineContextClassName = [
-  "grid content-start gap-[10px] px-[10px] py-[12px]",
-  "text-[12px] text-rieul-text-3",
-  "max-[680px]:hidden",
-].join(" ");
-const machineContextRowClassName = [
-  "grid min-h-[30px] grid-cols-[72px_minmax(0,1fr)] items-center gap-[8px]",
-  "border-b border-b-white/26 px-[6px]",
-].join(" ");
-const machineContextLabelClassName = "font-650 text-rieul-text-3";
-const machineContextValueClassName =
-  "min-w-0 overflow-hidden text-right text-ellipsis whitespace-nowrap font-700 text-rieul-text-2";
-const machinePanelResizerClassName = [
-  "absolute top-0 right-[-4px] bottom-0 z-[8] w-[8px] cursor-col-resize touch-none",
-  "after:content-[''] after:absolute after:top-0 after:bottom-0 after:left-[3px]",
-  "after:w-[1px] after:bg-transparent",
-  "hover:after:w-[2px] hover:after:bg-rieul-accent",
-  "focus-visible:after:w-[2px] focus-visible:after:bg-rieul-accent focus-visible:outline-0",
-  "max-[680px]:hidden",
-].join(" ");
-
 export function MachinePanel(componentProps: MachinePanelProps) {
   return (
     <aside
-      class={machinePanelClassName}
+      {...styles.machinePanel({ className: "machine-panel" })}
       aria-label="Machine workspace"
       aria-hidden={componentProps.machinePanelCollapsed ? "true" : "false"}
       inert={componentProps.machinePanelCollapsed ? true : undefined}
     >
-      <div class={machinePanelInnerClassName}>
-        <section class={machinePanelSummaryClassName}>
-          <div class={machineTitleClassName}>
+      <div {...styles.machinePanelInner()}>
+        <section {...styles.machinePanelSummary()}>
+          <div {...styles.machineTitle()}>
             <h1>
               {componentProps.machine ? (
                 <button
                   type="button"
                   class={[
-                    machineTitleButtonClassName,
+                    styles.machineTitleButton({
+                      className: "machine-title-button",
+                    }).class,
                     componentProps.connection.phase === "idle"
                       ? "checking"
                       : "",
@@ -121,7 +62,11 @@ export function MachinePanel(componentProps: MachinePanelProps) {
                     componentProps.machinePanelCollapsed ? -1 : undefined
                   }
                 >
-                  <span class={machineTitleTextClassName}>
+                  <span
+                    {...styles.machineTitleText({
+                      className: "machine-title-text",
+                    })}
+                  >
                     {componentProps.machine.name}
                   </span>
                   <MachineTitleStatus connection={componentProps.connection} />
@@ -144,7 +89,7 @@ export function MachinePanel(componentProps: MachinePanelProps) {
         />
       </div>
       <div
-        class={machinePanelResizerClassName}
+        {...styles.machinePanelResizer()}
         role="separator"
         aria-label="Resize machine panel"
         aria-orientation="vertical"
@@ -163,7 +108,7 @@ function MachineContext(
   componentProps: MachineTitleStatusProps & { machine?: Machine },
 ) {
   return (
-    <div class={machineContextClassName} aria-label="Machine context">
+    <div {...styles.machineContext()} aria-label="Machine context">
       <ContextRow
         label="Target"
         value={componentProps.machine?.name ?? "No machine"}
@@ -184,9 +129,9 @@ function MachineContext(
 
 function ContextRow(componentProps: { label: string; value: string }) {
   return (
-    <div class={machineContextRowClassName}>
-      <span class={machineContextLabelClassName}>{componentProps.label}</span>
-      <span class={machineContextValueClassName}>{componentProps.value}</span>
+    <div {...styles.machineContextRow()}>
+      <span {...styles.machineContextLabel()}>{componentProps.label}</span>
+      <span {...styles.machineContextValue()}>{componentProps.value}</span>
     </div>
   );
 }
@@ -216,16 +161,16 @@ function MachineConnectionLine(
   );
   const tone = createMemo(() =>
     !componentProps.machine
-      ? "bg-rieul-muted"
+      ? styles.connectionIdle().class
       : componentProps.connection.phase === "reachable"
-        ? "bg-rieul-success"
+        ? styles.connectionSuccess().class
         : componentProps.connection.phase === "idle"
-          ? "bg-rieul-warning"
-          : "bg-rieul-danger",
+          ? styles.connectionWaiting().class
+          : styles.connectionError().class,
   );
   return (
-    <div class={machineConnectionLineClassName}>
-      <span class={`${machineConnectionDotClassName} ${tone()}`} />
+    <div {...styles.machineConnectionLine()}>
+      <span class={`${styles.machineConnectionDot().class} ${tone()}`} />
       <span>{text()}</span>
     </div>
   );
@@ -241,22 +186,251 @@ function MachineTitleStatus(props: MachineTitleStatusProps) {
       {props.connection.phase === "reachable" ? (
         <Wifi
           size={14}
-          className={`${machineTitleStatusIconClassName} text-rieul-success`}
+          className={`${styles.machineTitleStatusIcon().class} ${styles.connectedIcon().class} `}
           aria-label="Connected"
         />
       ) : props.connection.phase === "idle" ? (
         <Loader2
           size={14}
-          className={`${machineTitleStatusIconClassName} animate-spin text-rieul-warning`}
+          className={`${styles.machineTitleStatusIcon().class} ${styles.connectingIcon().class} `}
           aria-label="Connecting"
         />
       ) : (
         <WifiOff
           size={14}
-          className={`${machineTitleStatusIconClassName} text-rieul-danger`}
+          className={`${styles.machineTitleStatusIcon().class} ${styles.offlineIcon().class} `}
           aria-label="Unconnected"
         />
       )}
     </>
   );
+}
+
+namespace styles {
+  export const connectedIcon = style({
+    color: theme.success,
+  });
+  export const connectingIcon = style({
+    animation: "spin 1s linear infinite",
+    color: theme.warning,
+  });
+  export const offlineIcon = style({
+    color: theme.danger,
+  });
+  export const connectionError = style({
+    backgroundColor: theme.danger,
+  });
+
+  export const connectionWaiting = style({
+    backgroundColor: theme.warning,
+  });
+
+  export const connectionSuccess = style({
+    backgroundColor: theme.success,
+  });
+
+  export const connectionIdle = style({
+    backgroundColor: theme.textDisabled,
+  });
+
+  export const machinePanel = style({
+    gridColumn: "2",
+    gridRow: "1",
+    gridTemplateRows: "auto minmax(0,1fr)",
+    position: "relative",
+    display: "grid",
+    minHeight: "0",
+    minWidth: "0",
+    overflow: "hidden",
+    borderRightWidth: "1px",
+    borderRightColor: theme.borderLight,
+    backgroundColor: "rgba(242, 242, 243, 0.74)",
+    boxShadow:
+      "0 0 rgb(0 0 0 / 0), 0 0 rgb(0 0 0 / 0), inset -1px 0 0 rgba(255, 255, 255, 0.54)",
+    WebkitBackdropFilter: "blur(24px)",
+    backdropFilter: "blur(24px)",
+    transitionProperty: "border-color,border-radius",
+    transitionTimingFunction: "cubic-bezier(0, 0, 0.2, 1)",
+    transitionDuration: "150ms",
+    "@media (max-width: 680px)": {
+      display: "none",
+    },
+  });
+  export const machinePanelInner = style({
+    gridTemplateRows: "auto minmax(0,1fr)",
+    display: "grid",
+    height: "100%",
+    minHeight: "0",
+    minWidth: "var(--machine-panel-open-width,264px)",
+    width: "var(--machine-panel-open-width,264px)",
+    "@media (max-width: 680px)": {
+      gridTemplateRows: "minmax(0,1fr)",
+      minWidth: "0",
+      width: "100%",
+    },
+  });
+  export const machinePanelSummary = style({
+    display: "grid",
+    height: "54px",
+    minHeight: "54px",
+    borderBottomWidth: "1px",
+    borderBottomColor: theme.borderLight,
+    backgroundColor: "rgba(255, 255, 255, 0.24)",
+    paddingLeft: "10px",
+    paddingRight: "10px",
+    "@media (max-width: 680px)": {
+      display: "none",
+    },
+  });
+  export const machineTitle = style({
+    display: "grid",
+    selectors: {
+      "& h1": {
+        margin: "0",
+        minWidth: "0",
+        display: "flex",
+        alignItems: "center",
+      },
+    },
+    minWidth: "0",
+    alignContent: "center",
+    gap: "3px",
+  });
+  export const machineTitleButton = style({
+    fontFamily: "inherit",
+    height: "28px",
+    maxWidth: "100%",
+    minHeight: "28px",
+    display: "inline-flex",
+    selectors: {
+      "& svg": {
+        flex: "0 0 auto",
+      },
+      "&:hover": {
+        backgroundColor: "rgb(255 255 255 / 0.28)",
+      },
+      "&:active": {
+        backgroundColor: theme.bgActive,
+      },
+    },
+    cursor: "pointer",
+    WebkitAppearance: "none",
+    appearance: "none",
+    alignItems: "center",
+    justifyContent: "flex-start",
+    gap: "0.5rem",
+    overflow: "visible",
+    borderWidth: "1px",
+    borderColor: "transparent",
+    borderRadius: theme.radiusSm,
+    backgroundColor: "transparent",
+    paddingLeft: "6px",
+    paddingRight: "6px",
+    fontSize: "14px",
+    color: theme.textPrimary,
+    fontWeight: 700,
+    lineHeight: 1,
+    letterSpacing: "0",
+  });
+  export const machineTitleText = style({
+    display: "block",
+    minWidth: "0",
+    flex: "1 1 auto",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    lineHeight: 1.25,
+  });
+  export const machineTitleStatusIcon = style({
+    strokeWidth: 2.4,
+    flex: "0 0 auto",
+  });
+  export const machineConnectionLine = style({
+    marginLeft: "6px",
+    minWidth: "0",
+    display: "flex",
+    alignItems: "center",
+    gap: "6px",
+    fontSize: "12px",
+    color: theme.textTertiary,
+    fontWeight: 650,
+  });
+  export const machineConnectionDot = style({
+    height: "6px",
+    width: "6px",
+    borderRadius: "9999px",
+  });
+  export const machineContext = style({
+    display: "grid",
+    alignContent: "flex-start",
+    gap: "10px",
+    paddingLeft: "10px",
+    paddingRight: "10px",
+    paddingTop: "12px",
+    paddingBottom: "12px",
+    fontSize: "12px",
+    color: theme.textTertiary,
+    "@media (max-width: 680px)": {
+      display: "none",
+    },
+  });
+  export const machineContextRow = style({
+    display: "grid",
+    gridTemplateColumns: "72px minmax(0,1fr)",
+    minHeight: "30px",
+    alignItems: "center",
+    gap: "8px",
+    borderBottomWidth: "1px",
+    borderBottomColor: "rgb(255 255 255 / 0.26)",
+    paddingLeft: "6px",
+    paddingRight: "6px",
+  });
+  export const machineContextLabel = style({
+    color: theme.textTertiary,
+    fontWeight: 650,
+  });
+  export const machineContextValue = style({
+    minWidth: "0",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    textAlign: "right",
+    color: theme.textSecondary,
+    fontWeight: 700,
+  });
+  export const machinePanelResizer = style({
+    position: "absolute",
+    selectors: {
+      "&::after": {
+        position: "absolute",
+        bottom: "0",
+        left: "3px",
+        top: "0",
+        width: "1px",
+        backgroundColor: "transparent",
+        content: "''",
+      },
+      "&:hover::after": {
+        width: "2px",
+        backgroundColor: theme.accent,
+      },
+      "&:focus-visible::after": {
+        width: "2px",
+        backgroundColor: theme.accent,
+      },
+      "&:focus-visible": {
+        outlineWidth: "0px",
+      },
+    },
+    bottom: "0",
+    right: "-4px",
+    top: "0",
+    zIndex: 8,
+    width: "8px",
+    cursor: "col-resize",
+    touchAction: "none",
+    "@media (max-width: 680px)": {
+      display: "none",
+    },
+  });
 }

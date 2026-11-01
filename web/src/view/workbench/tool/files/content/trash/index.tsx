@@ -1,3 +1,4 @@
+import { style } from "../../../../../../zyzz.config.ts";
 import { For, createMemo, createSignal, createEffect } from "solid-js";
 import { useBunja } from "bunja/solid";
 import { RotateCcw, Trash2 } from "../../../../../../solid/icons.tsx";
@@ -45,40 +46,7 @@ interface TrashItemMenuState {
   x: number;
   y: number;
 }
-const trashContentClassName = [
-  "grid [grid-template-rows:minmax(0,1fr)_auto]",
-  "w-full h-full min-w-0 min-h-0 overflow-hidden bg-white",
-].join(" ");
-const trashTableClassName = [
-  "grid min-h-0 min-w-0 overflow-auto",
-  "[grid-template-columns:minmax(180px,1.2fr)_minmax(180px,1.4fr)_minmax(100px,140px)_minmax(140px,190px)]",
-  "auto-rows-[2em] bg-white leading-[1.6]",
-].join(" ");
-const trashHeadClassName = [
-  "sticky top-0 z-[1] flex h-[2rem] items-center box-border",
-  "border-b border-b-[#d8dde7] bg-[#f6f8fb] px-[8px]",
-  "text-[#667085] font-700",
-].join(" ");
-const trashRowClassName = [
-  "grid [grid-column:1/-1] [grid-template-columns:subgrid]",
-  "h-[2em] min-h-[2em] box-border border-0 border-b border-b-[#eef1f5]",
-  "cursor-default bg-white text-left leading-[1.6] hover:bg-[#f7faff]",
-  "[&.selected]:bg-[#eaf3ff]",
-].join(" ");
-const trashCellClassName = [
-  "flex items-center min-w-0 overflow-hidden px-[8px]",
-  "text-[#303642] text-ellipsis whitespace-nowrap",
-].join(" ");
-const trashMetaCellClassName = `${trashCellClassName} text-[#667085]`;
-const trashFooterClassName = [
-  "flex h-[2rem] min-h-[2rem] items-center justify-end box-border",
-  "border-t border-t-[#d8dde7] bg-[#fbfcfe] px-[8px]",
-  "text-[#667085] leading-[1.6]",
-].join(" ");
-const trashStatusClassName =
-  "[grid-column:1/-1] flex items-center px-[12px] text-[#667085]";
-const trashErrorClassName =
-  "[grid-column:1/-1] flex items-center px-[12px] text-[#b42318]";
+
 const trashContextMenuWidth = 176;
 export function TrashContent() {
   const rpcSession = useBunja(rpcSessionBunja);
@@ -188,24 +156,24 @@ export function TrashContent() {
   }
   const sortedItems = createMemo(() => sortTrashItems(state().items));
   return (
-    <section class={trashContentClassName}>
-      <div class={trashTableClassName} role="grid" aria-label="Trash">
-        <div class={trashHeadClassName}>Name</div>
-        <div class={trashHeadClassName}>Original parent</div>
-        <div class={trashHeadClassName}>Size</div>
-        <div class={trashHeadClassName}>Deleted</div>
+    <section {...styles.trashContent()}>
+      <div {...styles.trashTable()} role="grid" aria-label="Trash">
+        <div {...styles.trashHead()}>Name</div>
+        <div {...styles.trashHead()}>Original parent</div>
+        <div {...styles.trashHead()}>Size</div>
+        <div {...styles.trashHead()}>Deleted</div>
         {state().phase === "connecting" ? (
-          <div class={trashStatusClassName}>Opening trash</div>
+          <div {...styles.trashStatus()}>Opening trash</div>
         ) : state().phase === "error" ? (
-          <div class={trashErrorClassName}>{state().message}</div>
+          <div {...styles.trashError()}>{state().message}</div>
         ) : sortedItems().length === 0 ? (
-          <div class={trashStatusClassName}>Trash is empty</div>
+          <div {...styles.trashStatus()}>Trash is empty</div>
         ) : (
           <For each={sortedItems()}>
             {(item) => (
               <div
                 class={className(
-                  trashRowClassName,
+                  styles.trashRow().class,
                   selectedItemId() === item.id && "selected",
                 )}
                 role="row"
@@ -213,14 +181,20 @@ export function TrashContent() {
                 onClick={() => setSelectedItemId(item.id)}
                 onContextMenu={(event) => openItemMenu(item, event)}
               >
-                <span class={trashCellClassName}>{item.name}</span>
-                <span class={trashMetaCellClassName}>
+                <span {...styles.trashCell()}>{item.name}</span>
+                <span
+                  class={`${styles.trashCell().class} ${styles.metadata().class} `}
+                >
                   {item.originalParent}
                 </span>
-                <span class={trashMetaCellClassName}>
+                <span
+                  class={`${styles.trashCell().class} ${styles.metadata().class} `}
+                >
                   {formatTrashItemSize(item)}
                 </span>
-                <span class={trashMetaCellClassName}>
+                <span
+                  class={`${styles.trashCell().class} ${styles.metadata().class} `}
+                >
                   {formatDate(item.deletedAtMs)}
                 </span>
               </div>
@@ -228,13 +202,13 @@ export function TrashContent() {
           </For>
         )}
       </div>
-      <footer class={trashFooterClassName}>
+      <footer {...styles.trashFooter()}>
         <span>{sortedItems().length} items</span>
       </footer>
 
       {itemMenu() ? (
         <FloatingMenu
-          className="z-[30] w-[176px]"
+          className={styles.floatingMenu().class}
           position={{ left: itemMenu()!.x, top: itemMenu()!.y }}
         >
           <FloatingMenuItem onClick={() => restoreItem(itemMenu()!.item)}>
@@ -307,4 +281,117 @@ function trashItemMenuPosition(
     width: trashContextMenuWidth,
   });
   return { x: position.left, y: position.top };
+}
+
+namespace styles {
+  export const metadata = style({
+    color: "rgb(102 112 133 / 1)",
+  });
+
+  export const trashContent = style({
+    gridTemplateRows: "minmax(0,1fr) auto",
+    display: "grid",
+    height: "100%",
+    minHeight: "0",
+    minWidth: "0",
+    width: "100%",
+    overflow: "hidden",
+    backgroundColor: "rgb(255 255 255 / 1)",
+  });
+  export const trashTable = style({
+    gridTemplateColumns:
+      "minmax(180px,1.2fr) minmax(180px,1.4fr) minmax(100px,140px) minmax(140px,190px)",
+    display: "grid",
+    gridAutoRows: "2em",
+    minHeight: "0",
+    minWidth: "0",
+    overflow: "auto",
+    backgroundColor: "rgb(255 255 255 / 1)",
+    lineHeight: 1.6,
+  });
+  export const trashHead = style({
+    position: "sticky",
+    top: "0",
+    zIndex: 1,
+    boxSizing: "border-box",
+    height: "2rem",
+    display: "flex",
+    alignItems: "center",
+    borderBottomWidth: "1px",
+    borderBottomColor: "rgb(216 221 231 / 1)",
+    backgroundColor: "rgb(246 248 251 / 1)",
+    paddingLeft: "8px",
+    paddingRight: "8px",
+    color: "rgb(102 112 133 / 1)",
+    fontWeight: 700,
+  });
+  export const trashRow = style({
+    gridColumn: "1/-1",
+    gridTemplateColumns: "subgrid",
+    display: "grid",
+    boxSizing: "border-box",
+    height: "2em",
+    minHeight: "2em",
+    cursor: "default",
+    borderWidth: "0px",
+    borderBottomWidth: "1px",
+    borderBottomColor: "rgb(238 241 245 / 1)",
+    selectors: {
+      "&.selected": {
+        backgroundColor: "rgb(234 243 255 / 1)",
+      },
+      "&:hover": {
+        backgroundColor: "rgb(247 250 255 / 1)",
+      },
+    },
+    backgroundColor: "rgb(255 255 255 / 1)",
+    textAlign: "left",
+    lineHeight: 1.6,
+  });
+  export const trashCell = style({
+    minWidth: "0",
+    display: "flex",
+    alignItems: "center",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    paddingLeft: "8px",
+    paddingRight: "8px",
+    color: "rgb(48 54 66 / 1)",
+  });
+  export const trashFooter = style({
+    boxSizing: "border-box",
+    height: "2rem",
+    minHeight: "2rem",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    borderTopWidth: "1px",
+    borderTopColor: "rgb(216 221 231 / 1)",
+    backgroundColor: "rgb(251 252 254 / 1)",
+    paddingLeft: "8px",
+    paddingRight: "8px",
+    color: "rgb(102 112 133 / 1)",
+    lineHeight: 1.6,
+  });
+  export const trashStatus = style({
+    gridColumn: "1/-1",
+    display: "flex",
+    alignItems: "center",
+    paddingLeft: "12px",
+    paddingRight: "12px",
+    color: "rgb(102 112 133 / 1)",
+  });
+  export const trashError = style({
+    gridColumn: "1/-1",
+    display: "flex",
+    alignItems: "center",
+    paddingLeft: "12px",
+    paddingRight: "12px",
+    color: "rgb(180 35 24 / 1)",
+  });
+  export const floatingMenu = style({
+    zIndex: 30,
+    width: "176px",
+  });
 }

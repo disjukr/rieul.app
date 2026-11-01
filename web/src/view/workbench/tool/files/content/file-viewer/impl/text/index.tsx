@@ -1,3 +1,4 @@
+import { style } from "../../../../../../../../zyzz.config.ts";
 import {
   onCleanup,
   createMemo,
@@ -31,12 +32,7 @@ const MonacoTextViewer = lazy(async () => {
   return { default: module.MonacoTextViewer };
 });
 const inlineOpenLimitBytes = 1024 * 1024;
-const fileViewerStatusClassName = [
-  "flex items-center justify-center gap-[8px] min-w-0 min-h-0",
-  "text-[#667085] text-[14px]",
-  "[&.error]:items-start [&.error]:justify-start [&.error]:overflow-auto",
-  "[&.error]:text-[#b42318] [&.error]:p-[14px]",
-].join(" ");
+
 type FileReadState =
   | {
       phase: "loading";
@@ -264,7 +260,7 @@ export default function TextFileViewer() {
   return (
     <>
       {!machine() ? (
-        <div class={`${fileViewerStatusClassName} error`}>
+        <div class={`${styles.fileViewerStatus().class} error`}>
           <span>No machine selected</span>
         </div>
       ) : viewerState().phase !== "ready" ? null : !confirmed() ? (
@@ -274,22 +270,22 @@ export default function TextFileViewer() {
           viewerName={textViewerName}
         />
       ) : state().phase === "loading" ? (
-        <div class={fileViewerStatusClassName}>
+        <div {...styles.fileViewerStatus()}>
           <span>Loading text</span>
         </div>
       ) : state().phase === "error" ? (
-        <div class={`${fileViewerStatusClassName} error`}>
+        <div class={`${styles.fileViewerStatus().class} error`}>
           <span>{errorMessage()}</span>
         </div>
       ) : (
         <Loading
           fallback={
-            <div class={fileViewerStatusClassName}>
+            <div {...styles.fileViewerStatus()}>
               <span>Loading editor</span>
             </div>
           }
         >
-          <div class="relative w-full h-full min-w-0 min-h-0">
+          <div {...styles.div()}>
             <MonacoTextViewer
               path={fsEntry().path}
               text={readyState()!.draftText}
@@ -297,7 +293,7 @@ export default function TextFileViewer() {
               onSave={saveDraftText}
             />
             {readyState()!.saving || readyState()!.saveError ? (
-              <div class="absolute right-[8px] bottom-[8px] z-[2] rounded-[4px] border border-[#d8dde7] bg-white px-[8px] py-[4px] text-[#344054] shadow-[0_8px_24px_rgb(16_24_40_/_12%)]">
+              <div {...styles.div2()}>
                 {readyState()!.saving ? "Saving" : readyState()!.saveError}
               </div>
             ) : null}
@@ -330,4 +326,50 @@ function isOwnSavedFileVersion(
     saved.modifiedAtMs === undefined ||
     entry.modifiedAtMs === saved.modifiedAtMs
   );
+}
+
+namespace styles {
+  export const fileViewerStatus = style({
+    minHeight: "0",
+    minWidth: "0",
+    display: "flex",
+    selectors: {
+      "&.error": {
+        alignItems: "flex-start",
+        justifyContent: "flex-start",
+        overflow: "auto",
+        padding: "14px",
+        color: "rgb(180 35 24 / 1)",
+      },
+    },
+    alignItems: "center",
+    justifyContent: "center",
+    gap: "8px",
+    fontSize: "14px",
+    color: "rgb(102 112 133 / 1)",
+  });
+  export const div = style({
+    position: "relative",
+    height: "100%",
+    minHeight: "0",
+    minWidth: "0",
+    width: "100%",
+  });
+  export const div2 = style({
+    position: "absolute",
+    bottom: "8px",
+    right: "8px",
+    zIndex: 2,
+    borderWidth: "1px",
+    borderColor: "rgb(216 221 231 / 1)",
+    borderRadius: "4px",
+    backgroundColor: "rgb(255 255 255 / 1)",
+    paddingLeft: "8px",
+    paddingRight: "8px",
+    paddingTop: "4px",
+    paddingBottom: "4px",
+    color: "rgb(52 64 84 / 1)",
+    boxShadow:
+      "0 0 rgb(0 0 0 / 0), 0 0 rgb(0 0 0 / 0), 0 8px 24px rgb(16 24 40 / 12%)",
+  });
 }

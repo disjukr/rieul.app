@@ -1,3 +1,4 @@
+import { style, theme } from "../../zyzz.config.ts";
 import { createEffect, createMemo, createSignal } from "solid-js";
 
 import type { AvailableShellInfo } from "../../protocol/generated/rpc.ts";
@@ -62,64 +63,6 @@ const SHELL_MENU_WIDTH = 260;
 const SHELL_MENU_MAX_HEIGHT = 360;
 const SHELL_MENU_TRIGGER_GAP = 0;
 const FILES_MENU_WIDTH = 176;
-
-const toolMenuClassName = [
-  "grid content-start gap-[2px] min-h-0 overflow-visible px-[8px] py-[10px]",
-  "max-[680px]:flex max-[680px]:h-full max-[680px]:items-center max-[680px]:gap-[6px]",
-  "max-[680px]:overflow-x-auto max-[680px]:overflow-y-visible max-[680px]:px-[8px] max-[680px]:py-[7px]",
-  "max-[680px]:[scrollbar-width:none] max-[680px]:[&::-webkit-scrollbar]:hidden",
-].join(" ");
-const toolItemFrameClassName =
-  "h-[34px] box-border max-[680px]:h-[54px] max-[680px]:flex-[0_0_auto]";
-const toolItemRowClassName = [
-  "relative grid h-[34px] box-border",
-  "[grid-template-columns:minmax(0,1fr)_34px]",
-  "max-[680px]:h-[54px] max-[680px]:w-[78px] max-[680px]:flex-[0_0_78px]",
-  "max-[680px]:[grid-template-columns:minmax(0,1fr)]",
-].join(" ");
-const toolItemClassName = [
-  "inline-flex appearance-none items-center justify-start gap-[0.5rem]",
-  "w-full h-full min-h-0 border border-transparent rounded-rieul-sm",
-  "cursor-pointer bg-transparent px-[7px] text-left text-rieul-text-2 [font-family:inherit]",
-  "rieul-transition",
-  "hover:bg-white/38 hover:text-rieul-text",
-  "[&.active]:border-rieul-border [&.active]:bg-white/42 [&.active]:text-rieul-text",
-  "[&.active]:[box-shadow:0_1px_2px_rgba(18,25,38,0.08),inset_0_1px_0_rgba(255,255,255,0.62)]",
-  "disabled:opacity-56",
-  "max-[680px]:w-[74px] max-[680px]:flex-col max-[680px]:justify-center max-[680px]:gap-[3px]",
-  "max-[680px]:px-[5px] max-[680px]:text-center max-[680px]:text-[11px] max-[680px]:leading-[1.1]",
-  "max-[680px]:[&.active]:[box-shadow:inset_0_3px_0_var(--rieul-accent),0_1px_2px_rgba(18,25,38,0.08)]",
-  "[&_span]:min-w-0 [&_span]:overflow-hidden [&_span]:text-ellipsis",
-  "[&_span]:whitespace-nowrap [&_span]:font-500",
-].join(" ");
-const terminalMainButtonClassName = [
-  toolItemClassName,
-  "rounded-rieul-sm max-[680px]:rounded-rieul-md",
-].join(" ");
-const terminalDropdownButtonClassName = [
-  "inline-flex appearance-none items-center justify-center",
-  "h-full min-h-0 w-[34px] min-w-[34px] p-0 rounded-rieul-sm",
-  "cursor-pointer border border-transparent bg-transparent text-rieul-text-2 [font-family:inherit]",
-  "hover:bg-white/38 hover:text-rieul-text",
-  "[&.active]:border-rieul-border [&.active]:bg-white/42 [&.active]:text-rieul-text",
-  "max-[680px]:hidden",
-].join(" ");
-const shellMenuItemClassName = [
-  "!grid min-w-0 grid-cols-[minmax(0,1fr)_auto] !gap-[0.5rem]",
-].join(" ");
-const shellMenuDefaultItemClassName = "bg-rieul-accent-soft";
-const shellMenuItemLabelClassName =
-  "flex min-w-0 items-center gap-[0.5rem] text-left";
-const shellMenuShellNameClassName =
-  "block min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-left";
-const shellMenuDefaultBadgeClassName = [
-  "rounded-[999px] bg-rieul-surface px-[6px] py-[1px]",
-  "text-[11px] font-600 text-rieul-text-2",
-].join(" ");
-const shellMenuCommandClassName = [
-  "block max-w-[88px] min-w-0 overflow-hidden text-right",
-  "text-ellipsis whitespace-nowrap text-rieul-text-3",
-].join(" ");
 
 interface ToolMenuProps {
   activeTool: WorkbenchTool;
@@ -220,11 +163,11 @@ export function ToolMenu(componentProps: ToolMenuProps) {
   }
 
   return (
-    <nav class={toolMenuClassName} aria-label="Workspace tools">
+    <nav {...styles.toolMenu()} aria-label="Workspace tools">
       {tools.map(({ id, label, disabled, Icon }) =>
         id === "files" ? (
           <div
-            class={toolItemRowClassName}
+            {...styles.toolItemRow()}
             ref={(el) => {
               filesMenuRef.current = el;
             }}
@@ -232,7 +175,9 @@ export function ToolMenu(componentProps: ToolMenuProps) {
             <button
               type="button"
               class={className(
-                terminalMainButtonClassName,
+                [styles.toolItem().class, styles.terminalRadius().class].join(
+                  " ",
+                ),
                 componentProps.activeTool === id && "active",
               )}
               onClick={() => openFilesView("home")}
@@ -247,7 +192,7 @@ export function ToolMenu(componentProps: ToolMenuProps) {
             <button
               type="button"
               class={className(
-                terminalDropdownButtonClassName,
+                styles.terminalDropdownButton().class,
                 (componentProps.activeTool === id || filesMenuOpen()) &&
                   "active",
               )}
@@ -262,7 +207,7 @@ export function ToolMenu(componentProps: ToolMenuProps) {
             </button>
             {filesMenuOpen() ? (
               <FloatingMenu
-                className="z-[80] w-[176px]"
+                className={styles.floatingMenu().class}
                 menuRef={filesMenuRef}
                 position={filesMenuPosition()}
               >
@@ -285,8 +230,8 @@ export function ToolMenu(componentProps: ToolMenuProps) {
           <div
             class={
               hasTerminalShells()
-                ? toolItemRowClassName
-                : toolItemFrameClassName
+                ? styles.toolItemRow().class
+                : styles.toolItemFrame().class
             }
             ref={(el) => {
               shellMenuRef.current = el;
@@ -296,8 +241,11 @@ export function ToolMenu(componentProps: ToolMenuProps) {
               type="button"
               class={className(
                 hasTerminalShells()
-                  ? terminalMainButtonClassName
-                  : toolItemClassName,
+                  ? [
+                      styles.toolItem().class,
+                      styles.terminalRadius().class,
+                    ].join(" ")
+                  : styles.toolItem().class,
                 componentProps.activeTool === id && "active",
               )}
               onClick={() => {
@@ -315,7 +263,7 @@ export function ToolMenu(componentProps: ToolMenuProps) {
               <button
                 type="button"
                 class={className(
-                  terminalDropdownButtonClassName,
+                  styles.terminalDropdownButton().class,
                   (componentProps.activeTool === id || shellMenuOpen()) &&
                     "active",
                 )}
@@ -331,30 +279,26 @@ export function ToolMenu(componentProps: ToolMenuProps) {
             ) : null}
             {hasTerminalShells() && shellMenuOpen() ? (
               <FloatingMenu
-                className="z-[80] w-[260px] overflow-x-hidden overflow-y-auto"
+                className={styles.floatingMenu2().class}
                 menuRef={shellMenuRef}
                 position={shellMenuPosition()}
               >
                 {componentProps.terminalShells.map((shell) => (
                   <FloatingMenuItem
                     className={className(
-                      shellMenuItemClassName,
-                      shell.isDefault && shellMenuDefaultItemClassName,
+                      styles.shellMenuItem().class,
+                      shell.isDefault && styles.shellMenuDefaultItem().class,
                     )}
                     onClick={() => openShellTerminal(shell)}
                     title={`${shell.name} (${commandName(shell.command)})`}
                   >
-                    <span class={shellMenuItemLabelClassName}>
-                      <span class={shellMenuShellNameClassName}>
-                        {shell.name}
-                      </span>
+                    <span {...styles.shellMenuItemLabel()}>
+                      <span {...styles.shellMenuShellName()}>{shell.name}</span>
                       {shell.isDefault ? (
-                        <span class={shellMenuDefaultBadgeClassName}>
-                          Default
-                        </span>
+                        <span {...styles.shellMenuDefaultBadge()}>Default</span>
                       ) : null}
                     </span>
-                    <small class={shellMenuCommandClassName}>
+                    <small {...styles.shellMenuCommand()}>
                       {commandName(shell.command)}
                     </small>
                   </FloatingMenuItem>
@@ -363,11 +307,11 @@ export function ToolMenu(componentProps: ToolMenuProps) {
             ) : null}
           </div>
         ) : (
-          <div class={toolItemFrameClassName}>
+          <div {...styles.toolItemFrame()}>
             <button
               type="button"
               class={className(
-                toolItemClassName,
+                styles.toolItem().class,
                 componentProps.activeTool === id && "active",
               )}
               onClick={() => componentProps.onSelect(id)}
@@ -406,4 +350,215 @@ function commandName(command: string): string {
   const normalized = command.replaceAll("\\", "/");
   const segments = normalized.split("/").filter(Boolean);
   return segments[segments.length - 1] ?? command;
+}
+
+namespace styles {
+  export const terminalRadius = style({
+    borderRadius: theme.radiusSm,
+    "@media (max-width: 680px)": {
+      borderRadius: theme.radiusMd,
+    },
+  });
+
+  export const toolMenu = style({
+    display: "grid",
+    minHeight: "0",
+    alignContent: "flex-start",
+    gap: "2px",
+    overflow: "visible",
+    paddingLeft: "8px",
+    paddingRight: "8px",
+    paddingTop: "10px",
+    paddingBottom: "10px",
+    "@media (max-width: 680px)": {
+      scrollbarWidth: "none",
+      selectors: {
+        "&::-webkit-scrollbar": {
+          display: "none",
+        },
+      },
+      height: "100%",
+      display: "flex",
+      alignItems: "center",
+      gap: "6px",
+      overflowX: "auto",
+      overflowY: "visible",
+      paddingLeft: "8px",
+      paddingRight: "8px",
+      paddingTop: "7px",
+      paddingBottom: "7px",
+    },
+  });
+  export const toolItemFrame = style({
+    boxSizing: "border-box",
+    height: "34px",
+    "@media (max-width: 680px)": {
+      height: "54px",
+      flex: "0 0 auto",
+    },
+  });
+  export const toolItemRow = style({
+    gridTemplateColumns: "minmax(0,1fr) 34px",
+    position: "relative",
+    display: "grid",
+    boxSizing: "border-box",
+    height: "34px",
+    "@media (max-width: 680px)": {
+      gridTemplateColumns: "minmax(0,1fr)",
+      height: "54px",
+      width: "78px",
+      flex: "0 0 78px",
+    },
+  });
+  export const toolItem = style({
+    transition:
+      "background var(--rieul-duration-fast,100ms) var(--rieul-ease-out,cubic-bezier(0.16,1,0.3,1)),color var(--rieul-duration-fast,100ms) var(--rieul-ease-out,cubic-bezier(0.16,1,0.3,1)),border-color var(--rieul-duration-fast,100ms) var(--rieul-ease-out,cubic-bezier(0.16,1,0.3,1)),box-shadow var(--rieul-duration-fast,100ms) var(--rieul-ease-out,cubic-bezier(0.16,1,0.3,1))",
+    selectors: {
+      "&.active": {
+        boxShadow:
+          "0 1px 2px rgba(18,25,38,0.08),inset 0 1px 0 rgba(255,255,255,0.62)",
+        borderColor: theme.borderLight,
+        backgroundColor: "rgb(255 255 255 / 0.42)",
+        color: theme.textPrimary,
+      },
+      "& span": {
+        minWidth: "0",
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
+        fontWeight: 500,
+      },
+      "&:hover": {
+        backgroundColor: "rgb(255 255 255 / 0.38)",
+        color: theme.textPrimary,
+      },
+      "&:disabled": {
+        opacity: 0.56,
+      },
+    },
+    fontFamily: "inherit",
+    height: "100%",
+    minHeight: "0",
+    width: "100%",
+    display: "inline-flex",
+    cursor: "pointer",
+    WebkitAppearance: "none",
+    appearance: "none",
+    alignItems: "center",
+    justifyContent: "flex-start",
+    gap: "0.5rem",
+    borderWidth: "1px",
+    borderColor: "transparent",
+    borderRadius: theme.radiusSm,
+    backgroundColor: "transparent",
+    paddingLeft: "7px",
+    paddingRight: "7px",
+    textAlign: "left",
+    color: theme.textSecondary,
+    "@media (max-width: 680px)": {
+      selectors: {
+        "&.active": {
+          boxShadow:
+            "inset 0 3px 0 var(--rieul-accent),0 1px 2px rgba(18,25,38,0.08)",
+        },
+      },
+      width: "74px",
+      flexDirection: "column",
+      justifyContent: "center",
+      gap: "3px",
+      paddingLeft: "5px",
+      paddingRight: "5px",
+      textAlign: "center",
+      fontSize: "11px",
+      lineHeight: 1.1,
+    },
+  });
+  export const terminalDropdownButton = style({
+    fontFamily: "inherit",
+    height: "100%",
+    minHeight: "0",
+    minWidth: "34px",
+    width: "34px",
+    display: "inline-flex",
+    cursor: "pointer",
+    WebkitAppearance: "none",
+    appearance: "none",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: "1px",
+    selectors: {
+      "&.active": {
+        borderColor: theme.borderLight,
+        backgroundColor: "rgb(255 255 255 / 0.42)",
+        color: theme.textPrimary,
+      },
+      "&:hover": {
+        backgroundColor: "rgb(255 255 255 / 0.38)",
+        color: theme.textPrimary,
+      },
+    },
+    borderColor: "transparent",
+    borderRadius: theme.radiusSm,
+    backgroundColor: "transparent",
+    padding: "0",
+    color: theme.textSecondary,
+    "@media (max-width: 680px)": {
+      display: "none",
+    },
+  });
+  export const shellMenuItem = style({
+    display: "grid !important",
+    gridTemplateColumns: "minmax(0,1fr) auto",
+    minWidth: "0",
+    gap: "0.5rem !important",
+  });
+  export const shellMenuDefaultItem = style({
+    backgroundColor: theme.accentSoft,
+  });
+  export const shellMenuItemLabel = style({
+    minWidth: "0",
+    display: "flex",
+    alignItems: "center",
+    gap: "0.5rem",
+    textAlign: "left",
+  });
+  export const shellMenuShellName = style({
+    display: "block",
+    minWidth: "0",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    textAlign: "left",
+  });
+  export const shellMenuDefaultBadge = style({
+    borderRadius: "999px",
+    backgroundColor: theme.bgPrimary,
+    paddingLeft: "6px",
+    paddingRight: "6px",
+    paddingTop: "1px",
+    paddingBottom: "1px",
+    fontSize: "11px",
+    color: theme.textSecondary,
+    fontWeight: 600,
+  });
+  export const shellMenuCommand = style({
+    display: "block",
+    maxWidth: "88px",
+    minWidth: "0",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    textAlign: "right",
+    color: theme.textTertiary,
+  });
+  export const floatingMenu = style({
+    zIndex: 80,
+    width: "176px",
+  });
+  export const floatingMenu2 = style({
+    zIndex: 80,
+    width: "260px",
+    overflowX: "hidden",
+    overflowY: "auto",
+  });
 }

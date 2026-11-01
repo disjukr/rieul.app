@@ -1,3 +1,4 @@
+import { style } from "../../../../../../../../zyzz.config.ts";
 import { createMemo, createSignal, createEffect, useContext } from "solid-js";
 import { useBunja } from "bunja/solid";
 
@@ -24,49 +25,7 @@ const maxZoom = 8;
 const zoomFactor = 1.2;
 const wheelZoomSensitivity = 0.002;
 const zoomComparisonTolerance = 0.001;
-const fileViewerStatusClassName = [
-  "flex items-center justify-center gap-[8px] min-w-0 min-h-0",
-  "text-[#667085] text-[14px]",
-  "[&.error]:items-start [&.error]:justify-start [&.error]:overflow-auto",
-  "[&.error]:text-[#b42318] [&.error]:p-[14px]",
-].join(" ");
-const imageViewerClassName = [
-  "grid [grid-template-rows:auto_minmax(0,1fr)] min-w-0 min-h-0 overflow-hidden",
-  "bg-[#eef1f5]",
-].join(" ");
-const imageToolbarClassName = [
-  "flex items-center justify-between gap-[12px] min-w-0 min-h-[38px]",
-  "border-b border-b-[#d8dde7] bg-[#fbfcfe] px-[8px]",
-].join(" ");
-const imageToolbarGroupClassName = "flex items-center gap-[6px] min-w-0";
-const imageToolbarButtonClassName =
-  "w-[28px] h-[28px] min-h-[28px] rounded-[4px] px-0";
-const imageZoomButtonGroupClassName =
-  "inline-flex h-[28px] items-center gap-[4px] box-border";
-const imageZoomButtonClassName =
-  "!w-[28px] !min-w-[28px] !h-full !min-h-0 !box-border !rounded-[4px] !p-0";
-const imageMetaClassName = [
-  "min-w-0 overflow-hidden text-ellipsis whitespace-nowrap",
-  "text-[#667085] text-[14px]",
-].join(" ");
-const imageStageClassName = [
-  "min-w-0 min-h-0 overflow-auto p-[18px]",
-  "[scrollbar-gutter:stable]",
-  "select-none",
-].join(" ");
-const imageStageContentClassName =
-  "grid min-w-full min-h-full [width:max-content] [height:max-content] place-items-center";
-const fitImageStageContentClassName = "grid w-full h-full place-items-center";
-const imageStagePannableClassName = "cursor-grab";
-const imageStagePanningClassName = "cursor-grabbing";
-const imageElementClassName = [
-  "block h-auto max-w-none",
-  "[box-shadow:0_2px_14px_rgb(32_36_45_/_18%)]",
-].join(" ");
-const fitImageElementClassName = [
-  "block max-w-full max-h-full object-contain",
-  "[box-shadow:0_2px_14px_rgb(32_36_45_/_18%)]",
-].join(" ");
+
 type ImageReadState =
   | {
       phase: "loading";
@@ -191,7 +150,7 @@ export default function ImageFileViewer() {
   return (
     <>
       {!machine() ? (
-        <div class={`${fileViewerStatusClassName} error`}>
+        <div class={`${styles.fileViewerStatus().class} error`}>
           <span>No machine selected</span>
         </div>
       ) : viewerState().phase !== "ready" ? null : !confirmed() ? (
@@ -201,11 +160,11 @@ export default function ImageFileViewer() {
           viewerName={imageViewerName}
         />
       ) : state().phase === "loading" ? (
-        <div class={fileViewerStatusClassName}>
+        <div {...styles.fileViewerStatus()}>
           <span>Loading image</span>
         </div>
       ) : state().phase === "error" ? (
-        <div class={`${fileViewerStatusClassName} error`}>
+        <div class={`${styles.fileViewerStatus().class} error`}>
           <span>{errorMessage()}</span>
         </div>
       ) : (
@@ -311,12 +270,12 @@ function ImageCanvas(props: { objectUrl: string }) {
         : "Opening image";
   });
   return (
-    <section class={imageViewerClassName}>
-      <div class={imageToolbarClassName}>
-        <div class={imageToolbarGroupClassName}>
+    <section {...styles.imageViewer()}>
+      <div {...styles.imageToolbar()}>
+        <div {...styles.imageToolbarGroup()}>
           <Button
             aria-label="Fit image to view"
-            className={imageToolbarButtonClassName}
+            className={styles.imageToolbarButton().class}
             title="Fit image to view"
             onClick={() => setFitToView(true)}
           >
@@ -324,7 +283,7 @@ function ImageCanvas(props: { objectUrl: string }) {
           </Button>
           <Button
             aria-label="Actual size"
-            className={imageToolbarButtonClassName}
+            className={styles.imageToolbarButton().class}
             title="Actual size"
             onClick={() => {
               setFitToView(false);
@@ -333,10 +292,10 @@ function ImageCanvas(props: { objectUrl: string }) {
           >
             <RotateCcw size={16} />
           </Button>
-          <div class={imageZoomButtonGroupClassName}>
+          <div {...styles.imageZoomButtonGroup()}>
             <Button
               aria-label="Zoom out"
-              className={imageZoomButtonClassName}
+              className={styles.imageZoomButton().class}
               title="Zoom out"
               disabled={!canZoomOut()}
               onClick={() => {
@@ -351,7 +310,7 @@ function ImageCanvas(props: { objectUrl: string }) {
             </Button>
             <Button
               aria-label="Zoom in"
-              className={imageZoomButtonClassName}
+              className={styles.imageZoomButton().class}
               title="Zoom in"
               disabled={!canZoomIn()}
               onClick={() => {
@@ -365,20 +324,20 @@ function ImageCanvas(props: { objectUrl: string }) {
               <Plus size={16} />
             </Button>
           </div>
-          <span class="min-w-[48px] text-center text-[#667085] text-[14px]">
+          <span {...styles.span()}>
             {fitToView() ? "Fit" : `${Math.round(zoom() * 100)}%`}
           </span>
         </div>
-        <span class={imageMetaClassName}>{dimensions()}</span>
+        <span {...styles.imageMeta()}>{dimensions()}</span>
       </div>
       <div
         ref={(element) => (stageRef.current = element)}
         class={className(
-          imageStageClassName,
+          styles.imageStage().class,
           canPan() &&
             (panning()
-              ? imageStagePanningClassName
-              : imageStagePannableClassName),
+              ? styles.imageStagePanning().class
+              : styles.imageStagePannable().class),
         )}
         onPointerDown={(event) => {
           if (!canPan() || event.button !== 0) return;
@@ -415,7 +374,7 @@ function ImageCanvas(props: { objectUrl: string }) {
         }}
       >
         {displayState().phase === "error" ? (
-          <div class={`${fileViewerStatusClassName} error`}>
+          <div class={`${styles.fileViewerStatus().class} error`}>
             <ImageOff size={18} />
             <span>Unable to preview image</span>
           </div>
@@ -424,8 +383,8 @@ function ImageCanvas(props: { objectUrl: string }) {
           <div
             class={
               fitToView()
-                ? fitImageStageContentClassName
-                : imageStageContentClassName
+                ? styles.fitImageStageContent().class
+                : styles.imageStageContent().class
             }
           >
             <img
@@ -434,7 +393,9 @@ function ImageCanvas(props: { objectUrl: string }) {
               alt=""
               draggable={false}
               class={
-                fitToView() ? fitImageElementClassName : imageElementClassName
+                fitToView()
+                  ? styles.fitImageElement().class
+                  : styles.imageElement().class
               }
               style={imageStyle(fitToView(), zoom(), displayState())}
               onLoad={(event) => {
@@ -601,4 +562,133 @@ function imageStyle(
   | undefined {
   if (fitToView || displayState.phase !== "ready") return undefined;
   return { width: `${Math.max(1, Math.round(displayState.width * zoom))}px` };
+}
+
+namespace styles {
+  export const fileViewerStatus = style({
+    minHeight: "0",
+    minWidth: "0",
+    display: "flex",
+    selectors: {
+      "&.error": {
+        alignItems: "flex-start",
+        justifyContent: "flex-start",
+        overflow: "auto",
+        padding: "14px",
+        color: "rgb(180 35 24 / 1)",
+      },
+    },
+    alignItems: "center",
+    justifyContent: "center",
+    gap: "8px",
+    fontSize: "14px",
+    color: "rgb(102 112 133 / 1)",
+  });
+  export const imageViewer = style({
+    gridTemplateRows: "auto minmax(0,1fr)",
+    display: "grid",
+    minHeight: "0",
+    minWidth: "0",
+    overflow: "hidden",
+    backgroundColor: "rgb(238 241 245 / 1)",
+  });
+  export const imageToolbar = style({
+    minHeight: "38px",
+    minWidth: "0",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: "12px",
+    borderBottomWidth: "1px",
+    borderBottomColor: "rgb(216 221 231 / 1)",
+    backgroundColor: "rgb(251 252 254 / 1)",
+    paddingLeft: "8px",
+    paddingRight: "8px",
+  });
+  export const imageToolbarGroup = style({
+    minWidth: "0",
+    display: "flex",
+    alignItems: "center",
+    gap: "6px",
+  });
+  export const imageToolbarButton = style({
+    height: "28px",
+    minHeight: "28px",
+    width: "28px",
+    borderRadius: "4px",
+    paddingLeft: "0",
+    paddingRight: "0",
+  });
+  export const imageZoomButtonGroup = style({
+    boxSizing: "border-box",
+    height: "28px",
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "4px",
+  });
+  export const imageZoomButton = style({
+    boxSizing: "border-box !important",
+    height: "100% !important",
+    minHeight: "0 !important",
+    minWidth: "28px !important",
+    width: "28px !important",
+    borderRadius: "4px !important",
+    padding: "0 !important",
+  });
+  export const imageMeta = style({
+    minWidth: "0",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    fontSize: "14px",
+    color: "rgb(102 112 133 / 1)",
+  });
+  export const imageStage = style({
+    scrollbarGutter: "stable",
+    minHeight: "0",
+    minWidth: "0",
+    WebkitUserSelect: "none",
+    userSelect: "none",
+    overflow: "auto",
+    padding: "18px",
+  });
+  export const imageStageContent = style({
+    height: "max-content",
+    width: "max-content",
+    display: "grid",
+    minHeight: "100%",
+    minWidth: "100%",
+    placeItems: "center",
+  });
+  export const fitImageStageContent = style({
+    display: "grid",
+    height: "100%",
+    width: "100%",
+    placeItems: "center",
+  });
+  export const imageStagePannable = style({
+    cursor: "grab",
+  });
+  export const imageStagePanning = style({
+    cursor: "grabbing",
+  });
+  export const imageElement = style({
+    boxShadow: "0 2px 14px rgb(32 36 45 / 18%)",
+    display: "block",
+    height: "auto",
+    maxWidth: "none",
+  });
+  export const fitImageElement = style({
+    boxShadow: "0 2px 14px rgb(32 36 45 / 18%)",
+    display: "block",
+    maxHeight: "100%",
+    maxWidth: "100%",
+    objectFit: "contain",
+  });
+  export const span = style({
+    minWidth: "48px",
+    textAlign: "center",
+    fontSize: "14px",
+    color: "rgb(102 112 133 / 1)",
+  });
 }

@@ -1,3 +1,4 @@
+import { style } from "../../../../../zyzz.config.ts";
 import { createMemo, useContext } from "solid-js";
 import { ArrowLeft, ArrowUp } from "../../../../../solid/icons.tsx";
 
@@ -9,19 +10,7 @@ import {
 } from "../context.tsx";
 import { Button } from "../../../../ui/button.tsx";
 import { PathCrumbs } from "./path-crumbs.tsx";
-const pathToolbarClassName = [
-  "grid [grid-template-columns:auto_minmax(0,1fr)] gap-[6px]",
-  "relative items-center h-[29px] min-h-[29px] box-border overflow-visible",
-  "rounded-[8px] border border-transparent",
-  "bg-[rgba(248,248,249,0.32)]",
-  "px-[5px] py-0 leading-[1.38] backdrop-blur-2xl",
-].join(" ");
-const pathToolbarButtonGroupClassName =
-  "inline-flex h-[23px] items-center gap-[3px] box-border";
-const pathToolbarButtonClassName = [
-  "!w-[23px] !min-w-[23px] !h-[23px] !min-h-0 !box-border !rounded-[6px] !p-0",
-  "!border-transparent !bg-white/28 hover:!bg-white/5",
-].join(" ");
+
 export function FilesNavbar() {
   const explorer = requireFilesExplorer(useContext(FilesExplorerContext));
   const actions = requireFilesActions(useContext(FilesActionsContext));
@@ -34,14 +23,14 @@ export function FilesNavbar() {
     () => currentPath() !== undefined && !specialLocation(),
   );
   return (
-    <div class={pathToolbarClassName}>
-      <div class={pathToolbarButtonGroupClassName}>
+    <div {...styles.pathToolbar()}>
+      <div {...styles.pathToolbarButtonGroup()}>
         <Button
           onClick={actions().goBack}
           disabled={!canGoBack()}
           title="Back"
           aria-label="Back"
-          className={pathToolbarButtonClassName}
+          className={styles.pathToolbarButton().class}
         >
           <ArrowLeft size={12} />
         </Button>
@@ -50,7 +39,7 @@ export function FilesNavbar() {
           disabled={!canGoUp()}
           title="Up"
           aria-label="Up"
-          className={pathToolbarButtonClassName}
+          className={styles.pathToolbarButton().class}
         >
           <ArrowUp size={12} />
         </Button>
@@ -58,4 +47,52 @@ export function FilesNavbar() {
       <PathCrumbs path={displayPath()} onNavigate={actions().navigate} />
     </div>
   );
+}
+
+namespace styles {
+  export const pathToolbar = style({
+    gridTemplateColumns: "auto minmax(0,1fr)",
+    position: "relative",
+    display: "grid",
+    boxSizing: "border-box",
+    height: "29px",
+    minHeight: "29px",
+    alignItems: "center",
+    gap: "6px",
+    overflow: "visible",
+    borderWidth: "1px",
+    borderColor: "transparent",
+    borderRadius: "8px",
+    backgroundColor: "rgba(248, 248, 249, 0.32)",
+    paddingLeft: "5px",
+    paddingRight: "5px",
+    paddingTop: "0",
+    paddingBottom: "0",
+    lineHeight: 1.38,
+    WebkitBackdropFilter: "blur(40px)",
+    backdropFilter: "blur(40px)",
+  });
+  export const pathToolbarButtonGroup = style({
+    boxSizing: "border-box",
+    height: "23px",
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "3px",
+  });
+  export const pathToolbarButton = style({
+    boxSizing: "border-box !important",
+    height: "23px !important",
+    minHeight: "0 !important",
+    minWidth: "23px !important",
+    width: "23px !important",
+    borderColor: "transparent !important",
+    borderRadius: "6px !important",
+    backgroundColor: "rgb(255 255 255 / 0.28) !important",
+    selectors: {
+      "&:hover": {
+        backgroundColor: "rgb(255 255 255 / 0.05) !important",
+      },
+    },
+    padding: "0 !important",
+  });
 }

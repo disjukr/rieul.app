@@ -1,3 +1,4 @@
+import { style, theme } from "../../../../zyzz.config.ts";
 import type {
   WindowDetail,
   WindowDetailEvent,
@@ -44,64 +45,7 @@ interface WindowDetailState {
   message?: string;
   phase: "idle" | "loading" | "ready" | "closed" | "error" | "unsupported";
 }
-const windowsToolClassName = [
-  "flex h-full min-h-0 w-full flex-col",
-  "overflow-hidden bg-rieul-surface text-rieul-text",
-].join(" ");
-const windowsContentClassName =
-  "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden";
-const emptyWorkspaceClassName = [
-  "grid content-center justify-items-center w-full h-full gap-[10px]",
-  "min-h-0 bg-rieul-surface text-rieul-text-3",
-  "[&_h2]:m-0 [&_h2]:text-rieul-text [&_h2]:text-[18px] [&_h2]:tracking-[0]",
-  "[&_p]:m-0 [&_p]:max-w-[360px] [&_p]:text-center [&_p]:leading-[1.45]",
-].join(" ");
-const windowTableClassName = [
-  "grid min-h-0 min-w-0 flex-1 overflow-auto leading-[1.6]",
-  "[grid-template-columns:minmax(240px,1fr)_minmax(80px,112px)_minmax(96px,120px)]",
-  "auto-rows-[2rem] bg-rieul-surface",
-].join(" ");
-const windowHeadClassName = [
-  "sticky top-0 z-[1] flex h-[2rem] box-border items-center",
-  "border-b border-b-rieul-border bg-rieul-surface-2 px-[8px]",
-  "font-600 text-rieul-text-3",
-].join(" ");
-const windowRowClassName = [
-  "grid [grid-column:1/-1] [grid-template-columns:subgrid]",
-  "h-[2rem] min-h-[2rem] box-border border-0 border-b border-b-rieul-border-subtle",
-  "cursor-default bg-rieul-surface hover:bg-rieul-hover",
-].join(" ");
-const windowCellClassName = [
-  "flex min-w-0 items-center overflow-hidden px-[8px]",
-  "text-ellipsis whitespace-nowrap text-rieul-text",
-].join(" ");
-const windowFirstColumnClassName = "pl-[1rem]";
-const windowMetaCellClassName = `${windowCellClassName} text-rieul-text-3`;
-const windowPidCellClassName = `${windowCellClassName} font-mono text-rieul-text-2`;
-const windowTitleClassName =
-  "min-w-0 overflow-hidden text-ellipsis whitespace-nowrap";
-const windowsFooterClassName = [
-  "flex h-[2rem] min-h-[2rem] items-center justify-end border-t border-t-rieul-border",
-  "bg-rieul-surface-2 px-[8px] leading-[1.6] text-rieul-text-3",
-].join(" ");
-const windowDetailScrollClassName = "min-h-0 flex-1 overflow-auto";
-const windowDetailBodyClassName =
-  "grid min-w-0 content-start gap-[14px] px-[18px] py-[16px]";
-const windowDetailNoteClassName = "text-[13px] text-rieul-text-3";
-const windowDetailInlineActionClassName = [
-  "inline-flex min-w-0 items-center gap-[0.5rem]",
-  "max-w-full flex-wrap",
-].join(" ");
-const windowDetailOpenButtonClassName = [
-  "inline-flex h-[1.6rem] items-center rounded-[0.25rem]",
-  "border border-rieul-border bg-rieul-surface px-[0.5rem]",
-  "cursor-pointer text-rieul-text-2 [font-family:inherit]",
-  "hover:border-rieul-border-medium hover:bg-rieul-hover",
-].join(" ");
-const windowDetailFooterClassName = [
-  "flex h-[2rem] min-h-[2rem] items-center justify-end border-t border-t-rieul-border",
-  "bg-rieul-surface-2 px-[8px] leading-[1.6] text-rieul-text-3",
-].join(" ");
+
 export function WindowsTool() {
   const machineModal = useBunja(machineModalBunja);
   const machineStore = useBunja(machineStoreBunja);
@@ -134,7 +78,7 @@ export function WindowsTool() {
       {(() => {
         if (!machine()) {
           return (
-            <section class={emptyWorkspaceClassName}>
+            <section {...styles.emptyWorkspace()}>
               <HardDrive size={28} />
               <h2>No machine selected</h2>
             </section>
@@ -142,7 +86,7 @@ export function WindowsTool() {
         }
         if (!isPaired()) {
           return (
-            <section class={emptyWorkspaceClassName}>
+            <section {...styles.emptyWorkspace()}>
               <KeyRound size={28} />
               <h2>Pairing required</h2>
               <Button
@@ -157,7 +101,7 @@ export function WindowsTool() {
           );
         }
         return (
-          <section class={windowsToolClassName}>
+          <section {...styles.windowsTool()}>
             <WindowsBreadcrumb
               selectedWindowId={selectedWindowId()}
               onOpenRoot={() => tabState().setWindowDetailId(undefined)}
@@ -207,7 +151,7 @@ function WindowsBreadcrumb(props: WindowsBreadcrumbProps) {
         return (
           <Breadcrumb
             ariaLabel="Window location"
-            className="flex-[0_0_auto] border-b border-b-[#d8dde7] bg-[#fbfcfe] px-[0.5rem]"
+            className={styles.breadcrumb().class}
             items={[
               {
                 label: "Windows",
@@ -329,15 +273,15 @@ function WindowListView(props: WindowListViewProps) {
       {(() => {
         if (state().phase === "loading" || props.daemonInfoPhase !== "ready") {
           return (
-            <section class={emptyWorkspaceClassName}>
-              <Loader2 size={24} className="animate-spin" />
+            <section {...styles.emptyWorkspace()}>
+              <Loader2 size={24} className={styles.loader2().class} />
               <h2>Loading windows</h2>
             </section>
           );
         }
         if (state().phase === "unsupported" || state().phase === "error") {
           return (
-            <section class={emptyWorkspaceClassName}>
+            <section {...styles.emptyWorkspace()}>
               <AppWindow size={28} />
               <h2>
                 {state().phase === "unsupported"
@@ -349,50 +293,56 @@ function WindowListView(props: WindowListViewProps) {
           );
         }
         return (
-          <div class={windowsContentClassName}>
-            <div class={windowTableClassName} role="grid" aria-label="Windows">
+          <div {...styles.windowsContent()}>
+            <div {...styles.windowTable()} role="grid" aria-label="Windows">
               <div
-                class={`${windowHeadClassName} ${windowFirstColumnClassName}`}
+                class={`${styles.windowHead().class} ${styles.windowFirstColumn().class}`}
                 role="columnheader"
               >
                 Title
               </div>
-              <div class={windowHeadClassName} role="columnheader">
+              <div {...styles.windowHead()} role="columnheader">
                 PID
               </div>
-              <div class={windowHeadClassName} role="columnheader">
+              <div {...styles.windowHead()} role="columnheader">
                 State
               </div>
               {state().rows.length === 0 ? (
-                <div class={`${windowCellClassName} [grid-column:1/-1]`}>
+                <div
+                  class={`${styles.windowCell().class} ${styles.fullRow().class}`}
+                >
                   No windows
                 </div>
               ) : (
                 state().rows.map((window) => (
                   <div
-                    class={`${windowRowClassName} !cursor-pointer`}
+                    class={`${styles.windowRow().class} ${styles.interactiveRow().class}`}
                     role="row"
                     onDblClick={() => props.onOpenWindow(window)}
                   >
                     <span
-                      class={`${windowCellClassName} ${windowFirstColumnClassName}`}
+                      class={`${styles.windowCell().class} ${styles.windowFirstColumn().class}`}
                       title={windowTitle(window)}
                     >
-                      <span class={windowTitleClassName}>
+                      <span {...styles.windowTitle()}>
                         {windowTitle(window)}
                       </span>
                     </span>
-                    <span class={windowPidCellClassName}>
+                    <span
+                      class={`${styles.windowCell().class} ${styles.monospaceCell().class} `}
+                    >
                       {window.processId ?? ""}
                     </span>
-                    <span class={windowMetaCellClassName}>
+                    <span
+                      class={`${styles.windowCell().class} ${styles.mutedCell().class} `}
+                    >
                       {window.focused ? "Focused" : ""}
                     </span>
                   </div>
                 ))
               )}
             </div>
-            <footer class={windowsFooterClassName}>
+            <footer {...styles.windowsFooter()}>
               {state().rows.length}{" "}
               {state().rows.length === 1 ? "window" : "windows"}
             </footer>
@@ -493,15 +443,15 @@ function WindowDetailView(props: WindowDetailViewProps) {
       {(() => {
         if (state().phase === "loading" || props.daemonInfoPhase !== "ready") {
           return (
-            <section class={emptyWorkspaceClassName}>
-              <Loader2 size={24} className="animate-spin" />
+            <section {...styles.emptyWorkspace()}>
+              <Loader2 size={24} className={styles.loader2().class} />
               <h2>Loading window</h2>
             </section>
           );
         }
         if (state().phase === "unsupported" || state().phase === "error") {
           return (
-            <section class={emptyWorkspaceClassName}>
+            <section {...styles.emptyWorkspace()}>
               <AppWindow size={28} />
               <h2>
                 {state().phase === "unsupported"
@@ -514,19 +464,19 @@ function WindowDetailView(props: WindowDetailViewProps) {
         }
         if (!state().detail) {
           return (
-            <section class={emptyWorkspaceClassName}>
+            <section {...styles.emptyWorkspace()}>
               <AppWindow size={28} />
               <h2>No window detail</h2>
             </section>
           );
         }
         return (
-          <div class={windowsContentClassName}>
+          <div {...styles.windowsContent()}>
             <WindowDetailSummary
               detail={state().detail!}
               onOpenProcess={props.onOpenProcess}
             />
-            <footer class={windowDetailFooterClassName}>
+            <footer {...styles.windowsFooter()}>
               {state().phase === "closed"
                 ? "Window closed"
                 : state().detail!.info.windowId}
@@ -547,8 +497,8 @@ function WindowDetailSummary(props: WindowDetailSummaryProps) {
     <>
       {(() => {
         return (
-          <div class={windowDetailScrollClassName}>
-            <div class={windowDetailBodyClassName}>
+          <div {...styles.windowDetailScroll()}>
+            <div {...styles.windowDetailBody()}>
               <PropertyList>
                 <WindowDetailItem
                   label="Title"
@@ -619,11 +569,11 @@ function WindowProcessIdItem(props: WindowProcessIdItemProps) {
             {props.processId === undefined ? (
               <PropertyValue>Unknown</PropertyValue>
             ) : (
-              <span class={windowDetailInlineActionClassName}>
+              <span {...styles.windowDetailInlineAction()}>
                 <PropertyValue>{props.processId}</PropertyValue>
                 <button
                   type="button"
-                  class={windowDetailOpenButtonClassName}
+                  {...styles.windowDetailOpenButton()}
                   onClick={() => props.onOpenProcess(props.processId!)}
                   title={`Open process ${props.processId}`}
                 >
@@ -650,7 +600,7 @@ function WindowDetailItem(props: WindowDetailItemProps) {
           <PropertyListItem label={props.label}>
             <PropertyValue>{props.value}</PropertyValue>
             {props.note ? (
-              <span class={windowDetailNoteClassName}>{props.note}</span>
+              <span {...styles.windowDetailNote()}>{props.note}</span>
             ) : null}
           </PropertyListItem>
         );
@@ -748,4 +698,205 @@ function booleanLabel(value: boolean | undefined): string {
 }
 function formatBoundsNumber(value: number | undefined): string {
   return value === undefined ? "Unknown" : String(value);
+}
+
+namespace styles {
+  export const monospaceCell = style({
+    color: theme.textSecondary,
+    fontFamily:
+      'ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace',
+  });
+  export const mutedCell = style({
+    color: theme.textTertiary,
+  });
+  export const fullRow = style({
+    gridColumn: "1/-1",
+  });
+
+  export const interactiveRow = style({
+    cursor: "pointer !important",
+  });
+
+  export const windowsTool = style({
+    height: "100%",
+    minHeight: "0",
+    width: "100%",
+    display: "flex",
+    flexDirection: "column",
+    overflow: "hidden",
+    backgroundColor: theme.bgPrimary,
+    color: theme.textPrimary,
+  });
+  export const windowsContent = style({
+    minHeight: "0",
+    minWidth: "0",
+    display: "flex",
+    flex: "1 1 0%",
+    flexDirection: "column",
+    overflow: "hidden",
+  });
+  export const emptyWorkspace = style({
+    display: "grid",
+    selectors: {
+      "& h2": {
+        margin: "0",
+        fontSize: "18px",
+        color: theme.textPrimary,
+        letterSpacing: "0",
+      },
+      "& p": {
+        margin: "0",
+        maxWidth: "360px",
+        textAlign: "center",
+        lineHeight: 1.45,
+      },
+    },
+    height: "100%",
+    minHeight: "0",
+    width: "100%",
+    alignContent: "center",
+    justifyItems: "center",
+    gap: "10px",
+    backgroundColor: theme.bgPrimary,
+    color: theme.textTertiary,
+  });
+  export const windowTable = style({
+    gridTemplateColumns:
+      "minmax(240px,1fr) minmax(80px,112px) minmax(96px,120px)",
+    display: "grid",
+    gridAutoRows: "2rem",
+    minHeight: "0",
+    minWidth: "0",
+    flex: "1 1 0%",
+    overflow: "auto",
+    backgroundColor: theme.bgPrimary,
+    lineHeight: 1.6,
+  });
+  export const windowHead = style({
+    position: "sticky",
+    top: "0",
+    zIndex: 1,
+    boxSizing: "border-box",
+    height: "2rem",
+    display: "flex",
+    alignItems: "center",
+    borderBottomWidth: "1px",
+    borderBottomColor: theme.borderLight,
+    backgroundColor: theme.bgSecondary,
+    paddingLeft: "8px",
+    paddingRight: "8px",
+    color: theme.textTertiary,
+    fontWeight: 600,
+  });
+  export const windowRow = style({
+    gridColumn: "1/-1",
+    gridTemplateColumns: "subgrid",
+    display: "grid",
+    boxSizing: "border-box",
+    height: "2rem",
+    minHeight: "2rem",
+    cursor: "default",
+    borderWidth: "0px",
+    borderBottomWidth: "1px",
+    borderBottomColor: theme.borderSubtle,
+    backgroundColor: theme.bgPrimary,
+    selectors: {
+      "&:hover": {
+        backgroundColor: theme.bgHover,
+      },
+    },
+  });
+  export const windowCell = style({
+    minWidth: "0",
+    display: "flex",
+    alignItems: "center",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    paddingLeft: "8px",
+    paddingRight: "8px",
+    color: theme.textPrimary,
+  });
+  export const windowFirstColumn = style({
+    paddingLeft: "1rem",
+  });
+  export const windowTitle = style({
+    minWidth: "0",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  });
+  export const windowsFooter = style({
+    height: "2rem",
+    minHeight: "2rem",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    borderTopWidth: "1px",
+    borderTopColor: theme.borderLight,
+    backgroundColor: theme.bgSecondary,
+    paddingLeft: "8px",
+    paddingRight: "8px",
+    color: theme.textTertiary,
+    lineHeight: 1.6,
+  });
+  export const windowDetailScroll = style({
+    minHeight: "0",
+    flex: "1 1 0%",
+    overflow: "auto",
+  });
+  export const windowDetailBody = style({
+    display: "grid",
+    minWidth: "0",
+    alignContent: "flex-start",
+    gap: "14px",
+    paddingLeft: "18px",
+    paddingRight: "18px",
+    paddingTop: "16px",
+    paddingBottom: "16px",
+  });
+  export const windowDetailNote = style({
+    fontSize: "13px",
+    color: theme.textTertiary,
+  });
+  export const windowDetailInlineAction = style({
+    maxWidth: "100%",
+    minWidth: "0",
+    display: "inline-flex",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: "0.5rem",
+  });
+  export const windowDetailOpenButton = style({
+    fontFamily: "inherit",
+    height: "1.6rem",
+    display: "inline-flex",
+    cursor: "pointer",
+    alignItems: "center",
+    borderWidth: "1px",
+    borderColor: theme.borderLight,
+    selectors: {
+      "&:hover": {
+        borderColor: theme.borderMedium,
+        backgroundColor: theme.bgHover,
+      },
+    },
+    borderRadius: "0.25rem",
+    backgroundColor: theme.bgPrimary,
+    paddingLeft: "0.5rem",
+    paddingRight: "0.5rem",
+    color: theme.textSecondary,
+  });
+
+  export const breadcrumb = style({
+    flex: "0 0 auto",
+    borderBottomWidth: "1px",
+    borderBottomColor: "rgb(216 221 231 / 1)",
+    backgroundColor: "rgb(251 252 254 / 1)",
+    paddingLeft: "0.5rem",
+    paddingRight: "0.5rem",
+  });
+  export const loader2 = style({
+    animation: "spin 1s linear infinite",
+  });
 }

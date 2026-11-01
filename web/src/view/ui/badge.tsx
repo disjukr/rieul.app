@@ -1,130 +1,223 @@
+import { className as joinClassName } from "../class-name.ts";
+import { variants, theme } from "../../zyzz.config.ts";
 import type { JSX } from "@solidjs/web";
 import { omit } from "solid-js";
 
-import { cva, type VariantProps } from "class-variance-authority";
-import { className as joinClassName } from "../class-name.ts";
+import type { Props } from "zyzz";
 
-const badgeVariants = cva(
-  [
-    "inline-flex max-w-full items-center gap-[4px] rounded-full border",
-    "font-750 leading-[1] whitespace-nowrap",
-  ],
-  {
-    variants: {
-      size: {
-        md: "px-[0.5rem] py-[2px] text-[1rem]",
-        sm: "px-[4px] py-0 text-[11px]",
+const badgeVariants = variants({
+  base: {
+    maxWidth: "100%",
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "4px",
+    whiteSpace: "nowrap",
+    borderWidth: "1px",
+    borderRadius: "9999px",
+    fontWeight: 750,
+    lineHeight: 1,
+  },
+  variants: {
+    size: {
+      md: {
+        paddingLeft: "0.5rem",
+        paddingRight: "0.5rem",
+        paddingTop: "2px",
+        paddingBottom: "2px",
+        fontSize: "1rem",
       },
-      tone: {
-        accent: "",
-        danger: "",
-        neutral: "",
-        success: "",
-        warning: "",
-      },
-      variant: {
-        outline: "bg-transparent",
-        soft: "",
-        solid: "text-[var(--rieul-text-inverse)]",
+      sm: {
+        paddingLeft: "4px",
+        paddingRight: "4px",
+        paddingTop: "0",
+        paddingBottom: "0",
+        fontSize: "11px",
       },
     },
-    compoundVariants: [
-      {
-        tone: "neutral",
-        variant: "soft",
-        className:
-          "border-[var(--rieul-border-light)] bg-[var(--rieul-bg-control-disabled)] text-[var(--rieul-text-control)]",
+    tone: {
+      accent: {},
+      danger: {},
+      neutral: {},
+      success: {},
+      warning: {},
+    },
+    variant: {
+      outline: {
+        backgroundColor: "transparent",
       },
-      {
-        tone: "neutral",
-        variant: "outline",
-        className:
-          "border-[var(--rieul-border-light)] text-[var(--rieul-text-secondary)]",
+      soft: {},
+      solid: {
+        color: theme.textInverse,
       },
-      {
-        tone: "neutral",
-        variant: "solid",
-        className:
-          "border-[var(--rieul-text-control)] bg-[var(--rieul-text-control)]",
-      },
-      {
-        tone: "accent",
-        variant: "soft",
-        className:
-          "border-[var(--rieul-accent-soft-strong)] bg-[var(--rieul-accent-soft-strong)] text-[var(--rieul-accent)]",
-      },
-      {
-        tone: "accent",
-        variant: "outline",
-        className: "border-[var(--rieul-accent)] text-[var(--rieul-accent)]",
-      },
-      {
-        tone: "accent",
-        variant: "solid",
-        className: "border-[var(--rieul-accent)] bg-[var(--rieul-accent)]",
-      },
-      {
-        tone: "danger",
-        variant: "soft",
-        className:
-          "border-[var(--rieul-danger-soft-muted)] bg-[var(--rieul-danger-soft-muted)] text-[var(--rieul-danger)]",
-      },
-      {
-        tone: "danger",
-        variant: "outline",
-        className:
-          "border-[var(--rieul-danger-border)] text-[var(--rieul-danger)]",
-      },
-      {
-        tone: "danger",
-        variant: "solid",
-        className: "border-[var(--rieul-danger)] bg-[var(--rieul-danger)]",
-      },
-      {
-        tone: "success",
-        variant: "soft",
-        className:
-          "border-[var(--rieul-success-soft)] bg-[var(--rieul-success-soft)] text-[var(--rieul-success)]",
-      },
-      {
-        tone: "success",
-        variant: "outline",
-        className: "border-[var(--rieul-success)] text-[var(--rieul-success)]",
-      },
-      {
-        tone: "success",
-        variant: "solid",
-        className: "border-[var(--rieul-success)] bg-[var(--rieul-success)]",
-      },
-      {
-        tone: "warning",
-        variant: "soft",
-        className:
-          "border-[var(--rieul-border-warning)] bg-[var(--rieul-warning-soft)] text-[var(--rieul-warning)]",
-      },
-      {
-        tone: "warning",
-        variant: "outline",
-        className:
-          "border-[var(--rieul-border-warning)] text-[var(--rieul-warning)]",
-      },
-      {
-        tone: "warning",
-        variant: "solid",
-        className: "border-[var(--rieul-warning)] bg-[var(--rieul-warning)]",
-      },
-    ],
-    defaultVariants: {
-      size: "md",
-      tone: "neutral",
-      variant: "soft",
     },
   },
-);
+  compoundVariants: [
+    {
+      when: {
+        tone: "neutral",
+        variant: "soft",
+      },
+      style: {
+        borderColor: theme.borderLight,
+        backgroundColor: theme.bgControlDisabled,
+        color: theme.textControl,
+      },
+    },
+    {
+      when: {
+        tone: "neutral",
+        variant: "outline",
+      },
+      style: {
+        borderColor: theme.borderLight,
+        color: theme.textSecondary,
+      },
+    },
+    {
+      when: {
+        tone: "neutral",
+        variant: "solid",
+      },
+      style: {
+        borderColor: theme.textControl,
+        backgroundColor: theme.textControl,
+      },
+    },
+    {
+      when: {
+        tone: "accent",
+        variant: "soft",
+      },
+      style: {
+        borderColor: theme.accentSoftStrong,
+        backgroundColor: theme.accentSoftStrong,
+        color: theme.accent,
+      },
+    },
+    {
+      when: {
+        tone: "accent",
+        variant: "outline",
+      },
+      style: {
+        borderColor: theme.accent,
+        color: theme.accent,
+      },
+    },
+    {
+      when: {
+        tone: "accent",
+        variant: "solid",
+      },
+      style: {
+        borderColor: theme.accent,
+        backgroundColor: theme.accent,
+      },
+    },
+    {
+      when: {
+        tone: "danger",
+        variant: "soft",
+      },
+      style: {
+        borderColor: theme.dangerSoftMuted,
+        backgroundColor: theme.dangerSoftMuted,
+        color: theme.danger,
+      },
+    },
+    {
+      when: {
+        tone: "danger",
+        variant: "outline",
+      },
+      style: {
+        borderColor: theme.dangerBorder,
+        color: theme.danger,
+      },
+    },
+    {
+      when: {
+        tone: "danger",
+        variant: "solid",
+      },
+      style: {
+        borderColor: theme.danger,
+        backgroundColor: theme.danger,
+      },
+    },
+    {
+      when: {
+        tone: "success",
+        variant: "soft",
+      },
+      style: {
+        borderColor: theme.successSoft,
+        backgroundColor: theme.successSoft,
+        color: theme.success,
+      },
+    },
+    {
+      when: {
+        tone: "success",
+        variant: "outline",
+      },
+      style: {
+        borderColor: theme.success,
+        color: theme.success,
+      },
+    },
+    {
+      when: {
+        tone: "success",
+        variant: "solid",
+      },
+      style: {
+        borderColor: theme.success,
+        backgroundColor: theme.success,
+      },
+    },
+    {
+      when: {
+        tone: "warning",
+        variant: "soft",
+      },
+      style: {
+        borderColor: theme.borderWarning,
+        backgroundColor: theme.warningSoft,
+        color: theme.warning,
+      },
+    },
+    {
+      when: {
+        tone: "warning",
+        variant: "outline",
+      },
+      style: {
+        borderColor: theme.borderWarning,
+        color: theme.warning,
+      },
+    },
+    {
+      when: {
+        tone: "warning",
+        variant: "solid",
+      },
+      style: {
+        borderColor: theme.warning,
+        backgroundColor: theme.warning,
+      },
+    },
+  ],
+  defaultVariants: {
+    size: "md",
+    tone: "neutral",
+    variant: "soft",
+  },
+});
 
 export interface BadgeProps
   extends JSX.HTMLAttributes<HTMLSpanElement>,
-    VariantProps<typeof badgeVariants> {
+    Omit<Props.Variants<typeof badgeVariants>, "className" | "style" | "vars"> {
   className?: string;
 }
 
@@ -140,14 +233,12 @@ export function Badge(componentProps: BadgeProps) {
   return (
     <span
       {...otherProps}
-      class={joinClassName(
-        badgeVariants({
-          size: componentProps.size,
-          tone: componentProps.tone,
-          variant: componentProps.variant,
-        }),
-        componentProps.className,
-      )}
+      {...badgeVariants({
+        size: componentProps.size,
+        tone: componentProps.tone,
+        variant: componentProps.variant,
+        className: joinClassName(componentProps.className ?? ""),
+      })}
     />
   );
 }

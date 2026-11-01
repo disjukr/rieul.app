@@ -1,6 +1,4 @@
-import { defineConfig, presetUno } from "unocss";
-
-const preflightStyles = String.raw`
+/* Application token values and global base rules; main.tsx imports the reset once. */
 :root,
 [data-theme="light"] {
   --rieul-color-white: #ffffff;
@@ -153,17 +151,21 @@ const preflightStyles = String.raw`
   --rieul-radius-lg: 8px;
   --rieul-radius-xl: 12px;
   --rieul-radius-2xl: 16px;
-  --rieul-shadow-sm: 0 1px 2px rgb(var(--rieul-shadow-rgb) / 6%),
+  --rieul-shadow-sm:
+    0 1px 2px rgb(var(--rieul-shadow-rgb) / 6%),
     0 1px 1px rgb(var(--rieul-shadow-rgb) / 3%);
-  --rieul-shadow-md: 0 7px 18px rgb(var(--rieul-shadow-rgb) / 7.5%),
+  --rieul-shadow-md:
+    0 7px 18px rgb(var(--rieul-shadow-rgb) / 7.5%),
     0 1px 3px rgb(var(--rieul-shadow-rgb) / 4.5%);
-  --rieul-shadow-lg: 0 24px 58px rgb(var(--rieul-shadow-rgb) / 18%),
+  --rieul-shadow-lg:
+    0 24px 58px rgb(var(--rieul-shadow-rgb) / 18%),
     0 5px 16px rgb(var(--rieul-shadow-rgb) / 8%);
-  --rieul-shadow-pane: 0 0 0 0.5px rgb(var(--rieul-shadow-rgb) / 10%),
+  --rieul-shadow-pane:
+    0 0 0 0.5px rgb(var(--rieul-shadow-rgb) / 10%),
     0 2px 5px rgb(var(--rieul-shadow-rgb) / 7%),
     0 18px 42px rgb(var(--rieul-shadow-rgb) / 11%);
-  --rieul-shadow-window: 0 34px 90px rgb(19 27 42 / 21%),
-    0 10px 30px rgb(19 27 42 / 12%),
+  --rieul-shadow-window:
+    0 34px 90px rgb(19 27 42 / 21%), 0 10px 30px rgb(19 27 42 / 12%),
     inset 0 1px 0 rgb(255 255 255 / 76%);
   --rieul-shadow-menu: 0 18px 48px rgb(var(--rieul-shadow-rgb) / 24%);
   --rieul-shadow-dialog: 0 24px 72px rgb(var(--rieul-shadow-rgb) / 28%);
@@ -171,8 +173,9 @@ const preflightStyles = String.raw`
   --rieul-shadow-media: 0 2px 14px rgb(var(--rieul-shadow-rgb) / 18%);
   --rieul-shadow-floating-control: 0 8px 24px
     rgb(var(--rieul-shadow-strong-rgb) / 12%);
-  --rieul-font-native: Inter, ui-sans-serif, system-ui, -apple-system,
-    BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --rieul-font-native:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", sans-serif;
 }
 
 *,
@@ -228,142 +231,11 @@ body {
   }
 }
 
-`;
-
-export default defineConfig({
-  presets: [presetUno()],
-  theme: {
-    colors: {
-      "rieul-active": "var(--rieul-bg-active)",
-      "rieul-accent": "var(--rieul-accent)",
-      "rieul-accent-hover": "var(--rieul-accent-hover)",
-      "rieul-accent-muted": "var(--rieul-accent-overlay)",
-      "rieul-accent-soft": "var(--rieul-accent-soft)",
-      "rieul-border": "var(--rieul-border-light)",
-      "rieul-border-medium": "var(--rieul-border-medium)",
-      "rieul-border-strong": "var(--rieul-border-control)",
-      "rieul-border-subtle": "var(--rieul-border-subtle)",
-      "rieul-canvas": "var(--rieul-bg-canvas)",
-      "rieul-chrome": "var(--rieul-chrome)",
-      "rieul-chrome-active": "var(--rieul-chrome-active)",
-      "rieul-chrome-hover": "var(--rieul-chrome-hover)",
-      "rieul-chrome-muted": "var(--rieul-chrome-muted)",
-      "rieul-chrome-subtle": "var(--rieul-chrome-text-muted)",
-      "rieul-chrome-text": "var(--rieul-chrome-text)",
-      "rieul-danger": "var(--rieul-danger)",
-      "rieul-danger-soft": "var(--rieul-danger-soft)",
-      "rieul-focus": "var(--rieul-focus)",
-      "rieul-hover": "var(--rieul-bg-hover)",
-      "rieul-inverse": "var(--rieul-text-inverse)",
-      "rieul-muted": "var(--rieul-text-disabled)",
-      "rieul-overlay": "var(--rieul-bg-overlay)",
-      "rieul-success": "var(--rieul-success)",
-      "rieul-success-soft": "var(--rieul-success-soft)",
-      "rieul-surface": "var(--rieul-bg-primary)",
-      "rieul-surface-2": "var(--rieul-bg-secondary)",
-      "rieul-surface-3": "var(--rieul-bg-muted)",
-      "rieul-text": "var(--rieul-text-primary)",
-      "rieul-text-2": "var(--rieul-text-secondary)",
-      "rieul-text-3": "var(--rieul-text-tertiary)",
-      "rieul-warning": "var(--rieul-warning)",
-      "rieul-warning-soft": "var(--rieul-warning-soft)",
-      rieul: {
-        accent: "var(--rieul-accent)",
-        "accent-overlay": "var(--rieul-accent-overlay)",
-        "accent-shadow": "var(--rieul-accent-shadow)",
-        "accent-shimmer": "var(--rieul-accent-shimmer)",
-        "accent-soft": "var(--rieul-accent-soft)",
-        "accent-soft-strong": "var(--rieul-accent-soft-strong)",
-        canvas: "var(--rieul-bg-canvas)",
-        code: "var(--rieul-bg-code)",
-        control: "var(--rieul-text-control)",
-        "control-disabled": "var(--rieul-bg-control-disabled)",
-        danger: "var(--rieul-danger)",
-        "danger-border": "var(--rieul-danger-border)",
-        "danger-border-hover": "var(--rieul-danger-border-hover)",
-        "danger-hover": "var(--rieul-danger-hover)",
-        "danger-soft": "var(--rieul-danger-soft)",
-        "danger-soft-hover": "var(--rieul-danger-soft-hover)",
-        "danger-soft-muted": "var(--rieul-danger-soft-muted)",
-        disabled: "var(--rieul-text-disabled)",
-        focus: "var(--rieul-focus)",
-        "focus-strong": "var(--rieul-border-focus-strong)",
-        header: "var(--rieul-bg-header)",
-        hover: "var(--rieul-bg-hover)",
-        "hover-action-border": "var(--rieul-border-action-hover)",
-        "hover-weak": "var(--rieul-bg-hover-weak)",
-        inverse: "var(--rieul-text-inverse)",
-        "inverse-bg": "var(--rieul-bg-inverse)",
-        link: "var(--rieul-link)",
-        "menu-hover": "var(--rieul-bg-menu-hover)",
-        muted: "var(--rieul-bg-muted)",
-        primary: "var(--rieul-bg-primary)",
-        "row-hover": "var(--rieul-bg-row-hover)",
-        secondary: "var(--rieul-bg-secondary)",
-        selected: "var(--rieul-bg-selected)",
-        "selected-hover": "var(--rieul-bg-selected-hover)",
-        "selected-soft": "var(--rieul-bg-selected-soft)",
-        shell: "var(--rieul-shell-bg)",
-        "shell-item": "var(--rieul-shell-item-bg)",
-        "shell-success": "var(--rieul-shell-success)",
-        "shell-text": "var(--rieul-shell-text)",
-        "shell-text-muted": "var(--rieul-shell-text-muted)",
-        strong: "var(--rieul-text-strong)",
-        subtle: "var(--rieul-bg-subtle)",
-        success: "var(--rieul-success)",
-        "success-icon": "var(--rieul-success-icon)",
-        "success-soft": "var(--rieul-success-soft)",
-        "success-soft-muted": "var(--rieul-success-soft-muted)",
-        tertiary: "var(--rieul-text-tertiary)",
-        "text-primary": "var(--rieul-text-primary)",
-        "text-secondary": "var(--rieul-text-secondary)",
-        "text-tertiary": "var(--rieul-text-tertiary)",
-        tooltip: "var(--rieul-tooltip-bg)",
-        warning: "var(--rieul-warning)",
-        "warning-border": "var(--rieul-border-warning)",
-        "warning-icon": "var(--rieul-warning-icon)",
-        "warning-soft": "var(--rieul-warning-soft)",
-      },
-    },
-    borderRadius: {
-      "rieul-xs": "var(--rieul-radius-xs)",
-      "rieul-sm": "var(--rieul-radius-sm)",
-      "rieul-md": "var(--rieul-radius-md)",
-      "rieul-lg": "var(--rieul-radius-lg)",
-      "rieul-xl": "var(--rieul-radius-xl)",
-      "rieul-2xl": "var(--rieul-radius-2xl)",
-    },
-    boxShadow: {
-      "rieul-dialog": "var(--rieul-shadow-dialog)",
-      "rieul-lg": "var(--rieul-shadow-lg)",
-      "rieul-menu": "var(--rieul-shadow-menu)",
-      "rieul-md": "var(--rieul-shadow-md)",
-      "rieul-pane": "var(--rieul-shadow-pane)",
-      "rieul-sm": "var(--rieul-shadow-sm)",
-    },
-    fontFamily: {
-      rieul: "var(--rieul-font-native)",
-    },
-  },
-  shortcuts: {
-    "rieul-icon-button":
-      "inline-flex appearance-none items-center justify-center cursor-pointer border-0 rounded-rieul-md bg-transparent p-0 leading-none font-rieul text-rieul-text-3 hover:bg-rieul-hover hover:text-rieul-text-2 active:bg-rieul-active rieul-transition",
-    "rieul-material-chrome":
-      "border-white/22 bg-[var(--rieul-material-chrome-bg)] backdrop-blur-xl shadow-[inset_0_1px_0_rgb(255_255_255_/_66%),inset_0_-1px_0_rgb(18_25_38_/_4%)]",
-    "rieul-material-dock-control":
-      "border border-white/34 bg-white/24 text-rieul-text-2 backdrop-blur-xl hover:border-white/56 hover:bg-white/44 hover:text-rieul-text",
-    "rieul-material-floating":
-      "border border-white/42 bg-[var(--rieul-material-floating-bg)] backdrop-blur-2xl shadow-[0_24px_70px_rgb(18_25_38_/_22%),0_4px_16px_rgb(18_25_38_/_10%),inset_0_1px_0_rgb(255_255_255_/_82%)]",
-    "rieul-material-window":
-      "border border-white/46 bg-[var(--rieul-material-window-bg)] backdrop-blur-2xl shadow-[var(--rieul-shadow-window)]",
-    "rieul-surface-card":
-      "border border-rieul-border bg-rieul-surface rounded-rieul-xl shadow-rieul-md",
-    "rieul-transition":
-      "[transition:background_var(--rieul-duration-fast,100ms)_var(--rieul-ease-out,cubic-bezier(0.16,1,0.3,1)),color_var(--rieul-duration-fast,100ms)_var(--rieul-ease-out,cubic-bezier(0.16,1,0.3,1)),border-color_var(--rieul-duration-fast,100ms)_var(--rieul-ease-out,cubic-bezier(0.16,1,0.3,1)),box-shadow_var(--rieul-duration-fast,100ms)_var(--rieul-ease-out,cubic-bezier(0.16,1,0.3,1))]",
-  },
-  preflights: [
-    {
-      getCSS: () => preflightStyles,
-    },
-  ],
-});
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}

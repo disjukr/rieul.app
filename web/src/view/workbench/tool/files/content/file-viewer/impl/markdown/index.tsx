@@ -1,3 +1,4 @@
+import { style } from "../../../../../../../../zyzz.config.ts";
 import { createMemo, createSignal, createEffect, useContext } from "solid-js";
 import { marked } from "marked";
 import { useBunja } from "bunja/solid";
@@ -11,40 +12,7 @@ import {
 import { BigFileWarning } from "../../big-file-warning.tsx";
 import { fileViewerBunja } from "../../state.tsx";
 const inlineOpenLimitBytes = 1024 * 1024;
-const fileViewerStatusClassName = [
-  "flex items-center justify-center gap-[8px] min-w-0 min-h-0",
-  "text-[#667085] text-[14px]",
-  "[&.error]:items-start [&.error]:justify-start [&.error]:overflow-auto",
-  "[&.error]:text-[#b42318] [&.error]:p-[14px]",
-].join(" ");
-const markdownContentClassName = [
-  "markdown-viewer min-w-0 min-h-0 overflow-auto bg-white",
-  "px-[28px] py-[22px] text-[#20242d] text-[15px] leading-[1.65]",
-  "[&_>*:first-child]:mt-0 [&_>*:last-child]:mb-0",
-  "[&_a]:text-[#2f6edc] [&_a]:font-650 [&_a]:underline",
-  "[&_blockquote]:m-0 [&_blockquote]:my-[14px] [&_blockquote]:border-l-[3px]",
-  "[&_blockquote]:border-l-[#cfd7e5] [&_blockquote]:pl-[14px]",
-  "[&_blockquote]:text-[#475467]",
-  "[&_code]:rounded-[4px] [&_code]:bg-[#eef2f7] [&_code]:px-[4px]",
-  "[&_code]:py-[1px] [&_code]:font-mono [&_code]:text-[14px]",
-  "[&_pre]:my-[14px] [&_pre]:overflow-auto [&_pre]:rounded-[6px]",
-  "[&_pre]:bg-[#101828] [&_pre]:p-[14px] [&_pre]:text-[#f2f4f7]",
-  "[&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_pre_code]:text-inherit",
-  "[&_h1]:mb-[12px] [&_h1]:mt-[4px] [&_h1]:border-b",
-  "[&_h1]:border-b-[#d8dde7] [&_h1]:pb-[8px] [&_h1]:text-[24px]",
-  "[&_h1]:leading-[1.25]",
-  "[&_h2]:mb-[10px] [&_h2]:mt-[20px] [&_h2]:text-[19px]",
-  "[&_h2]:leading-[1.3]",
-  "[&_h3]:mb-[8px] [&_h3]:mt-[16px] [&_h3]:text-[16px]",
-  "[&_hr]:my-[18px] [&_hr]:border-0 [&_hr]:border-t",
-  "[&_hr]:border-t-[#d8dde7]",
-  "[&_li]:my-[4px] [&_ol]:pl-[24px] [&_ul]:pl-[24px]",
-  "[&_p]:my-[11px]",
-  "[&_table]:my-[14px] [&_table]:border-collapse [&_table]:text-[14px]",
-  "[&_td]:border [&_td]:border-[#d8dde7] [&_td]:px-[8px] [&_td]:py-[6px]",
-  "[&_th]:border [&_th]:border-[#d8dde7] [&_th]:bg-[#fbfcfe]",
-  "[&_th]:px-[8px] [&_th]:py-[6px] [&_th]:text-left",
-].join(" ");
+
 type MarkdownReadState =
   | {
       phase: "loading";
@@ -180,7 +148,7 @@ export default function MarkdownFileViewer() {
   return (
     <>
       {!machine() ? (
-        <div class={`${fileViewerStatusClassName} error`}>
+        <div class={`${styles.fileViewerStatus().class} error`}>
           <span>No machine selected</span>
         </div>
       ) : viewerState().phase !== "ready" ? null : !confirmed() ? (
@@ -190,15 +158,18 @@ export default function MarkdownFileViewer() {
           viewerName={markdownViewerName}
         />
       ) : state().phase === "loading" ? (
-        <div class={fileViewerStatusClassName}>
+        <div {...styles.fileViewerStatus()}>
           <span>Loading markdown</span>
         </div>
       ) : state().phase === "error" ? (
-        <div class={`${fileViewerStatusClassName} error`}>
+        <div class={`${styles.fileViewerStatus().class} error`}>
           <span>{errorMessage()}</span>
         </div>
       ) : (
-        <article class={markdownContentClassName} innerHTML={html()} />
+        <article
+          {...styles.markdownContent({ className: "markdown-viewer" })}
+          innerHTML={html()}
+        />
       )}
     </>
   );
@@ -271,4 +242,151 @@ function isSafeMarkdownUrl(value: string): boolean {
   } catch {
     return false;
   }
+}
+
+namespace styles {
+  export const fileViewerStatus = style({
+    minHeight: "0",
+    minWidth: "0",
+    display: "flex",
+    selectors: {
+      "&.error": {
+        alignItems: "flex-start",
+        justifyContent: "flex-start",
+        overflow: "auto",
+        padding: "14px",
+        color: "rgb(180 35 24 / 1)",
+      },
+    },
+    alignItems: "center",
+    justifyContent: "center",
+    gap: "8px",
+    fontSize: "14px",
+    color: "rgb(102 112 133 / 1)",
+  });
+  export const markdownContent = style({
+    selectors: {
+      "& blockquote": {
+        margin: "0",
+        marginTop: "14px",
+        marginBottom: "14px",
+        borderLeftWidth: "3px",
+        borderLeftColor: "rgb(207 215 229 / 1)",
+        paddingLeft: "14px",
+        color: "rgb(71 84 103 / 1)",
+      },
+      "& pre": {
+        marginTop: "14px",
+        marginBottom: "14px",
+        overflow: "auto",
+        borderRadius: "6px",
+        backgroundColor: "rgb(16 24 40 / 1)",
+        padding: "14px",
+        color: "rgb(242 244 247 / 1)",
+      },
+      "& table": {
+        marginTop: "14px",
+        marginBottom: "14px",
+        borderCollapse: "collapse",
+        fontSize: "14px",
+      },
+      "& hr": {
+        marginTop: "18px",
+        marginBottom: "18px",
+        borderWidth: "0px",
+        borderTopWidth: "1px",
+        borderTopColor: "rgb(216 221 231 / 1)",
+      },
+      "& li": {
+        marginTop: "4px",
+        marginBottom: "4px",
+      },
+      "& p": {
+        marginTop: "11px",
+        marginBottom: "11px",
+      },
+      "& >*:first-child": {
+        marginTop: "0",
+      },
+      "& >*:last-child": {
+        marginBottom: "0",
+      },
+      "& h1": {
+        marginBottom: "12px",
+        marginTop: "4px",
+        borderBottomWidth: "1px",
+        borderBottomColor: "rgb(216 221 231 / 1)",
+        paddingBottom: "8px",
+        fontSize: "24px",
+        lineHeight: 1.25,
+      },
+      "& h2": {
+        marginBottom: "10px",
+        marginTop: "20px",
+        fontSize: "19px",
+        lineHeight: 1.3,
+      },
+      "& h3": {
+        marginBottom: "8px",
+        marginTop: "16px",
+        fontSize: "16px",
+      },
+      "& td": {
+        borderWidth: "1px",
+        borderColor: "rgb(216 221 231 / 1)",
+        paddingLeft: "8px",
+        paddingRight: "8px",
+        paddingTop: "6px",
+        paddingBottom: "6px",
+      },
+      "& th": {
+        borderWidth: "1px",
+        borderColor: "rgb(216 221 231 / 1)",
+        backgroundColor: "rgb(251 252 254 / 1)",
+        paddingLeft: "8px",
+        paddingRight: "8px",
+        paddingTop: "6px",
+        paddingBottom: "6px",
+        textAlign: "left",
+      },
+      "& code": {
+        borderRadius: "4px",
+        backgroundColor: "rgb(238 242 247 / 1)",
+        paddingLeft: "4px",
+        paddingRight: "4px",
+        paddingTop: "1px",
+        paddingBottom: "1px",
+        fontSize: "14px",
+        fontFamily:
+          'ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace',
+      },
+      "& pre code": {
+        backgroundColor: "transparent",
+        padding: "0",
+        color: "inherit",
+      },
+      "& ol": {
+        paddingLeft: "24px",
+      },
+      "& ul": {
+        paddingLeft: "24px",
+      },
+      "& a": {
+        color: "rgb(47 110 220 / 1)",
+        fontWeight: 650,
+        textDecorationLine: "underline",
+      },
+    },
+    minHeight: "0",
+    minWidth: "0",
+    overflow: "auto",
+    backgroundColor: "rgb(255 255 255 / 1)",
+    paddingLeft: "28px",
+    paddingRight: "28px",
+    paddingTop: "22px",
+    paddingBottom: "22px",
+    fontSize: "15px",
+    color: "rgb(32 36 45 / 1)",
+    lineHeight: 1.65,
+  });
 }
