@@ -2,6 +2,7 @@
 //! after stopping the legacy job, recover forward to the protected runtime.
 //! Never restore root execution from the publicly replaceable app directory.
 use super::{
+    Policy, SERVICE, Version,
     destination::AppDestination,
     gate,
     launchd::{self, Control, Job},
@@ -9,9 +10,8 @@ use super::{
     runtime,
     store::Dir,
     verify::{self, Identity, Manifest},
-    Policy, Version, SERVICE,
 };
-use anyhow::{ensure, Result};
+use anyhow::{Result, ensure};
 use serde::{Deserialize, Serialize};
 use std::{
     io::{Read, Write},
@@ -34,6 +34,61 @@ struct Migration {
     phase: Phase,
     identity: Identity,
     nonce: String,
+}
+/// A migration worker holds the state lock while waiting for readiness.
+/// Startup must inspect its atomic record without acquiring that same lock.
+/// Only the bound runtime and a live fixed-identity system worker may authorize
+/// opening the DB; all other migration phases recover through that worker.
+pub(super) fn startup(
+    state: &Dir,
+    control: &mut impl Control,
+    own_hash: &str,
+) -> Result<Option<bool>> {
+    startup_with(state, control, own_hash, runtime::ensure_worker)
+}
+fn startup_with<C: Control>(
+    state: &Dir,
+    control: &mut C,
+    own_hash: &str,
+    launch_worker: impl FnOnce(&Dir, &mut C) -> Result<()>,
+) -> Result<Option<bool>> {
+    let Some(m) = state.load::<Migration>("migration.json")? else {
+        return Ok(None);
+    };
+    ensure!(m.schema == 1, "unsupported migration");
+    let expected = Request {
+        nonce: m.nonce,
+        daemon_sha256: m.identity.daemon_sha256,
+    };
+    expected.validate()?;
+    ensure!(
+        expected.daemon_sha256 == own_hash,
+        "unknown runtime during migration"
+    );
+    let worker_running = control
+        .inspect(Job::Worker)?
+        .and_then(|job| job.pid)
+        .is_some();
+    let allowed = matches!(m.phase, Phase::Starting | Phase::Complete)
+        && state.load::<Request>("start-request.json")?.as_ref() == Some(&expected)
+        && worker_running;
+    if allowed {
+        state.remove("parked.json")?;
+        return Ok(Some(false));
+    }
+    // Publish before starting the worker: it must distinguish this instance,
+    // which has not opened the DB or transport, from a serving process.
+    state.remove("ready.json")?;
+    state.save(
+        "parked.json",
+        &runtime::Parked {
+            nonce: expected.nonce,
+            pid: std::process::id(),
+            daemon_sha256: own_hash.into(),
+        },
+    )?;
+    launch_worker(state, control)?;
+    Ok(Some(true))
 }
 trait Steps {
     fn validate(&mut self, m: &Migration) -> Result<()>;
@@ -65,7 +120,9 @@ fn resume(state: &Dir, steps: &mut impl Steps) -> Result<()> {
     if m.phase == Phase::Registered {
         phase(state, &mut m, Phase::Starting)?;
     }
-    if m.phase == Phase::Starting {
+    if matches!(m.phase, Phase::Starting | Phase::Complete) {
+        // Complete is durable before retirement. A reboot in that interval
+        // still needs the same verified readiness/restart path before cleanup.
         steps.start(&m)?;
         steps.health(&m)?;
         phase(state, &mut m, Phase::Complete)?;
@@ -165,6 +222,23 @@ pub fn prepare() -> Result<()> {
     }
     runtime::ensure_worker(&state, &mut launchd::Native { state: &state })
 }
+/// Used by both Native::start and Native::health. A current parked process
+/// cannot satisfy readiness, even if reboot reused a prior receipt's PID.
+fn ready_pid(state: &Dir, expected: &Request, job: &launchd::JobState) -> Result<Option<u32>> {
+    let Some(pid) = job.pid else {
+        return Ok(None);
+    };
+    if state
+        .load::<runtime::Parked>("parked.json")?
+        .is_some_and(|parked| parked.nonce == expected.nonce && parked.pid == pid)
+    {
+        return Ok(None);
+    }
+    let Some(ready) = state.load::<receipt::Receipt>("ready.json")? else {
+        return Ok(None);
+    };
+    Ok(receipt::matches(&ready, expected, pid, &expected.daemon_sha256).then_some(pid))
+}
 struct Native<'a> {
     state: &'a Dir,
     control: launchd::Native<'a>,
@@ -200,7 +274,9 @@ impl Steps for Native<'_> {
             .flatten()
             .is_some()
         {
-            anyhow::bail!("initial installer must stop the legacy service in an explicitly approved maintenance window");
+            anyhow::bail!(
+                "initial installer must stop the legacy service in an explicitly approved maintenance window"
+            );
         }
         // A resumed migration may already have the protected service registered.
         if self.control.inspect(Job::System)?.is_some() {
@@ -225,12 +301,8 @@ impl Steps for Native<'_> {
             daemon_sha256: m.identity.daemon_sha256.clone(),
         };
         if let Some(job) = self.control.inspect(Job::System)? {
-            if let (Some(pid), Some(ready)) =
-                (job.pid, self.state.load::<receipt::Receipt>("ready.json")?)
-            {
-                if receipt::matches(&ready, &expected, pid, &m.identity.daemon_sha256) {
-                    return Ok(());
-                }
+            if ready_pid(self.state, &expected, &job)?.is_some() {
+                return Ok(());
             }
             // A crash may have booted the registered service before a readiness
             // request was persisted. Never kill work to repair that ordering.
@@ -249,28 +321,26 @@ impl Steps for Native<'_> {
             daemon_sha256: m.identity.daemon_sha256.clone(),
         };
         loop {
-            if let (Some(job), Some(receipt)) = (
-                self.control.inspect(Job::System)?,
-                self.state.load::<receipt::Receipt>("ready.json")?,
-            ) {
-                if let Some(pid) = job.pid {
-                    if receipt::matches(&receipt, &expected, pid, &m.identity.daemon_sha256) {
-                        launchd::checked(
-                            self.state,
-                            "/usr/bin/codesign",
-                            &[
-                                "--verify",
-                                "--strict",
-                                "-R",
-                                &verify::requirement(super::DAEMON_ID),
-                                &pid.to_string(),
-                            ],
-                        )?;
-                        return Ok(());
-                    }
+            if let Some(job) = self.control.inspect(Job::System)? {
+                if let Some(pid) = ready_pid(self.state, &expected, &job)? {
+                    launchd::checked(
+                        self.state,
+                        "/usr/bin/codesign",
+                        &[
+                            "--verify",
+                            "--strict",
+                            "-R",
+                            &verify::requirement(super::DAEMON_ID),
+                            &pid.to_string(),
+                        ],
+                    )?;
+                    return Ok(());
                 }
             }
-            ensure!(Instant::now()<deadline,"protected service did not become ready; retry migration, do not restore unsafe legacy execution");
+            ensure!(
+                Instant::now() < deadline,
+                "protected service did not become ready; retry migration, do not restore unsafe legacy execution"
+            );
             std::thread::sleep(Duration::from_millis(100));
         }
     }
@@ -296,6 +366,326 @@ pub(super) fn worker(state: &Dir) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    struct LiveWorker;
+    impl Control for LiveWorker {
+        fn sessions(&mut self) -> Result<Vec<u32>> {
+            unreachable!()
+        }
+        fn inspect(&mut self, job: Job) -> Result<Option<launchd::JobState>> {
+            assert_eq!(job, Job::Worker);
+            Ok(Some(launchd::JobState { pid: Some(42) }))
+        }
+        fn stop(&mut self, _: Job) -> Result<()> {
+            unreachable!()
+        }
+        fn start(&mut self, _: Job) -> Result<()> {
+            unreachable!()
+        }
+        fn submit_worker(&mut self) -> Result<()> {
+            unreachable!()
+        }
+    }
+    #[test]
+    fn migration_readiness_starts_while_worker_holds_lock_only_for_bound_request() {
+        use std::os::unix::fs::PermissionsExt;
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::set_permissions(tmp.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+        let state = Dir::open(
+            &tmp.path().canonicalize().unwrap(),
+            unsafe { libc::geteuid() },
+            false,
+        )
+        .unwrap();
+        let mut m = Migration {
+            schema: 1,
+            phase: Phase::Starting,
+            identity: Identity {
+                version: Version(0, 0, 1),
+                daemon_sha256: "a".repeat(64),
+                app_dev: 1,
+                app_ino: 1,
+            },
+            nonce: "b".repeat(64),
+        };
+        let mut request = Request {
+            nonce: m.nonce.clone(),
+            daemon_sha256: m.identity.daemon_sha256.clone(),
+        };
+        state.save("migration.json", &m).unwrap();
+        state.save("start-request.json", &request).unwrap();
+        let _worker_lock = state.lock().unwrap();
+        for phase in [Phase::Starting, Phase::Complete] {
+            m.phase = phase;
+            state.save("migration.json", &m).unwrap();
+            assert_eq!(
+                startup(&state, &mut LiveWorker, &"a".repeat(64)).unwrap(),
+                Some(false)
+            );
+        }
+        for phase in [Phase::Prepared, Phase::Stopping, Phase::Registered] {
+            m.phase = phase;
+            state.save("migration.json", &m).unwrap();
+            assert_eq!(
+                startup(&state, &mut LiveWorker, &"a".repeat(64)).unwrap(),
+                Some(true)
+            );
+        }
+        m.phase = Phase::Starting;
+        state.save("migration.json", &m).unwrap();
+        request.nonce = "c".repeat(64);
+        state.save("start-request.json", &request).unwrap();
+        assert_eq!(
+            startup(&state, &mut LiveWorker, &"a".repeat(64)).unwrap(),
+            Some(true)
+        );
+        assert!(startup(&state, &mut LiveWorker, &"d".repeat(64)).is_err());
+    }
+    struct AbsentWorker;
+    impl Control for AbsentWorker {
+        fn sessions(&mut self) -> Result<Vec<u32>> {
+            unreachable!()
+        }
+        fn inspect(&mut self, job: Job) -> Result<Option<launchd::JobState>> {
+            assert_eq!(job, Job::Worker);
+            Ok(None)
+        }
+        fn stop(&mut self, _: Job) -> Result<()> {
+            unreachable!()
+        }
+        fn start(&mut self, _: Job) -> Result<()> {
+            unreachable!()
+        }
+        fn submit_worker(&mut self) -> Result<()> {
+            unreachable!()
+        }
+    }
+    #[test]
+    fn native_readiness_rejects_reused_pid_receipt_until_park_clears_and_fresh_receipt_arrives() {
+        use std::os::unix::fs::PermissionsExt;
+        for phase in [Phase::Starting, Phase::Complete] {
+            let tmp = tempfile::tempdir().unwrap();
+            std::fs::set_permissions(tmp.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+            let state = Dir::open(
+                &tmp.path().canonicalize().unwrap(),
+                unsafe { libc::geteuid() },
+                false,
+            )
+            .unwrap();
+            let m = Migration {
+                schema: 1,
+                phase,
+                identity: Identity {
+                    version: Version(0, 0, 1),
+                    daemon_sha256: "a".repeat(64),
+                    app_dev: 1,
+                    app_ino: 1,
+                },
+                nonce: "b".repeat(64),
+            };
+            let expected = Request {
+                nonce: m.nonce.clone(),
+                daemon_sha256: m.identity.daemon_sha256.clone(),
+            };
+            let pid = std::process::id();
+            let job = launchd::JobState { pid: Some(pid) };
+            state.save("migration.json", &m).unwrap();
+            state.save("start-request.json", &expected).unwrap();
+            receipt::write(&state, expected.clone(), pid, super::super::DATABASE_SCHEMA).unwrap();
+            assert_eq!(ready_pid(&state, &expected, &job).unwrap(), Some(pid));
+            state
+                .save(
+                    "parked.json",
+                    &runtime::Parked {
+                        nonce: m.nonce.clone(),
+                        pid,
+                        daemon_sha256: m.identity.daemon_sha256.clone(),
+                    },
+                )
+                .unwrap();
+            // Exact same nonce/PID/hash as the old ready receipt. This helper
+            // is the actual early-return predicate in Native::start and the
+            // actual pre-signature predicate in Native::health.
+            assert_eq!(ready_pid(&state, &expected, &job).unwrap(), None);
+            assert_eq!(
+                startup_with(
+                    &state,
+                    &mut AbsentWorker,
+                    &m.identity.daemon_sha256,
+                    |state, _| {
+                        assert!(!state.exists("ready.json")?);
+                        assert!(state.exists("parked.json")?);
+                        Ok(())
+                    }
+                )
+                .unwrap(),
+                Some(true)
+            );
+            // Verified worker restarted the daemon. Being permitted to serve
+            // does not alone constitute a fresh post-DB/transport receipt.
+            assert_eq!(
+                startup_with(
+                    &state,
+                    &mut LiveWorker,
+                    &m.identity.daemon_sha256,
+                    |_, _| panic!("already running")
+                )
+                .unwrap(),
+                Some(false)
+            );
+            assert!(!state.exists("parked.json").unwrap());
+            assert_eq!(ready_pid(&state, &expected, &job).unwrap(), None);
+            receipt::write(&state, expected.clone(), pid, super::super::DATABASE_SCHEMA).unwrap();
+            assert_eq!(ready_pid(&state, &expected, &job).unwrap(), Some(pid));
+        }
+    }
+    struct RebootSteps<'a> {
+        state: &'a Dir,
+        fail_health: bool,
+        events: Vec<&'static str>,
+    }
+    impl Steps for RebootSteps<'_> {
+        fn validate(&mut self, _: &Migration) -> Result<()> {
+            Ok(())
+        }
+        fn stop_legacy(&mut self) -> Result<()> {
+            unreachable!()
+        }
+        fn install_registration(&mut self) -> Result<()> {
+            unreachable!()
+        }
+        fn start(&mut self, m: &Migration) -> Result<()> {
+            let parked: runtime::Parked = self.state.load("parked.json")?.unwrap();
+            ensure!(
+                parked.nonce == m.nonce
+                    && parked.pid == std::process::id()
+                    && parked.daemon_sha256 == m.identity.daemon_sha256,
+                "unbound parked process"
+            );
+            self.events.push("restart-parked");
+            let request = Request {
+                nonce: m.nonce.clone(),
+                daemon_sha256: m.identity.daemon_sha256.clone(),
+            };
+            self.state.save("start-request.json", &request)?;
+            // This happens under resume's lock, like a newly started daemon
+            // while the real worker waits for its receipt.
+            ensure!(
+                startup_with(
+                    self.state,
+                    &mut LiveWorker,
+                    &m.identity.daemon_sha256,
+                    |_, _| panic!("live worker must not be resubmitted")
+                )? == Some(false),
+                "replacement parked"
+            );
+            ensure!(!self.state.exists("parked.json")?, "stale park retained");
+            receipt::write(self.state, request, 4242, super::super::DATABASE_SCHEMA)?;
+            Ok(())
+        }
+        fn health(&mut self, m: &Migration) -> Result<()> {
+            self.events.push("health");
+            ensure!(!self.fail_health, "simulated readiness failure");
+            let ready: receipt::Receipt = self.state.load("ready.json")?.unwrap();
+            ensure!(
+                receipt::matches(
+                    &ready,
+                    &Request {
+                        nonce: m.nonce.clone(),
+                        daemon_sha256: m.identity.daemon_sha256.clone()
+                    },
+                    4242,
+                    &m.identity.daemon_sha256
+                ),
+                "wrong readiness"
+            );
+            Ok(())
+        }
+        fn enable(&mut self) -> Result<()> {
+            ensure!(
+                self.events.last() == Some(&"health"),
+                "enabled before health"
+            );
+            self.events.push("enable");
+            Ok(())
+        }
+    }
+    #[test]
+    fn starting_and_complete_reboot_daemon_parks_before_worker_then_requires_readiness() {
+        use std::os::unix::fs::PermissionsExt;
+        for phase in [Phase::Starting, Phase::Complete] {
+            for fail_health in [false, true] {
+                let tmp = tempfile::tempdir().unwrap();
+                std::fs::set_permissions(tmp.path(), std::fs::Permissions::from_mode(0o700))
+                    .unwrap();
+                let state = Dir::open(
+                    &tmp.path().canonicalize().unwrap(),
+                    unsafe { libc::geteuid() },
+                    false,
+                )
+                .unwrap();
+                let m = Migration {
+                    schema: 1,
+                    phase,
+                    identity: Identity {
+                        version: Version(0, 0, 1),
+                        daemon_sha256: "a".repeat(64),
+                        app_dev: 1,
+                        app_ino: 1,
+                    },
+                    nonce: "b".repeat(64),
+                };
+                state.save("migration.json", &m).unwrap();
+                state.create_dir("migration-app", 0o700).unwrap();
+                state
+                    .save(
+                        "start-request.json",
+                        &Request {
+                            nonce: m.nonce.clone(),
+                            daemon_sha256: m.identity.daemon_sha256.clone(),
+                        },
+                    )
+                    .unwrap();
+                // Reboot: daemon starts first; no worker is present yet.
+                assert_eq!(
+                    startup_with(
+                        &state,
+                        &mut AbsentWorker,
+                        &m.identity.daemon_sha256,
+                        |state, _| {
+                            let parked: runtime::Parked = state
+                                .load("parked.json")?
+                                .expect("park must precede worker launch");
+                            assert_eq!(parked.nonce, m.nonce);
+                            assert_eq!(parked.pid, std::process::id());
+                            assert_eq!(parked.daemon_sha256, m.identity.daemon_sha256);
+                            Ok(())
+                        }
+                    )
+                    .unwrap(),
+                    Some(true)
+                );
+                let mut steps = RebootSteps {
+                    state: &state,
+                    fail_health,
+                    events: vec![],
+                };
+                let outcome = resume(&state, &mut steps);
+                if fail_health {
+                    assert!(outcome.is_err());
+                    assert_eq!(steps.events, ["restart-parked", "health"]);
+                    assert!(state.exists("migration.json").unwrap());
+                    assert!(state.exists("migration-app").unwrap());
+                    assert!(!state.exists("migration-result.json").unwrap());
+                } else {
+                    outcome.unwrap();
+                    assert_eq!(steps.events, ["restart-parked", "health", "enable"]);
+                    assert!(!state.exists("migration.json").unwrap());
+                    assert!(!state.exists("migration-app").unwrap());
+                    assert!(state.exists("migration-result.json").unwrap());
+                }
+            }
+        }
+    }
     struct Fake {
         events: Vec<&'static str>,
         fail: Option<&'static str>,

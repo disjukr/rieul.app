@@ -1,11 +1,11 @@
 //! Fixed service identities; only numeric GUI session IDs vary. No RPC-facing
 //! command/path interface. Native methods are never invoked by fixture tests.
-use super::{store::Dir, SERVICE, STATE};
-use anyhow::{bail, ensure, Result};
+use super::{SERVICE, STATE, store::Dir};
+use anyhow::{Result, bail, ensure};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::BTreeSet,
-    io::Read,
+    io::{Read, Write},
     process::{Child, Command, Stdio},
     time::{Duration, Instant},
 };
@@ -14,6 +14,7 @@ pub(super) const WORKER_LABEL: &str = "app.rieul.update-worker";
 pub(super) const SYSTEM_PLIST: &str = "/Library/LaunchDaemons/app.rieul.daemon.plist";
 pub(super) const GUI_PLIST: &str = "/Library/LaunchAgents/app.rieul.gui.plist";
 pub(super) const LAUNCHER: &str = "/Applications/Rieul.app/Contents/MacOS/rieul-macos-launcher";
+pub(super) const WORKER_PLIST: &str = "/Library/Application Support/rieul/updates/worker.plist";
 pub(super) const WORKER: &str = "/Library/Application Support/rieul/updates/worker";
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Deserialize, Serialize)]
 pub(super) enum Job {
@@ -43,7 +44,7 @@ impl Job {
                     "run",
                 ],
             ),
-            Self::Worker => ("", vec![WORKER, "internal-update-worker"]),
+            Self::Worker => (WORKER_PLIST, vec![WORKER, "internal-update-worker"]),
             Self::Gui(_) => (GUI_PLIST, vec![LAUNCHER]),
         }
     }
@@ -247,24 +248,81 @@ impl Control for Native<'_> {
             self.stop(Job::Worker)?;
         }
         ensure!(WORKER == format!("{STATE}/worker"), "worker path mismatch");
+        ensure!(
+            self.state.path == std::path::Path::new(STATE),
+            "wrong worker state path"
+        );
+        write_worker_registration(self.state)?;
+        // `submit` inherits the caller's bootstrap namespace even under sudo.
+        // Always register in system, and do not use KeepAlive: failed attempts
+        // must remain durable until an explicitly authorized retry.
         checked(
             self.state,
             "/bin/launchctl",
-            &[
-                "submit",
-                "-l",
-                WORKER_LABEL,
-                "--",
-                WORKER,
-                "internal-update-worker",
-            ],
+            &["bootstrap", "system", WORKER_PLIST],
         )?;
+        self.inspect(Job::Worker)?
+            .ok_or_else(|| anyhow::anyhow!("worker registration missing"))?;
         Ok(())
     }
+}
+fn write_worker_registration(state: &Dir) -> Result<()> {
+    let plist = format!(
+        r#"<?xml version="1.0"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict><key>Label</key><string>{WORKER_LABEL}</string><key>ProgramArguments</key><array><string>{WORKER}</string><string>internal-update-worker</string></array><key>RunAtLoad</key><true/></dict></plist>"#
+    );
+    state.remove("worker.plist.new")?;
+    let mut file = state.create("worker.plist.new", 0o600)?;
+    file.write_all(plist.as_bytes())?;
+    file.sync_all()?;
+    state.rename_file("worker.plist.new", "worker.plist")
 }
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn worker_registration_is_fixed_root_job_without_automatic_relaunch() {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::set_permissions(tmp.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+        let state = Dir::open(
+            &tmp.path().canonicalize().unwrap(),
+            unsafe { libc::geteuid() },
+            false,
+        )
+        .unwrap();
+        write_worker_registration(&state).unwrap();
+        let file = state.read_file("worker.plist").unwrap();
+        assert_eq!(file.metadata().unwrap().mode() & 0o777, 0o600);
+        let text = std::fs::read_to_string(state.path.join("worker.plist")).unwrap();
+        assert!(text.contains(&format!("<key>Label</key><string>{WORKER_LABEL}</string>")));
+        assert!(text.contains("<key>RunAtLoad</key><true/>"));
+        assert!(!text.contains("KeepAlive"));
+        assert!(text.contains(&format!(
+            "<array><string>{WORKER}</string><string>internal-update-worker</string></array>"
+        )));
+        checked(
+            &state,
+            "/usr/bin/plutil",
+            &["-lint", state.path.join("worker.plist").to_str().unwrap()],
+        )
+        .unwrap();
+        assert!(!state.exists("worker.plist.new").unwrap());
+        assert_eq!(
+            Job::Worker.target().unwrap(),
+            "system/app.rieul.update-worker"
+        );
+        let text = format!(
+            "system/app.rieul.update-worker = {{\n\tpath = {WORKER_PLIST}\n\tprogram = {WORKER}\n\targuments = {{\n\t\t{WORKER}\n\t\tinternal-update-worker\n\t}}\n\tpid = 42\n}}\n"
+        );
+        assert_eq!(parse_job(Job::Worker, &text).unwrap().pid, Some(42));
+        assert!(
+            parse_job(
+                Job::Worker,
+                &text.replace(WORKER_PLIST, "(submitted by launchctl)")
+            )
+            .is_err()
+        );
+    }
     #[test]
     fn native_output_uses_unique_log_and_cleans_up() {
         use std::{io::Write, os::unix::fs::PermissionsExt};
@@ -297,7 +355,9 @@ mod tests {
     }
     #[test]
     fn parses_only_fixed_job_and_top_level_pid() {
-        let text=format!("system/app.rieul.daemon = {{\n\tpath = {SYSTEM_PLIST}\n\tprogram = {SERVICE}\n\targuments = {{\n\t\t{SERVICE}\n\t\trun\n\t}}\n\tpid = 42\n\tresource = {{\n\t\tpid = 999\n\t}}\n}}");
+        let text = format!(
+            "system/app.rieul.daemon = {{\n\tpath = {SYSTEM_PLIST}\n\tprogram = {SERVICE}\n\targuments = {{\n\t\t{SERVICE}\n\t\trun\n\t}}\n\tpid = 42\n\tresource = {{\n\t\tpid = 999\n\t}}\n}}"
+        );
         assert_eq!(parse_job(Job::System, &text).unwrap().pid, Some(42));
         assert!(parse_job(Job::System, &text.replace("\t\trun", "\t\tpair")).is_err());
         assert!(parse_job(Job::System, &text.replace(SERVICE, "/tmp/evil")).is_err());
