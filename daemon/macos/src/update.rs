@@ -18,7 +18,7 @@ impl fmt::Display for UpdateBlocker {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
             Self::UntrustedBundle => "The installed app or embedded daemon could not be verified (signature, path, or verification environment). Do not migrate automatically.",
-            Self::LegacyServiceRegistration => "Legacy launchd registration is present. Migrate services before changing app ownership; initial administrator authorization is required.",
+            Self::LegacyServiceRegistration => "Legacy launchd registration is present. Migration to a protected runtime service path requires initial administrator authorization.",
             Self::ProtectedAppBundle => "The app is root-owned or not writable by this user. Routine bundle replacement may require administrator authorization.",
             Self::UpdaterNotConfigured => "Automatic updates are not implemented in this build. Continue using the signed installer until the service migration and updater are validated.",
         })
@@ -42,7 +42,7 @@ fn assess(trusted_bundle: bool, legacy_jobs: bool, user_writable: bool) -> Updat
         blockers.push(UpdateBlocker::ProtectedAppBundle);
     }
     // Do not infer operational readiness from ownership or valid signatures.
-    // SMAppService approval, lifecycle coordination, and Sparkle are separate gates.
+    // The restricted root updater is not connected to production lifecycle yet.
     blockers.push(UpdateBlocker::UpdaterNotConfigured);
     UpdateStatus { blockers }
 }

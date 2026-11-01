@@ -1,150 +1,131 @@
 # macOS updates — issue #45
 
-## Status
+## Current status
 
-Local implementation, not production-ready or activated. Do not close #45.
-The Sparkle controller, SMAppService adapter, durable coordinator, and one-time
-legacy migration/recovery adapter compile. Default release packaging is unchanged.
-`RieulUpdaterEnabled` is absent from production bundles; the native controller
-also has an unconditional activation block pending signed lifecycle validation.
-No installation, service registration, ownership change, or key creation was run.
+Local, incomplete implementation on `issue-45-update-preflight`; not published,
+installed, activated, or ready to close #45. The previous Sparkle/SMAppService
+experiment was removed because keeping the root-owned app still required repeated
+authorization. The replacement is a restricted daemon-internal updater engine.
+It currently has no production startup, CLI, or RPC entry point.
 
-## Architecture and permissions
+Implemented: official-source download policy, private staging, restricted tar
+extraction, candidate signature/notarization/manifest verification, durable
+transaction coordination, native atomic exchange, orphan cleanup, and fixture
+fault injection. **The production service/GUI Effects adapter, self-replacement
+worker, readiness receipt writer, and initial migration are not implemented.**
+The original repeated-authorization goal is therefore not yet achieved.
 
-Use official Sparkle 2.10.0 for regular app-bundle updates, not PKG updates.
-The SDK archive SHA-256 is
-`c2bf58aa8387266ac179357b1415d6f2635f044da8be41042af32425dae6da0c`.
-It was downloaded into ignored `tmp/sparkle` for local compilation only.
+## Architecture and permission boundary
 
-The Rust launcher dispatches to `rieul-update-controller` only when explicitly
-configured in the installed app's Info.plist. The native AppKit controller owns
-one direct GUI child and Sparkle's lifetime. It sends SIGTERM only to that child
-and refuses termination if the child does not finish. It never uses process-name
-kills. Existing Solid/Jotai/Bunja application state is unchanged.
+Retain the existing root daemon. Its filesystem/process/command/ACP operations
+currently use daemon credentials; a user LaunchAgent would change capabilities,
+shared data, console-user behavior, and pre-login availability. No existing remote
+client gains a new updater RPC. Root-equivalent remote command access already
+exists in the product and must not be represented as an updater security boundary.
 
-SMAppService uses new fixed labels `app.rieul.daemon.v2` and `app.rieul.gui.v2`.
-Their bundled plists use fixed BundleProgram paths and SpawnConstraint facts:
-team `D379GLRLPV`, expected signing identifier, and Developer ID category 6.
-The GUI agent has KeepAlive=false; unregistering the coordinator's own agent
-would kill it, so Sparkle handles GUI termination instead. Daemon registration
-and approval precede GUI registration. Revoked/pending approval is not success.
+The proposed runtime daemon moves to the fixed, root-protected path
+`/Library/Application Support/rieul/service/rieul-macos-system`. The app remains
+`/Applications/Rieul.app`. This separation is required: even a root-owned app
+entry can be substituted by administrators with write access to `/Applications`.
+Do not run the root service from a user-replaceable bundle or relax ownership.
+No actual service path, launchd registration, or installed file has changed.
 
-Keep the app and all regular resources root-owned and non-writable by group or
-others. Reject escaping symlinks and extended ACLs. No ownership relaxation,
-permanent root updater, custom privileged update IPC, arbitrary root command,
-password storage, or passwordless sudo is introduced. The root migration adapter
-is a one-time, explicitly invoked operation; the updater never invokes it.
+Internal policy is fixed at
+`/Library/Application Support/rieul/updates/policy.json`, owned by root, mode 0600,
+inside a mode-0700 state directory with protected ancestors and no extended ACLs.
+Absent/disabled policy performs no network or staging work. The engine accepts
+no caller-supplied URL, command, destination, identifier, or signing key.
 
-**This does not yet eliminate repeated administrator prompts.** Sparkle can still
-request authorization to replace this protected app. Automatic downloads/installs
-are disabled. A safe unattended ownership/registration design and supported-OS
-proof are prerequisites to claiming the original goal is met.
+The initial approved installer must migrate the existing fixed service to the
+protected runtime path and explicitly enable the policy once. That installer,
+its interruption recovery, and OS activation still require implementation and
+specific action-time authorization before running on the user's Mac. Subsequent
+updates should use the existing daemon authority; this is not a guarantee that
+macOS will never require consent after policy/identity/system changes.
 
-## OS evidence and boundary
+## Candidate contract
 
-Apple's SMAppService documentation specifies initial daemon approval and bundled
-helper locations; it does not establish every desired replacement security or
-consent property. Apple's WWDC23 session explicitly states launchd plist
-constraints are enforced starting in macOS Sonoma (14), not Ventura (13).
-The new path therefore refuses macOS 13, which retains the existing installer.
-No test on the actual host (macOS 26.2) registered a daemon or changed approval.
-Tamper enforcement and approval retention on macOS 14+ remain unverified.
+Only stable increasing `desktop-x.y.z` tags from the fixed official repository
+are considered. Release metadata asset URLs are ignored. Downloads use the fixed
+`rieul-macos-update.tar` name under that tag. HTTPS redirects are bounded and
+restricted to GitHub API, GitHub, and GitHub release asset hosts. Proxies are
+ignored, timeouts are bounded, and metadata/archive sizes are limited.
 
-Do not infer that SMAppService registration alone makes a user-writable privileged
-executable safe. Root protection remains mandatory even on macOS 14+ in this code.
+Extraction uses descriptor-relative exclusive file creation. It rejects escaping
+paths, duplicates, hardlinks, device/FIFO/sparse entries, special mode bits, and
+unsupported PAX metadata. Internal relative symlinks are created only after all
+files; dangling links, cycles and escaping chains fail. Explicit and implicit
+entry counts, path depth/length, file size and total size are bounded. Archive
+ownership, ACLs and xattrs are not applied. Staging remains root-private.
 
-## Update and recovery transaction
+Verify the staged app with strict nested codesign checks against Developer ID
+team `D379GLRLPV`, app ID `app.rieul`, and daemon ID `rieul-macos-system`.
+Notarization requires successful `spctl` assessment reporting
+`source=Notarized Developer ID`; a generic local allow rule is insufficient.
+This may require network access and fails closed when assessment cannot complete.
+The signed `Contents/Resources/rieul-update.json` binds protocol 1, app version,
+DB schema 2 and the embedded daemon SHA-256. Info.plist version must match.
+No Sparkle key, new credential, or secret is required by this design.
 
-Background discovery does not stop services. The standard Sparkle user driver
-is subclassed to intercept Install before replying to Sparkle. It writes and
-fsyncs intent, unregisters the daemon, verifies it is absent, and persists the
-stopped phase. A private descriptor-relative journal and flock exclude concurrent
-controllers. Read/write paths reject symlinks and malformed records.
+`scripts/macos/update-artifact.py manifest BUILD/Rieul.app` writes the contract
+before outer signing/notarization. After signing/stapling, `archive` with
+`--output .../rieul-macos-update.tar` creates the expected archive. The tool does
+not sign or publish; no existing release workflow was modified. Root-side
+validation remains mandatory regardless of this packaging tool's checks.
 
-Only stable increasing x.y.z versions and full application ZIPs at the exact
-versioned official GitHub release URL are accepted. Configuration requires an
-injected public Ed25519 key, HTTPS, signed feeds, and pre-extraction validation.
-Sparkle owns extraction/replacement; no custom archive extractor is introduced.
+## Transaction and recovery
 
-On abort or restart, validate the protected app and daemon against fixed Apple
-Developer ID identities before registering anything. The actual installed version
-must equal the old or target transaction version. Recovery registers the daemon
-first, records pending approval, then verifies the running daemon's Security
-framework identity and code-directory hash against the installed binary.
-Transport/database health and schema compatibility are still activation blockers.
-No automatic binary downgrade is attempted against potentially migrated data.
+An exclusive lock protects a private, atomic-write/fsync journal. A random nonce
+binds future readiness receipts to the transaction. Download/verification leave
+the running service alone. Unjournaled interrupted staging is safely discarded;
+a pending transaction's rollback files are retained.
 
-Sparkle's public appcast/user-driver hooks do not provide a general extracted
-candidate inspection callback. Its built-in signature rules permit key rotation.
-Our post-install service gate and SpawnConstraint prevent launching a wrong-team
-root daemon, but strict pre-replacement same-team validation of the entire
-candidate still needs resolution before production activation. Do not represent
-this implementation as satisfying that acceptance criterion yet.
+The coordinator journals intent before effects, quiesces services, revalidates,
+checks DB schema, exchanges app and protected daemon independently, starts the
+candidate and requires readiness. Recovery inspects both actual identities rather
+than trusting journal phase, so interruption between the two swaps is replayable.
+Native `renameatx_np(RENAME_SWAP)` is implemented and tested on disposable files
+and directories, with same-volume enforcement and directory fsync.
 
-## One-time existing-install migration
+Failed readiness rolls back both artifacts only while schema remains 2. Unknown
+installed identities or a changed DB schema stop automatic recovery. GUI restore
+failures remain retryable after committed/rolled-back journal states. No data,
+pairing, settings, certificate, workspace, or DB ownership migration is attempted.
 
-After an explicitly authorized protected app installation, the root adapter
-validates the app, known legacy plist/executable identities, fixed arguments and
-service domains. It saves backups durably before stopping jobs, stops all saved
-jobs before removing plists, and verifies absence. It never changes app ownership
-or configuration/pairing/database files. A loaded job without a restorable plist
-is rejected. An interrupted transaction replays idempotent operations.
+These are engine guarantees under the Effects contract, not proven production
+launchd behavior. The missing adapter must authenticate running identities,
+revalidate staged/rollback copies immediately before each exchange, account for
+`/Applications` entry races, copy the verified daemon into protected storage,
+run the worker independently of the service it stops, bind readiness to nonce,
+version/hash/PID after database and transport startup, and stop/restart only known
+GUI jobs for every affected user. It must never bootstrap an unknown executable.
+Recovery must also run after reboot before normal service startup.
 
-New registration is a separate logged-in user action. If approval remains pending,
-services remain offline with the backup retained. Explicit rollback requires the
-same protected app version and no v2 registration, restores plists atomically,
-and bootstraps only the recorded fixed services. It refuses cross-version rollback.
-Native privileged effects are compiled but have not been executed; fault injection
-covers the coordinator order/replay, not OS launchd behavior or root filesystem races.
+## Verification and remaining work
 
-## Verification and discovered packaging issue
+`cargo test -p rieul-macos-daemon root_update:: --lib --locked --offline` exercises
+archive attacks, private records, locks, orphan recovery, fixed source/version
+policy, manifest/DB gates, native filesystem swaps, interruption after effects,
+rollback and GUI retry. It also roundtrips the artifact builder through the actual
+restricted Rust extractor. Fake Effects tests do not prove launchd lifecycle.
 
-Commands:
+The ignored `real_signature_checker_accepts_platform_signature_and_rejects_wrong_identity_and_tampering`
+test runs the real macOS codesign verifier on an Apple platform binary and a
+disposable tampered copy. It passed outside the sandbox. It does not prove a
+complete notarized old/new Rieul update; such signed fixtures do not yet exist.
 
-```sh
-scripts/macos/test-update-controller.sh
-scripts/macos/build-update-controller.sh "$PWD/tmp/sparkle"
-scripts/macos/test-update-platform.sh
-cargo test -p rieul-macos-daemon update:: --locked
-```
-
-Fixture tests cover interruption after each update/migration effect, approval
-pending/retry, failed stop/health, concurrent update exclusion, version and archive
-policy, wrong identity, malformed/symlinked journals, and same-version recovery.
-Read-only platform tests verify the existing signed app/daemon, reject an Apple
-platform binary as Rieul, and reject a tampered disposable daemon copy.
-These tests do not substitute for a notarized old/new bundle update on a VM.
-
-The existing installation's protection audit is BLOCKED: 3,708 resources have
-mode 0666, nine have 0777, and two have 0776. Examples include files under
-`Contents/Resources/pairing/app/node_modules/zod`. Its signatures still verify.
-The installation was not modified. Coordinate permission normalization before
-signing/packaging with the release task; no release scripts were changed here.
-
-## Key approval and remaining release work
-
-No private key was generated or read. The proposed approval is to create a
-Sparkle Ed25519 archive/feed signing key in the release operator's macOS login
-Keychain, then export it solely for a GitHub Actions secret named
-`SPARKLE_PRIVATE_ED_KEY` in a protected `desktop-release` environment for
-`disjukr/rieul.app`. Only the macOS release-signing job should consume it, with
-required environment approval; repository administrators retain administration
-access. Do not expose it to PR jobs or logs. Embed only the public key in Info.plist.
-Creating the environment, key, secret, and workflow changes is a later approved
-release action. Existing Developer ID secrets were not accessed.
-
-Before enabling: resolve pre-replacement identity validation; add transport/schema
-compatibility checks; finish packaging/nested signing/appcast publication; test
-notarized old/new updates, migration, revocation, cancellation, and power loss on
-supported OS versions; review GUI termination/relaunch and multi-user recovery.
-Do not remove the hard activation block until that evidence exists.
+Remaining: implement the production lifecycle/worker/readiness/migration adapter;
+integrate the build contract with release signing after coordination; obtain
+notarized old/new fixtures; test multi-user sessions, initial migration, reboot,
+permission races, interruption and failed health on supported macOS versions.
+Keep this work isolated until those requirements and security review are complete.
+The existing installation's earlier writable-resource audit was referred to the
+release worker. No installed resources were changed here.
 
 ## Primary sources
 
 - [Apple helper migration](https://developer.apple.com/documentation/servicemanagement/updating-helper-executables-from-earlier-versions-of-macos)
-- [Apple register semantics](https://developer.apple.com/documentation/servicemanagement/smappservice/register())
-- [Apple WWDC23 environment constraints, especially 16:02](https://developer.apple.com/videos/play/wwdc2023/10266/)
-- [Apple launch/library constraints](https://developer.apple.com/documentation/security/applying-launch-environment-and-library-constraints)
-- [Sparkle package updates](https://sparkle-project.github.io/documentation/package-updates/)
-- [Sparkle installer security](https://github.com/sparkle-project/Sparkle/blob/2.x/Documentation/Installation.md)
-- [Sparkle setup and signing](https://sparkle-project.github.io/documentation/)
+- [Apple WWDC23 launch constraints: macOS 14 enforcement](https://developer.apple.com/videos/play/wwdc2023/10266/)
+- [Sparkle package updates always require authorization](https://sparkle-project.github.io/documentation/package-updates/)
+- [Sparkle installer lifetime](https://github.com/sparkle-project/Sparkle/blob/2.x/Documentation/Installation.md)
+- [tar entry path and extension semantics](https://docs.rs/tar/0.4.46/tar/struct.Entry.html)

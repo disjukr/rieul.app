@@ -1,4 +1,6 @@
 pub mod fs;
+#[cfg(unix)]
+pub mod root_update;
 #[cfg(any(target_os = "macos", test))]
 pub mod update;
 #[cfg(target_os = "macos")]
