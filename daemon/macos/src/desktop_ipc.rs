@@ -42,7 +42,7 @@ fn valid_profile(profile: &str) -> bool {
 unsafe extern "C" {
     fn rd_peer_matches_self(fd: libc::c_int) -> bool;
 }
-fn verify_peer(stream: &UnixStream, uid: u32) -> Result<(), Error> {
+fn verify_peer(stream: &UnixStream, uid: u32) -> Result<libc::pid_t, Error> {
     let fd = stream.as_raw_fd();
     let (mut peer_uid, mut gid) = (0, 0);
     if unsafe { libc::getpeereid(fd, &mut peer_uid, &mut gid) } != 0 || peer_uid != uid {
@@ -99,21 +99,39 @@ fn verify_peer(stream: &UnixStream, uid: u32) -> Result<(), Error> {
             return Err(Error::Unauthorized);
         }
     }
-    Ok(())
+    Ok(pid)
 }
 pub fn proxy(config: &Path) -> Arc<dyn Backend> {
     let profile = rieul_daemon_core::config::profile_id_for_config_path(config);
+    let login = Arc::new(std::sync::Mutex::new(None));
+    let previous_process = Arc::new(std::sync::Mutex::new(None::<libc::pid_t>));
     Arc::new(Proxy::new(Arc::new(move || {
+        let login = login.clone();
+        let previous_process = previous_process.clone();
         let profile = profile.clone();
         Box::pin(async move {
             if unsafe { libc::geteuid() } != 0 || !valid_profile(&profile) {
                 return Err(Error::Unauthorized);
             }
             let uid = console_uid()?;
+            { let mut bound = login.lock().map_err(|_| Error::Backend)?;
+              if bound.is_some_and(|previous| previous != uid) { return Err(Error::Unauthorized); }
+              *bound = Some(uid); }
             let stream = UnixStream::connect(endpoint(uid, &profile))
                 .await
                 .map_err(|_| Error::Unsupported)?;
-            verify_peer(&stream, uid)?;
+            let pid = verify_peer(&stream, uid)?;
+            {
+                let mut previous = previous_process.lock().map_err(|_| Error::Backend)?;
+                if let Some(old) = *previous {
+                    // A new socket alone does not prove the old capture owner exited.
+                    // PID reuse only delays recovery; it cannot falsely establish death.
+                    if unsafe { libc::kill(old, 0) } == 0 || std::io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH) {
+                        return Err(Error::Busy);
+                    }
+                }
+                *previous = Some(pid);
+            }
             if console_uid()? != uid {
                 return Err(Error::Stale);
             }

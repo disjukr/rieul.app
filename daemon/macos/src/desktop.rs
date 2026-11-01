@@ -31,6 +31,7 @@ struct Cursor {
     visible: bool,
 }
 unsafe extern "C" {
+    fn rd_pointer_position(x: *mut f64, y: *mut f64) -> bool;
     fn rd_cursor(result: *mut Cursor, png: *mut u8, capacity: usize) -> usize;
     fn rd_permissions() -> i32;
     fn rd_displays(out: *mut Display, capacity: usize) -> usize;
@@ -290,6 +291,21 @@ fn map_point(v: &DesktopViewport, d: &Display, x: f64, y: f64) -> Result<(f64, f
     ))
 }
 impl Backend for MacDesktop {
+    fn recover_input(&self, keys: &[u64], buttons: &[u64]) -> Result<(), Error> {
+        if keys.is_empty() && buttons.is_empty() { return Ok(()); }
+        {
+            let mut state = self.input.lock().map_err(|_| Error::Backend)?;
+            if !buttons.is_empty() {
+                let (mut x, mut y) = (0.0, 0.0);
+                if !unsafe { rd_pointer_position(&mut x, &mut y) } { return Err(Error::Backend); }
+                state.point = (x,y);
+            }
+            state.keys.extend(keys.iter().copied());
+            state.buttons.extend(buttons.iter().copied());
+        }
+        self.inject(&DesktopInputEvent::ReleaseAll, None)
+    }
+
     fn capabilities(&self) -> DesktopCapabilities {
         let permissions = unsafe { rd_permissions() };
         let mut codec = 0;

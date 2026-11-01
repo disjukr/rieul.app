@@ -11,8 +11,11 @@ pub fn run_user_process(config_path: PathBuf) -> Result<()> {
         #[cfg(windows)] {
             let desktop_profile=profile.clone();
             tokio::spawn(async move {
-                if let Err(error)=crate::desktop_ipc::run(desktop_profile).await {
-                    tracing::warn!(?error,"desktop IPC retired; terminal service remains available");
+                loop {
+                    if let Err(error)=crate::desktop_ipc::run(desktop_profile.clone()).await {
+                        tracing::warn!(?error,"desktop IPC retired; starting an empty helper after cleanup");
+                    }
+                    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
                 }
             });
         }

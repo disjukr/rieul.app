@@ -64,6 +64,7 @@ pub struct Desktop<I> {
     keys: BTreeSet<u64>,
     buttons: BTreeSet<u64>,
     poisoned: bool,
+    backend_generation: u64,
 }
 impl<I: Input> Desktop<I> {
     pub fn new(gate: Arc<WorkGate>, input: I) -> Self {
@@ -78,6 +79,7 @@ impl<I: Input> Desktop<I> {
             keys: BTreeSet::new(),
             buttons: BTreeSet::new(),
             poisoned: false,
+            backend_generation: 0,
         }
     }
     pub fn control(&self) -> (Option<&str>, u64) {
@@ -788,6 +790,19 @@ mod viewport_tests {
 /// Platform adapters return only features actually implemented and OS-authorized.
 /// The default server has no adapter; constructing a fixture never touches an OS desktop.
 pub trait Backend: Send + Sync {
+    /// Changes immediately when an established helper channel is lost.
+    fn generation(&self) -> u64 { 0 }
+    /// Called with the desktop state locked. Never replays an old operation.
+    fn recover(&self, _minimum_codec_epoch: u64) -> Result<u64, Error> { Ok(self.generation()) }
+    fn retain_uncertain_capture(&self, _track: &rieul_daemon_core::generated::rpc::DesktopTrack, work: Option<WorkGuard>) {
+        std::mem::forget(work);
+    }
+    /// A freshly authenticated helper releases the predecessor's uncertain input.
+    fn recover_input(&self, keys: &[u64], buttons: &[u64]) -> Result<(), Error> {
+        if !keys.is_empty() || !buttons.is_empty() { return Err(Error::Unsupported); }
+        self.input(&DesktopInputEvent::ReleaseAll)
+    }
+
     fn capabilities(&self) -> rieul_daemon_core::generated::rpc::DesktopCapabilities;
     fn displays(&self) -> Vec<rieul_daemon_core::generated::rpc::DesktopDisplay>;
     fn input(&self, event: &DesktopInputEvent) -> Result<(), Error>;
@@ -890,11 +905,34 @@ impl Runtime {
             layout_displays: Default::default(),
         })
     }
+    fn reconcile_backend(&self) -> Result<(), Error> {
+        let Some(backend) = &self.backend else { return Ok(()); };
+        let _work = self.gate.enter().ok_or(Error::Busy)?;
+        let mut d = self.state.lock().map_err(|_| Error::Backend)?;
+        let minimum = self.next_codec_epoch.lock().map_err(|_| Error::Backend)?
+            .checked_add(1).ok_or(Error::Limit)?;
+        let generation = backend.recover(minimum)?;
+        if d.backend_generation != generation {
+            d.epoch = d.epoch.checked_add(1).filter(|n| *n <= MAX_SAFE).ok_or(Error::Limit)?;
+            d.layout_epoch = d.layout_epoch.checked_add(1).filter(|n| *n <= MAX_SAFE).ok_or(Error::Limit)?;
+            d.holder = None;
+            d.keys.clear(); d.buttons.clear(); d.attachments.clear();
+            d.poisoned = false;
+            d.backend_generation = generation;
+            self.streams.lock().map_err(|_| Error::Backend)?.clear();
+            self.codecs.lock().map_err(|_| Error::Backend)?.clear();
+            self.configurations.lock().map_err(|_| Error::Backend)?.clear();
+            self.feedback.lock().map_err(|_| Error::Backend)?.clear();
+            *self.layout_displays.lock().map_err(|_| Error::Backend)? = None;
+            self.changed.send_modify(|n| *n = n.wrapping_add(1));
+        }
+        Ok(())
+    }
     pub fn capabilities(&self) -> rieul_daemon_core::generated::rpc::DesktopCapabilities {
         use rieul_daemon_core::generated::rpc::*;
-        self.backend
+        self.reconcile_backend().ok().and_then(|_| self.backend
             .as_ref()
-            .and_then(|b| self.gate.enter().map(|_work| b.capabilities()))
+            .and_then(|b| self.gate.enter().map(|_work| b.capabilities())))
             .unwrap_or(DesktopCapabilities {
                 profile: PROFILE,
                 feedback: Some(true),
@@ -916,6 +954,9 @@ impl Runtime {
         run: impl FnOnce(&mut Desktop<BackendInput>) -> Result<T, Error>,
     ) -> Result<T, Error> {
         let mut d = self.state.lock().map_err(|_| Error::Backend)?;
+        if self.backend.as_ref().is_some_and(|b| b.generation() != d.backend_generation) {
+            return Err(Error::Backend);
+        }
         let result = run(&mut d);
         self.codecs
             .lock()
@@ -998,7 +1039,7 @@ impl Runtime {
     pub(crate) fn has(&self, id: &str) -> bool {
         self.state
             .lock()
-            .map(|d| d.attachments.contains_key(id))
+            .map(|d| self.backend.as_ref().is_none_or(|b| b.generation() == d.backend_generation) && d.attachments.contains_key(id))
             .unwrap_or(false)
     }
     pub(crate) fn close(&self, connection: u64) {
@@ -1068,6 +1109,7 @@ impl Drop for InputGuard {
 
 impl Runtime {
     pub(crate) fn refresh_layout(&self) -> Result<(), Error> {
+        self.reconcile_backend()?;
         let Some(backend) = &self.backend else {
             return Ok(());
         };

@@ -76,7 +76,8 @@ const rustBaseline = {
     "72af8be28ae16e56d51180ab97c92e6884d7f25a810570e02e7bacf8b3b61109",
   // Update RPCs 64/65 and negotiated desktop RPCs 66–72 append types; existing IDs stay unchanged.
   rpc: "d0af487ea76a420a74cd4fe28cff3684af610e7714252ec90f0df672f5c6f814",
-  ipc: "d404b3d37440bd39ee9bd0663b35d4d2528f77f957bace2a82e94d8b50a9a248",
+  // Private recovery command7 appends to the desktop union; existing tags remain unchanged.
+  ipc: "916520911d487f916ceff77f944925b79e0fe18bea478855893b14838525ab73",
 };
 for (const [schema, hash] of Object.entries(rustBaseline))
   test(`Node Rust codegen preserves ${schema} baseline and is deterministic`, async () =>

@@ -67,7 +67,9 @@ fn verify_server(handle: std::os::windows::io::RawHandle, session: u32) -> Resul
 }
 pub fn proxy(config: &Path) -> Arc<dyn Backend> {
     let profile = rieul_daemon_core::config::profile_id_for_config_path(config);
+    let login = Arc::new(std::sync::Mutex::new(None));
     Arc::new(Proxy::new(Arc::new(move || {
+        let login = login.clone();
         let profile = profile.clone();
         Box::pin(async move {
             if !valid_profile(&profile) {
@@ -75,6 +77,9 @@ pub fn proxy(config: &Path) -> Arc<dyn Backend> {
             }
             let session = crate::terminal_ipc::active_console_session_id()
                 .map_err(|_| Error::Unauthorized)?;
+            { let mut bound = login.lock().map_err(|_| Error::Backend)?;
+              if bound.is_some_and(|previous| previous != session) { return Err(Error::Unauthorized); }
+              *bound = Some(session); }
             let pipe = ClientOptions::new()
                 .open(pipe_name(&profile, session))
                 .map_err(|_| Error::Unsupported)?;

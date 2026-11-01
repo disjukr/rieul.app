@@ -474,9 +474,9 @@ fn finish_capture(
     work: Option<crate::maintenance::WorkGuard>,
 ) {
     if backend.end_track(track).is_err() {
-        // Unknown capture lifetime must keep updates deferred until restart.
+        // Unknown capture lifetime stays protected until authenticated recovery.
         // A timeout or IPC loss is not proof that the native producer stopped.
-        std::mem::forget(work);
+        backend.retain_uncertain_capture(track, work);
         eprintln!("Desktop capture shutdown failed; update workload retained");
     }
 }

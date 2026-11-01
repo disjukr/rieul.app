@@ -14,6 +14,7 @@ use std::{
     time::{Duration, Instant},
 };
 enum Command {
+    Recover(Vec<u64>, Vec<u64>),
     Capabilities,
     Displays,
     Cursor(u64),
@@ -34,7 +35,14 @@ struct Request {
     reply: SyncSender<Result<Reply, Error>>,
 }
 pub struct WindowsDesktop {
-    sender: SyncSender<Request>,
+    sender: Option<SyncSender<Request>>,
+    worker: Option<std::thread::JoinHandle<()>>,
+}
+impl Drop for WindowsDesktop {
+    fn drop(&mut self) {
+        drop(self.sender.take());
+        if let Some(worker) = self.worker.take() { let _ = worker.join(); }
+    }
 }
 impl WindowsDesktop {
     pub fn for_user_session() -> Result<Self, Error> {
@@ -42,7 +50,7 @@ impl WindowsDesktop {
             return Err(Error::Unauthorized);
         }
         let (sender, receiver) = mpsc::sync_channel::<Request>(2);
-        std::thread::Builder::new()
+        let worker = std::thread::Builder::new()
             .name("rieul-desktop-user".into())
             .spawn(move || {
                 let Ok(_apartment) = native::Apartment::enter() else {
@@ -63,11 +71,11 @@ impl WindowsDesktop {
                 let _ = state.release();
             })
             .map_err(|_| Error::Backend)?;
-        Ok(Self { sender })
+        Ok(Self { sender:Some(sender), worker:Some(worker) })
     }
     fn call(&self, command: Command) -> Result<Reply, Error> {
         let (tx, rx) = mpsc::sync_channel(1);
-        self.sender
+        self.sender.as_ref().ok_or(Error::Backend)?
             .try_send(Request {
                 command,
                 deadline: Instant::now() + Duration::from_secs(2),
@@ -100,6 +108,12 @@ fn unavailable(reason: &str) -> DesktopCapabilities {
     }
 }
 impl Backend for WindowsDesktop {
+    fn recover_input(&self, keys: &[u64], buttons: &[u64]) -> Result<(), Error> {
+        match self.call(Command::Recover(keys.to_vec(), buttons.to_vec()))? {
+            Reply::Done => Ok(()), _=>Err(Error::Backend),
+        }
+    }
+
     fn capabilities(&self) -> DesktopCapabilities {
         match self.call(Command::Capabilities) {
             Ok(Reply::Capabilities(c)) => c,
@@ -185,6 +199,11 @@ impl Worker {
             return Err(Error::Unauthorized);
         }
         match command {
+            Command::Recover(keys, buttons) => {
+                self.keys.extend(keys); self.buttons.extend(buttons);
+                self.release()?;
+                Ok(Reply::Done)
+            }
             Command::Capabilities => {
                 if !self.probed {
                     self.probed = true;

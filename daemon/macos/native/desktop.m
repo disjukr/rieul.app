@@ -255,6 +255,11 @@ bool rd_wheel(int32_t x,int32_t y,bool pixels) {
 
 #import <AppKit/AppKit.h>
 typedef struct { double x,y; uint32_t hotspot_x,hotspot_y; bool visible; } RDCursor;
+bool rd_pointer_position(double *x,double *y) {
+    CGEventRef event=CGEventCreate(NULL); if(!event) return false;
+    CGPoint point=CGEventGetLocation(event);CFRelease(event);
+    *x=point.x;*y=point.y;return true;
+}
 size_t rd_cursor(RDCursor *result,uint8_t *png,size_t capacity) {
     @autoreleasepool {
         memset(result,0,sizeof(*result));

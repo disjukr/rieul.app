@@ -143,10 +143,20 @@ is needed before calling AV1 selection complete in the shipping browser viewer.
 `HostUserDesktop` (private IPC ID 10) owns one input/capture lifetime. Request IDs
 are monotonic, requests are bounded to 64 KiB and replies to 17 MiB. At most 16
 calls and eight native group jobs are pending; reply queues hold two messages.
-The root proxy never reconnects or replays after an established channel fails.
+The root proxy never replays an operation after an established channel fails.
+Loss immediately fences the old backend generation. A capability/admission check
+can reconnect to an authenticated, exclusive helper in the same OS login; the
+first private command releases the predecessor's possibly held keys/buttons.
+The host records down events before sending and removes them only after release
+acknowledgments, preserving later downs when an earlier release is acknowledged.
+A new empty helper's ordinary ReleaseAll is not accepted as cleanup evidence.
+Only successful recovery retires old attachments, increments input/layout epochs,
+and permits new attachments without restoring control. Codec epoch cutoffs reject
+old media requests; old replies cannot cross the closed channel. Uncertain native
+capture guards remain owned until authenticated predecessor retirement is proven.
 EOF, malformed messages, duplicate IDs, parent shutdown or missed heartbeats drain
 native work, release held input and stop tracks. Failed/uncertain cleanup retains
-update workload protection until daemon restart. Blocking IPC and native releases
+update workload protection until successful recovery or daemon shutdown. Blocking IPC and native releases
 run outside the transport's async executor. Cancellation after attach still owns
 an attachment cleanup guard.
 
@@ -183,8 +193,9 @@ required. GUI/native startup source is compiled without launching the helper.
   Windows image/license download or agreement was performed.
 - Ordinary browser AV1 hardware verification is unavailable; no standard API result
   is treated as proof. Client fallback logic is implemented and tested independently.
-- A lost private IPC channel requires daemon restart; transparent login-session
-  migration/recovery is not implemented. Failure deliberately cannot restore control.
+- Helper recovery is limited to the original OS login. Cross-login migration is
+  unsupported; failed authentication or uncertain cleanup stays fail-closed.
+  Successful recovery requires fresh attachment and explicit control acquisition.
 - Native adapters currently use one-frame GOPs. Multi-frame encoder efficiency and
   sustained hardware latency/quality remain unmeasured. Private IPC currently carries
   one bounded complete group; incremental multi-frame IPC is still needed before

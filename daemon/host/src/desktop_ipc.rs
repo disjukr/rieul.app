@@ -1,5 +1,5 @@
 //! Bounded private user-session channel. OS peer authentication belongs to connectors.
-//! No reconnect/replay after an established channel fails: held native state is uncertain.
+//! Recovery is explicit and generation fenced; only uncertain input releases cross generations.
 use crate::desktop::{Backend, EncodedFrame, Error, MAX_FRAME, MAX_STREAM, MAX_VIEWPORTS, PROFILE};
 use ipc::{
     UserDesktopCommand, UserDesktopFrame, UserDesktopRequest, UserDesktopResponse,
@@ -78,6 +78,11 @@ fn result(value: Result<UserDesktopResult, Error>) -> UserDesktopResult {
 }
 fn execute(backend: &dyn Backend, command: UserDesktopCommand) -> Result<UserDesktopResult, Error> {
     Ok(match command {
+        UserDesktopCommand::RecoverInput { keys, buttons } => {
+            if keys.len() > 228 || buttons.len() > 5 || keys.iter().any(|k| !(4..=231).contains(k)) || buttons.iter().any(|b| !(1..=5).contains(b)) { return Err(Error::Invalid); }
+            backend.recover_input(&keys, &buttons)?;
+            UserDesktopResult::Done
+        }
         UserDesktopCommand::Ping => UserDesktopResult::Done,
         UserDesktopCommand::Capabilities => UserDesktopResult::Capabilities {
             value: ipc::DesktopCapabilities::decode(&backend.capabilities().encode())
@@ -191,8 +196,10 @@ pub async fn serve_until<S: Channel + 'static>(
                 Message::RequestStreamChunk { payload, stream_id: STREAM } if !first => payload,
                 _ => return Err(Error::Invalid),
             };
+            let initial_request = first;
             first = false;
             let request = UserDesktopRequest::decode(&payload).map_err(|_| Error::Invalid)?;
+            if matches!(request.command, UserDesktopCommand::RecoverInput { .. }) && !initial_request { return Err(Error::Invalid); }
             if request.request_id == 0 {
                 if !matches!(request.command, UserDesktopCommand::Ping) { return Err(Error::Invalid); }
                 tx.send(UserDesktopResponse { request_id: 0, result: UserDesktopResult::Done }).await.map_err(|_| Error::Backend)?;
@@ -247,31 +254,48 @@ struct Call {
     command: UserDesktopCommand,
     reply: mpsc::SyncSender<Result<UserDesktopResult, Error>>,
     deadline: Instant,
+    generation: u64,
+    recovery: bool,
+    minimum_codec_epoch: u64,
 }
 /// Lazy connection; neither construction nor GUI startup captures the desktop.
 pub struct Proxy {
     sender: tokio::sync::mpsc::Sender<Call>,
+    generation: Arc<std::sync::atomic::AtomicU64>,
+    ready: Arc<std::sync::atomic::AtomicBool>,
+    minimum_codec_epoch: Arc<std::sync::atomic::AtomicU64>,
+    recovery: std::sync::Mutex<()>,
+    uncertain_captures: std::sync::Mutex<Vec<(u64, crate::maintenance::WorkGuard)>>,
 }
 impl Proxy {
     pub fn new(connector: Connector) -> Self {
         let (sender, receiver) = tokio::sync::mpsc::channel(16);
+        let generation = Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let ready = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let minimum_codec_epoch = Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let worker_minimum = minimum_codec_epoch.clone();
+        let worker_generation = generation.clone(); let worker_ready = ready.clone();
         std::thread::spawn(move || {
             if let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()
             {
-                runtime.block_on(proxy_worker(connector, receiver));
+                runtime.block_on(proxy_worker(connector, receiver, worker_generation, worker_ready, worker_minimum));
             }
         });
-        Self { sender }
+        Self { sender, generation, ready, minimum_codec_epoch, recovery: Default::default(), uncertain_captures: Default::default() }
     }
     fn call(&self, command: UserDesktopCommand) -> Result<UserDesktopResult, Error> {
+        self.call_inner(command, false, 0)
+    }
+    fn call_inner(&self, command: UserDesktopCommand, recovery: bool, minimum_codec_epoch: u64) -> Result<UserDesktopResult, Error> {
         let (tx, rx) = mpsc::sync_channel(1);
         self.sender
             .try_send(Call {
                 command,
                 reply: tx,
                 deadline: Instant::now() + Duration::from_secs(3),
+                generation: self.generation(), recovery, minimum_codec_epoch,
             })
             .map_err(|_| Error::Busy)?;
         match rx
@@ -291,18 +315,48 @@ impl Proxy {
         }
     }
 }
-async fn proxy_worker(connector: Connector, mut calls: tokio::sync::mpsc::Receiver<Call>) {
-    let (stream, initial) = loop {
-        let Some(call) = calls.recv().await else {
-            return;
-        };
-        match tokio::time::timeout(Duration::from_secs(1), connector()).await {
-            Ok(Ok(stream)) => break (stream, call),
-            _ => {
-                let _ = call.reply.send(Err(Error::Unsupported));
+#[derive(Default)]
+struct Ledger { keys: BTreeMap<u64,u64>, buttons: BTreeMap<u64,u64> }
+impl Ledger {
+    fn record(&mut self, command: &UserDesktopCommand, id: u64) {
+        if let UserDesktopCommand::Input { event, .. } = command {
+            match event {
+                ipc::DesktopInputEvent::PhysicalKey { usage, down:true, .. } => { self.keys.insert(*usage,id); },
+                ipc::DesktopInputEvent::Button { button, down:true, .. } => { self.buttons.insert(*button,id); },
+                _ => (),
             }
         }
-    };
+    }
+    fn ack(&mut self, command: &UserDesktopCommand, id: u64) {
+        match command {
+            UserDesktopCommand::RecoverInput { .. } => { self.keys.clear(); self.buttons.clear(); },
+            UserDesktopCommand::Input { event, .. } => match event {
+                ipc::DesktopInputEvent::PhysicalKey { usage, down:false, .. } => self.keys.retain(|k,n| k!=usage || *n>id),
+                ipc::DesktopInputEvent::Button { button, down:false, .. } => self.buttons.retain(|k,n| k!=button || *n>id),
+                ipc::DesktopInputEvent::ReleaseAll => { self.keys.retain(|_,n| *n>id); self.buttons.retain(|_,n| *n>id); },
+                _=>(),
+            },
+            _=>(),
+        }
+    }
+}
+async fn proxy_worker(connector: Connector, mut calls: tokio::sync::mpsc::Receiver<Call>, generation: Arc<std::sync::atomic::AtomicU64>, ready: Arc<std::sync::atomic::AtomicBool>, minimum_codec_epoch: Arc<std::sync::atomic::AtomicU64>) {
+    let mut ledger = Ledger::default();
+    loop {
+        let (stream, initial) = loop {
+            let Some(mut call) = calls.recv().await else { return; };
+            let current = generation.load(std::sync::atomic::Ordering::SeqCst);
+            if call.generation != current || (current != 0 && !call.recovery) {
+                let _ = call.reply.send(Err(Error::Stale)); continue;
+            }
+            if call.recovery {
+                call.command = UserDesktopCommand::RecoverInput { keys: ledger.keys.keys().copied().collect(), buttons: ledger.buttons.keys().copied().collect() };
+            }
+            match tokio::time::timeout(Duration::from_secs(1), connector()).await {
+                Ok(Ok(stream)) => break (stream, call),
+                _ => { let _ = call.reply.send(Err(Error::Unsupported)); },
+            }
+        };
     let (mut input, mut output) = tokio::io::split(stream);
     let mut reader = Reader::default();
     let mut pending = BTreeMap::<u64, Call>::new();
@@ -314,8 +368,21 @@ async fn proxy_worker(connector: Connector, mut calls: tokio::sync::mpsc::Receiv
     let outcome: Result<(), Error> = async {
         loop {
             if let Some(call) = initial.take() {
+                if call.generation != generation.load(std::sync::atomic::Ordering::SeqCst) { let _ = call.reply.send(Err(Error::Stale)); continue; }
+                if !ready.load(std::sync::atomic::Ordering::SeqCst) && call.generation != 0 && !call.recovery {
+                    let _=call.reply.send(Err(Error::Stale)); continue;
+                }
+                match &call.command {
+                    UserDesktopCommand::Group { track } | UserDesktopCommand::EndTrack { track }
+                        if track.codec_epoch < minimum_codec_epoch.load(std::sync::atomic::Ordering::SeqCst) => {
+                            let result = if matches!(call.command, UserDesktopCommand::EndTrack { .. }) { Ok(UserDesktopResult::Done) } else { Err(Error::Stale) };
+                            let _=call.reply.send(result); continue;
+                        },
+                    _=>(),
+                }
                 next = next.checked_add(1).filter(|id| *id <= 9_007_199_254_740_991).ok_or(Error::Limit)?;
                 if Instant::now() >= call.deadline { let _=call.reply.send(Err(Error::Stale)); continue; }
+                ledger.record(&call.command, next);
                 let request = UserDesktopRequest { request_id: next, command: call.command.clone() }.encode();
                 let message = if first_request { first_request=false; Message::RequestStreamStart { proc_id: ipc::ProcId::HostUserDesktop.as_u64(), payload: Some(request), stream_id: STREAM } }
                     else { Message::RequestStreamChunk { payload: request, stream_id: STREAM } };
@@ -334,7 +401,13 @@ async fn proxy_worker(connector: Connector, mut calls: tokio::sync::mpsc::Receiv
                     let response = UserDesktopResponse::decode(&payload).map_err(|_| Error::Invalid)?;
                     if response.request_id == 0 { if !matches!(response.result, UserDesktopResult::Done) {return Err(Error::Invalid);} continue; }
                     let call = pending.remove(&response.request_id).ok_or(Error::Stale)?;
-                    if Instant::now() >= call.deadline || call.reply.send(Ok(response.result)).is_err() { return Err(Error::Stale); }
+                    if Instant::now() >= call.deadline { let _=call.reply.send(Err(Error::Stale)); return Err(Error::Stale); }
+                    if matches!(response.result, UserDesktopResult::Done) {
+                        ledger.ack(&call.command, response.request_id);
+                        if call.recovery { minimum_codec_epoch.store(call.minimum_codec_epoch, std::sync::atomic::Ordering::SeqCst); ready.store(true, std::sync::atomic::Ordering::SeqCst); }
+                    } else if call.recovery { let _=call.reply.send(Err(Error::Backend)); return Err(Error::Backend); }
+                    if call.generation == 0 && !call.recovery { ready.store(true, std::sync::atomic::Ordering::SeqCst); }
+                    if call.reply.send(Ok(response.result)).is_err() { return Err(Error::Stale); }
                 },
                 _ = heartbeat.tick() => {
                     if pending.values().any(|c| Instant::now() >= c.deadline) { return Err(Error::Stale); }
@@ -344,18 +417,41 @@ async fn proxy_worker(connector: Connector, mut calls: tokio::sync::mpsc::Receiv
         }
     }.await;
     let _ = outcome;
+    ready.store(false, std::sync::atomic::Ordering::SeqCst);
+    generation.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     drop(input);
     drop(output);
     for (_, call) in pending {
         let _ = call.reply.send(Err(Error::Backend));
     }
-    // Closing receiver rejects further calls; never replay input or reconnect implicitly.
+    }
 }
 impl Backend for Proxy {
+    fn generation(&self) -> u64 { self.generation.load(std::sync::atomic::Ordering::SeqCst) }
+    fn recover(&self, minimum_codec_epoch: u64) -> Result<u64, Error> {
+        let _lock = self.recovery.lock().map_err(|_| Error::Backend)?;
+        let expected = self.generation();
+        if !self.ready.load(std::sync::atomic::Ordering::SeqCst) {
+            match self.call_inner(UserDesktopCommand::RecoverInput { keys:vec![],buttons:vec![] }, true, minimum_codec_epoch)? {
+                UserDesktopResult::Done => (), _ => return Err(Error::Backend),
+            }
+
+        }
+        if self.generation() != expected || !self.ready.load(std::sync::atomic::Ordering::SeqCst) { return Err(Error::Backend); }
+        self.uncertain_captures.lock().map_err(|_| Error::Backend)?.retain(|(epoch,_)| *epoch >= self.minimum_codec_epoch.load(std::sync::atomic::Ordering::SeqCst));
+        Ok(expected)
+    }
+    fn retain_uncertain_capture(&self, track: &DesktopTrack, work: Option<crate::maintenance::WorkGuard>) {
+        let _lock = self.recovery.lock().unwrap_or_else(|e| e.into_inner());
+        if track.codec_epoch >= self.minimum_codec_epoch.load(std::sync::atomic::Ordering::SeqCst) {
+            if let Some(work) = work { self.uncertain_captures.lock().unwrap_or_else(|e| e.into_inner()).push((track.codec_epoch, work)); }
+        }
+    }
+
     fn capabilities(&self) -> DesktopCapabilities {
         match self.call(UserDesktopCommand::Capabilities) {
             Ok(UserDesktopResult::Capabilities { value }) => DesktopCapabilities::decode(&value.encode()).unwrap_or_default(),
-            _ => DesktopCapabilities { profile:PROFILE, capture:DesktopAvailability::Unsupported, input:DesktopAvailability::Unsupported, codecs:vec![], composition:false, relative_pointer:false, max_viewports:MAX_VIEWPORTS as u64,max_input_frame_bytes:MAX_FRAME as u64,max_input_stream_bytes:MAX_STREAM as u64,reason:Some("Authenticated desktop helper unavailable; a lost helper channel requires daemon restart".into()),feedback:None,wheel_units:None,physical_keys:None },
+            _ => DesktopCapabilities { profile:PROFILE, capture:DesktopAvailability::Unsupported, input:DesktopAvailability::Unsupported, codecs:vec![], composition:false, relative_pointer:false, max_viewports:MAX_VIEWPORTS as u64,max_input_frame_bytes:MAX_FRAME as u64,max_input_stream_bytes:MAX_STREAM as u64,reason:Some("Authenticated desktop helper unavailable; waiting for authenticated helper recovery".into()),feedback:None,wheel_units:None,physical_keys:None },
         }
     }
     fn displays(&self) -> Vec<DesktopDisplay> {
@@ -394,6 +490,7 @@ impl Backend for Proxy {
         }
     }
     fn end_track(&self, track: &DesktopTrack) -> Result<(), Error> {
+        if track.codec_epoch < self.minimum_codec_epoch.load(std::sync::atomic::Ordering::SeqCst) { return Ok(()); }
         match self.call(UserDesktopCommand::EndTrack {
             track: ipc::DesktopTrack::decode(&track.encode()).map_err(|_| Error::Invalid)?,
         })? {
@@ -402,6 +499,7 @@ impl Backend for Proxy {
         }
     }
     fn group(&self, track: &DesktopTrack) -> Result<Vec<EncodedFrame>, Error> {
+        if track.codec_epoch < self.minimum_codec_epoch.load(std::sync::atomic::Ordering::SeqCst) { return Err(Error::Stale); }
         match self.call(UserDesktopCommand::Group {
             track: ipc::DesktopTrack::decode(&track.encode()).map_err(|_| Error::Invalid)?,
         })? {
@@ -584,3 +682,7 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "desktop_recovery_tests.rs"]
+mod recovery_tests;

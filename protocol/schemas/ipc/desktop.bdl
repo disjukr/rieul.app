@@ -49,6 +49,13 @@ union UserDesktopCommand {
     @ id - 1
     track: DesktopTrack,
   ),
+  @ id - 7
+  RecoverInput(
+    @ id - 1
+    keys: u53[],
+    @ id - 2
+    buttons: u53[],
+  ),
   @ id - 6
   EndTrack(
     @ id - 1
