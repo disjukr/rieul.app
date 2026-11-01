@@ -68,7 +68,7 @@ function Assert-GuiBundle {
   }
 
   if (-not (Test-Path -LiteralPath (Join-Path $Path 'bundle.json') -PathType Leaf)) { throw 'Missing native GUI bundle manifest' }
-  foreach ($relativePath in @('rieul-windows-gui.exe','runtime/node.exe','runtime/bun.exe','app/dist/host.js','app/dist/main.js','app/native/bin/rieul_pairing_windows.dll')) {
+  foreach ($relativePath in @('rieul-windows-gui.exe','assets/tray.png','assets/icon.ico','licenses/dependencies.json')) {
     if (-not (Test-Path -LiteralPath (Join-Path $Path $relativePath) -PathType Leaf)) { throw "GUI payload missing $relativePath" }
   }
   & (Join-Path $Path 'rieul-windows-gui.exe') --verify-bundle | Out-Null

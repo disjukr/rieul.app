@@ -1,6 +1,11 @@
 #!/bin/bash
 set -euo pipefail
 
+if [ "$(/usr/sbin/sysctl -n hw.optional.arm64 2>/dev/null || true)" != "1" ]; then
+  echo "Unsupported platform: Rieul macOS requires Apple Silicon (arm64); Intel Macs are not supported." >&2
+  exit 1
+fi
+
 if [[ "${3:-/}" != "/" ]]; then
   echo "Rieul Desktop can only be installed on the startup volume." >&2
   exit 1

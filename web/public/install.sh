@@ -11,6 +11,11 @@ if [ "$(uname -s)" != "Darwin" ]; then
   exit 1
 fi
 
+if [ "$(/usr/sbin/sysctl -n hw.optional.arm64 2>/dev/null || true)" != "1" ]; then
+  echo "Unsupported platform: Rieul macOS requires Apple Silicon (arm64); Intel Macs are not supported." >&2
+  exit 1
+fi
+
 for command_name in curl shasum pkgutil spctl sudo; do
   if ! command -v "$command_name" >/dev/null 2>&1; then
     echo "Required command was not found: $command_name" >&2

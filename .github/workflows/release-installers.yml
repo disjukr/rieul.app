@@ -20,8 +20,8 @@ jobs:
       - name: Install Rust toolchain
         shell: pwsh
         run: |
-          rustup toolchain install stable --profile minimal
-          rustup default stable
+          rustup toolchain install 1.99.1 --profile minimal
+          rustup default 1.99.1
 
       - name: Install .NET SDK
         uses: actions/setup-dotnet@v4
@@ -45,11 +45,6 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-
-      - name: Install pinned Bun build tooling
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: 1.3.9
 
       - name: Build MSI
         shell: pwsh
@@ -86,18 +81,21 @@ jobs:
             --clobber
 
   macos:
-    name: Build macOS installers
-    runs-on: macos-latest
+    name: Build macOS arm64 installers
+    runs-on: macos-15
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      - name: Verify Apple Silicon build host
+        run: bash scripts/macos/require-arm64.sh
+
       - name: Install Rust toolchain
         shell: bash
         run: |
-          rustup toolchain install stable --profile minimal
-          rustup default stable
+          rustup toolchain install 1.99.1 --profile minimal
+          rustup default 1.99.1
 
       - name: Install pnpm
         uses: pnpm/action-setup@v4
@@ -110,11 +108,6 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-
-      - name: Install pinned Bun build tooling
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: 1.3.9
 
       - name: Install signing credentials
         shell: bash

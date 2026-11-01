@@ -4,6 +4,11 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+    inputs:
+      windows_only:
+        description: Run only Windows to diagnose a platform failure
+        type: boolean
+        default: false
 permissions:
   contents: read
 concurrency:
@@ -11,54 +16,34 @@ concurrency:
   cancel-in-progress: false
 jobs:
   macos:
+    if: ${{ !inputs.windows_only }}
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-15, macos-15-intel]
+        os: [macos-15]
     runs-on: ${{ matrix.os }}
-    # A first main-branch Intel run cannot restore a feature-branch cache and
-    # compiles both pinned upstream GPUiX and the release daemon from scratch.
-    timeout-minutes: ${{ matrix.os == 'macos-15-intel' && 90 || 60 }}
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 24.13.0
-      - uses: oven-sh/setup-bun@v2
+      - uses: dtolnay/rust-toolchain@master
         with:
-          bun-version: 1.3.9
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Install exact desktop dependencies
-        working-directory: pairing
-        run: bun install --frozen-lockfile
-      - uses: actions/cache/restore@v4
-        id: intel-native
-        if: matrix.os == 'macos-15-intel'
+          toolchain: 1.99.1
+      - uses: pnpm/action-setup@v4
+      - run: pnpm install --frozen-lockfile
+      - uses: Swatinem/rust-cache@v2
         with:
-          path: target/native/gpuix-0.11.0
-          key: gpuix-2e31b47-darwin-x64-rust1.97.1-test-support-macos13-v1
-      - name: Build unchanged upstream Intel native addon
-        if: matrix.os == 'macos-15-intel' && steps.intel-native.outputs.cache-hit != 'true'
-        run: |
-          sh pairing/scripts/build-native-macos-intel.sh
-      - uses: actions/cache/save@v4
-        if: matrix.os == 'macos-15-intel' && steps.intel-native.outputs.cache-hit != 'true'
-        with:
-          path: target/native/gpuix-0.11.0
-          key: gpuix-2e31b47-darwin-x64-rust1.97.1-test-support-macos13-v1
-      - name: Check Intel addon cache provenance and integrity
-        if: matrix.os == 'macos-15-intel'
-        run: |
-          test "$(cat target/native/gpuix-0.11.0/source-commit.txt)" = 2e31b47ff6432ceebe70e7fc7b0f51a76d7d30cf
-          (cd target/native/gpuix-0.11.0 && shasum -a 256 -c addon.sha256)
-          echo "RIEUL_NATIVE_ADDON=$PWD/target/native/gpuix-0.11.0/gpuix-native.darwin-x64.node" >> "$GITHUB_ENV"
-      - name: Types and request/IPC regressions
-        working-directory: pairing
-        run: |
-          bun run check
-          bun run test
+          cache-on-failure: true
+          workspaces: |
+            . -> target
+            daemon/gui -> target
+      - name: Native controller and IPC regressions
+        run: cargo test --manifest-path daemon/gui/Cargo.toml --lib --locked
       - name: Verify development process ownership without starting services
         run: |
+          bash scripts/macos/test-architecture.sh
           bash scripts/macos/test-dev-process-scope.sh
           bash scripts/macos/test-dmg-lifecycle.sh
           hdiutil info -plist > "$RUNNER_TEMP/dmg-inventory.plist"
@@ -74,24 +59,24 @@ jobs:
             lldb --batch -o run -o 'thread backtrace all' -- pairing/native/bin/bridge-fixture || true
             exit 1
           fi
-      - name: Build self contained app with pinned runtimes
-        run: node pairing/scripts/package.mjs
+      - name: Build self contained Rust GPUI app
+        run: node pairing/scripts/package.mjs --replace
       - name: Check actual macOS 13.0 deployment targets
         run: node pairing/scripts/check-macos-target.mjs target/release/Rieul-desktop.app
+      - name: Packaging helper regressions
+        run: node --test pairing/tests/*.test.mjs
       - name: Verify payload integrity failure boundaries
         run: node pairing/scripts/bundle-qa.mjs --bundle target/release/Rieul-desktop.app
-      - name: Verify launcher and GPUiX/AppKit lifecycle in isolated fixture
+      - name: Verify native GPUI/AppKit lifecycle in isolated fixture
         working-directory: pairing
         env:
           RIEUL_GUI_EXECUTABLE: ${{ github.workspace }}/target/release/Rieul-desktop.app/Contents/MacOS/rieul-gui
         run: node scripts/macos-native-qa.mjs
-      - uses: pnpm/action-setup@v4
-      - name: Install daemon codegen and packaging dependencies
-        run: pnpm install --frozen-lockfile
       # Temporary-file/fake-service fixtures only: never install or register the
       # updater here. Signed root launchd/reboot integration remains a separate gate.
       - name: Test updater recovery and server drain without service installation
         run: |
+          cargo test -p rieul-macos-daemon --lib architecture --locked
           cargo test -p rieul-macos-daemon --lib root_update --locked
           cargo test -p rieul-daemon-host --lib --locked
       - name: Build installer wrapper and validate signed PKG payload without installation
@@ -115,49 +100,49 @@ jobs:
           retention-days: 3
   windows:
     runs-on: windows-latest
-    timeout-minutes: 45
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 24.13.0
-      - uses: oven-sh/setup-bun@v2
+      - uses: dtolnay/rust-toolchain@master
         with:
-          bun-version: 1.3.9
-      - uses: dtolnay/rust-toolchain@stable
-      - working-directory: pairing
-        run: bun install --frozen-lockfile
-      - working-directory: pairing
-        run: |
-          bun run check
-          bun run test
-      - run: cargo test -p rieul-gui-launcher --locked
+          toolchain: 1.99.1
+      - uses: pnpm/action-setup@v4
+      - run: pnpm install --frozen-lockfile
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+          workspaces: |
+            . -> target
+            daemon/gui -> target
+      - run: cargo test --manifest-path daemon/gui/Cargo.toml --lib --locked
       - name: Verify development process ownership predicates without starting services
         shell: pwsh
         run: ./scripts/windows/test-dev-process-scope.ps1
-      - name: Build and verify embedded runtimes and native payload
-        run: node pairing/scripts/package.mjs
-      - name: Verify actual build in a spaced Unicode checkout path
-        env:
-          RIEUL_PAIRING_BUN: ${{ github.workspace }}/target/release/rieul-windows-gui/runtime/bun.exe
+      - name: Build and verify Rust GPUI payload
+        run: node pairing/scripts/package.mjs --replace
+      - name: Diagnose native Windows loader imports
+        if: failure()
+        run: python pairing/scripts/check-windows-imports.py daemon/gui/target/release/rieul-gpui.exe
+      - name: Build native GUI from a spaced Unicode path
         run: node pairing/scripts/build-path-qa.mjs
-      - run: node pairing/scripts/bundle-qa.mjs --bundle target/release/rieul-windows-gui --lifecycle
+      - run: node --test pairing/tests/*.test.mjs
+      - run: node pairing/scripts/bundle-qa.mjs --bundle target/release/rieul-windows-gui
       - name: Exercise bundled native window and pairing request lifecycle
         working-directory: pairing
         env:
           RIEUL_GUI_EXECUTABLE: ${{ github.workspace }}/target/release/rieul-windows-gui/rieul-windows-gui.exe
-          RIEUL_PAIRING_BUN: ${{ github.workspace }}/target/release/rieul-windows-gui/runtime/bun.exe
           RIEUL_PAIRING_EMPTY_PATH: "1"
           RIEUL_PAIRING_LAUNCHER: ${{ github.workspace }}/pairing/scripts/launch.ps1
         run: node scripts/native-qa.mjs
-      - uses: pnpm/action-setup@v4
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 8.0.x
       - name: Build unsigned installers and inspect payloads without installing
         shell: pwsh
         run: |
-          pnpm install --frozen-lockfile
           cargo build -p rieul-windows-daemon --release --bin rieul-windows-system --bin rieul-windows-user --locked
           if ($LASTEXITCODE) { throw 'Daemon build failed' }
           dotnet tool restore

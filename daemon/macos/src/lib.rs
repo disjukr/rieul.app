@@ -1,11 +1,16 @@
+#[cfg(all(target_os = "macos", not(target_arch = "aarch64")))]
+compile_error!("Unsupported platform: Rieul macOS requires Apple Silicon (arm64); Intel Macs are not supported");
+
+#[cfg(unix)]
+mod architecture;
 pub mod fs;
+#[cfg(target_os = "macos")]
+pub mod installer;
+mod installer_ui;
 #[cfg(unix)]
 pub mod root_update;
 #[cfg(any(target_os = "macos", test))]
 pub mod update;
-#[cfg(target_os = "macos")]
-pub mod installer;
-mod installer_ui;
 #[cfg(not(target_os = "macos"))]
 pub mod installer {
     use anyhow::Result;
