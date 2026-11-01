@@ -32,6 +32,7 @@ pub(super) struct InstallIntent {
 struct Inner {
     status: UpdateStatus,
     last_check: Option<Instant>,
+    check_retry_at: Option<Instant>,
     pending_manual: bool,
     last_dispatch: Option<Instant>,
 }
@@ -76,15 +77,51 @@ impl Controller {
         });
         true
     }
+    // A newly ready daemon may race its worker's durable finalization. Defer
+    // discovery only for lock contention; never turn integrity/IO failures into
+    // a retry and never wait while the worker needs this server's readiness.
+    fn discovery_lock(&self, state: &Dir) -> Result<Option<super::store::Lock>> {
+        match state.lock() {
+            Ok(lock) => {
+                self.inner.lock().unwrap().check_retry_at = None;
+                Ok(Some(lock))
+            }
+            Err(error)
+                if error
+                    .downcast_ref::<std::io::Error>()
+                    .is_some_and(|e| e.kind() == std::io::ErrorKind::WouldBlock) =>
+            {
+                let mut inner = self.inner.lock().unwrap();
+                inner.check_retry_at = Some(Instant::now() + Duration::from_secs(30));
+                inner.status.phase = UpdatePhase::Checking;
+                inner.status.reason = Some("Waiting for the current update operation to finish before checking for releases".into());
+                Ok(None)
+            }
+            Err(error) => Err(error),
+        }
+    }
     fn check(self) -> Result<()> {
         self.check_candidate(false)
     }
     fn check_candidate(self, confirmed_retry: bool) -> Result<()> {
         self.set(UpdatePhase::Checking, None);
-        self.inner.lock().unwrap().last_check = Some(Instant::now());
+        {
+            let mut inner = self.inner.lock().unwrap();
+            inner.last_check = Some(Instant::now());
+            inner.check_retry_at = None;
+        }
         let state = Dir::open(Path::new(STATE), 0, true)?;
         let old = {
-            let _lock = state.lock()?;
+            let _lock = if confirmed_retry {
+                // An explicit install must not continue to dispatch after a
+                // deferred discovery; preserve its existing failure semantics.
+                state.lock()?
+            } else {
+                let Some(lock) = self.discovery_lock(&state)? else {
+                    return Ok(());
+                };
+                lock
+            };
             if state.exists("journal.json")? {
                 self.set(
                     UpdatePhase::Ready,
@@ -243,9 +280,7 @@ impl UpdateService for Controller {
         let blocked = work.blocks_update(manual);
         // This six-hour cadence is an implementation default, not a user-stated
         // requirement. It is not active until the initial installer enables policy.
-        let due = inner
-            .last_check
-            .is_none_or(|last| last.elapsed() >= Duration::from_secs(6 * 60 * 60));
+        let due = check_due(&inner, Instant::now());
         let can_dispatch = inner
             .last_dispatch
             .is_none_or(|last| last.elapsed() >= Duration::from_secs(30));
@@ -294,6 +329,7 @@ pub fn service() -> Result<Option<Arc<dyn UpdateService>>> {
                 can_install: false,
             },
             last_check: None,
+            check_retry_at: None,
             pending_manual: false,
             last_dispatch: None,
         })),
@@ -367,4 +403,64 @@ fn dispatch_allowed(
         && can_dispatch
         && !blocked
         && (manual || status.phase != UpdatePhase::Failed)
+}
+
+fn check_due(inner: &Inner, now: Instant) -> bool {
+    inner.check_retry_at.map_or_else(
+        || {
+            inner.last_check.is_none_or(|last| {
+                now.saturating_duration_since(last) >= Duration::from_secs(6 * 60 * 60)
+            })
+        },
+        |retry| now >= retry,
+    )
+}
+
+#[cfg(test)]
+mod discovery_lock_tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+    #[test]
+    fn startup_discovery_defers_while_worker_finalizes_then_can_retry() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::set_permissions(tmp.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+        let state = Dir::open(
+            &tmp.path().canonicalize().unwrap(),
+            unsafe { libc::geteuid() },
+            false,
+        )
+        .unwrap();
+        let c = Controller {
+            inner: Arc::new(Mutex::new(Inner {
+                status: UpdateStatus {
+                    phase: UpdatePhase::Checking,
+                    current_version: None,
+                    target_version: None,
+                    reason: None,
+                    can_install: false,
+                },
+                last_check: Some(Instant::now()),
+                check_retry_at: None,
+                pending_manual: false,
+                last_dispatch: None,
+            })),
+            running: Arc::new(AtomicBool::new(false)),
+        };
+        let worker = state.lock().unwrap();
+        assert!(c.discovery_lock(&state).unwrap().is_none());
+        {
+            let inner = c.inner.lock().unwrap();
+            assert_eq!(inner.status.phase, UpdatePhase::Checking);
+            assert!(!check_due(&inner, Instant::now()));
+            assert!(check_due(&inner, inner.check_retry_at.unwrap()));
+        }
+        drop(worker);
+        assert!(c.discovery_lock(&state).unwrap().is_some());
+        assert!(c.inner.lock().unwrap().check_retry_at.is_none());
+        // Corrupt lock type is an integrity failure, not retryable contention.
+        state.remove("lock").unwrap();
+        std::fs::create_dir(tmp.path().join("lock")).unwrap();
+        assert!(c.discovery_lock(&state).is_err());
+        assert!(c.inner.lock().unwrap().check_retry_at.is_none());
+    }
 }
