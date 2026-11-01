@@ -6,6 +6,7 @@ read and --verify-bundle is run after dropping all root/group privileges.
 Outer signature checks belong to the separate signed-payload CI step.
 """
 import argparse
+import grp
 import json
 import os
 from pathlib import Path
@@ -50,10 +51,27 @@ def main():
             tar.extractall(extracted, members=members)
         payload = extracted / "Rieul.app"
         assert all(path.lstat().st_uid == 0 for path in payload.rglob("*"))
+        # Prove that neither root ownership nor root/admin group access can
+        # make the positive payload check pass accidentally. These contain only
+        # synthetic text and live inside this disposable fixture.
+        for name, group, mode in [("root-only", 0, 0o600), ("root-group", 0, 0o640),
+                                  ("admin-group", grp.getgrnam("admin").gr_gid, 0o640)]:
+            canary = base / name
+            canary.write_text("private permission fixture only\n")
+            os.chown(canary, 0, group)
+            canary.chmod(mode)
         reader = r'''
 import os, pathlib, subprocess, sys
 root = pathlib.Path(sys.argv[1])
-assert os.getuid() != 0 and os.getgid() != 0 and not os.getgroups()
+assert os.getuid() == os.geteuid() == int(sys.argv[2]) != 0
+assert os.getgid() == os.getegid() == int(sys.argv[3]) != 0
+for name in ("root-only", "root-group", "admin-group"):
+    try:
+        (root.parent.parent / name).read_bytes()
+    except PermissionError:
+        pass
+    else:
+        raise AssertionError("Unprivileged reader accessed " + name)
 count = 0
 for directory, dirs, files in os.walk(root, onerror=lambda error: (_ for _ in ()).throw(error)):
     for name in files:
@@ -67,14 +85,18 @@ subprocess.run([str(root / "Contents/MacOS/rieul-gui"), "--verify-bundle"], chec
 print("Non-admin read and native integrity check passed for", count, "root-owned files")
 '''
         def drop_privileges():
-            os.setgroups([])
+            # Darwin's unlimited getgroups() reports account defaults rather
+            # than this setgroups() list. Test access using canaries above.
+            os.setgroups([nobody.pw_gid])
             os.setgid(nobody.pw_gid)
             os.setuid(nobody.pw_uid)
-        subprocess.run(["/usr/bin/python3", "-c", reader, str(payload)],
+        subprocess.run(["/usr/bin/python3", "-c", reader, str(payload),
+                        str(nobody.pw_uid), str(nobody.pw_gid)],
                        check=True, cwd=base, preexec_fn=drop_privileges,
                        env={"PATH": "/usr/bin:/bin", "HOME": str(base)})
         print(json.dumps({"root_owned_archive": True, "reader_uid": nobody.pw_uid,
-                          "supplementary_groups": [], "native_verify_bundle": True}))
+                          "configured_groups": [nobody.pw_gid],
+                          "privileged_canaries_denied": True, "native_verify_bundle": True}))
 
 
 if __name__ == "__main__":
