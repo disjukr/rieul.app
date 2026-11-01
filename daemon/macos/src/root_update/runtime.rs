@@ -112,6 +112,20 @@ pub fn worker() -> Result<()> {
         let mut effects = NativeEffects::new(&state, control)?;
         transaction::resume(&state, &mut effects)
     })();
+    // Serialize result publication with dispatch's write-ahead marker. An early
+    // adapter failure must not be erased by the submitter, nor may an old worker
+    // overwrite a newer transaction's failure/drain state.
+    let _result_lock = state.lock()?;
+    if let Some(current) = state.load::<Journal>("journal.json")? {
+        if current.nonce != nonce {
+            return Ok(());
+        }
+    } else if !state
+        .load::<Journal>("last-result.json")?
+        .is_some_and(|last| last.nonce == nonce)
+    {
+        return Ok(());
+    }
     match outcome {
         Ok(phase) => {
             state.save(
@@ -169,6 +183,14 @@ pub fn startup() -> Result<bool> {
     let mut control = launchd::Native { state: &state };
     let service = trusted_service(&state)?;
     let hash = verify::digest(service.read_file("rieul-macos-system")?)?;
+    if j.phase == Phase::Prepared && requires_confirmed_retry(&state, &j)? {
+        ensure!(
+            hash == j.old.daemon_sha256,
+            "failed dispatch changed runtime unexpectedly"
+        );
+        state.remove("parked.json")?;
+        return Ok(false);
+    }
     let expected = state.load::<Request>("start-request.json")?;
     let allowed = matches!(
         j.phase,
@@ -199,12 +221,69 @@ pub fn startup() -> Result<bool> {
     ensure_worker(&state, &mut control)?;
     Ok(true)
 }
-pub(super) fn dispatch_prepared() -> Result<()> {
+pub(super) fn requires_confirmed_retry(state: &Dir, j: &Journal) -> Result<bool> {
+    let failed = state
+        .load::<WorkerResult>("worker-result.json")?
+        .is_some_and(|result| {
+            result.nonce.as_deref() == Some(&j.nonce) && result.error.is_some() && !result.deferred
+        });
+    Ok(failed || super::preparation::rolled_back_candidate(state, &j.new)?)
+}
+pub(super) fn dispatch_prepared(manual: bool) -> Result<()> {
     let state = Dir::open(Path::new(STATE), 0, true)?;
+    dispatch_attempt(&state, manual, |state| {
+        ensure_worker(state, &mut launchd::Native { state })
+    })
+}
+/// Persist pessimistic failure before any copy/sign/submit side effect. A crash
+/// or dispatch error must require explicit retry, including after daemon restart.
+pub(super) fn dispatch_attempt(
+    state: &Dir,
+    manual: bool,
+    submit: impl FnOnce(&Dir) -> Result<()>,
+) -> Result<()> {
     state.require_private()?;
     let _lock = state.lock()?;
-    ensure!(state.exists("journal.json")?, "no prepared update");
-    ensure_worker(&state, &mut launchd::Native { state: &state })
+    let j: Journal = state
+        .load("journal.json")?
+        .ok_or_else(|| anyhow::anyhow!("no prepared update"))?;
+    if !manual {
+        ensure!(
+            !requires_confirmed_retry(state, &j)?,
+            "explicit confirmed retry required"
+        );
+    }
+    state.save(
+        "worker-result.json",
+        &WorkerResult::failure(
+            Some(j.nonce.clone()),
+            &anyhow::anyhow!("dispatch interrupted before completion; explicit retry required"),
+        ),
+    )?;
+    let outcome = (|| {
+        if manual {
+            state.save(
+                "install-request.json",
+                &super::control::InstallIntent {
+                    nonce: j.nonce.clone(),
+                    confirmed: true,
+                },
+            )?;
+        } else {
+            state.remove("install-request.json")?;
+        }
+        submit(state)
+    })();
+    match outcome {
+        Ok(()) => state.remove("worker-result.json"),
+        Err(error) => {
+            state.save(
+                "worker-result.json",
+                &WorkerResult::failure(Some(j.nonce), &error),
+            )?;
+            Err(error)
+        }
+    }
 }
 
 #[cfg(test)]

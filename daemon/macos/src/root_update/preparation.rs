@@ -45,6 +45,16 @@ pub(super) fn prepare(
     source: &mut impl Source,
     validate: impl FnOnce(&Dir, Version, Version, u32) -> Result<Identity>,
 ) -> Result<bool> {
+    prepare_with_retry(state, old, db, source, validate, false)
+}
+pub(super) fn prepare_with_retry(
+    state: &Dir,
+    old: Identity,
+    db: u32,
+    source: &mut impl Source,
+    validate: impl FnOnce(&Dir, Version, Version, u32) -> Result<Identity>,
+    confirmed_retry: bool,
+) -> Result<bool> {
     state.require_private()?;
     let _lock = state.lock()?;
     let Some(policy) = state.load::<Policy>("policy.json")? else {
@@ -75,6 +85,10 @@ pub(super) fn prepare(
     archive::extract(stage.read_file("candidate.tar")?, &stage)?;
     let new = validate(&stage, version, old.version, db)?;
     ensure!(new.version == version, "verifier returned wrong version");
+    if !confirmed_retry && rolled_back_candidate(state, &new)? {
+        state.discard_child("incoming")?;
+        return Ok(false);
+    }
     transaction::prepare_locked(state, old, new)?;
     Ok(true)
 }
@@ -95,4 +109,15 @@ pub(super) fn prepare_official(old: Identity) -> Result<bool> {
         &mut Official,
         verify::candidate,
     )
+}
+
+pub(super) fn rolled_back_candidate(state: &Dir, candidate: &Identity) -> Result<bool> {
+    Ok(state
+        .load::<transaction::Journal>("last-result.json")?
+        .is_some_and(|last| {
+            last.schema == 1
+                && last.phase == transaction::Phase::RolledBack
+                && last.new.version == candidate.version
+                && last.new.daemon_sha256 == candidate.daemon_sha256
+        }))
 }

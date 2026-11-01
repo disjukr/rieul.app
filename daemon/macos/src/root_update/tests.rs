@@ -698,3 +698,144 @@ fn cleanup_rejects_mismatched_terminal_nonce_without_touching_stage() {
     assert!(transaction::cleanup_pending_locked(&dir).is_err());
     assert!(dir.exists("service-stage").unwrap());
 }
+
+#[test]
+fn dispatch_failures_remain_durable_until_confirmed_retry() {
+    for point in ["copy", "signature", "submit"] {
+        let (_tmp, dir) = fixture();
+        transaction::prepare(&dir, identity(1), identity(2)).unwrap();
+        let mut attempts = 0;
+        assert!(super::runtime::dispatch_attempt(&dir, false, |_| {
+            attempts += 1;
+            anyhow::bail!("{point} failed")
+        })
+        .is_err());
+        let j: Journal = dir.load("journal.json").unwrap().unwrap();
+        assert!(super::runtime::requires_confirmed_retry(&dir, &j).unwrap());
+        let result: super::runtime::WorkerResult = dir.load("worker-result.json").unwrap().unwrap();
+        assert_eq!(result.nonce.as_deref(), Some(j.nonce.as_str()));
+        assert!(!result.deferred);
+        for _ in 0..4 {
+            assert!(super::runtime::dispatch_attempt(&dir, false, |_| {
+                attempts += 1;
+                Ok(())
+            })
+            .is_err());
+        }
+        assert_eq!(attempts, 1);
+        super::runtime::dispatch_attempt(&dir, true, |_| {
+            attempts += 1;
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(attempts, 2);
+        assert!(!dir.exists("worker-result.json").unwrap());
+    }
+}
+#[test]
+fn rolled_back_candidate_is_suppressed_across_discovery_until_confirmed_retry() {
+    let (_tmp, dir) = fixture();
+    dir.save(
+        "policy.json",
+        &Policy {
+            schema: 1,
+            enabled: true,
+        },
+    )
+    .unwrap();
+    transaction::prepare(&dir, identity(1), identity(2)).unwrap();
+    assert_eq!(
+        transaction::resume(
+            &dir,
+            &mut Fake {
+                healthy: false,
+                ..Default::default()
+            }
+        )
+        .unwrap(),
+        Phase::RolledBack
+    );
+    let mut source = FixtureSource {
+        called: 0,
+        broken: false,
+    };
+    for _ in 0..3 {
+        assert!(
+            !super::preparation::prepare(&dir, identity(1), 2, &mut source, |_, _, _, _| Ok(
+                identity(2)
+            ))
+            .unwrap()
+        );
+        assert!(!dir.exists("journal.json").unwrap());
+        assert!(!dir.exists("incoming").unwrap());
+    }
+    assert!(super::preparation::prepare_with_retry(
+        &dir,
+        identity(1),
+        2,
+        &mut source,
+        |_, _, _, _| Ok(identity(2)),
+        true
+    )
+    .unwrap());
+    assert!(super::runtime::dispatch_attempt(&dir, false, |_| panic!(
+        "quarantined candidate cannot auto-dispatch"
+    ))
+    .is_err());
+    super::runtime::dispatch_attempt(&dir, true, |_| Ok(())).unwrap();
+}
+#[test]
+fn rollback_suppression_is_bound_to_version_and_digest() {
+    let (_tmp, dir) = fixture();
+    dir.save(
+        "policy.json",
+        &Policy {
+            schema: 1,
+            enabled: true,
+        },
+    )
+    .unwrap();
+    transaction::prepare(&dir, identity(1), identity(2)).unwrap();
+    transaction::resume(
+        &dir,
+        &mut Fake {
+            healthy: false,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert!(!super::preparation::rolled_back_candidate(&dir, &identity(3)).unwrap());
+    let mut replaced = identity(2);
+    replaced.daemon_sha256 = "c".repeat(64);
+    assert!(!super::preparation::rolled_back_candidate(&dir, &replaced).unwrap());
+    let mut source = FixtureSource {
+        called: 0,
+        broken: false,
+    };
+    assert!(
+        super::preparation::prepare(&dir, identity(1), 2, &mut source, |_, _, _, _| Ok(replaced))
+            .unwrap()
+    );
+}
+
+#[test]
+fn interrupted_dispatch_preserves_write_ahead_failure_marker() {
+    let (_tmp, dir) = fixture();
+    transaction::prepare(&dir, identity(1), identity(2)).unwrap();
+    let crashed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _ = super::runtime::dispatch_attempt(&dir, false, |state| {
+            assert!(state
+                .load::<super::runtime::WorkerResult>("worker-result.json")?
+                .unwrap()
+                .error
+                .is_some());
+            panic!("injected dispatch interruption");
+        });
+    }));
+    assert!(crashed.is_err());
+    let j: Journal = dir.load("journal.json").unwrap().unwrap();
+    assert!(super::runtime::requires_confirmed_retry(&dir, &j).unwrap());
+    assert!(
+        super::runtime::dispatch_attempt(&dir, false, |_| panic!("must not resubmit")).is_err()
+    );
+}

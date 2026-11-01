@@ -77,6 +77,9 @@ impl Controller {
         true
     }
     fn check(self) -> Result<()> {
+        self.check_candidate(false)
+    }
+    fn check_candidate(self, confirmed_retry: bool) -> Result<()> {
         self.set(UpdatePhase::Checking, None);
         self.inner.lock().unwrap().last_check = Some(Instant::now());
         let state = Dir::open(Path::new(STATE), 0, true)?;
@@ -126,7 +129,7 @@ impl Controller {
             }
         }
         let data = Dir::open(Path::new(super::gate::DATA), 0, true)?;
-        let prepared = preparation::prepare(
+        let prepared = preparation::prepare_with_retry(
             &state,
             old,
             preparation::database_schema(&data)?,
@@ -135,6 +138,7 @@ impl Controller {
                 self.set(UpdatePhase::Verifying, None);
                 verify::candidate(stage, target, current, db)
             },
+            confirmed_retry,
         )?;
         let mut inner = self.inner.lock().unwrap();
         inner.last_check = Some(Instant::now());
@@ -152,26 +156,11 @@ impl Controller {
     }
     fn dispatch(self, manual: bool) -> Result<()> {
         let state = Dir::open(Path::new(STATE), 0, true)?;
-        {
-            let _lock = state.lock()?;
-            let j: Journal = state
-                .load("journal.json")?
-                .ok_or_else(|| anyhow::anyhow!("no verified update"))?;
-            state.remove("worker-result.json")?;
-            if manual {
-                state.save(
-                    "install-request.json",
-                    &InstallIntent {
-                        nonce: j.nonce,
-                        confirmed: true,
-                    },
-                )?;
-            } else {
-                state.remove("install-request.json")?;
-            }
+        if manual && !state.exists("journal.json")? {
+            self.clone().check_candidate(true)?;
         }
         self.set(UpdatePhase::Installing, None);
-        runtime::dispatch_prepared()
+        runtime::dispatch_prepared(manual)
     }
 }
 impl UpdateService for Controller {
@@ -186,7 +175,11 @@ impl UpdateService for Controller {
             status.target_version = Some(j.new.version.text());
             status.can_install = matches!(j.phase, Phase::Prepared);
             status.phase = match j.phase {
-                Phase::Prepared if status.phase == UpdatePhase::Deferred => UpdatePhase::Deferred,
+                Phase::Prepared
+                    if matches!(status.phase, UpdatePhase::Deferred | UpdatePhase::Failed) =>
+                {
+                    status.phase
+                }
                 Phase::Prepared => UpdatePhase::Ready,
                 Phase::Starting | Phase::RollingBack => UpdatePhase::Restarting,
                 Phase::Committed | Phase::RolledBack => UpdatePhase::Idle,
@@ -194,6 +187,19 @@ impl UpdateService for Controller {
             };
             if let Some(result) = state.load::<runtime::WorkerResult>("worker-result.json")? {
                 apply_worker_result(&mut status, &j.nonce, &result);
+            }
+        } else if !matches!(
+            status.phase,
+            UpdatePhase::Checking | UpdatePhase::Downloading | UpdatePhase::Verifying
+        ) {
+            if let Some(last) = state.load::<Journal>("last-result.json")? {
+                if last.schema == 1 && last.phase == Phase::RolledBack {
+                    status.phase = UpdatePhase::Failed;
+                    status.current_version = Some(last.old.version.text());
+                    status.target_version = Some(last.new.version.text());
+                    status.can_install = true;
+                    status.reason = Some("This candidate failed readiness and was rolled back. Automatic installation of the same version and digest is suppressed; confirm installation to retry, or check for a newer candidate.".into());
+                }
             }
         }
         Ok(status)
@@ -253,17 +259,13 @@ impl UpdateService for Controller {
         if status.can_install && blocked {
             self.set(UpdatePhase::Deferred, Some(if manual { "Waiting for active terminals, commands, transfers and agent runtimes to finish" } else { "Automatic installation waits until all clients disconnect and active work finishes" }.into()));
         }
-        if status.can_install
-            && can_dispatch
-            && !blocked
-            && (manual || status.phase != UpdatePhase::Failed)
-        {
+        if dispatch_allowed(&status, manual, can_dispatch, blocked) {
             self.inner.lock().unwrap().last_dispatch = Some(Instant::now());
             if self.launch(move |controller| controller.dispatch(manual)) {
                 self.inner.lock().unwrap().pending_manual = false;
             }
         } else if due
-            && !status.can_install
+            && (!status.can_install || status.phase == UpdatePhase::Failed)
             && !matches!(
                 status.phase,
                 UpdatePhase::Installing | UpdatePhase::Restarting
@@ -315,6 +317,21 @@ fn apply_worker_result(status: &mut UpdateStatus, nonce: &str, result: &runtime:
 mod result_tests {
     use super::*;
     #[test]
+    fn repeated_idle_ticks_do_not_dispatch_failed_candidate_without_manual_confirmation() {
+        let status = UpdateStatus {
+            phase: UpdatePhase::Failed,
+            current_version: None,
+            target_version: None,
+            reason: None,
+            can_install: true,
+        };
+        for _ in 0..10 {
+            assert!(!dispatch_allowed(&status, false, true, false));
+        }
+        assert!(dispatch_allowed(&status, true, true, false));
+        assert!(!dispatch_allowed(&status, true, true, true));
+    }
+    #[test]
     fn stale_worker_result_cannot_mask_new_transaction_and_failure_is_not_busy() {
         let mut status = UpdateStatus {
             phase: UpdatePhase::Ready,
@@ -338,4 +355,16 @@ mod result_tests {
         apply_worker_result(&mut status, "new", &result);
         assert_eq!(status.phase, UpdatePhase::Deferred);
     }
+}
+
+fn dispatch_allowed(
+    status: &UpdateStatus,
+    manual: bool,
+    can_dispatch: bool,
+    blocked: bool,
+) -> bool {
+    status.can_install
+        && can_dispatch
+        && !blocked
+        && (manual || status.phase != UpdatePhase::Failed)
 }
