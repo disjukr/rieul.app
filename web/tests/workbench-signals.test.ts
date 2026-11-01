@@ -304,3 +304,41 @@ test("panel signal commands persist queued values and release storage, resize an
   assert.equal(panel.machinePanelTransitioning(), false);
   assert.equal(f.writes.length, before);
 });
+
+test("legacy agent tabs retain saved metadata without exposing agent commands", (t) => {
+  const f = fixture(t);
+  const legacy = {
+    ...initialWorkbench,
+    panes: [
+      {
+        id: "p1",
+        activeTabId: "legacy",
+        tabs: [
+          {
+            id: "legacy",
+            title: "Saved session",
+            tool: "agent",
+            agentSessionId: "keep-session",
+          },
+        ],
+      },
+    ],
+  };
+  const saved = JSON.stringify(legacy);
+  f.values.set(storageKey("A"), saved);
+  const entry = f.store.get(workbenchBunja, f.read("A"));
+  const release = entry.mount();
+  assert.equal(entry.value.activeTool(), undefined);
+  assert.equal(f.values.get(storageKey("A")), saved);
+  assert.equal(f.writes.length, 0);
+  entry.value.openDaemonTab();
+  flush();
+  const persisted = JSON.parse(f.values.get(storageKey("A"))!);
+  assert.deepEqual(persisted.panes[0].tabs[0], legacy.panes[0].tabs[0]);
+  assert.equal(entry.value.activeTool(), "daemon");
+  entry.value.closeTab("p1", "legacy");
+  flush();
+  assert.equal(entry.value.panes()[0].tabs.length, 1);
+  assert.equal(entry.value.panes()[0].tabs[0].tool, "daemon");
+  release();
+});

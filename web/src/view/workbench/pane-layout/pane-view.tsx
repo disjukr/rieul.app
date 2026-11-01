@@ -4,12 +4,11 @@ import { ModalDialog } from "../../ui/dialog.tsx";
 import { createSignal, createMemo, createEffect, For } from "solid-js";
 import { WorkbenchTabIdContext } from "../../../state/workbench-context.ts";
 
-import { useBunja } from "../../../solid/bunja.tsx";
+import { useBunja } from "bunja/solid";
 import { layoutReducer } from "../../../state/layout.ts";
 import {
   Activity,
   AppWindow,
-  Bot,
   Columns2,
   Copy,
   Folder,
@@ -446,11 +445,6 @@ export function WorkbenchPaneView(props: WorkbenchPaneViewProps) {
     setPaneCreateMenuOpen(false);
     setPaneOverflowMenuOpen(false);
   }
-  function openAgentTab() {
-    paneState().addAgentTab();
-    setPaneCreateMenuOpen(false);
-    setPaneOverflowMenuOpen(false);
-  }
   function openProcessesTab() {
     paneState().addProcessesTab();
     setPaneCreateMenuOpen(false);
@@ -582,13 +576,6 @@ export function WorkbenchPaneView(props: WorkbenchPaneViewProps) {
                         >
                           <Info size={14} />
                           New Daemon Tab
-                        </FloatingMenuItem>
-                        <FloatingMenuItem
-                          className={paneOverflowMenuItemClassName}
-                          onClick={openAgentTab}
-                        >
-                          <Bot size={14} />
-                          New Agent Tab
                         </FloatingMenuItem>
                         <FloatingMenuItem
                           className={paneOverflowMenuItemClassName}

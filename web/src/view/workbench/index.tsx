@@ -2,7 +2,7 @@ import type { ParentProps } from "solid-js";
 import { bunja } from "bunja";
 import { createMemo } from "solid-js";
 
-import { useBunja } from "../../solid/bunja.tsx";
+import { useBunja } from "bunja/solid";
 import { ChevronLeft } from "../../solid/icons.tsx";
 import { machineStoreBunja } from "../../state/machine-store.ts";
 import { MachineAddFormContainer } from "../machine-panel/index.tsx";

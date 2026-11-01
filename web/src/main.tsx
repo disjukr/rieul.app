@@ -1,5 +1,5 @@
 import { render } from "@solidjs/web";
-import { BunjaProvider } from "./solid/bunja";
+import { BunjaStoreProvider } from "bunja/solid";
 import "./solid/scopes";
 import "@unocss/reset/tailwind.css";
 import "virtual:uno.css";
@@ -7,9 +7,9 @@ import View from "./view/index.tsx";
 
 const dispose = render(
   () => (
-    <BunjaProvider>
+    <BunjaStoreProvider>
       <View />
-    </BunjaProvider>
+    </BunjaStoreProvider>
   ),
   document.getElementById("root")!,
 );

@@ -1,7 +1,8 @@
+import { TestBunjaStoreProvider } from "./bunja-store.tsx";
 import { bunja, override } from "bunja";
 import { createSignal, onCleanup, Show } from "solid-js";
 import { render } from "@solidjs/web";
-import { BunjaProvider, useBunja } from "../../src/solid/bunja";
+import { BunjaStoreProvider, useBunja } from "bunja/solid";
 
 const events: string[] = [];
 const service = bunja(() => ({ name: "default" }));
@@ -34,23 +35,23 @@ function Fixture() {
       <button onClick={() => setNested(false)}>Remove nested providers</button>
       <button onClick={() => setOuter(false)}>Remove outer provider</button>
       <Show when={outer()}>
-        <BunjaProvider
+        <TestBunjaStoreProvider
           overrides={[override(service, () => ({ name: "outer" }))]}
         >
           <Consumer label="outer one" />
           <Consumer label="outer two" />
           <Show when={nested()}>
-            <BunjaProvider
+            <TestBunjaStoreProvider
               overrides={[override(service, () => ({ name: "inner" }))]}
             >
               <Consumer label="inner one" />
               <Consumer label="inner two" />
-            </BunjaProvider>
-            <BunjaProvider>
+            </TestBunjaStoreProvider>
+            <BunjaStoreProvider>
               <Consumer label="independent default" />
-            </BunjaProvider>
+            </BunjaStoreProvider>
           </Show>
-        </BunjaProvider>
+        </TestBunjaStoreProvider>
       </Show>
     </>
   );

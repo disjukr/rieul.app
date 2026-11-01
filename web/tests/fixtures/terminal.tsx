@@ -1,7 +1,8 @@
+import { TestBunjaStoreProvider } from "./bunja-store.tsx";
 import { override } from "bunja";
 import { createSignal, Show } from "solid-js";
 import { render } from "@solidjs/web";
-import { BunjaProvider, useBunja } from "../../src/solid/bunja.tsx";
+import { useBunja } from "bunja/solid";
 import { MachineStorageContext } from "../../src/solid/scopes.ts";
 import {
   MachineIdContext,
@@ -162,7 +163,6 @@ const overrides = [
       focused: createSignal(false)[0],
       showClose: createSignal(false)[0],
       selectTab: unused,
-      setAgentSession: unused,
       setDaemonClientDetailId: unused,
       setDaemonClientsPageOpen: unused,
       setProcessDetailPid: unused,
@@ -224,11 +224,11 @@ function Fixture() {
 }
 render(
   () => (
-    <BunjaProvider overrides={overrides}>
+    <TestBunjaStoreProvider overrides={overrides}>
       <MachineStorageContext value={() => memoryStorage}>
         <Fixture />
       </MachineStorageContext>
-    </BunjaProvider>
+    </TestBunjaStoreProvider>
   ),
   document.getElementById("root")!,
 );

@@ -28,29 +28,6 @@ export function Activity(props: LucideProps) {
   );
 }
 
-export function AlertCircle(props: LucideProps) {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      width={props.size ?? 24}
-      height={props.size ?? 24}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      stroke-width={props.strokeWidth ?? props["stroke-width"] ?? 2}
-      stroke-linecap="round"
-      stroke-linejoin="round"
-      aria-hidden="true"
-      {...props}
-      class={props.class ?? props.className}
-    >
-      <circle cx="12" cy="12" r="10" />
-      <line x1="12" x2="12" y1="8" y2="12" />
-      <line x1="12" x2="12.01" y1="16" y2="16" />
-    </svg>
-  );
-}
-
 export function AlertTriangle(props: LucideProps) {
   return (
     <svg
@@ -94,29 +71,6 @@ export function AppWindow(props: LucideProps) {
       <path d="M10 4v4" />
       <path d="M2 8h20" />
       <path d="M6 4v4" />
-    </svg>
-  );
-}
-
-export function Archive(props: LucideProps) {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      width={props.size ?? 24}
-      height={props.size ?? 24}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      stroke-width={props.strokeWidth ?? props["stroke-width"] ?? 2}
-      stroke-linecap="round"
-      stroke-linejoin="round"
-      aria-hidden="true"
-      {...props}
-      class={props.class ?? props.className}
-    >
-      <rect width="20" height="5" x="2" y="3" rx="1" />
-      <path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8" />
-      <path d="M10 12h4" />
     </svg>
   );
 }
@@ -183,32 +137,6 @@ export function ArrowUpRight(props: LucideProps) {
     >
       <path d="M7 7h10v10" />
       <path d="M7 17 17 7" />
-    </svg>
-  );
-}
-
-export function Bot(props: LucideProps) {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      width={props.size ?? 24}
-      height={props.size ?? 24}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      stroke-width={props.strokeWidth ?? props["stroke-width"] ?? 2}
-      stroke-linecap="round"
-      stroke-linejoin="round"
-      aria-hidden="true"
-      {...props}
-      class={props.class ?? props.className}
-    >
-      <path d="M12 8V4H8" />
-      <rect width="16" height="12" x="4" y="8" rx="2" />
-      <path d="M2 14h2" />
-      <path d="M20 14h2" />
-      <path d="M15 13v2" />
-      <path d="M9 13v2" />
     </svg>
   );
 }
@@ -556,30 +484,6 @@ export function Folder(props: LucideProps) {
   );
 }
 
-export function FolderKanban(props: LucideProps) {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      width={props.size ?? 24}
-      height={props.size ?? 24}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      stroke-width={props.strokeWidth ?? props["stroke-width"] ?? 2}
-      stroke-linecap="round"
-      stroke-linejoin="round"
-      aria-hidden="true"
-      {...props}
-      class={props.class ?? props.className}
-    >
-      <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z" />
-      <path d="M8 10v4" />
-      <path d="M12 10v2" />
-      <path d="M16 10v6" />
-    </svg>
-  );
-}
-
 export function GripVertical(props: LucideProps) {
   return (
     <svg
@@ -768,27 +672,6 @@ export function Link2(props: LucideProps) {
 }
 
 export function Loader2(props: LucideProps) {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      width={props.size ?? 24}
-      height={props.size ?? 24}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      stroke-width={props.strokeWidth ?? props["stroke-width"] ?? 2}
-      stroke-linecap="round"
-      stroke-linejoin="round"
-      aria-hidden="true"
-      {...props}
-      class={props.class ?? props.className}
-    >
-      <path d="M21 12a9 9 0 1 1-6.219-8.56" />
-    </svg>
-  );
-}
-
-export function LoaderCircle(props: LucideProps) {
   return (
     <svg
       xmlns="http://www.w3.org/2000/svg"
@@ -1179,60 +1062,6 @@ export function Settings(props: LucideProps) {
   );
 }
 
-export function SlidersHorizontal(props: LucideProps) {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      width={props.size ?? 24}
-      height={props.size ?? 24}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      stroke-width={props.strokeWidth ?? props["stroke-width"] ?? 2}
-      stroke-linecap="round"
-      stroke-linejoin="round"
-      aria-hidden="true"
-      {...props}
-      class={props.class ?? props.className}
-    >
-      <line x1="21" x2="14" y1="4" y2="4" />
-      <line x1="10" x2="3" y1="4" y2="4" />
-      <line x1="21" x2="12" y1="12" y2="12" />
-      <line x1="8" x2="3" y1="12" y2="12" />
-      <line x1="21" x2="16" y1="20" y2="20" />
-      <line x1="12" x2="3" y1="20" y2="20" />
-      <line x1="14" x2="14" y1="2" y2="6" />
-      <line x1="8" x2="8" y1="10" y2="14" />
-      <line x1="16" x2="16" y1="18" y2="22" />
-    </svg>
-  );
-}
-
-export function Sparkles(props: LucideProps) {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      width={props.size ?? 24}
-      height={props.size ?? 24}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      stroke-width={props.strokeWidth ?? props["stroke-width"] ?? 2}
-      stroke-linecap="round"
-      stroke-linejoin="round"
-      aria-hidden="true"
-      {...props}
-      class={props.class ?? props.className}
-    >
-      <path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z" />
-      <path d="M20 3v4" />
-      <path d="M22 5h-4" />
-      <path d="M4 17v2" />
-      <path d="M5 18H3" />
-    </svg>
-  );
-}
-
 export function SquareTerminal(props: LucideProps) {
   return (
     <svg
@@ -1376,27 +1205,6 @@ export function WifiOff(props: LucideProps) {
       <path d="M2 8.82a15 15 0 0 1 4.177-2.643" />
       <path d="M22 8.82a15 15 0 0 0-11.288-3.764" />
       <path d="m2 2 20 20" />
-    </svg>
-  );
-}
-
-export function Wrench(props: LucideProps) {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      width={props.size ?? 24}
-      height={props.size ?? 24}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      stroke-width={props.strokeWidth ?? props["stroke-width"] ?? 2}
-      stroke-linecap="round"
-      stroke-linejoin="round"
-      aria-hidden="true"
-      {...props}
-      class={props.class ?? props.className}
-    >
-      <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
     </svg>
   );
 }

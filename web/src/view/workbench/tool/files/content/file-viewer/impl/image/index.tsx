@@ -1,5 +1,5 @@
 import { createMemo, createSignal, createEffect, useContext } from "solid-js";
-import { useBunja } from "../../../../../../../../solid/bunja.tsx";
+import { useBunja } from "bunja/solid";
 
 import {
   ImageOff,

@@ -8,7 +8,7 @@ import type { ConnectionState } from "../../../../state/types.ts";
 import type { BreadcrumbItem } from "../../../ui/breadcrumb.tsx";
 import { createSignal, createMemo, createEffect } from "solid-js";
 
-import { useBunja } from "../../../../solid/bunja.tsx";
+import { useBunja } from "bunja/solid";
 import { nowBunja } from "../../../../state/now.ts";
 import {
   AlertTriangle,

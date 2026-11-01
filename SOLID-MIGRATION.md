@@ -4,7 +4,7 @@ The browser application and native pairing UI use Solid `2.0.0-rc.20`. This is a
 
 ## State and rendering boundaries
 
-Bunja `4.0.0-alpha.1` definitions remain static. `web/src/solid/bunja.tsx` adapts the published core store API to v2 ownership, context accessors and two-phase effects. Instance roots belong to the Provider, so removing the first consumer cannot dispose an instance still used elsewhere. Tests replace dependencies with store-local overrides instead of model factories.
+Bunja `4.0.0-alpha.2` definitions remain static. The application uses the published `bunja/solid` v2 binding directly for its provider, hooks and scope contexts. The temporary application binding has been removed. Instance roots belong to the Provider, so removing the first consumer cannot dispose an instance still used elsewhere. Tests replace dependencies with store-local overrides instead of model factories.
 
 Native Solid v2 signals and memos own application state. Views read Bunja accessors directly; no atom store or subscription bridge is needed. Compound commands use functional setters and their returned values to compose pending same-frame writes; deliberate imperative UI boundaries use `flush`. Reactive resource roots are anchored to the Bunja instance owner, and their disposal follows Bunja's last consumer. Tests flush before checking committed state and exercise scope replacement, stale async responses, shared ownership and persistence.
 
@@ -18,7 +18,6 @@ The original state and UI assertions remain, with Solid fixtures replacing React
 
 - Provider override isolation, owned roots, signal/scope replacement and final cleanup;
 - terminal conditional host lifetime, delayed xterm import, late RPC creation, and stable attachment while session metadata changes;
-- agent subscription cancellation and session replacement before transport resolves;
 - Monaco model/focus/undo lifetime, language switching and delayed file-resource cleanup;
 - modal/menu keyboard behavior and focus restoration, tooltip trigger association, file rename/path drafts;
 - pointer/touch tab movement, retained tab DOM identity, pointer/keyboard pane resizing, and persisted layout parity.

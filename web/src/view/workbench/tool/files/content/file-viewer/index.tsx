@@ -1,6 +1,6 @@
 import { Dynamic } from "@solidjs/web";
 import { createMemo, Loading } from "solid-js";
-import { useBunja } from "../../../../../../solid/bunja.tsx";
+import { useBunja } from "bunja/solid";
 
 import { Loader2 } from "../../../../../../solid/icons.tsx";
 import { FileViewerFooter } from "./footer/index.tsx";

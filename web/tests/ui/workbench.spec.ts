@@ -238,3 +238,47 @@ test("body edge drops create a pane, whole pane movement preserves tabs, and Esc
   expect(JSON.stringify((await state(page)).layout)).toBe(before);
   expect(errors).toEqual([]);
 });
+
+test("saved agent tabs remain readable and closable without agent entry points", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.addInitScript(() => {
+    const key = "rieul.workbench.A.v1";
+    const saved = JSON.parse(localStorage.getItem(key)!);
+    saved.panes[0].tabs[0] = {
+      id: "t1",
+      tool: "agent",
+      title: "Saved session",
+      agentSessionId: "keep-session",
+    };
+    localStorage.setItem(key, JSON.stringify(saved));
+  });
+  await page.goto("/");
+  await expect(
+    page.getByText(
+      "This saved tab is no longer available. Close it or open another tool.",
+    ),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Agent", exact: true }),
+  ).toHaveCount(0);
+  const saved = await state(page);
+  expect(saved.panes[0].tabs[0].agentSessionId).toBe("keep-session");
+  await page
+    .getByRole("button", { name: "Close Saved session", exact: true })
+    .click();
+  await expect(
+    page.getByText(
+      "This saved tab is no longer available. Close it or open another tool.",
+    ),
+  ).toHaveCount(0);
+  await page.reload();
+  await expect(
+    page.getByText(
+      "This saved tab is no longer available. Close it or open another tool.",
+    ),
+  ).toHaveCount(0);
+  expect(errors).toEqual([]);
+});

@@ -1,6 +1,6 @@
 import { Show, createEffect, createMemo, createSignal } from "solid-js";
 
-import { useBunja } from "../../solid/bunja.tsx";
+import { useBunja } from "bunja/solid";
 
 import { machineModalBunja } from "../../state/machine-modal.ts";
 import { machineStoreBunja } from "../../state/machine-store.ts";

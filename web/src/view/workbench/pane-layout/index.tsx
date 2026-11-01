@@ -3,7 +3,7 @@ import type { TabSplitDropSide } from "./tab-drag.ts";
 import { createMemo, createSignal, For, onCleanup } from "solid-js";
 import { WorkbenchPaneIdContext } from "../../../state/workbench-context.ts";
 
-import { useBunja } from "../../../solid/bunja.tsx";
+import { useBunja } from "bunja/solid";
 import { layoutReducer, type BranchNode } from "../../../state/layout.ts";
 import { workbenchBunja } from "../../../state/workbench.ts";
 import { WorkbenchPaneView } from "./pane-view.tsx";

@@ -1,5 +1,5 @@
 import { flush } from "solid-js";
-import { useBunja } from "../../solid/bunja.tsx";
+import { useBunja } from "bunja/solid";
 
 import { machineModalBunja } from "../../state/machine-modal.ts";
 import { machineStoreBunja } from "../../state/machine-store.ts";
@@ -8,7 +8,6 @@ import { terminalShellsBunja } from "../../state/terminal-shells.ts";
 import { workbenchBunja } from "../../state/workbench.ts";
 import { machinePanelBunja } from "../machine-panel/state.ts";
 import { layoutBunja } from "../state.tsx";
-import { AgentRail } from "./agent-rail.tsx";
 import { AppTopbar } from "./app-topbar.tsx";
 
 export function TopBarRegion() {
@@ -59,7 +58,6 @@ export function TopBarRegion() {
     <AppTopbar
       connection={connection()}
       daemonInfo={daemonInfo()}
-      agentRail={<AgentRail />}
       activeTool={activeTool()}
       machine={selected()}
       machinePanelCollapsed={machinePanelCollapsed()}
@@ -68,7 +66,6 @@ export function TopBarRegion() {
       selectedMachineId={selectedId()}
       terminalShells={terminalShells()}
       onAddMachine={addMachine}
-      onOpenAgentTab={(event) => workbench().openAgentTab(event)}
       onOpenDaemonTab={() => workbench().openDaemonTab()}
       onOpenFilesTab={(event) => workbench().openFilesTab(event)}
       onOpenProcessesTab={() => workbench().openProcessesTab()}

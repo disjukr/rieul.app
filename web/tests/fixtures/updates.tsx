@@ -1,7 +1,8 @@
+import { TestBunjaStoreProvider } from "./bunja-store.tsx";
 import { override } from "bunja";
 import { createSignal, createMemo } from "solid-js";
 import { render } from "@solidjs/web";
-import { BunjaProvider } from "../../src/solid/bunja";
+
 import { daemonUpdatesBunja } from "../../src/state/daemon-updates";
 import {
   UpdatePhase,
@@ -45,9 +46,11 @@ function Fixture() {
     <>
       <button onClick={() => setToken("replacement")}>Replace daemon</button>
       <output aria-label="Install calls">{calls()}</output>
-      <BunjaProvider overrides={[override(daemonUpdatesBunja, () => model)]}>
+      <TestBunjaStoreProvider
+        overrides={[override(daemonUpdatesBunja, () => model)]}
+      >
         <DaemonUpdateSection />
-      </BunjaProvider>
+      </TestBunjaStoreProvider>
     </>
   );
 }
