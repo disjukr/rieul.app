@@ -180,3 +180,123 @@ mod tests {
         assert_eq!(scan_code(72), None);
     }
 }
+
+/// Copy SPS/PPS NAL units from Annex B; bounded by the already checked packet size.
+pub fn annex_b_headers(bytes: &[u8]) -> Vec<u8> {
+    let mut starts = Vec::new();
+    let mut i = 0;
+    while i + 3 < bytes.len() {
+        let length = if bytes[i..].starts_with(&[0, 0, 0, 1]) {
+            4
+        } else if bytes[i..].starts_with(&[0, 0, 1]) {
+            3
+        } else {
+            i += 1;
+            continue;
+        };
+        starts.push((i, i + length));
+        i += length;
+    }
+    let mut output = Vec::new();
+    let (mut sps, mut pps) = (false, false);
+    for (index, (_, payload)) in starts.iter().enumerate() {
+        if *payload >= bytes.len() {
+            continue;
+        }
+        let kind = bytes[*payload] & 31;
+        if kind == 7 || kind == 8 {
+            let end = starts
+                .get(index + 1)
+                .map(|(start, _)| *start)
+                .unwrap_or(bytes.len());
+            output.extend_from_slice(&[0, 0, 0, 1]);
+            output.extend_from_slice(&bytes[*payload..end]);
+            sps |= kind == 7;
+            pps |= kind == 8;
+        }
+    }
+    if sps && pps {
+        output
+    } else {
+        vec![]
+    }
+}
+
+/// Bounded RGBA PNG using stored DEFLATE blocks; avoids an image-library/codec
+/// dependency in the privileged IPC path. Cursor shapes are small, at most 128².
+pub fn cursor_png(width: usize, height: usize, rgba: &[u8]) -> Option<Vec<u8>> {
+    if width == 0 || height == 0 || width > 128 || height > 128 || rgba.len() != width * height * 4
+    {
+        return None;
+    }
+    fn crc(bytes: &[u8]) -> u32 {
+        let mut crc = 0xffff_ffff;
+        for b in bytes {
+            crc ^= *b as u32;
+            for _ in 0..8 {
+                crc = (crc >> 1) ^ (0xedb88320u32.wrapping_mul(crc & 1));
+            }
+        }
+        !crc
+    }
+    fn chunk(out: &mut Vec<u8>, kind: &[u8; 4], data: &[u8]) {
+        out.extend_from_slice(&(data.len() as u32).to_be_bytes());
+        let start = out.len();
+        out.extend_from_slice(kind);
+        out.extend_from_slice(data);
+        let checksum = crc(&out[start..]);
+        out.extend_from_slice(&checksum.to_be_bytes());
+    }
+    let mut raw = Vec::with_capacity((width * 4 + 1) * height);
+    for row in rgba.chunks_exact(width * 4) {
+        raw.push(0);
+        raw.extend_from_slice(row);
+    }
+    let mut zlib = vec![0x78, 0x01];
+    let mut offset = 0;
+    while offset < raw.len() {
+        let n = (raw.len() - offset).min(65535);
+        zlib.push(u8::from(offset + n == raw.len()));
+        zlib.extend_from_slice(&(n as u16).to_le_bytes());
+        zlib.extend_from_slice(&(!(n as u16)).to_le_bytes());
+        zlib.extend_from_slice(&raw[offset..offset + n]);
+        offset += n;
+    }
+    let (mut a, mut b) = (1u32, 0u32);
+    for byte in raw {
+        a = (a + byte as u32) % 65521;
+        b = (b + a) % 65521;
+    }
+    zlib.extend_from_slice(&((b << 16) | a).to_be_bytes());
+    let mut out = vec![137, 80, 78, 71, 13, 10, 26, 10];
+    let mut header = Vec::new();
+    header.extend_from_slice(&(width as u32).to_be_bytes());
+    header.extend_from_slice(&(height as u32).to_be_bytes());
+    header.extend_from_slice(&[8, 6, 0, 0, 0]);
+    chunk(&mut out, b"IHDR", &header);
+    chunk(&mut out, b"IDAT", &zlib);
+    chunk(&mut out, b"IEND", &[]);
+    Some(out)
+}
+#[cfg(test)]
+mod codec_tests {
+    use super::*;
+    #[test]
+    fn independent_parameter_sets() {
+        let bytes = [
+            0, 0, 0, 1, 0x67, 66, 0xe0, 42, 0, 0, 1, 0x68, 1, 2, 0, 0, 1, 0x65, 3,
+        ];
+        assert_eq!(
+            annex_b_headers(&bytes),
+            vec![0, 0, 0, 1, 0x67, 66, 0xe0, 42, 0, 0, 0, 1, 0x68, 1, 2]
+        );
+        assert!(annex_b_headers(&[0, 0, 1, 0x65, 1]).is_empty());
+    }
+    #[test]
+    fn png_bounds_and_signature() {
+        let png = cursor_png(1, 1, &[255, 0, 0, 255]).unwrap();
+        assert_eq!(&png[..8], &[137, 80, 78, 71, 13, 10, 26, 10]);
+        assert_eq!(&png[png.len() - 8..], &[73, 69, 78, 68, 174, 66, 96, 130]);
+        assert!(cursor_png(129, 1, &[]).is_none());
+    }
+}

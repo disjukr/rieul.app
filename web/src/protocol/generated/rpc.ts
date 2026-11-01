@@ -772,6 +772,8 @@ export interface DesktopCapabilities {
   maxInputStreamBytes: number;
   reason?: string;
   feedback?: boolean;
+  wheelUnits?: DesktopWheelUnit[];
+  physicalKeys?: number[];
 }
 
 export interface DesktopCodec {
@@ -6194,6 +6196,8 @@ export function encodeDesktopCapabilitiesValue(value: DesktopCapabilities): Cbor
   fields.set(9, u53(required(value.maxInputStreamBytes, "DesktopCapabilities.maxInputStreamBytes")));
   if (value.reason !== undefined) fields.set(10, text(value.reason));
   if (value.feedback !== undefined) fields.set(11, bool(value.feedback));
+  if (value.wheelUnits !== undefined) fields.set(12, value.wheelUnits.map((item) => encodeDesktopWheelUnitValue(item)));
+  if (value.physicalKeys !== undefined) fields.set(13, value.physicalKeys.map((item) => u53(item)));
   return fields;
 }
 
@@ -6211,6 +6215,8 @@ export function decodeDesktopCapabilitiesValue(value: CborValue): DesktopCapabil
     maxInputStreamBytes: fieldOrDefault(fields.get(9), (value) => integer(value), () => 0),
     reason: optionalField(fields.get(10), (value) => textValue(value)),
     feedback: optionalField(fields.get(11), (value) => boolValue(value)),
+    wheelUnits: optionalField(fields.get(12), (value) => array(value).map((item) => decodeDesktopWheelUnitValue(item))),
+    physicalKeys: optionalField(fields.get(13), (value) => array(value).map((item) => integer(item))),
   };
 }
 

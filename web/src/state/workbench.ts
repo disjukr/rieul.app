@@ -13,6 +13,7 @@ import {
 export { WorkbenchPaneIdScope, WorkbenchTabIdScope };
 
 export type WorkbenchTool =
+  | "desktop"
   | "daemon"
   | "files"
   | "processes"
@@ -1099,6 +1100,8 @@ function createWorkbenchTab(tool: WorkbenchTool): WorkbenchTab {
 
 function titleForTool(tool: WorkbenchTool): string {
   switch (tool) {
+    case "desktop":
+      return "Remote desktop";
     case "daemon":
       return "Daemon";
     case "files":

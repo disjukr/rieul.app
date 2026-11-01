@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  desktopCodecOrder,
   DesktopVideoReceiver,
   supportedDesktopCodecs,
   type DesktopVideoStats,
@@ -21,7 +22,7 @@ test("video receiver negotiates codecs, cancels stale groups and closes every fr
     groupCanceled = 0;
   class Decoder {
     static async isConfigSupported(c: VideoDecoderConfig) {
-      return { supported: c.codec === "fixture", config: c };
+      return { supported: c.codec === "avc1.42e02a", config: c };
     }
     state = "unconfigured";
     decodeQueueSize = 0;
@@ -76,7 +77,7 @@ test("video receiver negotiates codecs, cancels stale groups and closes every fr
       {
         trackId: 1,
         codecEpoch: 1,
-        codec: { codec: "fixture", hardware: false },
+        codec: { codec: "avc1.42e02a", hardware: false },
         viewport: {
           viewportId: "v",
           displayId: "d",
@@ -120,9 +121,9 @@ test("video receiver negotiates codecs, cancels stale groups and closes every fr
     assert.deepEqual(
       await supportedDesktopCodecs([
         { codec: "bad", hardware: false },
-        { codec: "fixture", hardware: false },
+        { codec: "avc1.42e02a", hardware: false },
       ]),
-      ["fixture"],
+      ["avc1.42e02a"],
     );
     await receiver.configure(config);
     incoming!.enqueue(group(1, false));
@@ -144,5 +145,49 @@ test("video receiver negotiates codecs, cancels stale groups and closes every fr
     receiver.close();
     globalThis.VideoDecoder = originalDecoder;
     globalThis.EncodedVideoChunk = originalChunk;
+  }
+});
+
+test("AV1 client policy requires evidence at both ends and retains H264 fallback", () => {
+  const av1 = { codec: "av01.0.08M.08", hardware: true };
+  const h264 = { codec: "avc1.42e02a", hardware: true };
+  assert.deepEqual(
+    desktopCodecOrder([av1, { codec: "vp09.00.10.08", hardware: true }, h264]),
+    [h264],
+  );
+  assert.deepEqual(desktopCodecOrder([h264, av1], new Set([av1.codec])), [
+    av1,
+    h264,
+  ]);
+  assert.deepEqual(
+    desktopCodecOrder(
+      [{ ...av1, hardware: false }, h264],
+      new Set([av1.codec]),
+    ),
+    [h264],
+  );
+  assert.deepEqual(desktopCodecOrder([av1], new Set(["av01.0.04M.08"])), []);
+});
+
+test("prefer-hardware acceptance alone does not advertise AV1", async () => {
+  const original = globalThis.VideoDecoder;
+  const queried: string[] = [];
+  globalThis.VideoDecoder = {
+    async isConfigSupported(config: VideoDecoderConfig) {
+      queried.push(config.codec);
+      return { supported: true, config };
+    },
+  } as typeof VideoDecoder;
+  try {
+    assert.deepEqual(
+      await supportedDesktopCodecs([
+        { codec: "av01.0.08M.08", hardware: true },
+        { codec: "avc1.42e02a", hardware: true },
+      ]),
+      ["avc1.42e02a"],
+    );
+    assert.deepEqual(queried, ["avc1.42e02a"]);
+  } finally {
+    globalThis.VideoDecoder = original;
   }
 });

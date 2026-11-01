@@ -151,6 +151,10 @@ impl HostRpcHandler {
             else {
                 unreachable!()
             };
+            let mut previous_layout = self
+                .desktop
+                .layout_event()
+                .map_err(|e| anyhow::anyhow!("{e:?}"))?;
             let id = attach_id.clone();
             let mut previous = control.clone();
             let _cleanup = AttachmentCleanup {
@@ -166,10 +170,26 @@ impl HostRpcHandler {
                 tokio::select! {
                     _ = send.stopped() => return Ok(()),
                     _ = changed.changed() => {},
-                    _ = tick.tick() => { if self.desktop_auth().await.is_err() { return Ok(()); } },
+                    _ = tick.tick() => {
+                        if self.desktop_auth().await.is_err() { return Ok(()); }
+                        let runtime=self.desktop.clone();
+                        if let Some(work)=runtime.capture_work(){
+                            tokio::task::spawn_blocking(move || {let _work=work;runtime.refresh_layout()}).await?.map_err(|e|anyhow::anyhow!("{e:?}"))?;
+                        }
+                    },
                 }
                 if !self.desktop.has(&id) {
                     return Ok(());
+                }
+                let layout = self
+                    .desktop
+                    .layout_event()
+                    .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+                if layout != previous_layout {
+                    media.abort_all();
+                    write_event(&mut send, stream_chunk_payload_message(layout.encode())).await?;
+                    previous_layout = layout;
+                    previous_cursor = None;
                 }
                 let next = self.desktop.configuration(&id);
                 if next != configuration {
@@ -380,7 +400,7 @@ impl HostRpcHandler {
                         frame = match DesktopInputFrame::decode(&payload) {
                             Ok(f) => f,
                             Err(_) => {
-                                return Ok(vec![failure(proc, desktop::Error::Invalid, false)])
+                                return Ok(vec![failure(proc, desktop::Error::Invalid, false)]);
                             }
                         };
                     }
@@ -399,6 +419,19 @@ impl HostRpcHandler {
     }
 }
 
+fn finish_capture(
+    backend: &dyn desktop::Backend,
+    track: &DesktopTrack,
+    work: Option<crate::maintenance::WorkGuard>,
+) {
+    if backend.end_track(track).is_err() {
+        // Unknown capture lifetime must keep updates deferred until restart.
+        // A timeout or IPC loss is not proof that the native producer stopped.
+        std::mem::forget(work);
+        eprintln!("Desktop capture shutdown failed; update workload retained");
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::tests::{test_files, test_terminals};
@@ -407,12 +440,27 @@ mod tests {
     struct FakeBackend {
         inputs: std::sync::Mutex<Vec<DesktopInputEvent>>,
         changed: tokio::sync::Notify,
+        layout_offset: std::sync::atomic::AtomicI64,
+        streaming_group: std::sync::atomic::AtomicBool,
+        shutdown_fails: std::sync::atomic::AtomicBool,
     }
     impl desktop::Backend for FakeBackend {
+        fn end_track(&self, _: &DesktopTrack) -> Result<(), desktop::Error> {
+            if self
+                .shutdown_fails
+                .load(std::sync::atomic::Ordering::SeqCst)
+            {
+                Err(desktop::Error::Backend)
+            } else {
+                Ok(())
+            }
+        }
         fn capabilities(&self) -> DesktopCapabilities {
             DesktopCapabilities {
                 profile: 1,
                 feedback: Some(true),
+                wheel_units: None,
+                physical_keys: None,
                 capture: DesktopAvailability::Available,
                 input: DesktopAvailability::Available,
                 codecs: vec![DesktopCodec {
@@ -432,7 +480,7 @@ mod tests {
             vec![DesktopDisplay {
                 display_id: "fixture".into(),
                 bounds: DesktopRect {
-                    x: 0,
+                    x: self.layout_offset.load(std::sync::atomic::Ordering::SeqCst),
                     y: 0,
                     width: 64,
                     height: 64,
@@ -444,10 +492,68 @@ mod tests {
         fn group(&self, _: &DesktopTrack) -> Result<Vec<desktop::EncodedFrame>, desktop::Error> {
             Ok(vec![desktop::EncodedFrame::new(100, true, vec![1, 2, 3])])
         }
+        fn stream_group(
+            &self,
+            track: &DesktopTrack,
+            emit: &mut dyn FnMut(desktop::EncodedFrame) -> Result<(), desktop::Error>,
+        ) -> Result<(), desktop::Error> {
+            if self
+                .streaming_group
+                .swap(false, std::sync::atomic::Ordering::SeqCst)
+            {
+                emit(desktop::EncodedFrame::new(1, true, vec![1, 2, 3]))?;
+                std::thread::sleep(Duration::from_millis(25));
+                for i in 1..32 {
+                    emit(desktop::EncodedFrame::new(i + 1, false, vec![0; 65536]))?;
+                }
+                Ok(())
+            } else {
+                for frame in self.group(track)? {
+                    emit(frame)?;
+                }
+                Ok(())
+            }
+        }
         fn input(&self, e: &DesktopInputEvent) -> Result<(), desktop::Error> {
             self.inputs.lock().unwrap().push(e.clone());
             self.changed.notify_one();
             Ok(())
+        }
+    }
+    #[test]
+    fn uncertain_native_shutdown_keeps_update_workload() {
+        let track = DesktopTrack {
+            track_id: 1,
+            codec_epoch: 1,
+            codec: DesktopCodec {
+                codec: "fixture".into(),
+                hardware: false,
+                description: None,
+            },
+            viewport: DesktopViewport {
+                viewport_id: "v".into(),
+                display_id: "fixture".into(),
+                crop: DesktopRect {
+                    x: 0,
+                    y: 0,
+                    width: 64,
+                    height: 64,
+                },
+                width: 64,
+                height: 64,
+                fps: 60,
+                bitrate: 1000,
+            },
+        };
+        for fails in [false, true] {
+            let backend = FakeBackend::default();
+            backend
+                .shutdown_fails
+                .store(fails, std::sync::atomic::Ordering::SeqCst);
+            let gate = Arc::new(crate::maintenance::WorkGate::default());
+            finish_capture(&backend, &track, gate.enter());
+            assert_eq!(gate.active(), usize::from(fails));
+            assert_eq!(gate.begin_drain().is_none(), fails);
         }
     }
     struct Fixture {
@@ -648,6 +754,9 @@ mod tests {
             let f = Fixture::new().await;
             f.authenticate().await;
             let (id, _events) = f.attach().await;
+            f.backend
+                .streaming_group
+                .store(true, std::sync::atomic::Ordering::SeqCst);
             let response = f
                 .unary(
                     ProcId::ConfigureDesktopViewports,
@@ -684,6 +793,16 @@ mod tests {
             };
             let configuration = DesktopConfiguration::decode(&payload).unwrap();
             let track = &configuration.tracks[0];
+            let mut partial = f.session.accept_uni().await.unwrap();
+            let mut header = [0; 4];
+            partial.read_exact(&mut header).await.unwrap();
+            let mut first = vec![0; u32::from_be_bytes(header) as usize];
+            partial.read_exact(&mut first).await.unwrap();
+            assert!(DesktopMediaObject::decode(&first).unwrap().keyframe);
+            partial.stop(1).unwrap();
+            let mut recovered = f.session.accept_uni().await.unwrap();
+            assert!(!recovered.read_to_end(65536).await.unwrap().is_empty());
+
             let frame = DesktopInputFrame {
                 attach_id: id.clone(),
                 input_epoch: 0,
@@ -720,6 +839,18 @@ mod tests {
                 })
                 .await;
             assert!(!matches!(response, ReqResMessage::ResponseUnaryOk { .. }));
+            f.backend
+                .layout_offset
+                .store(100, std::sync::atomic::Ordering::SeqCst);
+            f.runtime.refresh_layout().unwrap();
+            assert!(f.runtime.configuration(&id).is_none());
+            assert!(matches!(
+                f.runtime.layout_event().unwrap(),
+                DesktopEvent::Layout {
+                    layout_epoch: 2,
+                    ..
+                }
+            ));
         })
         .await
         .unwrap();
@@ -931,13 +1062,14 @@ mod tests {
                 DesktopError::decode(&error).unwrap(),
                 DesktopError::LimitExceeded { .. }
             ));
-            assert!(!f
-                .backend
-                .inputs
-                .lock()
-                .unwrap()
-                .iter()
-                .any(|e| matches!(e, DesktopInputEvent::PhysicalKey { .. })));
+            assert!(
+                !f.backend
+                    .inputs
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .any(|e| matches!(e, DesktopInputEvent::PhysicalKey { .. }))
+            );
         })
         .await
         .unwrap();
@@ -1011,8 +1143,7 @@ async fn stream_media(
             let work = self.2.take();
             // Cleanup can wait for a bounded native call; never block the async runtime.
             tokio::task::spawn_blocking(move || {
-                let _work = work;
-                backend.end_track(&track);
+                finish_capture(backend.as_ref(), &track, work);
             });
         }
     }
@@ -1028,6 +1159,7 @@ async fn stream_media(
             return;
         }
         group += 1;
+        let started = std::time::Instant::now();
         let backend = backend.clone();
         let capture_track = track.clone();
         // A non-cancelable OS call keeps its own workload guard until it returns.
@@ -1090,12 +1222,13 @@ async fn stream_media(
             let _ = send.reset(1);
         }
         drop(rx); // Unblock a producer abandoned under downstream pressure.
-        if !matches!(producer.await, Ok(Ok(()))) {
+        if !matches!(producer.await, Ok(Ok(())) | Ok(Err(desktop::Error::Stale))) {
             return;
         }
-        tokio::time::sleep(Duration::from_secs_f64(
-            bytes as f64 * 8.0 / track.viewport.bitrate as f64,
-        ))
+        tokio::time::sleep(
+            Duration::from_secs_f64(bytes as f64 * 8.0 / track.viewport.bitrate as f64)
+                .saturating_sub(started.elapsed()),
+        )
         .await;
     }
 }

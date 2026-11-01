@@ -54,10 +54,14 @@ length prefix. Limits: 4 MiB/object, 16 MiB/group, 240 objects/group. A partial 
 wrong epoch, missing keyframe or discontinuity abandons the entire group. The
 browser decoder budget defaults to three queued frames; exceeding it cancels the
 current group and resets the WebCodecs decoder. It reports local recovery status
-and resumes at the next independent group; wire feedback is not yet connected.
+and resumes at the next independent group. Negotiated feedback carries bounded
+decode/render times, queue depth and keyframe requests over the input channel;
+viewers may send feedback without acquiring control.
 The host limits each track to one producer/send operation, times out blocked media
 streams, and paces bytes against each track budget. Each new group must begin with
-an independent keyframe. Native encoder compliance is not yet verified.
+an independent keyframe. A two-object bounded producer queue allows incremental
+sending and cancellation without first collecting a complete GOP. Native track
+cleanup retains the workload guard until capture shutdown returns.
 
 Input payloads are at most 16 KiB; streams roll over at 8 MiB (below the existing
 64 MiB request limit), retaining attachment sequence across streams. The live input reader applies small buffer/total bounds after recognizing the
@@ -78,40 +82,71 @@ streams and recovery after a canceled group. Unit tests additionally cover stale
 sequence/epoch, viewport bounds, credential expiry, competing drain admission,
 release failures, input rollover limits and cross-language codec goldens.
 
-## Viewer styling handoff
+## Native adapters and viewer
 
-`web/src/view/workbench/tool/desktop/index.tsx` exports `DesktopTool`. It needs a
-workbench entry point after coordination with the styling migration. New classes
-use `rieul-desktop-*`; root state is exposed via `data-phase` and
-`data-controlling`, cursor visibility via `data-visible`, and tracks via
-`data-viewport-id`. No shared theme, UnoCSS, CVA or dependency file is changed.
-Popup documents use `rieul-desktop-window` and `rieul-desktop-canvas`; they need
-explicit stylesheet delivery because a new document does not inherit parent CSS.
+The workbench Remote desktop entry opens the Solid 2/Bunja viewer without connecting
+or requesting control. Zyzz presentation, manual multi-monitor popup windows and
+popup stylesheet/theme synchronization are integrated. PNG cursor shapes are
+bounded and rendered separately from video in both embedded and popup views.
+Display changes release held input, advance the layout epoch and invalidate tracks.
+Optional `physicalKeys` and `wheelUnits` capabilities constrain browser input;
+`feedback` must be negotiated before sending the new feedback union variant.
+
+macOS uses ScreenCaptureKit, CGEvent and hardware-required VideoToolbox H.264.
+The adapter refuses root and checks active console ownership and existing Screen
+Recording/Accessibility authorization without prompting. Windows uses DXGI Desktop
+Duplication, SendInput and hardware-only Media Foundation H.264 transforms in an
+interactive Default desktop worker. Neither adapter is installed or connected to
+the production root/system runtime yet. Both currently emit one independent
+keyframe per group; delta-GOP efficiency and sustained latency remain unmeasured.
+
+The synthetic black NV12 fixture was encoded by VideoToolbox hardware, then decoded
+through the actual browser receiver in an isolated Chrome profile. Its checked-in
+bitstream is `web/tests/fixtures/desktop-black.h264` (640x480, black pixels only).
+`desktop::tests::export_synthetic_hardware_frame` regenerates it when explicitly
+run with `RIEUL_DESKTOP_SYNTHETIC_OUT`. This test never captures a display or injects
+input. Bundled headless Chromium may lack H.264 and skips this codec-specific test;
+that is an unsupported negotiated codec, not a successful decode assertion.
+
+## Client codec policy
+
+Codec preference is client policy, not a wire ordering rule. AV1 is eligible only
+when the daemon reports actual hardware encoding and the client has authoritative
+hardware decoding evidence for that codec configuration; otherwise H.264 is used.
+`desktopCodecOrder` retains H.264 after eligible AV1. Ordinary browsers currently
+supply no authoritative hardware evidence, so AV1 is excluded there, even if
+`isConfigSupported` accepts `prefer-hardware`. WebCodecs explicitly allows ignoring
+that hint, and Media Capabilities `powerEfficient` is not a hardware guarantee:
+https://www.w3.org/TR/webcodecs/#hardware-acceleration
+https://www.w3.org/TR/media-capabilities/#media-capabilities-info
+
+Both current native adapters expose only the H.264 codec derived from an actual
+hardware-produced SPS. Neither advertises AV1. A future native/browser integration
+that supplies verified AV1 decoding must also implement bounded AV1 failure to
+H.264 reattachment, with fresh epochs and no restored control; the current browser
+path cannot select AV1 and does not pretend such a runtime fallback was tested.
 
 ## Integration work still required
 
-- Native capture/input and hardware encoder adapters on Apple Silicon macOS and
-  Windows x64, plus per-user desktop IPC and OS permission reporting. The production
-  server intentionally constructs the runtime without an adapter.
-- Dynamic display discovery/layout epochs and cursor production.
-- Product entry-point and Zyzz presentation integration for the new standalone
-  Solid 2/Bunja viewer. It negotiates WebCodecs, renders per-track canvases, supports
-  explicitly acquired physical input and manually moved popup windows. Popups
-  close when their layout/configuration changes. Viewing does not acquire control;
-  input failures stop input without replay. Synthetic tests cover browser key/drag
-  behavior, bounded channels, decoder lifetime, and daemon replacement.
-- Wire feedback handling, cursor shape decoding, and optional monitor enumeration.
-  Current cursor overlay shows position with a generic marker, and decoder metrics
-  remain local. Feedback, composition and relative pointer still return Unsupported.
-- Native testing requires a separate isolated desktop fixture. The updater VM is
-  reserved and must not be modified. A macOS arm64 guest needs an interactive user
-  session and explicitly granted Screen Recording/Accessibility permissions for
-  the fixture helper; hardware VideoToolbox availability must be measured rather
-  than assumed in a VM. Windows x64 needs a separate interactive guest and verified
-  capture/input/Media Foundation GPU encoder availability.
-- Real hardware latency/encoding quality, IME and OS-reserved shortcuts remain
-  unverified. No host capture or OS permission changes have been performed.
+- Authenticated per-user desktop IPC and production adapter selection. The system
+  runtime intentionally remains Unsupported. IPC must bind peer OS identity and
+  active login session, release all held state on loss, bound media/control queues,
+  and preserve updater workload protection through actual native shutdown.
+- macOS GUI helper/packaging integration crosses files owned by the GUI migration;
+  coordinate that boundary before changing their startup and dependency graph.
+- Windows x64 full package/link CI and isolated interactive GPU execution. Current
+  cross-target checks cover Windows API types and the adapter; pure crop/NV12,
+  key mapping, Annex-B and PNG tests run independently on the development host.
+- Windows per-monitor DPI, rotated displays and monochrome/animated cursor shape
+  semantics are not implemented. Current display metadata reports scale 1 / DPI 96;
+  Windows input supports line-unit wheel only. macOS supports pixel and line wheel.
+- Native testing needs a separate isolated fixture. The updater VM and its data are
+  reserved. A new macOS arm64 guest needs an interactive user and explicitly granted
+  Screen Recording/Accessibility for only the fixture helper. GPU encoding in a VM
+  must be measured. Windows needs a separate licensed guest with working GPU APIs;
+  ARM virtualization alone cannot validate an x64/GPU deployment.
+- IME, relative pointer, OS-reserved shortcuts and real hardware latency/quality
+  are not claimed. No host capture, OS input injection, permission changes or
+  service installation has been performed.
 
-`server.rs` now owns desktop RPC/stream wiring and uses the existing WorkGate.
-`maintenance.rs`, updater implementation and GUI/packaging sources remain unchanged.
-The only Cargo dependency addition is test-only `url`, already present in the lockfile.
+GUI/packaging and updater sources remain untouched by this native checkpoint.

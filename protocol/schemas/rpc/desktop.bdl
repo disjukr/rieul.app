@@ -88,6 +88,10 @@ struct DesktopCapabilities {
   reason?: string,
   @ id - 11
   feedback?: bool,
+  @ id - 12
+  wheelUnits?: DesktopWheelUnit[],
+  @ id - 13
+  physicalKeys?: u53[],
 }
 
 struct DesktopCodec {

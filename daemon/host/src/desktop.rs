@@ -387,7 +387,7 @@ impl<I: Input> Desktop<I> {
                 }
             }
             DesktopInputEvent::Composition { .. } | DesktopInputEvent::RelativePointer { .. } => {
-                return Err(Error::Unsupported)
+                return Err(Error::Unsupported);
             }
             DesktopInputEvent::Wheel { dx, dy, .. }
                 if !dx.is_finite()
@@ -395,7 +395,7 @@ impl<I: Input> Desktop<I> {
                     || dx.abs() > 100_000.0
                     || dy.abs() > 100_000.0 =>
             {
-                return Err(Error::Invalid)
+                return Err(Error::Invalid);
             }
             DesktopInputEvent::Feedback { .. } => return Err(Error::Unsupported),
             DesktopInputEvent::ReleaseAll => {
@@ -582,9 +582,10 @@ mod tests {
             Err(Error::Busy)
         );
         drop(drain);
-        assert!(d
-            .attach(&auth, 1, "paired", DesktopKeyboardMode::Physical, 0)
-            .is_ok());
+        assert!(
+            d.attach(&auth, 1, "paired", DesktopKeyboardMode::Physical, 0)
+                .is_ok()
+        );
     }
     #[test]
     fn physical_and_text_cannot_double_inject() {
@@ -803,7 +804,12 @@ pub trait Backend: Send + Sync {
     fn keyboard_mode_supported(&self, _mode: DesktopKeyboardMode) -> bool {
         true
     }
-    fn end_track(&self, _track: &rieul_daemon_core::generated::rpc::DesktopTrack) {}
+    fn end_track(
+        &self,
+        _track: &rieul_daemon_core::generated::rpc::DesktopTrack,
+    ) -> Result<(), Error> {
+        Ok(())
+    }
     fn stream_group(
         &self,
         track: &rieul_daemon_core::generated::rpc::DesktopTrack,
@@ -864,6 +870,8 @@ pub struct Runtime {
         std::sync::Mutex<BTreeMap<String, rieul_daemon_core::generated::rpc::DesktopConfiguration>>,
     gate: Arc<WorkGate>,
     next_codec_epoch: std::sync::Mutex<u64>,
+    layout_displays:
+        std::sync::Mutex<Option<Vec<rieul_daemon_core::generated::rpc::DesktopDisplay>>>,
     feedback: std::sync::Mutex<BTreeMap<(String, u64), (std::time::Instant, u64)>>,
 }
 impl Runtime {
@@ -879,6 +887,7 @@ impl Runtime {
             gate,
             next_codec_epoch: std::sync::Mutex::new(0),
             feedback: Default::default(),
+            layout_displays: Default::default(),
         })
     }
     pub fn capabilities(&self) -> rieul_daemon_core::generated::rpc::DesktopCapabilities {
@@ -889,6 +898,8 @@ impl Runtime {
             .unwrap_or(DesktopCapabilities {
                 profile: PROFILE,
                 feedback: Some(true),
+                wheel_units: None,
+                physical_keys: None,
                 capture: DesktopAvailability::Unsupported,
                 input: DesktopAvailability::Unsupported,
                 codecs: vec![],
@@ -930,6 +941,7 @@ impl Runtime {
         request: &rieul_daemon_core::generated::rpc::AttachDesktopReq,
     ) -> Result<rieul_daemon_core::generated::rpc::DesktopEvent, Error> {
         use rieul_daemon_core::generated::rpc::*;
+        self.refresh_layout()?;
         let caps = self.capabilities();
         if request.profile != PROFILE
             || !self
@@ -1035,6 +1047,51 @@ impl Drop for InputGuard {
 }
 
 impl Runtime {
+    pub(crate) fn refresh_layout(&self) -> Result<(), Error> {
+        let Some(backend) = &self.backend else {
+            return Ok(());
+        };
+        let displays = backend.displays();
+        if self
+            .layout_displays
+            .lock()
+            .map_err(|_| Error::Backend)?
+            .as_ref()
+            == Some(&displays)
+        {
+            return Ok(());
+        }
+        self.mutate(|d| {
+            let mut previous = self.layout_displays.lock().map_err(|_| Error::Backend)?;
+            if previous.as_ref() == Some(&displays) {
+                return Ok(());
+            }
+            if previous.is_some() {
+                d.layout_changed()?;
+                self.configurations
+                    .lock()
+                    .map_err(|_| Error::Backend)?
+                    .clear();
+            }
+            *previous = Some(displays);
+            Ok(())
+        })
+    }
+    pub(crate) fn layout_event(
+        &self,
+    ) -> Result<rieul_daemon_core::generated::rpc::DesktopEvent, Error> {
+        let d = self.state.lock().map_err(|_| Error::Backend)?;
+        let displays = self
+            .layout_displays
+            .lock()
+            .map_err(|_| Error::Backend)?
+            .clone()
+            .unwrap_or_default();
+        Ok(rieul_daemon_core::generated::rpc::DesktopEvent::Layout {
+            layout_epoch: d.layout_epoch,
+            displays,
+        })
+    }
     pub(crate) fn accept_input(
         &self,
         auth: &impl Credentials,

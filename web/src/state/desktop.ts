@@ -1,3 +1,4 @@
+import { desktopCursorPng } from "../protocol/desktop-cursor.ts";
 import { copyDocumentStyles } from "../solid/popup-styles.ts";
 import { desktopEvents } from "../protocol/desktop-session.ts";
 import { bunja } from "bunja";
@@ -8,6 +9,7 @@ import {
   createRoot,
   getOwner,
   runWithOwner,
+  untrack,
 } from "solid-js";
 import { rpcSessionBunja } from "./rpc-session.ts";
 import {
@@ -23,6 +25,7 @@ import {
   DesktopKeyboardMode,
   ProcId,
   type DesktopConfiguration,
+  type DesktopCapabilities,
   type DesktopControl,
   type DesktopDisplay,
   type DesktopEvent,
@@ -79,6 +82,8 @@ export const desktopBunja = bunja(() => {
     attachTimeout: ReturnType<typeof setTimeout> | undefined;
   let configKey = "",
     configVersion = 0;
+  let inputFeatures: Pick<DesktopCapabilities, "physicalKeys" | "wheelUnits"> =
+    {};
   const surfaces = new Map<string, Set<HTMLCanvasElement>>();
   const popups = new Map<Window, () => void>();
   function disconnect() {
@@ -99,6 +104,7 @@ export const desktopBunja = bunja(() => {
     transport = undefined;
     events = undefined;
     configKey = "";
+    inputFeatures = {};
     for (const [popup, cleanup] of popups) {
       cleanup();
       popup.close();
@@ -141,6 +147,7 @@ export const desktopBunja = bunja(() => {
     const cleanup = bindDesktopInput(canvas, viewportId, send, () => ({
       active: controlling(),
       epoch: control().inputEpoch,
+      ...inputFeatures,
     }));
     return () => {
       cleanup();
@@ -262,6 +269,11 @@ export const desktopBunja = bunja(() => {
             }
             if (event.type === "attached") {
               clearTimeout(attachTimeout);
+              inputFeatures = {
+                physicalKeys: caps.physicalKeys,
+                wheelUnits: caps.wheelUnits,
+              };
+              setMessage(caps.reason);
               setInputReady(caps.input === DesktopAvailability.Available);
               setAttachId(event.attachId);
               setControl(event.control);
@@ -406,12 +418,81 @@ export const desktopBunja = bunja(() => {
       "aria-label",
       `Remote display ${track.viewport.displayId}`,
     );
-    popup.document.body.append(note, canvas);
+    const frame = popup.document.createElement("div");
+    frame.className = "rieul-desktop-frame";
+    frame.style.position = "relative";
+    const cursorImage = popup.document.createElement("img");
+    cursorImage.alt = "";
+    cursorImage.className = "rieul-desktop-cursor";
+    Object.assign(cursorImage.style, {
+      position: "absolute",
+      pointerEvents: "none",
+      display: "none",
+    });
+    frame.append(canvas, cursorImage);
+    popup.document.body.append(note, frame);
+    let cursorUrl: string | undefined;
+    const stopCursor = runWithOwner(owner, () =>
+      createRoot((dispose) => {
+        createEffect(
+          createMemo(() => ({
+            cursor: cursor(),
+            displays: displays(),
+            configuration: configuration(),
+          })),
+          (snapshot) => {
+            if (cursorUrl) {
+              URL.revokeObjectURL(cursorUrl);
+              cursorUrl = undefined;
+            }
+            const c = snapshot.cursor,
+              d = snapshot.displays.find(
+                (d) => d.displayId === track.viewport.displayId,
+              ),
+              crop = track.viewport.crop;
+            const shape = c?.shape && desktopCursorPng(c.shape);
+            if (
+              !c?.visible ||
+              !shape ||
+              !d ||
+              c.layoutEpoch !== snapshot.configuration?.layoutEpoch ||
+              (c.displayId !== undefined && c.displayId !== d.displayId)
+            ) {
+              cursorImage.style.display = "none";
+              return;
+            }
+            const x = c.x - d.bounds.x - crop.x,
+              y = c.y - d.bounds.y - crop.y;
+            if (x < 0 || y < 0 || x >= crop.width || y >= crop.height) {
+              cursorImage.style.display = "none";
+              return;
+            }
+            cursorUrl = URL.createObjectURL(
+              new Blob([new Uint8Array(c.shape!)], { type: "image/png" }),
+            );
+            cursorImage.src = cursorUrl;
+            Object.assign(cursorImage.style, {
+              display: "block",
+              left: `${(x / crop.width) * 100}%`,
+              top: `${(y / crop.height) * 100}%`,
+              width: `${(shape.width / crop.width) * 100}%`,
+              transform: `translate(-${(c.hotspotX / shape.width) * 100}%, -${(c.hotspotY / shape.height) * 100}%)`,
+            });
+          },
+        );
+        return dispose;
+      }),
+    );
     const stopStyles = copyDocumentStyles(document, popup.document);
     const releaseSurface = registerSurface(viewportId, canvas);
     const cleanup = () => {
       releaseSurface();
       stopStyles();
+      stopCursor();
+      if (cursorUrl) {
+        URL.revokeObjectURL(cursorUrl);
+        cursorUrl = undefined;
+      }
     };
     popups.set(popup, cleanup);
     popup.addEventListener(
@@ -428,7 +509,7 @@ export const desktopBunja = bunja(() => {
     const dispose = runWithOwner(owner, () =>
       createRoot((dispose) => {
         createEffect(rpc.daemonInfo, () => {
-          disconnect();
+          untrack(disconnect);
           setMessage(undefined);
         });
         return dispose;
@@ -436,7 +517,7 @@ export const desktopBunja = bunja(() => {
     );
     return () => {
       active = false;
-      disconnect();
+      untrack(disconnect);
       dispose();
     };
   });

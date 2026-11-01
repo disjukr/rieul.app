@@ -100,7 +100,7 @@ static void encoded(void *ref,void *source,OSStatus status,VTEncodeInfoFlags fla
 }
 - (void)dealloc { if(compression) { VTCompressionSessionInvalidate(compression); CFRelease(compression); } if(latest) CVPixelBufferRelease(latest); }
 @end
-bool rd_hardware_codec(uint32_t *codec) {
+static bool synthetic_frame(uint32_t *codec,RDPacket emit,void *context) {
     @autoreleasepool {
         RDStream *self=[RDStream new]; self->packet=[NSMutableData new];
         self->compression=encoder(640,480,60,2000000,encoded,(__bridge void *)self);
@@ -118,9 +118,12 @@ bool rd_hardware_codec(uint32_t *codec) {
         const uint8_t *bytes=self->packet.bytes;
         if((bytes[4]&31)!=7) return false;
         *codec=((uint32_t)bytes[5]<<16)|((uint32_t)bytes[6]<<8)|bytes[7];
-        return true;
+        return !emit || emit(context,self->packet.bytes,self->packet.length,0);
     }
 }
+bool rd_hardware_codec(uint32_t *codec) { return synthetic_frame(codec,NULL,NULL); }
+bool rd_synthetic_packet(RDPacket emit,void *context) { uint32_t codec; return synthetic_frame(&codec,emit,context); }
+bool rd_capture_destroy(void *handle);
 // The returned object owns a bounded (latest only) frame slot and a hardware session.
 void *rd_capture_create(uint32_t id,double x,double y,double w,double h,uint32_t width,uint32_t height,uint32_t fps,uint32_t bitrate) {
     @autoreleasepool {
@@ -146,15 +149,21 @@ void *rd_capture_create(uint32_t id,double x,double y,double w,double h,uint32_t
         if(![self->stream addStreamOutput:self type:SCStreamOutputTypeScreen sampleHandlerQueue:self->queue error:&error]) return NULL;
         __block BOOL ok=NO;
         [self->stream startCaptureWithCompletionHandler:^(NSError *error) { ok=error==nil; dispatch_semaphore_signal(done); }];
-        if(dispatch_semaphore_wait(done,dispatch_time(DISPATCH_TIME_NOW,2*NSEC_PER_SEC)) || !ok) { [self->stream stopCaptureWithCompletionHandler:^(NSError *e) { (void)e; }]; return NULL; }
+        if(dispatch_semaphore_wait(done,dispatch_time(DISPATCH_TIME_NOW,2*NSEC_PER_SEC)) || !ok) { rd_capture_destroy((__bridge_retained void *)self); return NULL; }
         return (__bridge_retained void *)self;
     }
 }
-void rd_capture_destroy(void *handle) {
-    if(!handle) return;
+bool rd_capture_destroy(void *handle) {
+    if(!handle) return true;
     RDStream *self=(__bridge_transfer RDStream *)handle;
     @synchronized(self) { self->stopped=YES; }
-    [self->stream stopCaptureWithCompletionHandler:^(NSError *e) { (void)e; }];
+    dispatch_semaphore_t done=dispatch_semaphore_create(0);
+    __block BOOL stopped=NO;
+    [self->stream stopCaptureWithCompletionHandler:^(NSError *e) { stopped=(e==nil); dispatch_semaphore_signal(done); }];
+    dispatch_semaphore_wait(done,DISPATCH_TIME_FOREVER);
+    dispatch_sync(self->queue, ^{});
+    self->stream=nil;
+    return stopped;
 }
 int rd_capture_next(void *handle,uint64_t timestamp,RDPacket emit,void *context) {
     @autoreleasepool {

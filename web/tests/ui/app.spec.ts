@@ -254,3 +254,35 @@ test("Solid signals release replaced scope lifetimes and ignore stale writes", a
   await expect.poll(metrics).toEqual({ mounts: 3, cleanups: 3 });
   expect(errors).toEqual([]);
 });
+
+test("remote desktop workbench entry stays passive until explicit connect", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    localStorage.setItem(
+      "rieul.machines.v1",
+      JSON.stringify([
+        {
+          id: "desktop-fixture",
+          name: "Desktop fixture",
+          baseUrl: "https://fixture.invalid:9012",
+        },
+      ]),
+    );
+    localStorage.setItem("rieul.selected-machine-id.v1", "desktop-fixture");
+  });
+  await page.goto("/");
+  await page
+    .getByRole("button", { name: "Remote desktop", exact: true })
+    .first()
+    .click();
+  await expect(
+    page.getByRole("region", { name: "Remote desktop" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Connect", exact: true }),
+  ).toBeDisabled();
+  await expect(
+    page.getByRole("region", { name: "Remote desktop" }).getByRole("status"),
+  ).toContainText("does not offer remote desktop");
+});

@@ -160,6 +160,8 @@ pub struct HardwareEncoder {
     width: u32,
     height: u32,
     fps: u32,
+    credits: std::cell::Cell<u32>,
+    headers: std::cell::RefCell<Vec<u8>>,
 }
 impl HardwareEncoder {
     pub fn new(width: u32, height: u32, fps: u32, bitrate: u32) -> Result<Self> {
@@ -234,6 +236,8 @@ impl HardwareEncoder {
                         width,
                         height,
                         fps,
+                        credits: std::cell::Cell::new(0),
+                        headers: Default::default(),
                     })
                 })();
                 match attempt {
@@ -261,6 +265,27 @@ impl HardwareEncoder {
                 if Instant::now() >= until {
                     return Err(Error::from_hresult(HRESULT(0x800705b4u32 as i32)));
                 }
+                if !sent && self.credits.get() > 0 {
+                    let codec: ICodecAPI = self.transform.cast()?;
+                    codec.SetValue(&CODECAPI_AVEncVideoForceKeyFrame, &VARIANT::from(1u32))?;
+                    let buffer = MFCreateMemoryBuffer(length as u32)?;
+                    let mut pointer = std::ptr::null_mut();
+                    buffer.Lock(&mut pointer, None, None)?;
+                    if pointer.is_null() {
+                        let _ = buffer.Unlock();
+                        return Err(invalid());
+                    }
+                    std::ptr::copy_nonoverlapping(nv12.as_ptr(), pointer, length);
+                    buffer.Unlock()?;
+                    buffer.SetCurrentLength(length as u32)?;
+                    let sample = MFCreateSample()?;
+                    sample.AddBuffer(&buffer)?;
+                    sample.SetSampleTime((timestamp_micros * 10) as i64)?;
+                    sample.SetSampleDuration(10_000_000 / self.fps as i64)?;
+                    self.transform.ProcessInput(0, &sample, 0)?;
+                    self.credits.set(self.credits.get() - 1);
+                    sent = true;
+                }
                 let event = match self.events.GetEvent(MF_EVENT_FLAG_NO_WAIT) {
                     Ok(e) => e,
                     Err(e) if e.code() == MF_E_NO_EVENTS_AVAILABLE => {
@@ -271,27 +296,19 @@ impl HardwareEncoder {
                 };
                 event.GetStatus()?.ok()?;
                 match event.GetType()? {
-                    kind if kind == METransformNeedInput.0 as u32 && !sent => {
-                        let codec: ICodecAPI = self.transform.cast()?;
-                        codec.SetValue(&CODECAPI_AVEncVideoForceKeyFrame, &VARIANT::from(true))?;
-                        let buffer = MFCreateMemoryBuffer(length as u32)?;
-                        let mut pointer = std::ptr::null_mut();
-                        buffer.Lock(&mut pointer, None, None)?;
-                        if pointer.is_null() {
-                            let _ = buffer.Unlock();
-                            return Err(invalid());
-                        }
-                        std::ptr::copy_nonoverlapping(nv12.as_ptr(), pointer, length);
-                        buffer.Unlock()?;
-                        buffer.SetCurrentLength(length as u32)?;
-                        let sample = MFCreateSample()?;
-                        sample.AddBuffer(&buffer)?;
-                        sample.SetSampleTime((timestamp_micros * 10) as i64)?;
-                        sample.SetSampleDuration(10_000_000 / self.fps as i64)?;
-                        self.transform.ProcessInput(0, &sample, 0)?;
-                        sent = true;
+                    kind if kind == METransformNeedInput.0 as u32 => {
+                        self.credits.set(
+                            self.credits
+                                .get()
+                                .checked_add(1)
+                                .filter(|n| *n <= 64)
+                                .ok_or_else(invalid)?,
+                        );
                     }
                     kind if kind == METransformHaveOutput.0 as u32 => {
+                        if !sent {
+                            return Err(invalid());
+                        }
                         let info = self.transform.GetOutputStreamInfo(0)?;
                         let supplied =
                             if info.dwFlags & MFT_OUTPUT_STREAM_PROVIDES_SAMPLES.0 as u32 == 0 {
@@ -336,7 +353,20 @@ impl HardwareEncoder {
                         if !bytes.starts_with(&[0, 0, 0, 1]) && !bytes.starts_with(&[0, 0, 1]) {
                             return Err(invalid());
                         }
-                        return Ok(bytes);
+                        let headers = crate::desktop_pixels::annex_b_headers(&bytes);
+                        if !headers.is_empty() {
+                            *self.headers.borrow_mut() = headers;
+                            return Ok(bytes);
+                        }
+                        if self.headers.borrow().is_empty() {
+                            return Err(invalid());
+                        }
+                        let mut independent = self.headers.borrow().clone();
+                        independent.extend_from_slice(&bytes);
+                        if independent.len() > 4 * 1024 * 1024 {
+                            return Err(invalid());
+                        }
+                        return Ok(independent);
                     }
                     _ => {}
                 }
@@ -351,6 +381,9 @@ impl Drop for HardwareEncoder {
             let _ = self
                 .transform
                 .ProcessMessage(MFT_MESSAGE_NOTIFY_END_STREAMING, 0);
+            if let Ok(shutdown) = self.transform.cast::<IMFShutdown>() {
+                let _ = shutdown.Shutdown();
+            }
         }
     }
 }
@@ -372,6 +405,9 @@ unsafe fn media_type(
 /// Exact scan-code input; caller checks current interactive desktop and authorization.
 pub fn key(scan: u16, extended: bool, down: bool) -> Result<()> {
     unsafe {
+        if !interactive() {
+            return Err(invalid());
+        }
         let mut flags = KEYEVENTF_SCANCODE;
         if extended {
             flags |= KEYEVENTF_EXTENDEDKEY;
@@ -393,5 +429,304 @@ pub fn key(scan: u16, extended: bool, down: bool) -> Result<()> {
             return Err(Error::from_thread());
         }
         Ok(())
+    }
+}
+
+/// Reject services, secure desktops and inactive console sessions. Never switch desktops.
+pub fn interactive() -> bool {
+    use windows::Win32::{
+        Foundation::HANDLE,
+        System::{
+            RemoteDesktop::{ProcessIdToSessionId, WTSGetActiveConsoleSessionId},
+            StationsAndDesktops::*,
+            Threading::{GetCurrentProcessId, GetCurrentThreadId},
+        },
+    };
+    unsafe {
+        let mut session = 0;
+        if ProcessIdToSessionId(GetCurrentProcessId(), &mut session).is_err()
+            || session == 0
+            || session != WTSGetActiveConsoleSessionId()
+        {
+            return false;
+        }
+        let Ok(input) = OpenInputDesktop(DESKTOP_CONTROL_FLAGS(0), false, DESKTOP_READOBJECTS)
+        else {
+            return false;
+        };
+        let name = |desktop: HDESK| {
+            let mut buffer = [0u16; 64];
+            let mut size = 0;
+            GetUserObjectInformationW(
+                HANDLE(desktop.0),
+                UOI_NAME,
+                Some(buffer.as_mut_ptr().cast()),
+                128,
+                Some(&mut size),
+            )
+            .ok()
+            .map(|_| {
+                String::from_utf16_lossy(
+                    &buffer[..buffer.iter().position(|c| *c == 0).unwrap_or(64)],
+                )
+            })
+        };
+        let current = GetThreadDesktop(GetCurrentThreadId()).ok().and_then(name);
+        let active = name(input);
+        let _ = CloseDesktop(input);
+        active.as_deref() == Some("Default") && current == active
+    }
+}
+#[derive(Clone)]
+pub struct Display {
+    pub id: String,
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+}
+pub fn displays() -> Result<Vec<Display>> {
+    unsafe {
+        if !interactive() {
+            return Err(invalid());
+        }
+        let factory: IDXGIFactory1 = CreateDXGIFactory1()?;
+        let mut displays = Vec::new();
+        for a in 0..16 {
+            let Ok(adapter) = factory.EnumAdapters1(a) else {
+                break;
+            };
+            for o in 0..16 {
+                let Ok(output) = adapter.EnumOutputs(o) else {
+                    break;
+                };
+                let d = output.GetDesc()?;
+                if !d.AttachedToDesktop.as_bool() || d.Rotation != DXGI_MODE_ROTATION_IDENTITY {
+                    continue;
+                }
+                let b = d.DesktopCoordinates;
+                displays.push(Display {
+                    id: format!("{a}.{o}"),
+                    x: b.left,
+                    y: b.top,
+                    width: (b.right - b.left) as u32,
+                    height: (b.bottom - b.top) as u32,
+                });
+            }
+        }
+        Ok(displays)
+    }
+}
+pub fn mouse(x: i32, y: i32, button: Option<(u64, bool)>) -> Result<()> {
+    use windows::Win32::UI::WindowsAndMessaging::*;
+    unsafe {
+        if !interactive() {
+            return Err(invalid());
+        }
+        let mut inputs = Vec::new();
+        if button.is_none() || button.is_some_and(|(_, down)| down) {
+            let (left, top, w, h) = (
+                GetSystemMetrics(SM_XVIRTUALSCREEN),
+                GetSystemMetrics(SM_YVIRTUALSCREEN),
+                GetSystemMetrics(SM_CXVIRTUALSCREEN),
+                GetSystemMetrics(SM_CYVIRTUALSCREEN),
+            );
+            if w <= 1 || h <= 1 {
+                return Err(invalid());
+            }
+            inputs.push(INPUT {
+                r#type: INPUT_MOUSE,
+                Anonymous: INPUT_0 {
+                    mi: MOUSEINPUT {
+                        dx: (((x - left) as i64 * 65535) / (w - 1) as i64).clamp(0, 65535) as i32,
+                        dy: (((y - top) as i64 * 65535) / (h - 1) as i64).clamp(0, 65535) as i32,
+                        dwFlags: MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK,
+                        ..Default::default()
+                    },
+                },
+            });
+        }
+        if let Some((button, down)) = button {
+            let (flags, data) = match (button, down) {
+                (1, true) => (MOUSEEVENTF_LEFTDOWN, 0),
+                (1, false) => (MOUSEEVENTF_LEFTUP, 0),
+                (2, true) => (MOUSEEVENTF_RIGHTDOWN, 0),
+                (2, false) => (MOUSEEVENTF_RIGHTUP, 0),
+                (3, true) => (MOUSEEVENTF_MIDDLEDOWN, 0),
+                (3, false) => (MOUSEEVENTF_MIDDLEUP, 0),
+                (4, true) => (MOUSEEVENTF_XDOWN, 1),
+                (4, false) => (MOUSEEVENTF_XUP, 1),
+                (5, true) => (MOUSEEVENTF_XDOWN, 2),
+                (5, false) => (MOUSEEVENTF_XUP, 2),
+                _ => return Err(invalid()),
+            };
+            inputs.push(INPUT {
+                r#type: INPUT_MOUSE,
+                Anonymous: INPUT_0 {
+                    mi: MOUSEINPUT {
+                        dwFlags: flags,
+                        mouseData: data,
+                        ..Default::default()
+                    },
+                },
+            });
+        }
+        if SendInput(&inputs, size_of::<INPUT>() as i32) != inputs.len() as u32 {
+            return Err(Error::from_thread());
+        }
+        Ok(())
+    }
+}
+pub fn wheel(x: i32, y: i32) -> Result<()> {
+    unsafe {
+        if !interactive() {
+            return Err(invalid());
+        }
+        let mut inputs = Vec::new();
+        for (delta, flag) in [(x, MOUSEEVENTF_HWHEEL), (-y, MOUSEEVENTF_WHEEL)] {
+            if delta != 0 {
+                inputs.push(INPUT {
+                    r#type: INPUT_MOUSE,
+                    Anonymous: INPUT_0 {
+                        mi: MOUSEINPUT {
+                            dwFlags: flag,
+                            mouseData: delta as u32,
+                            ..Default::default()
+                        },
+                    },
+                });
+            }
+        }
+        if SendInput(&inputs, size_of::<INPUT>() as i32) != inputs.len() as u32 {
+            return Err(Error::from_thread());
+        }
+        Ok(())
+    }
+}
+
+pub struct Cursor {
+    pub x: i32,
+    pub y: i32,
+    pub visible: bool,
+    pub hotspot: (u32, u32),
+    pub shape: Option<Vec<u8>>,
+}
+pub fn cursor() -> Result<Cursor> {
+    use windows::Win32::{Graphics::Gdi::*, UI::WindowsAndMessaging::*};
+    unsafe {
+        if !interactive() {
+            return Err(invalid());
+        }
+        let mut info = CURSORINFO {
+            cbSize: size_of::<CURSORINFO>() as u32,
+            ..Default::default()
+        };
+        GetCursorInfo(&mut info)?;
+        let mut result = Cursor {
+            x: info.ptScreenPos.x,
+            y: info.ptScreenPos.y,
+            visible: info.flags == CURSOR_SHOWING,
+            hotspot: (0, 0),
+            shape: None,
+        };
+        if !result.visible {
+            return Ok(result);
+        }
+        let icon = CopyIcon(HICON(info.hCursor.0))?;
+        struct Icon(HICON);
+        impl Drop for Icon {
+            fn drop(&mut self) {
+                unsafe {
+                    let _ = DestroyIcon(self.0);
+                }
+            }
+        }
+        let _icon = Icon(icon);
+        let mut data = ICONINFO::default();
+        GetIconInfo(icon, &mut data)?;
+        struct Bitmap(HBITMAP);
+        impl Drop for Bitmap {
+            fn drop(&mut self) {
+                unsafe {
+                    let _ = DeleteObject(HGDIOBJ(self.0 .0));
+                }
+            }
+        }
+        let _mask = Bitmap(data.hbmMask);
+        let _color = Bitmap(data.hbmColor);
+        result.hotspot = (data.xHotspot, data.yHotspot);
+        // Monochrome AND/XOR and animated cursor semantics need their own transport;
+        // keep position-only rather than inventing a shape.
+        if data.hbmColor.is_invalid() {
+            return Ok(result);
+        }
+        let mut bitmap = BITMAP::default();
+        if GetObjectW(
+            HGDIOBJ(data.hbmColor.0),
+            size_of::<BITMAP>() as i32,
+            Some((&mut bitmap as *mut BITMAP).cast()),
+        ) == 0
+        {
+            return Ok(result);
+        }
+        let (w, h) = (bitmap.bmWidth, bitmap.bmHeight);
+        if w <= 0 || h <= 0 || w > 128 || h > 128 {
+            return Ok(result);
+        }
+        let dc = CreateCompatibleDC(None);
+        if dc.is_invalid() {
+            return Err(invalid());
+        }
+        struct Dc(HDC);
+        impl Drop for Dc {
+            fn drop(&mut self) {
+                unsafe {
+                    let _ = DeleteDC(self.0);
+                }
+            }
+        }
+        let _dc = Dc(dc);
+        let header = BITMAPINFO {
+            bmiHeader: BITMAPINFOHEADER {
+                biSize: size_of::<BITMAPINFOHEADER>() as u32,
+                biWidth: w,
+                biHeight: -h,
+                biPlanes: 1,
+                biBitCount: 32,
+                biCompression: BI_RGB.0,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let mut pixels = std::ptr::null_mut();
+        let surface = CreateDIBSection(Some(dc), &header, DIB_RGB_COLORS, &mut pixels, None, 0)?;
+        let _surface = Bitmap(surface);
+        if pixels.is_null() {
+            return Err(invalid());
+        }
+        let length = w as usize * h as usize * 4;
+        std::ptr::write_bytes(pixels, 0, length);
+        let old = SelectObject(dc, HGDIOBJ(surface.0));
+        let rendered = DrawIconEx(dc, 0, 0, icon, w, h, 0, None, DI_NORMAL);
+        SelectObject(dc, old);
+        rendered?;
+        let bgra = std::slice::from_raw_parts(pixels as *const u8, length);
+        if bgra.chunks_exact(4).all(|p| p[3] == 0) {
+            return Ok(result);
+        }
+        let mut rgba = Vec::with_capacity(length);
+        for p in bgra.chunks_exact(4) {
+            let alpha = p[3] as u32;
+            let straight = |v: u8| {
+                if alpha == 0 {
+                    0
+                } else {
+                    ((v as u32 * 255 + alpha / 2) / alpha).min(255) as u8
+                }
+            };
+            rgba.extend_from_slice(&[straight(p[2]), straight(p[1]), straight(p[0]), p[3]]);
+        }
+        result.shape = crate::desktop_pixels::cursor_png(w as usize, h as usize, &rgba);
+        Ok(result)
     }
 }

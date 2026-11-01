@@ -14,3 +14,6 @@ pub mod desktop_native;
 
 #[cfg(any(windows, test))]
 pub mod desktop_pixels;
+
+#[cfg(windows)]
+pub mod desktop;

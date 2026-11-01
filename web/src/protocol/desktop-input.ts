@@ -3,6 +3,7 @@ import {
   encodeDesktopInputFrameValue,
   decodeDesktopInputReceiptValue,
   type DesktopInputEvent,
+  type DesktopWheelUnit,
 } from "./generated/rpc.ts";
 import {
   encodeReqResMessageSequence,
@@ -272,7 +273,12 @@ export function bindDesktopInput(
   canvas: HTMLCanvasElement,
   viewportId: string,
   send: (event: DesktopInputEvent) => boolean,
-  control: () => { active: boolean; epoch: number },
+  control: () => {
+    active: boolean;
+    epoch: number;
+    physicalKeys?: number[];
+    wheelUnits?: DesktopWheelUnit[];
+  },
 ): () => void {
   const keys = new Set<number>();
   let epoch = control().epoch;
@@ -305,7 +311,11 @@ export function bindDesktopInput(
       return;
     }
     const usage = desktopKeyUsage(e.code);
-    if (usage === undefined) return;
+    if (
+      usage === undefined ||
+      (control().physicalKeys && !control().physicalKeys!.includes(usage))
+    )
+      return;
     e.preventDefault();
     if (e.type === "keydown") {
       if (e.repeat && !keys.has(usage)) return;
@@ -349,6 +359,8 @@ export function bindDesktopInput(
     if (!active()) return;
     const p = point(e);
     if (!p) return;
+    const unit = e.deltaMode === 1 ? 1 : e.deltaMode === 2 ? 2 : 0;
+    if (control().wheelUnits && !control().wheelUnits!.includes(unit)) return;
     e.preventDefault();
     send({
       type: "wheel",
@@ -356,7 +368,7 @@ export function bindDesktopInput(
       ...p,
       dx: e.deltaX,
       dy: e.deltaY,
-      unit: e.deltaMode === 1 ? 1 : e.deltaMode === 2 ? 2 : 0,
+      unit,
     });
   };
   const context = (e: MouseEvent) => {

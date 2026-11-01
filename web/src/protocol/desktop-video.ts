@@ -6,12 +6,28 @@ import type {
 } from "./generated/rpc.ts";
 import { readDesktopGroup } from "./desktop-media.ts";
 
+/** Client policy only; never infer hardware use from WebCodecs preference hints.
+ * The browser currently has no authoritative per-decoder hardware attestation.
+ * A future trusted native client may supply device/configuration-specific evidence.
+ */
+export function desktopCodecOrder(
+  codecs: DesktopCodec[],
+  hardwareDecoded: ReadonlySet<string> = new Set(),
+): DesktopCodec[] {
+  const av1 = codecs.filter(
+    (c) =>
+      c.codec.startsWith("av01.") && c.hardware && hardwareDecoded.has(c.codec),
+  );
+  const h264 = codecs.filter((c) => /^avc[13]\./.test(c.codec));
+  return [...av1, ...h264];
+}
+
 export async function supportedDesktopCodecs(
   codecs: DesktopCodec[],
 ): Promise<string[]> {
   if (typeof VideoDecoder === "undefined") return [];
   const supported: string[] = [];
-  for (const codec of codecs.slice(0, 16)) {
+  for (const codec of desktopCodecOrder(codecs.slice(0, 16))) {
     try {
       if (
         (

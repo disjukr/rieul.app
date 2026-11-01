@@ -35,6 +35,11 @@ unsafe extern "C" {
     fn rd_permissions() -> i32;
     fn rd_displays(out: *mut Display, capacity: usize) -> usize;
     fn rd_hardware_codec(codec: *mut u32) -> bool;
+    #[cfg(test)]
+    fn rd_synthetic_packet(
+        emit: extern "C" fn(*mut c_void, *const u8, usize, u64) -> bool,
+        context: *mut c_void,
+    ) -> bool;
     fn rd_capture_create(
         id: u32,
         x: f64,
@@ -46,7 +51,7 @@ unsafe extern "C" {
         fps: u32,
         bitrate: u32,
     ) -> *mut c_void;
-    fn rd_capture_destroy(handle: *mut c_void);
+    fn rd_capture_destroy(handle: *mut c_void) -> bool;
     fn rd_capture_next(
         handle: *mut c_void,
         timestamp: u64,
@@ -62,7 +67,11 @@ struct Capture(*mut c_void);
 unsafe impl Send for Capture {}
 impl Drop for Capture {
     fn drop(&mut self) {
-        unsafe { rd_capture_destroy(self.0) }
+        if !self.0.is_null() {
+            unsafe {
+                rd_capture_destroy(self.0);
+            }
+        }
     }
 }
 #[derive(Default)]
@@ -117,6 +126,16 @@ impl MacDesktop {
         let mut state = self.input.lock().map_err(|_| Error::Backend)?;
         if unsafe { rd_permissions() } & 2 == 0 {
             return Err(Error::Unauthorized);
+        }
+        if viewport.is_none()
+            && matches!(
+                event,
+                DesktopInputEvent::AbsolutePointer { .. }
+                    | DesktopInputEvent::Button { down: true, .. }
+                    | DesktopInputEvent::Wheel { .. }
+            )
+        {
+            return Err(Error::Invalid);
         }
         if let Some(v) = viewport {
             let d = self
@@ -214,7 +233,11 @@ impl MacDesktop {
                 // Attempt all releases even if one fails; manager will poison on failure.
                 for usage in keys {
                     if let Some(code) = key_code(usage) {
-                        ok &= unsafe { rd_key(code, false, false, 0) };
+                        let released = unsafe { rd_key(code, false, false, 0) };
+                        ok &= released;
+                        if !released {
+                            state.keys.insert(usage);
+                        }
                     }
                 }
                 for button in buttons {
@@ -223,19 +246,19 @@ impl MacDesktop {
                         2 => 4,
                         _ => 26,
                     };
-                    ok &= unsafe {
+                    let released = unsafe {
                         rd_mouse(kind, (button - 1) as u32, state.point.0, state.point.1, 0)
                     };
+                    ok &= released;
+                    if !released {
+                        state.buttons.insert(button);
+                    }
                 }
                 state.wheel = (0.0, 0.0);
             }
             _ => return Err(Error::Unsupported),
         }
-        if ok {
-            Ok(())
-        } else {
-            Err(Error::Backend)
-        }
+        if ok { Ok(()) } else { Err(Error::Backend) }
     }
 }
 fn map_point(v: &DesktopViewport, d: &Display, x: f64, y: f64) -> Result<(f64, f64), Error> {
@@ -269,6 +292,12 @@ impl Backend for MacDesktop {
         DesktopCapabilities {
             profile: PROFILE,
             feedback: Some(true),
+            wheel_units: Some(vec![DesktopWheelUnit::Pixels, DesktopWheelUnit::Lines]),
+            physical_keys: Some(
+                (4..=231)
+                    .filter(|usage| key_code(*usage).is_some())
+                    .collect(),
+            ),
             capture: if permissions & 1 == 0 {
                 DesktopAvailability::PermissionRequired
             } else if hardware {
@@ -351,10 +380,19 @@ impl Backend for MacDesktop {
     ) -> Result<(), Error> {
         self.inject(event, viewport)
     }
-    fn end_track(&self, track: &DesktopTrack) {
-        if let Ok(mut tracks) = self.tracks.lock() {
-            tracks.remove(&(track.track_id, track.codec_epoch));
+    fn end_track(&self, track: &DesktopTrack) -> Result<(), Error> {
+        let capture = self
+            .tracks
+            .lock()
+            .map_err(|_| Error::Backend)?
+            .remove(&(track.track_id, track.codec_epoch));
+        if let Some(mut capture) = capture {
+            let handle = std::mem::replace(&mut capture.0, std::ptr::null_mut());
+            if !unsafe { rd_capture_destroy(handle) } {
+                return Err(Error::Backend);
+            }
         }
+        Ok(())
     }
     fn group(&self, track: &DesktopTrack) -> Result<Vec<EncodedFrame>, Error> {
         if !track.codec.codec.starts_with("avc1.42") {
@@ -537,6 +575,26 @@ mod tests {
         assert!(unsafe { rd_hardware_codec(&mut codec) });
         assert_eq!(codec >> 16, 66);
         assert_eq!(codec & 255, 42);
+    }
+    #[test]
+    #[ignore = "synthetic hardware bitstream export only; no capture/input"]
+    fn export_synthetic_hardware_frame() {
+        extern "C" fn packet(context: *mut c_void, data: *const u8, len: usize, _: u64) -> bool {
+            if len > 4 * 1024 * 1024 || data.is_null() {
+                return false;
+            }
+            unsafe {
+                (&mut *(context as *mut Vec<u8>))
+                    .extend_from_slice(std::slice::from_raw_parts(data, len));
+            }
+            true
+        }
+        let mut data = Vec::<u8>::new();
+        assert!(unsafe { rd_synthetic_packet(packet, &mut data as *mut _ as *mut c_void) });
+        assert!(!data.is_empty());
+        if let Ok(path) = std::env::var("RIEUL_DESKTOP_SYNTHETIC_OUT") {
+            std::fs::write(path, data).unwrap();
+        }
     }
     #[test]
     fn physical_side_and_keypad_mapping() {

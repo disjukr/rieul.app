@@ -253,11 +253,7 @@ function DesktopSurface(props: { track: DesktopTrack }) {
           }}
         >
           {shape() ? (
-            <img
-              src={shape()!.url}
-              alt=""
-              style={{ width: "100%", display: "block" }}
-            />
+            <img src={shape()!.url} alt="" {...styles.cursorImage()} />
           ) : (
             "↖"
           )}
@@ -268,6 +264,7 @@ function DesktopSurface(props: { track: DesktopTrack }) {
 }
 
 namespace styles {
+  export const cursorImage = style({ width: "100%", display: "block" });
   export const root = style({
     display: "flex",
     flexDirection: "column",

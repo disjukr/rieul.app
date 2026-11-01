@@ -32,6 +32,7 @@ const tools: {
   disabled?: boolean;
   Icon: typeof Folder;
 }[] = [
+  { id: "desktop", label: "Remote desktop", Icon: AppWindow },
   {
     id: "daemon",
     label: "Daemon",
