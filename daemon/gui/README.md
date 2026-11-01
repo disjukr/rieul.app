@@ -83,10 +83,16 @@ Branch: `codex/daemon-gpui`, isolated checkout on Mac Studio.
   [CI run](https://github.com/disjukr/rieul.app/actions/runs/41275615104).
   These include signed PKG extraction, GUI execution from that payload, strict
   signature/entitlement checks and DMG verification, without installation.
-- Subsequent changes require a fresh complete CI run before main integration.
-  Windows compilation passes; the initial executable loader failure is being
-  retested with GPUI's official `windows-manifest` feature restored. The manifest
-  enables Common Controls v6, which GPUI's TaskDialog import requires.
+- Windows x64 payload, spaced Unicode source build, native window/IPC lifecycle,
+  MSI/MSIX build and extracted payload verification passed at `45b5976`:
+  [CI run](https://github.com/disjukr/rieul.app/actions/runs/41278168317).
+  The initial `0xC0000139` loader failure was fixed by restoring GPUI's official
+  `windows-manifest` feature, including Common Controls v6 for TaskDialog.
+- macOS ARM64 passed again at `098ed6d`, including signed installer fixtures.
+  Current exact-commit platform results are linked from [PR #46](https://github.com/disjukr/rieul.app/pull/46).
+  Fixture artifacts use a module-relative path so CI uploads do not depend on
+  whether the script runs from the repository or `pairing/` directory.
+
 
 Screenshots use an independently built GPUiX baseline from the base commit and the
 same disposable config, dimensions and font environment. The daemon-info screen
@@ -122,7 +128,7 @@ GUI digest before sealing the outer app, and no JIT entitlements are needed.
 Mac ARM64 disposable-profile QA has passed native pointer approval, rejection,
 cancel, close/hide/reopen, stale generation, duplicate activation and independent
 profile shutdown. Tests use the native renderer and event dispatch, not OS-input
-injection. Final exact-commit cross-platform CI and visual comparison remain in progress.
+injection. The PR records exact-commit CI results and the remaining scope of visual comparison.
 
 The official GPUI pin precedes the CAMetalDisplayLink change in 0373366f43;
 that newer renderer aborts when screenshot readback runs on this Mac. The pinned

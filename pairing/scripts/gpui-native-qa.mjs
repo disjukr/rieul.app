@@ -4,11 +4,12 @@ import { createInterface } from "node:readline";
 import { createHash } from "node:crypto";
 import net from "node:net";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import assert from "node:assert/strict";
 import { encodeCbor, decodeCborSequence } from "../../web/src/protocol/cbor.ts";
 import * as wire from "../../web/src/protocol/socket-ipc.ts";
-const dir = path.resolve(
-  "pairing/artifacts",
+const dir = path.join(
+  fileURLToPath(new URL("../artifacts", import.meta.url)),
   `gpui-${process.platform}-${process.arch}-${Date.now()}`,
 );
 await mkdir(dir, { recursive: true });
