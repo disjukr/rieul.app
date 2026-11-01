@@ -1,5 +1,4 @@
 import { render } from "@solidjs/web";
-import "@unocss/reset/tailwind.css";
 import "../../src/theme.css";
 import "../../src/view/workbench/tool/desktop/index.tsx";
 import { copyDocumentStyles } from "../../src/solid/popup-styles.ts";

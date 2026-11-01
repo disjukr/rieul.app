@@ -1,5 +1,36 @@
 import { expect, test } from "@playwright/test";
 
+test("production CSS chunks preserve default button variants above the reset", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.addInitScript(() =>
+    Object.defineProperty(window, "WebTransport", {
+      configurable: true,
+      value: class {
+        constructor() {
+          throw new Error("offline styling fixture");
+        }
+      },
+    }),
+  );
+  await page.goto("http://127.0.0.1:5186");
+  await page
+    .getByRole("textbox", { name: "Machine name" })
+    .fill("Style fixture");
+  await page
+    .getByRole("textbox", { name: "Machine URL" })
+    .fill("fixture.invalid");
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
+  const button = page.getByRole("button", { name: "Skip", exact: true });
+  await expect(button).toHaveCSS("background-color", "rgb(255, 255, 255)");
+  await expect(button).toHaveCSS("min-height", "34px");
+  await button.hover();
+  await expect(button).toHaveCSS("background-color", "rgb(247, 250, 255)");
+  expect(errors).toEqual([]);
+});
+
 test("desktop popup receives styles, theme changes and stylesheet updates without retaining observers", async ({
   page,
 }) => {
