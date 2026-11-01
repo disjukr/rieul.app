@@ -313,6 +313,21 @@ impl Dir {
     pub fn sync(&self) -> Result<()> {
         self.file.sync_all().context("sync directory")
     }
+    pub fn rename_file(&self, from: &str, to: &str) -> Result<()> {
+        self.read_file(from)?;
+        ensure!(
+            unsafe {
+                libc::renameat(
+                    self.file.as_raw_fd(),
+                    component(from)?.as_ptr(),
+                    self.file.as_raw_fd(),
+                    component(to)?.as_ptr(),
+                )
+            } == 0,
+            "private rename failed"
+        );
+        self.sync()
+    }
     pub fn remove(&self, name: &str) -> Result<()> {
         if unsafe { libc::unlinkat(self.file.as_raw_fd(), component(name)?.as_ptr(), 0) } != 0 {
             ensure!(

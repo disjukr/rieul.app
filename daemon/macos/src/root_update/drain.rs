@@ -16,6 +16,8 @@ use std::{
 pub(super) struct Intent {
     pub nonce: String,
     pub commit: bool,
+    #[serde(default)]
+    pub manual: bool,
 }
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -61,6 +63,7 @@ pub fn hooks() -> Result<Option<Arc<MaintenanceHooks>>> {
                     Ok(DrainRequest {
                         nonce: r.nonce,
                         commit: r.commit,
+                        manual: r.manual,
                     })
                 })
                 .transpose()
@@ -96,18 +99,53 @@ pub fn hooks() -> Result<Option<Arc<MaintenanceHooks>>> {
 }
 /// A worker only bootouts after the serving process acknowledges an idle exit.
 /// No timeout/busy/error path grants authority to kill an active daemon.
-pub(super) fn request_exit(state: &Dir, control: &mut impl Control, nonce: &str) -> Result<()> {
+pub(super) fn request_exit(
+    state: &Dir,
+    control: &mut impl Control,
+    nonce: &str,
+    manual: bool,
+) -> Result<()> {
     ensure!(nonce_valid(nonce), "invalid drain nonce");
     let Some(job) = control.inspect(Job::System)? else {
         return Ok(());
     };
     let Some(pid) = job.pid else { return Ok(()) };
+    #[cfg(target_os = "macos")]
+    if let Some(parked) = state.load::<super::runtime::Parked>("parked.json")? {
+        if parked.nonce == nonce && parked.pid == pid {
+            let service = Dir::open(Path::new(SERVICE).parent().unwrap(), 0, true)?;
+            ensure!(
+                super::verify::digest(service.read_file("rieul-macos-system")?)?
+                    == parked.daemon_sha256,
+                "parked runtime changed"
+            );
+            super::launchd::checked(
+                state,
+                "/usr/bin/codesign",
+                &[
+                    "--verify",
+                    "--strict",
+                    "-R",
+                    &super::verify::requirement(super::DAEMON_ID),
+                    &pid.to_string(),
+                ],
+            )?;
+            return Ok(());
+        }
+    }
+
+    use std::io::Read;
+    let mut random = [0u8; 32];
+    std::fs::File::open("/dev/urandom")?.read_exact(&mut random)?;
+    let attempt: String = random.iter().map(|b| format!("{b:02x}")).collect();
+    let nonce = attempt.as_str();
     state.remove("drain-response.json")?;
     state.save(
         "drain-request.json",
         &Intent {
             nonce: nonce.into(),
             commit: false,
+            manual,
         },
     )?;
     let deadline = Instant::now() + Duration::from_secs(8);
@@ -129,6 +167,7 @@ pub(super) fn request_exit(state: &Dir, control: &mut impl Control, nonce: &str)
                             &Intent {
                                 nonce: nonce.into(),
                                 commit: true,
+                                manual,
                             },
                         )?;
                         committed = true;

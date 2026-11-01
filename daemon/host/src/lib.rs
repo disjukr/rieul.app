@@ -10,3 +10,5 @@ mod db_schema;
 mod shell_integration;
 
 pub mod maintenance;
+
+pub mod updates;

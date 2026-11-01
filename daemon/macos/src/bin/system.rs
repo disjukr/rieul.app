@@ -35,6 +35,12 @@ struct Args {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    #[cfg(target_os = "macos")]
+    #[command(hide = true)]
+    InternalUpdateWorker,
+    #[cfg(target_os = "macos")]
+    #[command(hide = true)]
+    MigrateUpdater,
     Run {
         #[arg(long)]
         listen: Option<SocketAddr>,
@@ -74,12 +80,22 @@ async fn main() -> Result<()> {
         .init();
 
     match Args::parse().command {
+        Command::MigrateUpdater => rieul_macos_daemon::root_update::prepare_migration(),
+        Command::InternalUpdateWorker => rieul_macos_daemon::root_update::run_worker(),
         Command::Run { listen, config } => {
             let config_path = config.unwrap_or_else(macos_system_config_path);
+            if config_path == macos_system_config_path()
+                && listen.is_none()
+                && rieul_macos_daemon::root_update::service_startup()?
+            {
+                std::future::pending::<()>().await;
+            }
             let pairing_notifier = MacGuiPairingNotifier::from_config_path(&config_path);
             let ready = if config_path == macos_system_config_path() && listen.is_none() {
                 rieul_macos_daemon::root_update::startup_callback()?
-            } else { None };
+            } else {
+                None
+            };
             run_system_server_with_readiness(
                 listen,
                 config_path,
@@ -93,6 +109,7 @@ async fn main() -> Result<()> {
                 "macOS system daemon",
                 ready,
                 rieul_macos_daemon::root_update::maintenance_hooks()?,
+                rieul_macos_daemon::root_update::update_service()?,
             )
             .await
         }

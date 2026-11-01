@@ -1,3 +1,4 @@
+import { DaemonUpdateSection } from "./updates.tsx";
 import type {
   ClientsTableEvent,
   TerminalSessionInfo,
@@ -752,6 +753,8 @@ function DaemonInfoView(props: DaemonInfoViewProps) {
                 </span>
               </PropertyListItem>
             </PropertyList>
+
+            <DaemonUpdateSection />
 
             <ClientsOverviewSection
               clientsState={props.clientsState}

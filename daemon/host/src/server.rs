@@ -9,6 +9,8 @@ use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use anyhow::{bail, Context, Result};
+use rieul_daemon_core::generated::rpc::{RequestUpdateReq, UpdateAction};
+type SharedUpdater = Option<Arc<dyn crate::updates::UpdateService>>;
 use notify::{Event, RecursiveMode, Watcher};
 use rieul_daemon_core::config::{
     client_credentials_path, daemon_agent_workspaces_path, daemon_state_database_path,
@@ -197,9 +199,22 @@ pub async fn run_system_server(
     terminal_backend: Option<SharedTerminalBackend>,
     log_label: &'static str,
 ) -> Result<()> {
-    run_system_server_with_readiness(listen_override,config_path,files,windows,
-        process_resources_in_use,process_sockets_in_use,process_modules,
-        pairing_notifier,terminal_backend,log_label,None,None).await
+    run_system_server_with_readiness(
+        listen_override,
+        config_path,
+        files,
+        windows,
+        process_resources_in_use,
+        process_sockets_in_use,
+        process_modules,
+        pairing_notifier,
+        terminal_backend,
+        log_label,
+        None,
+        None,
+        None,
+    )
+    .await
 }
 
 /// Called only after database initialization and successful transport binding.
@@ -217,7 +232,17 @@ pub async fn run_system_server_with_readiness(
     log_label: &'static str,
     on_ready: Option<Arc<dyn Fn() -> Result<()> + Send + Sync>>,
     maintenance: Option<Arc<crate::maintenance::MaintenanceHooks>>,
+    updates: SharedUpdater,
 ) -> Result<()> {
+    let ever_ready = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let ready_flag = ever_ready.clone();
+    let on_ready: Option<Arc<dyn Fn() -> Result<()> + Send + Sync>> = Some(Arc::new(move || {
+        if let Some(callback) = &on_ready {
+            callback()?;
+        }
+        ready_flag.store(true, std::sync::atomic::Ordering::SeqCst);
+        Ok(())
+    }));
     loop {
         write_daemon_status(&config_path, DaemonStatus::NotReady("starting"));
         match run_system_server_once(
@@ -233,6 +258,7 @@ pub async fn run_system_server_with_readiness(
             log_label,
             on_ready.clone(),
             maintenance.clone(),
+            updates.clone(),
         )
         .await
         {
@@ -244,6 +270,17 @@ pub async fn run_system_server_with_readiness(
                     config = %config_path.display(),
                     "system daemon config is not ready; waiting for config changes"
                 );
+                if !ever_ready.load(std::sync::atomic::Ordering::SeqCst) {
+                    if let Some(hooks) = &maintenance {
+                        // No listener, scheduler or client work has ever started.
+                        // A failed candidate can still acknowledge a rollback drain.
+                        tokio::select! {
+                            result = wait_for_startup_config_change(&config_path) => result?,
+                            () = crate::maintenance::wait_unstarted_drain(hooks) => return Ok(()),
+                        }
+                        continue;
+                    }
+                }
                 wait_for_startup_config_change(&config_path).await?;
             }
         }
@@ -263,6 +300,7 @@ async fn run_system_server_once(
     log_label: &'static str,
     on_ready: Option<Arc<dyn Fn() -> Result<()> + Send + Sync>>,
     maintenance: Option<Arc<crate::maintenance::MaintenanceHooks>>,
+    updates: SharedUpdater,
 ) -> Result<()> {
     let provider = web_transport_quinn::crypto::default_provider();
     let startup_config = load_startup_config(&config_path, listen_override)?;
@@ -299,7 +337,9 @@ async fn run_system_server_once(
 
     let resolver = Arc::new(ReloadingCertResolver::new(certificate.certified_key));
     let mut server = build_reloadable_server(addr, provider.clone(), resolver.clone())?;
-    if let Some(on_ready) = on_ready { on_ready()?; }
+    if let Some(on_ready) = on_ready {
+        on_ready()?;
+    }
     let _scheduler = AbortTaskOnDrop(commands.start_scheduler());
     write_daemon_status(&config_path, DaemonStatus::Ready);
 
@@ -312,19 +352,41 @@ async fn run_system_server_once(
 
     info!(%addr, daemon = log_label, "rieul system daemon listening");
 
-    let connections=Arc::new(std::sync::atomic::AtomicUsize::new(0));
-    let mut maintenance_tick=tokio::time::interval(std::time::Duration::from_millis(250));
-    let mut drain:Option<(String,std::time::Instant,tokio::sync::OwnedMutexGuard<()>)>=None;
-    let mut expired_nonce=None;
+    let connections = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let mut maintenance_tick = tokio::time::interval(std::time::Duration::from_millis(250));
+    let admission = Arc::new(crate::maintenance::WorkGate::default());
+    let (disconnect_tx, _) = watch::channel(0u64);
+    let mut drain: Option<(
+        String,
+        std::time::Instant,
+        tokio::sync::OwnedMutexGuard<()>,
+        crate::maintenance::DrainGuard,
+        bool,
+    )> = None;
+    let mut expired_nonce = None;
     loop {
-        let request=tokio::select! {
+        let request = tokio::select! {
+            biased;
+            request=server.accept()=>match request {
+                Some(request)=>{
+                    if drain.as_ref().is_some_and(|entry|entry.4) {if let Err(error) = request.reject(http::StatusCode::SERVICE_UNAVAILABLE).await { tracing::warn!(%error, "failed to reject connection during update drain"); } continue;}
+                    if let Some((nonce,_,_,_,_))=drain.take() {
+                        expired_nonce=Some(nonce.clone());
+                        if let Some(hooks)=&maintenance {let _=(hooks.report)(&nonce,crate::maintenance::DrainState::Busy(crate::maintenance::Workload{connections:1,..Default::default()}));}
+                    }
+                    request
+                },None=>break
+            },
             _=maintenance_tick.tick(), if maintenance.is_some()=>{
                 use crate::maintenance::{DrainState,Workload};
+                if let Some(updater)=&updates {
+                    updater.tick(&Workload{connections:connections.load(std::sync::atomic::Ordering::SeqCst),terminals:terminals.sessions_snapshot().iter().filter(|session|session.exit.is_none()).count(),commands:commands.update_busy_jobs().await,agents:agents.update_live_runtimes(),active_calls:admission.active()});
+                }
                 let hooks=maintenance.as_ref().unwrap();
                 let requested=match (hooks.request)(){Ok(request)=>request,Err(err)=>{warn!(?err,"maintenance request failed; keeping service available");drain=None;continue;}};
                 if let Some(request)=requested {
-                    if drain.as_ref().is_some_and(|(nonce,_,_)|*nonce!=request.nonce){drain=None;}
-                    if let Some((nonce,deadline,_))=&drain {
+                    if drain.as_ref().is_some_and(|(nonce,_,_,_,_)|*nonce!=request.nonce){drain=None;}
+                    if let Some((nonce,deadline,_,_,_))=&drain {
                         if std::time::Instant::now()>=*deadline {
                             if let Err(err)=(hooks.report)(nonce,DrainState::Expired){warn!(?err,"maintenance report failed; keeping service available");drain=None;continue;}expired_nonce=Some(nonce.clone());drain=None;
                         } else if request.commit {
@@ -335,19 +397,25 @@ async fn run_system_server_once(
                         } else {if let Err(err)=(hooks.report)(nonce,DrainState::Granted{remaining_ms:deadline.saturating_duration_since(std::time::Instant::now()).as_millis() as u64}){warn!(?err,"maintenance report failed; keeping service available");drain=None;continue;}}
                     } else if expired_nonce.as_ref()!=Some(&request.nonce) && !request.commit {
                         let scheduler=commands.pause_scheduler_for_update();
-                        let workload=Workload{connections:connections.load(std::sync::atomic::Ordering::SeqCst),terminals:terminals.sessions_snapshot().iter().filter(|session|session.exit.is_none()).count(),commands:commands.update_busy_jobs().await,agents:agents.update_live_runtimes()};
-                        if scheduler.is_some() && !workload.busy() {
-                            drain=Some((request.nonce.clone(),std::time::Instant::now()+std::time::Duration::from_secs(20),scheduler.unwrap()));
+                        let workload=Workload{connections:connections.load(std::sync::atomic::Ordering::SeqCst),terminals:terminals.sessions_snapshot().iter().filter(|session|session.exit.is_none()).count(),commands:commands.update_busy_jobs().await,agents:agents.update_live_runtimes(),active_calls:admission.active()};
+                        let guard=admission.begin_drain();
+                        let busy=workload.blocks_update(request.manual);
+                        if scheduler.is_some() && guard.is_some() && !busy {
+                            drain=Some((request.nonce.clone(),std::time::Instant::now()+std::time::Duration::from_secs(20),scheduler.unwrap(),guard.unwrap(),request.manual));
+                            if request.manual {disconnect_tx.send_modify(|epoch|*epoch=epoch.wrapping_add(1));}
                             if let Err(err)=(hooks.report)(&request.nonce,DrainState::Granted{remaining_ms:20_000}){warn!(?err,"maintenance report failed; keeping service available");drain=None;continue;}
                         } else {if let Err(err)=(hooks.report)(&request.nonce,DrainState::Busy(workload)){warn!(?err,"maintenance report failed; keeping service available");drain=None;continue;}}
                     }
                 } else {drain=None;expired_nonce=None;}
                 continue;
             },
-            request=server.accept(), if drain.is_none()=>match request {Some(request)=>request,None=>break},
+
         };
-        let connection_guard=crate::maintenance::ConnectionGuard::new(connections.clone());
-        let activity=connections.clone();
+        let connection_guard = crate::maintenance::ConnectionGuard::new(connections.clone());
+        let activity = connections.clone();
+        let updates = updates.clone();
+        let admission = admission.clone();
+        let disconnect = disconnect_tx.subscribe();
         let config_path = config_path.clone();
         let credentials_path = credentials_path.clone();
         let config_state = config_state.clone();
@@ -366,7 +434,7 @@ async fn run_system_server_once(
         let trash_events = trash_events.clone();
         let pairing_notifier = pairing_notifier.clone();
         tokio::spawn(async move {
-            let _connection_guard=connection_guard;
+            let _connection_guard = connection_guard;
             if let Err(err) = handle_request(
                 request,
                 config_path,
@@ -387,6 +455,9 @@ async fn run_system_server_once(
                 trash_events,
                 pairing_notifier,
                 activity,
+                updates,
+                admission,
+                disconnect,
             )
             .await
             {
@@ -921,6 +992,9 @@ async fn handle_request(
     trash_events: SharedTrashEvents,
     pairing_notifier: Option<SharedPairingNotifier>,
     activity: Arc<std::sync::atomic::AtomicUsize>,
+    updates: SharedUpdater,
+    admission: Arc<crate::maintenance::WorkGate>,
+    disconnect: watch::Receiver<u64>,
 ) -> Result<()> {
     let path = request.url.path().to_string();
     match path.as_str() {
@@ -946,6 +1020,9 @@ async fn handle_request(
                 trash_events,
                 pairing_notifier,
                 activity,
+                updates,
+                admission,
+                disconnect,
             )
             .await
         }
@@ -976,6 +1053,9 @@ async fn run_rpc_session(
     trash_events: SharedTrashEvents,
     pairing_notifier: Option<SharedPairingNotifier>,
     activity: Arc<std::sync::atomic::AtomicUsize>,
+    updates: SharedUpdater,
+    admission: Arc<crate::maintenance::WorkGate>,
+    mut disconnect: watch::Receiver<u64>,
 ) -> Result<()> {
     let session_state = Arc::new(Mutex::new(RpcSessionState {
         session_id: next_rpc_session_id(),
@@ -983,6 +1063,7 @@ async fn run_rpc_session(
     }));
     loop {
         tokio::select! {
+            _=disconnect.changed()=>{session.close(0,b"Confirmed server update");return Ok(());}
             stream = session.accept_bi() => {
                 let (send, recv) = stream?;
                 let config_path = config_path.clone();
@@ -1004,6 +1085,8 @@ async fn run_rpc_session(
                 let trash_events = trash_events.clone();
                 let pairing_notifier = pairing_notifier.clone();
                 let stream_session = session.clone();
+                let updates=updates.clone();
+                let admission=admission.clone();
                 let stream_guard=crate::maintenance::ConnectionGuard::new(activity.clone());
                 tokio::spawn(async move {
                     let _stream_guard=stream_guard;
@@ -1030,6 +1113,8 @@ async fn run_rpc_session(
                             agents,
                             trash_events,
                             pairing_notifier,
+                            updates,
+                            admission,
                         )
                         .await?;
                         Result::<()>::Ok(())
@@ -1076,6 +1161,8 @@ fn build_rpc_handlers(
 ) -> HostRpcHandlers {
     let mut handlers = RpcHandlers::new()
         .get_daemon_info(HostRpcHandler::get_daemon_info_rpc)
+        .get_update_status(HostRpcHandler::get_update_status_rpc)
+        .request_update(HostRpcHandler::request_update_rpc)
         .get_daemon_environment(HostRpcHandler::get_daemon_environment_rpc)
         .start_pairing(HostRpcHandler::start_pairing_rpc)
         .complete_pairing(HostRpcHandler::complete_pairing_rpc)
@@ -1272,6 +1359,7 @@ async fn handle_reqres_messages_with_events(
 ) -> Result<Vec<ReqResMessage>> {
     let rpc_handlers = Arc::new(build_rpc_handlers(windows.as_ref(), None, None, None));
     let context = HostRpcContext {
+        updates: None,
         session: None,
         config_path: config_path.to_path_buf(),
         credentials_path: credentials_path.to_path_buf(),
@@ -1317,8 +1405,11 @@ async fn handle_reqres_stream(
     agents: SharedAgentManager,
     trash_events: SharedTrashEvents,
     pairing_notifier: Option<SharedPairingNotifier>,
+    updates: SharedUpdater,
+    admission: Arc<crate::maintenance::WorkGate>,
 ) -> Result<()> {
     let context = HostRpcContext {
+        updates,
         session: Some(session),
         config_path,
         credentials_path,
@@ -1353,6 +1444,32 @@ async fn handle_reqres_stream(
         return Ok(());
     };
 
+    let proc_id = match &first {
+        ReqResMessage::RequestUnary { proc_id, .. }
+        | ReqResMessage::RequestStreamStart { proc_id, .. } => Some(*proc_id),
+        _ => None,
+    };
+    let protected_work =
+        proc_id.is_some_and(|id| !is_server_stream_proc(id) || id == ProcId::ReadFile.as_u64());
+    let _work_guard = if protected_work {
+        match admission.enter() {
+            Some(guard) => Some(guard),
+            None => {
+                write_reqres_message(
+                    &mut send,
+                    generic_error_message(
+                        proc_id.unwrap(),
+                        RpcErrorCode::BadMessage,
+                        "Server update drain in progress; reconnect shortly",
+                    ),
+                )
+                .await?;
+                return Ok(());
+            }
+        }
+    } else {
+        None
+    };
     match first {
         message if message.is_session_control() => {
             let mut messages = vec![message];
@@ -1432,6 +1549,7 @@ async fn handle_reqres_stream(
 
 #[derive(Clone)]
 struct HostRpcContext {
+    updates: SharedUpdater,
     session: Option<web_transport_quinn::Session>,
     config_path: PathBuf,
     credentials_path: PathBuf,
@@ -1656,6 +1774,7 @@ async fn dispatch_client_stream_rpc(
 }
 
 struct HostRpcHandler {
+    updates: SharedUpdater,
     session: Option<web_transport_quinn::Session>,
     config_path: PathBuf,
     credentials_path: PathBuf,
@@ -1702,6 +1821,7 @@ impl HostRpcHandler {
         request_stream: Option<RequestStreamSource>,
     ) -> Self {
         HostRpcHandler {
+            updates: context.updates,
             session: context.session,
             config_path: context.config_path,
             credentials_path: context.credentials_path,
@@ -3918,6 +4038,7 @@ async fn handle_rpc_messages_with_events(
 ) -> Result<Vec<ReqResMessage>> {
     let rpc_handlers = Arc::new(build_rpc_handlers(None, None, None, None));
     let context = HostRpcContext {
+        updates: None,
         session: None,
         config_path: config_path.to_path_buf(),
         credentials_path: credentials_path.to_path_buf(),
@@ -4601,6 +4722,71 @@ impl HostRpcHandler {
                 proc_id, error,
             ))),
         }
+    }
+
+    async fn updater_authorized(&self) -> Result<bool> {
+        let Some(client_id) = authenticated_client_id(&self.session_state).await else {
+            return Ok(false);
+        };
+        let credentials =
+            load_runtime_client_credentials(&self.credentials_path, &self.client_credentials)
+                .await?;
+        Ok(credentials
+            .clients
+            .iter()
+            .any(|record| record.client_id == client_id && record.expires_at_unix > now_unix()))
+    }
+    fn get_update_status_rpc<'a>(
+        &'a mut self,
+        _: (),
+    ) -> RpcHandlerFuture<'a, Result<UnaryRpcOutcome>> {
+        Box::pin(async move {
+            let proc_id = ProcId::GetUpdateStatus.as_u64();
+            if !self.updater_authorized().await? {
+                return Ok(UnaryRpcOutcome::Message(unauthorized_message(proc_id)));
+            }
+            let status = match &self.updates {
+                Some(updater) => updater.status(),
+                None => Ok(crate::updates::unavailable()),
+            };
+            match status {
+                Ok(status) => Ok(RpcResponse::GetUpdateStatus(status).into()),
+                Err(error) => Ok(UnaryRpcOutcome::Message(error_message(
+                    proc_id,
+                    "failed",
+                    &error.to_string(),
+                ))),
+            }
+        })
+    }
+    fn request_update_rpc<'a>(
+        &'a mut self,
+        request: RequestUpdateReq,
+    ) -> RpcHandlerFuture<'a, Result<UnaryRpcOutcome>> {
+        Box::pin(async move {
+            let proc_id = ProcId::RequestUpdate.as_u64();
+            if !self.updater_authorized().await? {
+                return Ok(UnaryRpcOutcome::Message(unauthorized_message(proc_id)));
+            }
+            if request.action == UpdateAction::InstallConfirmed && !request.confirmed {
+                return Ok(UnaryRpcOutcome::Message(error_message(proc_id,"confirmation_required","Confirm client disconnection before installing; active work will still defer the update")));
+            }
+            let Some(updater) = &self.updates else {
+                return Ok(UnaryRpcOutcome::Message(error_message(
+                    proc_id,
+                    "failed",
+                    "Updater is not activated",
+                )));
+            };
+            match updater.request(request) {
+                Ok(status) => Ok(RpcResponse::RequestUpdate(status).into()),
+                Err(error) => Ok(UnaryRpcOutcome::Message(error_message(
+                    proc_id,
+                    "failed",
+                    &error.to_string(),
+                ))),
+            }
+        })
     }
 
     fn get_daemon_info_rpc<'a>(
@@ -5538,6 +5724,82 @@ mod tests {
                 ..
             }]
         ));
+    }
+
+    #[tokio::test]
+    async fn update_rpc_rechecks_revocation_expiry_and_requires_confirmation() {
+        use rieul_daemon_core::generated::rpc::{UpdatePhase, UpdateStatus};
+        for scenario in [
+            "unauthenticated",
+            "revoked",
+            "expired",
+            "valid",
+            "unconfirmed",
+        ] {
+            let dir = tempfile::tempdir().unwrap();
+            let config_path = dir.path().join("rieul.yaml");
+            let credentials_path = client_credentials_path(&config_path);
+            let mut issued = issue_client_secret("updater-client", now_unix());
+            if scenario == "expired" {
+                issued.record.expires_at_unix = now_unix() - 1;
+            }
+            let cached = ClientCredentials {
+                clients: vec![issued.record.clone()],
+                ..Default::default()
+            };
+            let persisted = if scenario == "revoked" {
+                ClientCredentials::default()
+            } else {
+                cached.clone()
+            };
+            save_client_credentials(&credentials_path, &persisted).unwrap();
+            let request = if scenario == "unconfirmed" {
+                request_message(
+                    ProcId::RequestUpdate,
+                    Some(
+                        RequestUpdateReq {
+                            action: UpdateAction::InstallConfirmed,
+                            confirmed: false,
+                        }
+                        .encode(),
+                    ),
+                )
+            } else {
+                request_message(ProcId::GetUpdateStatus, None)
+            };
+            let responses = handle_rpc_messages(
+                vec![request],
+                &config_path,
+                &credentials_path,
+                Arc::new(Mutex::new(SystemConfig::default())),
+                Arc::new(Mutex::new(cached)),
+                test_pairing_challenge(),
+                Arc::new(Mutex::new(RpcSessionState {
+                    session_id: 1,
+                    authenticated_client_id: if scenario == "unauthenticated" {
+                        None
+                    } else {
+                        Some(issued.client_id)
+                    },
+                })),
+                test_files(),
+                test_terminals(),
+                None,
+            )
+            .await
+            .unwrap();
+            if scenario == "valid" {
+                assert_eq!(
+                    UpdateStatus::decode(payload(&responses[0])).unwrap().phase,
+                    UpdatePhase::Unavailable
+                );
+            } else {
+                assert!(
+                    matches!(responses[0], ReqResMessage::ResponseUnaryError { .. }),
+                    "{scenario}: {responses:?}"
+                );
+            }
+        }
     }
 
     #[tokio::test]

@@ -78,6 +78,18 @@ impl<'a, C: Control> NativeEffects<'a, C> {
         verify::digest(self.service.read_file("rieul-macos-system")?)
     }
     fn quiesce_inner(&mut self) -> Result<()> {
+        if matches!(
+            self.journal()?.phase,
+            super::transaction::Phase::Prepared | super::transaction::Phase::Quiescing
+        ) {
+            ensure!(
+                self.state
+                    .load::<super::Policy>("policy.json")?
+                    .is_some_and(|p| p.allows()),
+                "update deferred: automatic updater policy disabled"
+            );
+        }
+
         let mut sessions: Sessions = self.state.load("gui-sessions.json")?.unwrap_or_default();
         for uid in self.control.sessions()? {
             if self.control.inspect(Job::Gui(uid))?.is_some() && !sessions.uids.contains(&uid) {
@@ -100,7 +112,11 @@ impl<'a, C: Control> NativeEffects<'a, C> {
             "update deferred: unmanaged or newly connected GUI still active"
         );
         let nonce = self.journal()?.nonce.clone();
-        drain::request_exit(self.state, &mut self.control, &nonce)?;
+        let manual = self
+            .state
+            .load::<super::control::InstallIntent>("install-request.json")?
+            .is_some_and(|intent| intent.confirmed && intent.nonce == nonce);
+        drain::request_exit(self.state, &mut self.control, &nonce, manual)?;
         self.stopped_at = Some(drain::monotonic_ms()?);
         self.control.stop(Job::System)?;
         Ok(())
@@ -180,8 +196,8 @@ impl<C: Control> Effects for NativeEffects<'_, C> {
                 .read_file("rieul-macos-system")?,
         )?;
         ensure!(
-            [&j.old.daemon_sha256, &j.new.daemon_sha256].contains(&&running)
-                && [&j.old.daemon_sha256, &j.new.daemon_sha256].contains(&&staged),
+            (running == j.old.daemon_sha256 && staged == j.new.daemon_sha256)
+                || (running == j.new.daemon_sha256 && staged == j.old.daemon_sha256),
             "unrecognized runtime digest"
         );
         Ok(())

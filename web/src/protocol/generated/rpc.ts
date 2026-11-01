@@ -66,6 +66,8 @@ export enum ProcId {
   ListAgentSessionTurns = 61,
   ReadAgentTerminalOutput = 62,
   AttachAgentSession = 63,
+  GetUpdateStatus = 64,
+  RequestUpdate = 65,
 }
 
 export interface SubscribeWindowDetailReq {
@@ -778,6 +780,43 @@ export type RemoveClientError =
   | { type: "failed"; message: string }
   | { type: "notFound"; message: string }
   | { type: "permissionDenied"; message: string }
+;
+
+export enum UpdatePhase {
+  Unavailable = 0,
+  Idle = 1,
+  Checking = 2,
+  Downloading = 3,
+  Verifying = 4,
+  Ready = 5,
+  Deferred = 6,
+  Installing = 7,
+  Restarting = 8,
+  Failed = 9,
+}
+
+export enum UpdateAction {
+  Check = 1,
+  InstallConfirmed = 2,
+}
+
+export interface RequestUpdateReq {
+  action: UpdateAction;
+  confirmed: boolean;
+}
+
+export interface UpdateStatus {
+  phase: UpdatePhase;
+  currentVersion?: string;
+  targetVersion?: string;
+  reason?: string;
+  canInstall: boolean;
+}
+
+export type UpdateError =
+  | { type: "failed"; message: string }
+  | { type: "permissionDenied"; message: string }
+  | { type: "confirmationRequired"; message: string }
 ;
 
 export interface CommandLaunchSpec {
@@ -2480,6 +2519,30 @@ export const attachAgentSessionProc: ProcCodec<AttachAgentSessionReq, AgentSessi
   decodeError: decodeAgentRpcErrorValue,
 };
 
+export const getUpdateStatusProc: ProcCodec<undefined, UpdateStatus, UpdateError> = {
+  id: ProcId.GetUpdateStatus,
+  name: "GetUpdateStatus",
+  stream: "unary",
+  requestType: "void",
+  responseType: "UpdateStatus",
+  errorType: "UpdateError",
+  encodeRequest: encodeVoidValue,
+  decodeResponse: decodeUpdateStatusValue,
+  decodeError: decodeUpdateErrorValue,
+};
+
+export const requestUpdateProc: ProcCodec<RequestUpdateReq, UpdateStatus, UpdateError> = {
+  id: ProcId.RequestUpdate,
+  name: "RequestUpdate",
+  stream: "unary",
+  requestType: "RequestUpdateReq",
+  responseType: "UpdateStatus",
+  errorType: "UpdateError",
+  encodeRequest: encodeRequestUpdateReqValue,
+  decodeResponse: decodeUpdateStatusValue,
+  decodeError: decodeUpdateErrorValue,
+};
+
 export const procs = {
   [ProcId.GetDaemonInfo]: getDaemonInfoProc,
   [ProcId.StartPairing]: startPairingProc,
@@ -2544,6 +2607,8 @@ export const procs = {
   [ProcId.ListAgentSessionTurns]: listAgentSessionTurnsProc,
   [ProcId.ReadAgentTerminalOutput]: readAgentTerminalOutputProc,
   [ProcId.AttachAgentSession]: attachAgentSessionProc,
+  [ProcId.GetUpdateStatus]: getUpdateStatusProc,
+  [ProcId.RequestUpdate]: requestUpdateProc,
 } as const;
 
 export function encodeSubscribeWindowDetailReqValue(value: SubscribeWindowDetailReq): CborValue {
@@ -6040,6 +6105,104 @@ export function decodeRemoveClientErrorValue(value: CborValue): RemoveClientErro
       };
   }
   throw new Error(`unknown RemoveClientError variant ${variantId}`);
+}
+
+export function encodeUpdatePhaseValue(value: UpdatePhase): CborValue {
+  return integer(value);
+}
+
+export function decodeUpdatePhaseValue(value: CborValue): UpdatePhase {
+  const id = integer(value);
+  if (![0, 1, 2, 3, 4, 5, 6, 7, 8, 9].includes(id)) throw new Error(`unknown UpdatePhase variant ${id}`);
+  return id as UpdatePhase;
+}
+
+export function encodeUpdateActionValue(value: UpdateAction): CborValue {
+  return integer(value);
+}
+
+export function decodeUpdateActionValue(value: CborValue): UpdateAction {
+  const id = integer(value);
+  if (![1, 2].includes(id)) throw new Error(`unknown UpdateAction variant ${id}`);
+  return id as UpdateAction;
+}
+
+export function encodeRequestUpdateReqValue(value: RequestUpdateReq): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, encodeUpdateActionValue(required(value.action, "RequestUpdateReq.action")));
+  fields.set(2, bool(required(value.confirmed, "RequestUpdateReq.confirmed")));
+  return fields;
+}
+
+export function decodeRequestUpdateReqValue(value: CborValue): RequestUpdateReq {
+  const fields = expectMap(value);
+  return {
+    action: fieldOrDefault(fields.get(1), (value) => decodeUpdateActionValue(value), () => UpdateAction.Check),
+    confirmed: fieldOrDefault(fields.get(2), (value) => boolValue(value), () => false),
+  };
+}
+
+export function encodeUpdateStatusValue(value: UpdateStatus): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, encodeUpdatePhaseValue(required(value.phase, "UpdateStatus.phase")));
+  if (value.currentVersion !== undefined) fields.set(2, text(value.currentVersion));
+  if (value.targetVersion !== undefined) fields.set(3, text(value.targetVersion));
+  if (value.reason !== undefined) fields.set(4, text(value.reason));
+  fields.set(5, bool(required(value.canInstall, "UpdateStatus.canInstall")));
+  return fields;
+}
+
+export function decodeUpdateStatusValue(value: CborValue): UpdateStatus {
+  const fields = expectMap(value);
+  return {
+    phase: fieldOrDefault(fields.get(1), (value) => decodeUpdatePhaseValue(value), () => UpdatePhase.Unavailable),
+    currentVersion: optionalField(fields.get(2), (value) => textValue(value)),
+    targetVersion: optionalField(fields.get(3), (value) => textValue(value)),
+    reason: optionalField(fields.get(4), (value) => textValue(value)),
+    canInstall: fieldOrDefault(fields.get(5), (value) => boolValue(value), () => false),
+  };
+}
+
+export function encodeUpdateErrorValue(value: UpdateError): CborValue {
+  switch (value.type) {
+    case "failed": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.message, "UpdateError.Failed.message")));
+      return [0, fields];
+    }
+    case "permissionDenied": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.message, "UpdateError.PermissionDenied.message")));
+      return [1, fields];
+    }
+    case "confirmationRequired": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.message, "UpdateError.ConfirmationRequired.message")));
+      return [2, fields];
+    }
+  }
+}
+
+export function decodeUpdateErrorValue(value: CborValue): UpdateError {
+  const [variantId, fields] = expectUnion(value);
+  switch (variantId) {
+    case 0:
+      return {
+        type: "failed",
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+    case 1:
+      return {
+        type: "permissionDenied",
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+    case 2:
+      return {
+        type: "confirmationRequired",
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+  }
+  throw new Error(`unknown UpdateError variant ${variantId}`);
 }
 
 export function encodeCommandLaunchSpecValue(value: CommandLaunchSpec): CborValue {
@@ -10680,6 +10843,27 @@ function defaultSubscribeClientsError(): SubscribeClientsError {
 }
 
 function defaultRemoveClientError(): RemoveClientError {
+  return {
+    type: "failed",
+    message: "",
+  };
+}
+
+function defaultRequestUpdateReq(): RequestUpdateReq {
+  return {
+    action: UpdateAction.Check,
+    confirmed: false,
+  };
+}
+
+function defaultUpdateStatus(): UpdateStatus {
+  return {
+    phase: UpdatePhase.Unavailable,
+    canInstall: false,
+  };
+}
+
+function defaultUpdateError(): UpdateError {
   return {
     type: "failed",
     message: "",

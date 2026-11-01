@@ -1,5 +1,7 @@
 # macOS updates — issue #45
 
+> Historical design/checkpoint notes below: the newest checkpoint is authoritative.
+
 ## Current status
 
 Local, incomplete implementation on `issue-45-update-preflight`; not published,
@@ -171,3 +173,60 @@ checked installed applications/PATH. No VM or new software was installed. A
 snapshot-capable isolated macOS VM with synthetic pairing/data, no host mounts,
 and no imported signing credentials is the intended destructive lifecycle test
 location; prepare notarized fixture artifacts through the approved release path.
+
+
+## Paused checkpoint for the Solid signal migration (2026-11-01)
+
+Local development is paused at the parent's request. Do not delete this branch or
+checkout. No OS installation, launchd mutation, policy activation, signing key,
+release or remote publication was performed. This is reviewable implementation,
+not a production-ready claim or closure of issue #45.
+
+The independent fixed-path launchd worker, protected-runtime startup/reboot
+coordination, readiness receipt, one-time migration state machine and concrete
+native Effects adapter are now implemented. Migration deliberately requires the
+legacy service to have been stopped by the approved initial installer; it does
+not silently kill pre-updater workloads. The installer/release workflow has not
+been connected. A failed candidate that has never reached readiness can answer
+the drain protocol while waiting for configuration, allowing rollback without
+claiming that a busy serving process is idle.
+
+GetUpdateStatus (64) and RequestUpdate (65) are registered RPCs. Existing valid
+paired clients have update authority because the current product has no separate
+administrator role; each call rechecks persisted revocation and expiry. Only
+Check and InstallConfirmed operations exist, with explicit confirmation required
+for the latter. No caller URL/path/version/command/validation override exists.
+The controller checks on startup and every six hours (implementation default),
+and stages while serving. Automatic dispatch requires zero connections and zero
+active work. The drain rechecks under scheduler/work admission gates. Reconnection
+cancels automatic drain; confirmed manual drain rejects new connections and
+closes existing clients, but still refuses live PTYs, commands, transfers and ACP
+runtimes. Even idle ACP runtimes currently defer; no force override is provided.
+
+The existing DaemonInfoView now contains DaemonUpdateSection. Its Bunja/Jotai
+state polls only while mounted, drops stale responses, and binds confirmation to
+the daemon generation and target version. It must be ported with the newly
+requested project-wide Solid signal conversion; do not land its Jotai state as a
+new permanent architecture. Tests cover stale confirmations and reconnection
+while awaiting transport. No browser interaction test has run.
+
+Validation at pause: host library 91 passed / 3 installed-ACP tests ignored;
+root updater 29 passed / 1 read-only signature test ignored in sandbox (before
+latest migration-start retry edit); web updater state 3 passed; web type checks
+passed. The native lifecycle as a whole has not been tested against real launchd
+or notarized old/new Rieul fixtures. Review and isolated VM tests remain necessary.
+
+Discovery remains releases/latest, stable desktop tags only, draft/prerelease
+rejected, fixed asset URL. No ETag/conditional caching or explicit rate-limit
+backoff. Six-hour polling was an implementation choice, not a user requirement.
+
+Remaining before activation: independent security review of this native adapter;
+real signed/notarized VM integration tests for fresh migration, failed startup,
+reboot, multi-user GUI restoration and public app-entry races; release packaging
+integration; HTTP caching/backoff; UI browser tests and positive provider RPC
+integration tests. Controller failure classification and stale worker-result
+association need tightening (results currently lack transaction nonce). Existing
+native paths intentionally stay fixed, so current fixture tests prove engine and
+primitive contracts rather than a complete native adapter simulation. Review
+whether GUI stop-before-drain can be narrowed to avoid unnecessary GUI restarts
+on server-work deferral. No zero-downtime/port-handoff guarantee is made.

@@ -18,13 +18,14 @@ pub(super) const WORKER: &str = "/Library/Application Support/rieul/updates/work
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Deserialize, Serialize)]
 pub(super) enum Job {
     System,
+    LegacySystem,
     Worker,
     Gui(u32),
 }
 impl Job {
     pub fn target(self) -> Result<String> {
         Ok(match self {
-            Self::System => format!("system/{SYSTEM_LABEL}"),
+            Self::System | Self::LegacySystem => format!("system/{SYSTEM_LABEL}"),
             Self::Worker => format!("system/{WORKER_LABEL}"),
             Self::Gui(uid) => {
                 ensure!(uid > 0, "root GUI session unsupported");
@@ -35,6 +36,13 @@ impl Job {
     fn expected(self) -> (&'static str, Vec<&'static str>) {
         match self {
             Self::System => (SYSTEM_PLIST, vec![SERVICE, "run"]),
+            Self::LegacySystem => (
+                SYSTEM_PLIST,
+                vec![
+                    "/Applications/Rieul.app/Contents/Library/LaunchServices/rieul-macos-system",
+                    "run",
+                ],
+            ),
             Self::Worker => ("", vec![WORKER, "internal-update-worker"]),
             Self::Gui(_) => (GUI_PLIST, vec![LAUNCHER]),
         }
@@ -64,8 +72,21 @@ impl Drop for KillOnDrop {
 /// Numeric status distinguishes an absent launchd job from authorization or
 /// transport failures. Output and time are bounded and children always reaped.
 pub(super) fn run(state: &Dir, tool: &str, args: &[&str]) -> Result<(i32, String)> {
-    state.remove("native.log")?;
-    let log = state.create("native.log", 0o600)?;
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    let name = format!(
+        "native-{}-{}.log",
+        std::process::id(),
+        NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    );
+    struct RemoveLog<'a>(&'a Dir, String);
+    impl Drop for RemoveLog<'_> {
+        fn drop(&mut self) {
+            let _ = self.0.remove(&self.1);
+        }
+    }
+    state.remove(&name)?;
+    let _cleanup = RemoveLog(state, name.clone());
+    let log = state.create(&name, 0o600)?;
     let mut child = KillOnDrop(
         Command::new(tool)
             .args(args)
@@ -84,7 +105,7 @@ pub(super) fn run(state: &Dir, tool: &str, args: &[&str]) -> Result<(i32, String
             break status.code().unwrap_or(-1);
         }
         ensure!(
-            Instant::now() < deadline && state.read_file("native.log")?.metadata()?.len() <= 65536,
+            Instant::now() < deadline && state.read_file(&name)?.metadata()?.len() <= 65536,
             "native operation exceeded bounds"
         );
         std::thread::sleep(Duration::from_millis(25));
@@ -209,7 +230,7 @@ impl Control for Native<'_> {
             return Ok(());
         }
         let domain = match job {
-            Job::System => "system".to_string(),
+            Job::System | Job::LegacySystem => "system".to_string(),
             Job::Gui(uid) => format!("gui/{uid}"),
             Job::Worker => bail!("worker must use fixed submit"),
         };

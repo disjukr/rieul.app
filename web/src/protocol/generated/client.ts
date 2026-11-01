@@ -70,6 +70,8 @@ import {
   listAgentSessionTurnsProc,
   readAgentTerminalOutputProc,
   attachAgentSessionProc,
+  getUpdateStatusProc,
+  requestUpdateProc,
 } from "./rpc.ts";
 import type {
   ActiveAgentSessionsTableEvent,
@@ -132,6 +134,7 @@ import type {
   RemoveClientReq,
   RenamePathsReq,
   RenewClientCredentialRes,
+  RequestUpdateReq,
   RespondAgentPermissionReq,
   RestoreTrashItemsReq,
   RootsTableEvent,
@@ -162,6 +165,7 @@ import type {
   TrashItemsTableEvent,
   UpdateAgentSessionReq,
   UpdateScheduleReq,
+  UpdateStatus,
   WindowDetailEvent,
   WindowsTableEvent,
   WriteFileReq,
@@ -419,4 +423,12 @@ export function readAgentTerminalOutput(transport: WebTransport, request: ReadAg
 
 export function attachAgentSession(transport: WebTransport, request: AttachAgentSessionReq): Promise<AgentSessionInfo> {
   return callUnary(transport, attachAgentSessionProc, request);
+}
+
+export function getUpdateStatus(transport: WebTransport): Promise<UpdateStatus> {
+  return callUnary(transport, getUpdateStatusProc, undefined);
+}
+
+export function requestUpdate(transport: WebTransport, request: RequestUpdateReq): Promise<UpdateStatus> {
+  return callUnary(transport, requestUpdateProc, request);
 }

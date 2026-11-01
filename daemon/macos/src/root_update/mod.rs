@@ -6,13 +6,25 @@
     reason = "Local updater engine awaiting production lifecycle integration; no installed entry point yet"
 )]
 mod archive;
+#[cfg(target_os = "macos")]
+mod control;
 mod destination;
 mod drain;
 mod gate;
 #[cfg(target_os = "macos")]
+mod migration;
+#[cfg(target_os = "macos")]
 mod native;
 #[cfg(target_os = "macos")]
+mod runtime;
+#[cfg(target_os = "macos")]
+pub use control::service as update_service;
+#[cfg(target_os = "macos")]
 pub use drain::hooks as maintenance_hooks;
+#[cfg(target_os = "macos")]
+pub use migration::prepare as prepare_migration;
+#[cfg(target_os = "macos")]
+pub use runtime::{startup as service_startup, worker as run_worker};
 mod launchd;
 pub use gate::shared as gui_update_guard;
 mod preparation;

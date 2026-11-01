@@ -181,3 +181,81 @@ union RemoveClientError {
     message: string,
   ),
 }
+
+@ description
+| Returns updater state for an authenticated paired management client.
+@ id - 64
+@ stream - unary
+proc GetUpdateStatus = void -> UpdateStatus throws UpdateError
+
+@ description
+| Requests only a fixed official update check or a confirmed installation.
+| No URL, path, version, command or validation override is accepted.
+| InstallConfirmed acknowledges client disconnection, not termination of work.
+@ id - 65
+@ stream - unary
+proc RequestUpdate = RequestUpdateReq -> UpdateStatus throws UpdateError
+
+enum UpdatePhase {
+  @ id - 0
+  Unavailable,
+  @ id - 1
+  Idle,
+  @ id - 2
+  Checking,
+  @ id - 3
+  Downloading,
+  @ id - 4
+  Verifying,
+  @ id - 5
+  Ready,
+  @ id - 6
+  Deferred,
+  @ id - 7
+  Installing,
+  @ id - 8
+  Restarting,
+  @ id - 9
+  Failed,
+}
+enum UpdateAction {
+  @ id - 1
+  Check,
+  @ id - 2
+  InstallConfirmed,
+}
+struct RequestUpdateReq {
+  @ id - 1
+  action: UpdateAction,
+  @ id - 2
+  confirmed: bool,
+}
+struct UpdateStatus {
+  @ id - 1
+  phase: UpdatePhase,
+  @ id - 2
+  currentVersion?: string,
+  @ id - 3
+  targetVersion?: string,
+  @ id - 4
+  reason?: string,
+  @ id - 5
+  canInstall: bool,
+}
+union UpdateError {
+  @ id - 0
+  Failed(
+    @ id - 1
+    message: string,
+  ),
+  @ id - 1
+  PermissionDenied(
+    @ id - 1
+    message: string,
+  ),
+  @ id - 2
+  ConfirmationRequired(
+    @ id - 1
+    message: string,
+  ),
+}
