@@ -46,6 +46,15 @@ fn main() -> Result<()> {
             Ok(())
         }
         Command::Run { config } => {
+            #[cfg(target_os = "macos")]
+            if config.is_none() {
+                if let Some(controller) = configured_update_controller()? {
+                    // The controller owns the GUI child and Sparkle lifecycle.
+                    // Never fall back to the legacy installer after a failed
+                    // updater launch or migration: that could recreate root jobs.
+                    return Err(ProcessCommand::new(controller).arg("run").exec().into());
+                }
+            }
             if ensure_installed_or_prompt()? == StartupAction::Exit {
                 return Ok(());
             }
@@ -54,6 +63,32 @@ fn main() -> Result<()> {
             exec_gui(gui_executable, config_path)
         }
     }
+}
+
+#[cfg(target_os = "macos")]
+fn configured_update_controller() -> Result<Option<PathBuf>> {
+    let executable = std::env::current_exe().context("resolve launcher executable")?;
+    let app = PathBuf::from("/Applications/Rieul.app");
+    if executable != app.join("Contents/MacOS/rieul-macos-launcher") {
+        return Ok(None);
+    }
+    let configuration = ProcessCommand::new("/usr/libexec/PlistBuddy")
+        .args(["-c", "Print :RieulUpdaterEnabled"])
+        .arg(app.join("Contents/Info.plist"))
+        .output()
+        .context("read signed updater configuration")?;
+    if !configuration.status.success()
+        || String::from_utf8_lossy(&configuration.stdout).trim() != "true"
+    {
+        return Ok(None);
+    }
+    let controller = app.join("Contents/MacOS/rieul-update-controller");
+    if !controller.is_file() {
+        return Err(anyhow!(
+            "enabled updater controller is missing; repair installation"
+        ));
+    }
+    Ok(Some(controller))
 }
 
 fn gui_executable_path() -> Result<PathBuf> {

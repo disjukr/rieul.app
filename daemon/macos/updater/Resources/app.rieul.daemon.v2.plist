@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>BundleProgram</key>
+	<string>Contents/Library/LaunchServices/rieul-macos-system</string>
+	<key>KeepAlive</key>
+	<true/>
+	<key>Label</key>
+	<string>app.rieul.daemon.v2</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>rieul-macos-system</string>
+		<string>run</string>
+		<string>--config</string>
+		<string>/Library/Application Support/rieul/rieul.yaml</string>
+	</array>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>SpawnConstraint</key>
+	<dict>
+		<key>signing-identifier</key>
+		<string>rieul-macos-system</string>
+		<key>team-identifier</key>
+		<string>D379GLRLPV</string>
+		<key>validation-category</key>
+		<integer>6</integer>
+	</dict>
+</dict>
+</plist>
