@@ -13,6 +13,17 @@ import re
 import stat
 import tarfile
 
+PUBLIC_POLICY = json.loads((Path(__file__).resolve().parents[2] / "pairing/public-macos-bundle.json").read_text())
+
+
+def public_mode(relative, directory):
+    tree = any(relative == item or relative.startswith(item + "/") for item in PUBLIC_POLICY["dataTrees"])
+    if directory:
+        return 0o755 if tree or relative in PUBLIC_POLICY["directories"] else None
+    if relative in PUBLIC_POLICY["executableFiles"]:
+        return 0o755
+    return 0o644 if tree or relative in PUBLIC_POLICY["dataFiles"] else None
+
 
 def entries(app):
     yield app
@@ -40,6 +51,10 @@ def inspect(app):
     root = app.resolve()
     for path in entries(app):
         info = path.lstat()
+        relative = "" if path == app else path.relative_to(app).as_posix()
+        required = public_mode(relative, stat.S_ISDIR(info.st_mode))
+        if not stat.S_ISLNK(info.st_mode) and required is not None and stat.S_IMODE(info.st_mode) != required:
+            raise ValueError(f"public bundle entry needs mode {required:o}: {path}")
         if stat.S_ISLNK(info.st_mode):
             if os.path.isabs(os.readlink(path)) or not path.resolve(strict=True).is_relative_to(root):
                 raise ValueError(f"escaping or dangling link: {path}")

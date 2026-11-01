@@ -283,7 +283,8 @@ if (!windows) {
     path.join(output, "Contents/Info.plist"),
     '<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict><key>CFBundleExecutable</key><string>rieul-gui</string><key>CFBundleIdentifier</key><string>app.rieul</string><key>CFBundleName</key><string>Rieul</string><key>CFBundlePackageType</key><string>APPL</string><key>LSUIElement</key><true/><key>LSMinimumSystemVersion</key><string>13.0</string><key>LSArchitecturePriority</key><array><string>arm64</string></array></dict></plist>',
   );
-  await bundlePermissions(output, true);
+  await bundlePermissions(output, true, true);
+  await bundlePermissions(output, false, true);
 }
 await execute(executable, ["--verify-bundle"], { windowsHide: true });
 let previous;
