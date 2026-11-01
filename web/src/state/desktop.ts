@@ -299,6 +299,8 @@ export const desktopBunja = bunja(() => {
                   ) {
                     lastStats = performance.now();
                     setStats(next);
+                    if (caps.feedback)
+                      input?.send({ type: "feedback", ...next });
                   }
                 },
                 (error) => {

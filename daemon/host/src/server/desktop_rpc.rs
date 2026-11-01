@@ -160,6 +160,7 @@ impl HostRpcHandler {
             write_event(&mut send, stream_start_payload_message(attached.encode())).await?;
             let mut media = tokio::task::JoinSet::new();
             let mut configuration = None;
+            let mut previous_cursor = None;
             let mut tick = tokio::time::interval(Duration::from_millis(100));
             loop {
                 tokio::select! {
@@ -197,6 +198,28 @@ impl HostRpcHandler {
                         }
                     }
                     configuration = next;
+                }
+                if let Some(config) = &configuration {
+                    if let Some(backend) = self.desktop.backend() {
+                        let layout = config.layout_epoch;
+                        if let Some(work) = self.desktop.capture_work() {
+                            let cursor = tokio::task::spawn_blocking(move || {
+                                let _work = work;
+                                backend.cursor(layout)
+                            })
+                            .await?;
+                            if cursor != previous_cursor {
+                                if let Some(event) = &cursor {
+                                    write_event(
+                                        &mut send,
+                                        stream_chunk_payload_message(event.encode()),
+                                    )
+                                    .await?;
+                                }
+                                previous_cursor = cursor;
+                            }
+                        }
+                    }
                 }
                 let current = self
                     .desktop
@@ -340,7 +363,7 @@ impl HostRpcHandler {
                     Err(e) => return Ok(vec![failure(proc, e, false)]),
                 };
                 last = frame.sequence;
-                let result = self.desktop.mutate(|d| d.input(&_auth, c, now_ms(), frame));
+                let result = self.desktop.accept_input(&_auth, c, now_ms(), frame);
                 drop(_auth);
                 if let Err(e) = result {
                     return Ok(vec![failure(proc, e, false)]);
@@ -389,6 +412,7 @@ mod tests {
         fn capabilities(&self) -> DesktopCapabilities {
             DesktopCapabilities {
                 profile: 1,
+                feedback: Some(true),
                 capture: DesktopAvailability::Available,
                 input: DesktopAvailability::Available,
                 codecs: vec![DesktopCodec {
@@ -618,6 +642,89 @@ mod tests {
             }
         }
     }
+    #[tokio::test]
+    async fn viewer_feedback_is_track_bound_and_does_not_grant_control() {
+        tokio::time::timeout(Duration::from_secs(10), async {
+            let f = Fixture::new().await;
+            f.authenticate().await;
+            let (id, _events) = f.attach().await;
+            let response = f
+                .unary(
+                    ProcId::ConfigureDesktopViewports,
+                    Some(
+                        ConfigureDesktopViewportsReq {
+                            attach_id: id.clone(),
+                            layout_epoch: 1,
+                            total_bitrate: 1_000_000,
+                            viewports: vec![DesktopViewport {
+                                viewport_id: "v".into(),
+                                display_id: "fixture".into(),
+                                crop: DesktopRect {
+                                    x: 0,
+                                    y: 0,
+                                    width: 64,
+                                    height: 64,
+                                },
+                                width: 64,
+                                height: 64,
+                                fps: 60,
+                                bitrate: 1_000_000,
+                            }],
+                        }
+                        .encode(),
+                    ),
+                )
+                .await;
+            let ReqResMessage::ResponseUnaryOk {
+                payload: Some(payload),
+                ..
+            } = response
+            else {
+                panic!("{response:?}")
+            };
+            let configuration = DesktopConfiguration::decode(&payload).unwrap();
+            let track = &configuration.tracks[0];
+            let frame = DesktopInputFrame {
+                attach_id: id.clone(),
+                input_epoch: 0,
+                layout_epoch: 1,
+                sequence: 1,
+                event: DesktopInputEvent::Feedback {
+                    track_id: track.track_id,
+                    codec_epoch: track.codec_epoch,
+                    group_id: 1,
+                    decode_micros: 10,
+                    render_micros: 10,
+                    queue_depth: 3,
+                    request_keyframe: true,
+                },
+            };
+            let response = f
+                .request(ReqResMessage::RequestStreamStart {
+                    proc_id: ProcId::WriteDesktopInput.as_u64(),
+                    payload: Some(frame.encode()),
+                })
+                .await;
+            assert!(matches!(response, ReqResMessage::ResponseUnaryOk { .. }));
+            assert!(f.runtime.control().unwrap().holder_attach_id.is_none());
+            assert!(f.runtime.feedback_delay(&id, track.track_id) > Duration::ZERO);
+            let mut stale = frame.clone();
+            stale.sequence = 2;
+            if let DesktopInputEvent::Feedback { codec_epoch, .. } = &mut stale.event {
+                *codec_epoch += 1;
+            }
+            let response = f
+                .request(ReqResMessage::RequestStreamStart {
+                    proc_id: ProcId::WriteDesktopInput.as_u64(),
+                    payload: Some(stale.encode()),
+                })
+                .await;
+            assert!(!matches!(response, ReqResMessage::ResponseUnaryOk { .. }));
+        })
+        .await
+        .unwrap();
+    }
+
     #[tokio::test]
     async fn actual_webtransport_auth_incremental_input_reset_and_drain() {
         tokio::time::timeout(Duration::from_secs(20), async {
@@ -892,12 +999,31 @@ async fn stream_media(
     let Some(backend) = runtime.backend() else {
         return;
     };
+    struct TrackCleanup(
+        Arc<dyn desktop::Backend>,
+        DesktopTrack,
+        Option<crate::maintenance::WorkGuard>,
+    );
+    impl Drop for TrackCleanup {
+        fn drop(&mut self) {
+            let backend = self.0.clone();
+            let track = self.1.clone();
+            let work = self.2.take();
+            // Cleanup can wait for a bounded native call; never block the async runtime.
+            tokio::task::spawn_blocking(move || {
+                let _work = work;
+                backend.end_track(&track);
+            });
+        }
+    }
+    let _track_cleanup = TrackCleanup(backend.clone(), track.clone(), Some(_work));
     let mut group = 0u64;
     let mut pacing =
         tokio::time::interval(Duration::from_secs_f64(1.0 / track.viewport.fps as f64));
     pacing.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     loop {
         pacing.tick().await;
+        tokio::time::sleep(runtime.feedback_delay(&id, track.track_id)).await;
         if !runtime.has(&id) {
             return;
         }
@@ -908,61 +1034,64 @@ async fn stream_media(
         let Some(work) = runtime.capture_work() else {
             return;
         };
-        let frames = match tokio::task::spawn_blocking(move || {
+        let (tx, mut rx) = tokio::sync::mpsc::channel(2);
+        let producer = tokio::task::spawn_blocking(move || {
             let _work = work;
-            backend.group(&capture_track)
-        })
-        .await
-        {
-            Ok(Ok(frames)) => frames,
-            _ => return,
-        };
-        if frames.is_empty() || frames.len() > 240 || !runtime.has(&id) {
-            return;
-        }
-        let mut bytes = 0usize;
-        let mut objects = Vec::with_capacity(frames.len());
-        for (index, frame) in frames.into_iter().enumerate() {
-            if frame.keyframe != (index == 0) {
-                return;
-            }
-            let object = DesktopMediaObject {
-                attach_id: id.clone(),
-                track_id: track.track_id,
-                layout_epoch: layout,
-                codec_epoch: track.codec_epoch,
-                group_id: group,
-                object_id: index as u64,
-                timestamp_micros: frame.timestamp_micros,
-                keyframe: frame.keyframe,
-                data: frame.data,
-            };
-            let encoded = match rieul_daemon_core::desktop_transport::encode_object(&object) {
-                Ok(b) => b,
-                Err(_) => return,
-            };
-            bytes += encoded.len();
-            if bytes > rieul_daemon_core::desktop_transport::MAX_GROUP_BYTES {
-                return;
-            }
-            objects.push(encoded);
-        }
+            backend.stream_group(&capture_track, &mut |frame| {
+                tx.blocking_send(frame).map_err(|_| desktop::Error::Stale)
+            })
+        });
         let mut send =
             match tokio::time::timeout(Duration::from_millis(500), session.open_uni()).await {
                 Ok(Ok(s)) => s,
-                _ => continue,
+                _ => {
+                    drop(rx);
+                    let _ = producer.await;
+                    continue;
+                }
             };
-        let result = tokio::time::timeout(Duration::from_millis(500), async {
-            for bytes in &objects {
-                send.write_all(bytes).await?;
+        let mut bytes = 0usize;
+        let result = tokio::time::timeout(Duration::from_secs(5), async {
+            let mut index = 0u64;
+            while let Some(frame) = rx.recv().await {
+                if index >= 240 || frame.keyframe != (index == 0) || !runtime.has(&id) {
+                    anyhow::bail!("invalid or detached desktop group");
+                }
+                let object = DesktopMediaObject {
+                    attach_id: id.clone(),
+                    track_id: track.track_id,
+                    layout_epoch: layout,
+                    codec_epoch: track.codec_epoch,
+                    group_id: group,
+                    object_id: index,
+                    timestamp_micros: frame.timestamp_micros,
+                    keyframe: frame.keyframe,
+                    data: frame.data,
+                };
+                let encoded = rieul_daemon_core::desktop_transport::encode_object(&object)
+                    .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+                bytes += encoded.len();
+                if bytes > rieul_daemon_core::desktop_transport::MAX_GROUP_BYTES {
+                    anyhow::bail!("desktop group exceeds budget");
+                }
+                tokio::time::timeout(Duration::from_millis(500), send.write_all(&encoded))
+                    .await??;
+                index += 1;
+            }
+            if index == 0 {
+                anyhow::bail!("desktop group has no frame");
             }
             send.finish()?;
-            send.stopped().await?;
+            tokio::time::timeout(Duration::from_millis(500), send.stopped()).await??;
             Ok::<_, anyhow::Error>(())
         })
         .await;
         if !matches!(result, Ok(Ok(()))) {
             let _ = send.reset(1);
+        }
+        drop(rx); // Unblock a producer abandoned under downstream pressure.
+        if !matches!(producer.await, Ok(Ok(()))) {
+            return;
         }
         tokio::time::sleep(Duration::from_secs_f64(
             bytes as f64 * 8.0 / track.viewport.bitrate as f64,

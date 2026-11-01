@@ -1,4 +1,5 @@
 import { createEffect, createMemo, createSignal, untrack } from "solid-js";
+import { desktopCursorPng } from "../../../../protocol/desktop-cursor.ts";
 import { useBunja } from "bunja/solid";
 import { desktopBunja } from "../../../../state/desktop.ts";
 import type { DesktopTrack } from "../../../../protocol/generated/rpc.ts";
@@ -152,6 +153,30 @@ function DesktopSurface(props: { track: DesktopTrack }) {
       return () => untrack(cleanup);
     },
   );
+  const [shape, setShape] = createSignal<{
+    url: string;
+    width: number;
+    height: number;
+  }>();
+  createEffect(
+    createMemo(() => desktop().cursor()?.shape),
+    (bytes) => {
+      if (!bytes) {
+        setShape(undefined);
+        return;
+      }
+      const dimensions = desktopCursorPng(bytes);
+      if (!dimensions) {
+        setShape(undefined);
+        return;
+      }
+      const url = URL.createObjectURL(
+        new Blob([new Uint8Array(bytes)], { type: "image/png" }),
+      );
+      setShape({ url, ...dimensions });
+      return () => URL.revokeObjectURL(url);
+    },
+  );
   const cursor = createMemo(() => {
     const cursor = desktop().cursor(),
       display = desktop()
@@ -161,6 +186,8 @@ function DesktopSurface(props: { track: DesktopTrack }) {
     if (
       !cursor?.visible ||
       !display ||
+      (cursor.displayId !== undefined &&
+        cursor.displayId !== display.displayId) ||
       cursor.layoutEpoch !== desktop().configuration()?.layoutEpoch
     )
       return;
@@ -204,9 +231,23 @@ function DesktopSurface(props: { track: DesktopTrack }) {
             display: cursor() ? undefined : "none",
             left: cursor()?.left,
             top: cursor()?.top,
+            width: shape()
+              ? `${(shape()!.width / props.track.viewport.crop.width) * 100}%`
+              : undefined,
+            transform: shape()
+              ? `translate(-${((desktop().cursor()?.hotspotX ?? 0) / shape()!.width) * 100}%, -${((desktop().cursor()?.hotspotY ?? 0) / shape()!.height) * 100}%)`
+              : undefined,
           }}
         >
-          ↖
+          {shape() ? (
+            <img
+              src={shape()!.url}
+              alt=""
+              style={{ width: "100%", display: "block" }}
+            />
+          ) : (
+            "↖"
+          )}
         </span>
       </div>
     </article>

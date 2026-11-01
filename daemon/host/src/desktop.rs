@@ -36,6 +36,13 @@ pub trait Credentials {
 /// A failed release poisons the manager: a new controller cannot acquire it.
 pub trait Input {
     fn send(&mut self, event: &DesktopInputEvent) -> Result<(), Error>;
+    fn send_viewport(
+        &mut self,
+        event: &DesktopInputEvent,
+        _viewport: Option<&DesktopViewport>,
+    ) -> Result<(), Error> {
+        self.send(event)
+    }
 }
 struct Attachment {
     connection: u64,
@@ -397,7 +404,8 @@ impl<I: Input> Desktop<I> {
             }
             _ => {}
         }
-        if self.input.send(event).is_err() {
+        let viewport = point.and_then(|(id, _, _)| a.viewports.get(id));
+        if self.input.send_viewport(event, viewport).is_err() {
             let _ = self.release();
             return Err(Error::Backend);
         }
@@ -782,6 +790,30 @@ pub trait Backend: Send + Sync {
     fn capabilities(&self) -> rieul_daemon_core::generated::rpc::DesktopCapabilities;
     fn displays(&self) -> Vec<rieul_daemon_core::generated::rpc::DesktopDisplay>;
     fn input(&self, event: &DesktopInputEvent) -> Result<(), Error>;
+    fn cursor(&self, _layout: u64) -> Option<rieul_daemon_core::generated::rpc::DesktopEvent> {
+        None
+    }
+    fn input_viewport(
+        &self,
+        event: &DesktopInputEvent,
+        _viewport: Option<&DesktopViewport>,
+    ) -> Result<(), Error> {
+        self.input(event)
+    }
+    fn keyboard_mode_supported(&self, _mode: DesktopKeyboardMode) -> bool {
+        true
+    }
+    fn end_track(&self, _track: &rieul_daemon_core::generated::rpc::DesktopTrack) {}
+    fn stream_group(
+        &self,
+        track: &rieul_daemon_core::generated::rpc::DesktopTrack,
+        emit: &mut dyn FnMut(EncodedFrame) -> Result<(), Error>,
+    ) -> Result<(), Error> {
+        for frame in self.group(track)? {
+            emit(frame)?;
+        }
+        Ok(())
+    }
     /// Produce one independent closed GOP. The caller never queues another GOP.
     fn group(
         &self,
@@ -807,6 +839,16 @@ impl EncodedFrame {
 
 pub(crate) struct BackendInput(Option<Arc<dyn Backend>>);
 impl Input for BackendInput {
+    fn send_viewport(
+        &mut self,
+        event: &DesktopInputEvent,
+        viewport: Option<&DesktopViewport>,
+    ) -> Result<(), Error> {
+        self.0
+            .as_ref()
+            .ok_or(Error::Unsupported)?
+            .input_viewport(event, viewport)
+    }
     fn send(&mut self, event: &DesktopInputEvent) -> Result<(), Error> {
         self.0.as_ref().ok_or(Error::Unsupported)?.input(event)
     }
@@ -822,6 +864,7 @@ pub struct Runtime {
         std::sync::Mutex<BTreeMap<String, rieul_daemon_core::generated::rpc::DesktopConfiguration>>,
     gate: Arc<WorkGate>,
     next_codec_epoch: std::sync::Mutex<u64>,
+    feedback: std::sync::Mutex<BTreeMap<(String, u64), (std::time::Instant, u64)>>,
 }
 impl Runtime {
     pub fn new(gate: Arc<WorkGate>, backend: Option<Arc<dyn Backend>>) -> Arc<Self> {
@@ -835,6 +878,7 @@ impl Runtime {
             configurations: Default::default(),
             gate,
             next_codec_epoch: std::sync::Mutex::new(0),
+            feedback: Default::default(),
         })
     }
     pub fn capabilities(&self) -> rieul_daemon_core::generated::rpc::DesktopCapabilities {
@@ -844,6 +888,7 @@ impl Runtime {
             .map(|b| b.capabilities())
             .unwrap_or(DesktopCapabilities {
                 profile: PROFILE,
+                feedback: Some(true),
                 capture: DesktopAvailability::Unsupported,
                 input: DesktopAvailability::Unsupported,
                 codecs: vec![],
@@ -869,6 +914,10 @@ impl Runtime {
             .lock()
             .map_err(|_| Error::Backend)?
             .retain(|id, _| d.attachments.contains_key(id));
+        self.feedback
+            .lock()
+            .map_err(|_| Error::Backend)?
+            .retain(|(id, _), _| d.attachments.contains_key(id));
         self.changed.send_modify(|n| *n = n.wrapping_add(1));
         result
     }
@@ -883,6 +932,10 @@ impl Runtime {
         use rieul_daemon_core::generated::rpc::*;
         let caps = self.capabilities();
         if request.profile != PROFILE
+            || !self
+                .backend
+                .as_ref()
+                .is_some_and(|b| b.keyboard_mode_supported(request.keyboard_mode))
             || !request.media_uni_streams
             || caps.capture != DesktopAvailability::Available
             || !caps
@@ -982,6 +1035,72 @@ impl Drop for InputGuard {
 }
 
 impl Runtime {
+    pub(crate) fn accept_input(
+        &self,
+        auth: &impl Credentials,
+        connection: u64,
+        now: u64,
+        frame: DesktopInputFrame,
+    ) -> Result<(), Error> {
+        let DesktopInputEvent::Feedback {
+            track_id,
+            codec_epoch,
+            group_id,
+            decode_micros,
+            render_micros,
+            queue_depth,
+            ..
+        } = &frame.event
+        else {
+            return self.mutate(|d| d.input(auth, connection, now, frame));
+        };
+        self.mutate(|d| {
+            d.authorize(auth, connection, &frame.attach_id, now)?;
+            let configurations = self.configurations.lock().map_err(|_| Error::Backend)?;
+            let config = configurations.get(&frame.attach_id).ok_or(Error::Stale)?;
+            if frame.layout_epoch != config.layout_epoch
+                || !config
+                    .tracks
+                    .iter()
+                    .any(|t| t.track_id == *track_id && t.codec_epoch == *codec_epoch)
+            {
+                return Err(Error::Stale);
+            }
+            if *group_id == 0
+                || *decode_micros > 60_000_000
+                || *render_micros > 60_000_000
+                || *queue_depth > 256
+            {
+                return Err(Error::Limit);
+            }
+            let a = d
+                .attachments
+                .get_mut(&frame.attach_id)
+                .ok_or(Error::NotFound)?;
+            if frame.sequence != a.sequence + 1 || frame.sequence > MAX_SAFE {
+                return Err(Error::Stale);
+            }
+            a.sequence = frame.sequence;
+            self.feedback.lock().map_err(|_| Error::Backend)?.insert(
+                (frame.attach_id.clone(), *track_id),
+                (std::time::Instant::now(), *queue_depth),
+            );
+            // Native groups are independently decodable, so every next group satisfies
+            // requestKeyframe. No input privilege is granted by decoder feedback.
+            Ok(())
+        })
+    }
+    pub(crate) fn feedback_delay(&self, id: &str, track: u64) -> std::time::Duration {
+        let depth = self
+            .feedback
+            .lock()
+            .ok()
+            .and_then(|values| values.get(&(id.into(), track)).copied())
+            .filter(|(time, _)| time.elapsed() < std::time::Duration::from_secs(2))
+            .map(|(_, depth)| depth)
+            .unwrap_or(0);
+        std::time::Duration::from_millis(depth.min(6) * 16)
+    }
     pub(crate) fn configuration(
         &self,
         id: &str,
