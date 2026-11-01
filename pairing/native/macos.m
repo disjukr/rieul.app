@@ -79,7 +79,7 @@ static RieulApplicationDelegate *applicationDelegate;
 - (void)activate:(id)sender {
   NSEventType type = NSApp.currentEvent.type;
   if (type == NSEventTypeRightMouseUp) {
-    // Normal AppKit popup; target actions enqueue events for the JS poller.
+    // Normal AppKit popup; target actions enqueue events for the native GUI event loop.
     [menu popUpMenuPositioningItem:nil atLocation:NSMakePoint(0, 0) inView:status.button];
   } else {
     atomic_fetch_or(&events, RieulOpen);

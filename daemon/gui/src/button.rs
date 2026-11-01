@@ -4,7 +4,15 @@ use gpui::{prelude::*, *};
 pub struct Button {
     pub inner: Stateful<Div>,
     pub disabled: bool,
+    pub focus: Option<FocusHandle>,
+    pub radius: Pixels,
 }
+impl InteractiveElement for Button {
+    fn interactivity(&mut self) -> &mut Interactivity {
+        self.inner.interactivity()
+    }
+}
+impl StatefulInteractiveElement for Button {}
 impl IntoElement for Button {
     type Element = Self;
     fn into_element(self) -> Self {
@@ -62,7 +70,22 @@ impl Element for Button {
         cx: &mut App,
     ) {
         self.inner
-            .paint(id, inspector, bounds, layout, prepaint, window, cx)
+            .paint(id, inspector, bounds, layout, prepaint, window, cx);
+        if self
+            .focus
+            .as_ref()
+            .is_some_and(|focus| focus.is_focused(window))
+            && window.last_input_was_keyboard()
+        {
+            window.paint_quad(quad(
+                bounds.dilate(px(3.)),
+                self.radius + px(3.),
+                rgba(0x00000000),
+                px(2.),
+                rgb(0x4f8cff),
+                BorderStyle::default(),
+            ));
+        }
     }
     fn a11y_role(&self) -> Option<Role> {
         self.inner.a11y_role()

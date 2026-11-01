@@ -15,11 +15,13 @@ struct View {
     #[cfg(feature = "qa")]
     qa_clipboard: Option<ClipboardItem>,
     root_focus: FocusHandle,
+    button_focus: std::cell::RefCell<std::collections::HashMap<SharedString, FocusHandle>>,
     controller: Controller,
     events: mpsc::Receiver<Event>,
     shell: Shell,
     generation: u64,
     changed: Instant,
+    displayed_second: u64,
     resolved: bool,
     feedback: String,
     copied: bool,
@@ -50,7 +52,9 @@ impl View {
         }
     }
     fn tick(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let mut dirty = false;
         while let Ok(event) = self.events.try_recv() {
+            dirty = true;
             let effects = match event {
                 Event::Request {
                     proc_id,
@@ -67,6 +71,7 @@ impl View {
         #[cfg(feature = "qa")]
         self.qa_tick(window, cx);
         let events = self.shell.events();
+        dirty |= events != 0;
         if events & 1 != 0 {
             let effects = self.controller.close();
             self.effects(effects, window);
@@ -93,6 +98,7 @@ impl View {
             };
             if result != 0 || started.elapsed() >= Duration::from_secs(5) {
                 self.notification = None;
+                dirty = true;
                 self.effects(
                     self.controller.notification_result(generation, result == 1),
                     window,
@@ -100,15 +106,24 @@ impl View {
             }
         }
         if self.generation != self.controller.generation {
+            dirty = true;
             self.generation = self.controller.generation;
             self.changed = Instant::now();
             self.resolved = false;
             self.feedback.clear();
+            self.button_focus.borrow_mut().clear();
             self.error.clear();
             self.copied = false;
             window.focus(&self.root_focus, cx);
         }
-        cx.notify();
+        let second = self.changed.elapsed().as_secs();
+        if matches!(self.controller.route, Route::Code(_)) && second != self.displayed_second {
+            self.displayed_second = second;
+            dirty = true;
+        }
+        if dirty {
+            cx.notify();
+        }
     }
     fn quit(&mut self, cx: &mut Context<Self>) {
         self.controller.dispose();
@@ -213,12 +228,24 @@ impl View {
         let code_button = id.as_ref() == "copy-pairing-code";
         let keyboard_action = action.clone();
         let disabled = self.resolved && matches!(action, Action::Resolve(..));
+        let focus = (!disabled).then(|| {
+            self.button_focus
+                .borrow_mut()
+                .entry(id.clone())
+                .or_insert_with(|| cx.focus_handle().tab_index(0))
+                .clone()
+        });
+        let radius = px(if code_button || id.starts_with("candidate-") {
+            12.
+        } else {
+            4.
+        });
         let inner = div()
             .id(id.clone())
             .accessibility_id(id)
             .aria_label(label.clone())
             .role(Role::Button)
-            .when(!disabled, |b| b.tab_index(0))
+            .when_some(focus.as_ref(), |b, focus| b.track_focus(focus))
             .flex()
             .items_center()
             .justify_center()
@@ -228,7 +255,6 @@ impl View {
             .when(!disabled, |b| {
                 b.cursor_pointer().hover(|s| s.bg(rgb(0xf7f8fb)))
             })
-            .focus_visible(|s| s.border_2().border_color(rgb(0x4f8cff)))
             .on_click(cx.listener(move |this, _, window, cx| {
                 if !disabled {
                     this.action(action.clone(), generation, window, cx)
@@ -253,7 +279,12 @@ impl View {
                         }),
                 )
             });
-        Button { inner, disabled }
+        Button {
+            inner,
+            disabled,
+            focus,
+            radius,
+        }
     }
     fn property(
         &self,
@@ -443,17 +474,30 @@ impl Render for View {
                                     .text_size(px(18.))
                                     .line_height(px(27.))
                                     .font_weight(FontWeight::EXTRA_BOLD)
+                                    .id("route-title")
+                                    .role(Role::Heading)
+                                    .aria_level(1)
+                                    .aria_label("Pairing code")
                                     .child("Pairing code"),
                             )
                             .child(
                                 div()
                                     .text_size(px(11.))
                                     .text_color(rgb(0x8a6116))
+                                    .line_height(px(11.))
+                                    .font_weight(FontWeight(750.))
                                     .bg(rgb(0xfff8df))
                                     .px(px(4.))
                                     .rounded(px(999.))
                                     .border_1()
                                     .border_color(rgb(0xe4c778))
+                                    .id("expiry")
+                                    .role(Role::Label)
+                                    .aria_label(format!(
+                                        "Expires in {:02}:{:02}",
+                                        remaining / 60,
+                                        remaining % 60
+                                    ))
                                     .child(format!("{:02}:{:02}", remaining / 60, remaining % 60)),
                             ),
                     )
@@ -471,6 +515,7 @@ impl Render for View {
                             .flex_1()
                             .rounded(px(12.))
                             .bg(rgb(0xf8f8f8))
+                            .hover(|s| s.bg(rgb(0xfafafb)).border_color(rgb(0x4f8cff)))
                             .border_1()
                             .border_color(rgba(0xffffff75))
                             .shadow(small_shadow())
@@ -507,7 +552,7 @@ impl Render for View {
                                     .font_family(if cfg!(windows) { "Consolas" } else { "Menlo" })
                                     .text_size(px(42.))
                                     .line_height(px(63.))
-                                    .font_weight(FontWeight::EXTRA_BOLD)
+                                    .font_weight(FontWeight(850.))
                                     .children(
                                         model
                                             .pairing_code
@@ -537,6 +582,9 @@ impl Render for View {
                         .border_1()
                         .border_color(rgb(0xd8dde7))
                         .bg(rgb(0xf9f9fa))
+                        .when(!self.resolved, |b| {
+                            b.hover(|s| s.bg(rgb(0xfcfcfd)).border_color(rgb(0x4f8cff)))
+                        })
                         .text_size(px(28.))
                         .line_height(px(42.))
                         .shadow(small_shadow())
@@ -547,7 +595,7 @@ impl Render for View {
                                 b.opacity(0.45)
                             }
                         })
-                        .font_weight(FontWeight::EXTRA_BOLD),
+                        .font_weight(FontWeight(850.)),
                     );
                 }
                 div()
@@ -845,26 +893,37 @@ pub fn run() -> anyhow::Result<()> {
     };
     let yaml: serde_yaml::Value =
         serde_yaml::from_str(&config_text).unwrap_or(serde_yaml::Value::Null);
-    let domain = yaml
+    let configured_domain = yaml
         .get("domain")
         .and_then(|v| v.as_str())
-        .unwrap_or("localhost");
+        .filter(|s| !s.is_empty());
+    let domain = configured_domain.unwrap_or("localhost");
     let port = yaml
         .get("listenAddr")
         .and_then(|v| v.as_str())
         .and_then(|s| s.rsplit(':').next())
         .and_then(|s| s.parse::<u16>().ok())
+        .filter(|p| *p != 0)
         .unwrap_or(9012);
     let daemon_url = format!(
         "https://{domain}{}",
-        if port == 443 && domain != "localhost" {
+        if port == 443 && configured_domain.is_some() {
             String::new()
         } else {
             format!(":{port}")
         }
     );
     let info = Info {
-        config_path: path.to_string_lossy().into_owned(),
+        config_path: {
+            let text = path.to_string_lossy().into_owned();
+            #[cfg(windows)]
+            let text = if let Some(unc) = text.strip_prefix(r"\\?\UNC\") {
+                format!(r"\\{unc}")
+            } else {
+                text.strip_prefix(r"\\?\").unwrap_or(&text).to_owned()
+            };
+            text
+        },
         daemon_url,
     };
     application().with_assets(Icons).run(move |cx| {
@@ -919,10 +978,23 @@ pub fn run() -> anyhow::Result<()> {
                         }
                     })
                     .detach();
+                    cx.on_app_quit(|this, cx| {
+                        this.controller.dispose();
+                        #[cfg(feature = "qa")]
+                        if let Some(previous) = this.qa_clipboard.take() {
+                            cx.write_to_clipboard(previous);
+                        }
+                        let timer = cx.background_executor().timer(Duration::from_millis(100));
+                        async move {
+                            timer.await;
+                        }
+                    })
+                    .detach();
                     let root_focus = cx.focus_handle().tab_index(-1);
                     window.focus(&root_focus, cx);
                     View {
                         root_focus,
+                        button_focus: Default::default(),
                         #[cfg(feature = "qa")]
                         qa,
                         #[cfg(feature = "qa")]
@@ -932,6 +1004,7 @@ pub fn run() -> anyhow::Result<()> {
                         shell,
                         generation: 0,
                         changed: Instant::now(),
+                        displayed_second: 0,
                         resolved: false,
                         feedback: String::new(),
                         copied: false,

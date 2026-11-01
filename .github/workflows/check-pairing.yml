@@ -4,6 +4,11 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+    inputs:
+      windows_only:
+        description: Run only Windows to diagnose a platform failure
+        type: boolean
+        default: false
 permissions:
   contents: read
 concurrency:
@@ -11,6 +16,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   macos:
+    if: ${{ !inputs.windows_only }}
     strategy:
       fail-fast: false
       matrix:

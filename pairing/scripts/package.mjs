@@ -125,6 +125,10 @@ const metadata = JSON.parse(
   ).stdout,
 );
 const licenses = [];
+const noticeSources = JSON.parse(
+  await readFile(path.join(root, "assets/licenses/sources.json"), "utf8"),
+);
+
 for (const pkg of metadata.packages) {
   const directory = path.dirname(pkg.manifest_path);
   const licenseDir = path.join(
@@ -173,6 +177,61 @@ for (const pkg of metadata.packages) {
         });
         files.push(name);
       }
+    }
+  }
+  if (!files.length) {
+    const supplied = noticeSources.find((source) =>
+      source.packages.includes(`${pkg.name}-${pkg.version}`),
+    );
+    if (supplied) {
+      const notice = path.join(root, "assets/licenses", supplied.file);
+      if ((await sha256(notice)) !== supplied.sha256)
+        throw new Error(`Notice integrity failed: ${pkg.name}`);
+      await cp(notice, path.join(licenseDir, "LICENSE.txt"));
+      files.push("LICENSE.txt");
+    } else {
+      // Some published crates contain only their SPDX declaration and inline
+      // source notices. Preserve those verbatim alongside the standard license.
+      const license = pkg.license ?? "";
+      const template = license.includes("Apache-2.0")
+        ? path.resolve(root, "../LICENSE-APACHE")
+        : license === "MIT"
+          ? path.join(root, "assets/licenses/MIT-standard.txt")
+          : null;
+      if (!template)
+        throw new Error(`Missing license notice: ${pkg.name} ${license}`);
+      await cp(template, path.join(licenseDir, "LICENSE.txt"));
+      files.push("LICENSE.txt");
+      await cp(pkg.manifest_path, path.join(licenseDir, "Cargo.toml"));
+      files.push("Cargo.toml");
+      if (
+        await stat(path.join(directory, "src")).then(
+          (s) => s.isDirectory(),
+          () => false,
+        )
+      ) {
+        await cp(path.join(directory, "src"), path.join(licenseDir, "source"), {
+          recursive: true,
+          dereference: true,
+        });
+        files.push("source/");
+      }
+      for (const extra of ["AUTHORS", "COPYRIGHT", "README.md"]) {
+        if (
+          await stat(path.join(directory, extra)).then(
+            (s) => s.isFile(),
+            () => false,
+          )
+        ) {
+          await cp(path.join(directory, extra), path.join(licenseDir, extra));
+          files.push(extra);
+        }
+      }
+      await writeFile(
+        path.join(licenseDir, "NOTICE.txt"),
+        `Package: ${pkg.name} ${pkg.version}\nPublished license: ${license}\nAuthors from Cargo metadata: ${pkg.authors.join(", ")}\nSource: ${pkg.repository ?? pkg.source}\nThe published crate has no standalone license file. Its original source notices and manifest are preserved alongside the standard license text.\n`,
+      );
+      files.push("NOTICE.txt");
     }
   }
   licenses.push({
