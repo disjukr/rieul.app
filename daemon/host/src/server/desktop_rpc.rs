@@ -784,6 +784,58 @@ mod tests {
         .unwrap();
     }
     #[tokio::test]
+    async fn actual_webtransport_raw_first_frame_limit_includes_unknown_fields() {
+        tokio::time::timeout(Duration::from_secs(20), async {
+            let f = Fixture::new().await;
+            f.authenticate().await;
+            let (id, _events) = f.attach().await;
+            let control = f.control(&id, DesktopControlAction::Acquire).await;
+            let frame = DesktopInputFrame {
+                attach_id: id,
+                input_epoch: control.input_epoch,
+                sequence: 1,
+                layout_epoch: 1,
+                event: DesktopInputEvent::PhysicalKey {
+                    usage: 4,
+                    down: true,
+                    repeat: false,
+                },
+            };
+            use rieul_daemon_core::cbor::Value;
+            let Value::Map(mut fields) = Value::decode(&frame.encode()).unwrap() else {
+                panic!()
+            };
+            fields.insert(99, Value::Bytes(vec![0; desktop::MAX_FRAME]));
+            let payload = Value::Map(fields).encode();
+            // Legacy decoder accepts map ordering; this misses the canonical-header
+            // early recognizer but must still fail the raw payload bound.
+            let mut wire = vec![1, 0xa2, 2];
+            wire.extend(Value::Bytes(payload).encode());
+            wire.extend([1, 0x18, 72]);
+            let (mut send, mut recv) = f.session.open_bi().await.unwrap();
+            send.write_all(&wire).await.unwrap();
+            send.finish().unwrap();
+            let bytes = recv.read_to_end(65536).await.unwrap();
+            let response = ReqResMessage::decode_sequence(&bytes).unwrap().remove(0);
+            let ReqResMessage::ResponseUnaryError { error, .. } = response else {
+                panic!("{response:?}")
+            };
+            assert!(matches!(
+                DesktopError::decode(&error).unwrap(),
+                DesktopError::LimitExceeded { .. }
+            ));
+            assert!(!f
+                .backend
+                .inputs
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|e| matches!(e, DesktopInputEvent::PhysicalKey { .. })));
+        })
+        .await
+        .unwrap();
+    }
+    #[tokio::test]
     async fn actual_webtransport_disconnect_releases_held_input() {
         tokio::time::timeout(Duration::from_secs(20), async {
             let f = Fixture::new().await;

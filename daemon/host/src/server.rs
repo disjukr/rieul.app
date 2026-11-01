@@ -1824,6 +1824,13 @@ async fn dispatch_client_stream_rpc(
     if requires_authentication(proc_id) && !is_authenticated(&context.session_state).await {
         return Ok(vec![unauthorized_message(proc_id)]);
     }
+    // Check raw payload bytes as well as the incremental reader. Unknown fields
+    // disappear when decoding/re-encoding a typed frame and must not bypass bounds.
+    if proc_id == ProcId::WriteDesktopInput.as_u64()
+        && payload.as_ref().map_or(true, |bytes| bytes.len() > crate::desktop::MAX_FRAME)
+    {
+        return Ok(vec![error_message(proc_id, "limit_exceeded", "Desktop input frame exceeds its negotiated limit")]);
+    }
     let request = match RpcRequest::decode(proc_id, payload.as_deref()) {
         Ok(request) => request,
         Err(err) => return Ok(vec![rpc_request_decode_error_message(proc_id, err)]),
