@@ -88,6 +88,12 @@ jobs:
       - uses: pnpm/action-setup@v4
       - name: Install daemon codegen and packaging dependencies
         run: pnpm install --frozen-lockfile
+      # Temporary-file/fake-service fixtures only: never install or register the
+      # updater here. Signed root launchd/reboot integration remains a separate gate.
+      - name: Test updater recovery and server drain without service installation
+        run: |
+          cargo test -p rieul-macos-daemon --lib root_update --locked
+          cargo test -p rieul-daemon-host --lib --locked
       - name: Build installer wrapper and validate signed PKG payload without installation
         run: |
           bash scripts/macos/package-desktop-pkg.sh --app-sign - --out-dir "$PWD/dist/candidate"
