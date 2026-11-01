@@ -905,7 +905,7 @@ impl Runtime {
             layout_displays: Default::default(),
         })
     }
-    fn reconcile_backend(&self) -> Result<(), Error> {
+    pub(crate) fn reconcile_backend(&self) -> Result<(), Error> {
         let Some(backend) = &self.backend else { return Ok(()); };
         let _work = self.gate.enter().ok_or(Error::Busy)?;
         let mut d = self.state.lock().map_err(|_| Error::Backend)?;

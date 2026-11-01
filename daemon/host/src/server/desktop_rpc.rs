@@ -111,15 +111,19 @@ impl HostRpcHandler {
             .await
             .map_err(|_| desktop::Error::Unauthorized)?;
         let auth = Auth(self.client_credentials.clone().lock_owned().await);
-        // Expire all invalid attachments, even if the caller itself is revoked.
+        // Revocation still attempts cleanup, but never initiates a fresh helper.
+        let valid = auth.valid(&client, now_ms());
         let auth = blocking(self.desktop.clone(), move |r| {
+            if !valid {
+                let _ = r.mutate(|d| d.expire(&auth, now_ms()));
+                return Err(desktop::Error::Unauthorized);
+            }
+            // Recovery must precede the generation-fenced expiration operation.
+            r.reconcile_backend()?;
             r.mutate(|d| d.expire(&auth, now_ms()))?;
             Ok(auth)
         })
         .await?;
-        if !auth.valid(&client, now_ms()) {
-            return Err(desktop::Error::Unauthorized);
-        }
         Ok((auth, connection, client))
     }
     pub(super) fn get_desktop_capabilities_rpc<'a>(
@@ -495,6 +499,12 @@ mod tests {
         encoding_fails: std::sync::atomic::AtomicBool,
     }
     impl desktop::Backend for FakeBackend {
+        fn recover_input(&self, keys: &[u64], buttons: &[u64]) -> Result<(), desktop::Error> {
+            for usage in keys { self.input(&DesktopInputEvent::PhysicalKey { usage:*usage,down:false,repeat:false })?; }
+            for button in buttons { self.input(&DesktopInputEvent::Button { viewport_id:String::new(),x:0.0,y:0.0,button:*button,down:false })?; }
+            Ok(())
+        }
+
         fn end_track(&self, _: &DesktopTrack) -> Result<(), desktop::Error> {
             if self
                 .shutdown_fails
@@ -687,6 +697,7 @@ mod tests {
         _client: web_transport_quinn::Client,
         client_id: String,
         secret: String,
+        helper_tasks: Arc<std::sync::Mutex<Vec<tokio::task::AbortHandle>>>,
     }
     impl Drop for Fixture {
         fn drop(&mut self) {
@@ -710,24 +721,19 @@ mod tests {
             save_client_credentials(&credentials_path, &records).unwrap();
             let backend = Arc::new(FakeBackend::default());
             let gate = Arc::new(crate::maintenance::WorkGate::default());
+            let helper_tasks = Arc::new(std::sync::Mutex::new(Vec::new()));
             let adapter: Arc<dyn desktop::Backend> = if use_ipc {
-                let (client, server) = tokio::io::duplex(65536);
-                let native = backend.clone();
-                tokio::spawn(async move {
-                    let _ = crate::desktop_ipc::serve(server, native).await;
-                });
-                let client = Arc::new(std::sync::Mutex::new(Some(client)));
+                let native = backend.clone(); let helpers = helper_tasks.clone();
                 Arc::new(crate::desktop_ipc::Proxy::new(Arc::new(move || {
-                    let client = client.lock().unwrap().take();
+                    let native=native.clone(); let helpers=helpers.clone();
                     Box::pin(async move {
-                        client
-                            .map(|c| Box::new(c) as crate::desktop_ipc::Connection)
-                            .ok_or(desktop::Error::Backend)
+                        let (client,server)=tokio::io::duplex(65536);
+                        let task=tokio::spawn(crate::desktop_ipc::serve(server,native));
+                        helpers.lock().unwrap().push(task.abort_handle());
+                        Ok(Box::new(client) as crate::desktop_ipc::Connection)
                     })
                 })))
-            } else {
-                backend.clone()
-            };
+            } else { backend.clone() };
             let runtime = desktop::Runtime::new(gate.clone(), Some(adapter));
             let cert = rcgen::generate_simple_self_signed(vec!["127.0.0.1".into()]).unwrap();
             let der = cert.cert.der().clone();
@@ -795,6 +801,7 @@ mod tests {
                 _client: client,
                 client_id: issued.client_id,
                 secret: issued.client_secret,
+                helper_tasks,
             }
         }
         async fn request(&self, message: ReqResMessage) -> ReqResMessage {
@@ -888,6 +895,33 @@ mod tests {
                 notified.await;
             }
         }
+    }
+    #[tokio::test(flavor="multi_thread",worker_threads=4)]
+    async fn authenticated_rpc_recovers_helper_before_expiring_old_generation() {
+        tokio::time::timeout(Duration::from_secs(10), async {
+            let f=Fixture::with_ipc(true).await; f.authenticate().await;
+            let (old,_events)=f.attach().await;
+            let control=f.control(&old,DesktopControlAction::Acquire).await;
+            let response=f.request(ReqResMessage::RequestStreamStart {
+                proc_id:ProcId::WriteDesktopInput.as_u64(),
+                payload:Some(DesktopInputFrame {attach_id:old.clone(),input_epoch:control.input_epoch,layout_epoch:1,sequence:1,
+                    event:DesktopInputEvent::PhysicalKey{usage:4,down:true,repeat:false}}.encode()),
+            }).await;
+            assert!(matches!(response, ReqResMessage::ResponseUnaryOk { .. }));
+            // Clean half-close acknowledges the down event but retains held input.
+            f.helper_tasks.lock().unwrap().last().unwrap().abort();
+            loop {
+                let response=f.unary(ProcId::GetDesktopCapabilities,None).await;
+                if matches!(response,ReqResMessage::ResponseUnaryOk{..}) && f.helper_tasks.lock().unwrap().len()>1 {break;}
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+            let (new,_events)=f.attach().await;assert_ne!(old,new);
+            assert!(f.runtime.control().unwrap().holder_attach_id.is_none());
+            assert!(f.runtime.control().unwrap().input_epoch>control.input_epoch);
+            f.wait_input(&DesktopInputEvent::PhysicalKey{usage:4,down:false,repeat:false}).await;
+            assert!(matches!(f.unary(ProcId::RenewDesktopLease,Some(DesktopAttachRef{attach_id:old}.encode())).await,ReqResMessage::ResponseUnaryError{..}));
+            f.control(&new,DesktopControlAction::Acquire).await;
+        }).await.unwrap();
     }
     #[tokio::test]
     async fn native_encoder_failure_through_ipc_closes_attachment_and_releases_control() {
