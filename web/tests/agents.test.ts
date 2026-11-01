@@ -1,7 +1,6 @@
+import { createRoot, createSignal, flush as flushSolid } from "solid-js";
 import { test, mock } from "node:test";
 import { bunja, createBunjaStore, createReadScopeFn, override } from "bunja";
-import { atom, createStore } from "jotai/vanilla";
-import { JotaiStoreScope } from "../src/state/jotai-store.ts";
 import * as client from "../src/protocol/generated/client.ts";
 import { rpcSessionStub } from "./helpers/rpc-session.ts";
 let api: Pick<
@@ -55,7 +54,11 @@ function deferred<T>() {
   return Promise.withResolvers<T>();
 }
 async function flush() {
-  for (let i = 0; i < 20; i++) await Promise.resolve();
+  for (let i = 0; i < 20; i++) {
+    flushSolid();
+    await Promise.resolve();
+  }
+  flushSolid();
 }
 function stream<T>() {
   let next = deferred<IteratorResult<T>>();
@@ -93,8 +96,6 @@ const project: AgentProjectInfo = {
   createdAtMs: 1,
 };
 function fixture() {
-  const state = createStore();
-
   const machines = ["a", "b"].map((id) => ({
     id,
     name: id,
@@ -111,7 +112,6 @@ function fixture() {
   const read = (id = "a") =>
     createReadScopeFn(
       [
-        [JotaiStoreScope, state],
         [MachineStorageScope, storage],
         [MachineIdScope, id],
       ],
@@ -128,17 +128,21 @@ function fixture() {
   const transports: string[] = [];
   const session = rpcSessionBunja;
   const store = createBunjaStore({
+    wrapInstance: (init) => createRoot(init),
     overrides: [
       override(session, () => {
         const machine = bunja.use(machineBunja);
-        const daemonInstanceIdAtom = atom<string | undefined>("daemon");
+        const [daemonInstanceId, setDaemonInstanceId] = createSignal<
+          string | undefined
+        >("daemon");
         let closed = false;
         bunja.effect(() => () => {
           closed = true;
-          state.set(daemonInstanceIdAtom, undefined);
+          setDaemonInstanceId(undefined);
+          flushSolid();
         });
         return rpcSessionStub({
-          daemonInstanceIdAtom,
+          daemonInstanceId,
           webTransport: () => {
             assert(!closed, "cleanup must not call disposed RPC dependency");
             transports.push(machine.machineId!);
@@ -181,7 +185,6 @@ function fixture() {
     },
   };
   return {
-    state,
     store,
     read,
     agents,
@@ -209,7 +212,7 @@ test("agent effect is shared, survives partial cleanup, and rejects responses af
   assert(f.providers[0].returns() === 0);
   f.projects[0].send({ type: "snapshot", rows: [project] });
   await flush();
-  assert(f.state.get(b.value.projectsAtom).length === 1);
+  assert((flushSolid(), b.value.projects()).length === 1);
   const pending = b.value.addProject("/old");
   await flush();
   const pendingSession = b.value.addSession("provider", {
@@ -221,9 +224,9 @@ test("agent effect is shared, survives partial cleanup, and rejects responses af
   await flush();
   stopB();
   assert(f.providers[0].returns() === 1 && f.projects[0].returns() === 1);
-  const before = f.state.get(b.value.sessionsAtom);
-  const beforeProjects = f.state.get(b.value.projectsAtom);
-  const phase = f.state.get(b.value.phaseAtom);
+  const before = (flushSolid(), b.value.sessions());
+  const beforeProjects = (flushSolid(), b.value.projects());
+  const phase = (flushSolid(), b.value.phase());
   f.requests[0].reject(new Error("late failure"));
   f.creations[0].resolve({ ...project, projectId: "late" });
   // Only the summary id is observed by these operations.
@@ -233,16 +236,16 @@ test("agent effect is shared, survives partial cleanup, and rejects responses af
   await Promise.all([pending, pendingSession, pendingArchive]);
   await flush();
   assert(
-    f.state.get(b.value.projectsAtom) === beforeProjects,
+    (flushSolid(), b.value.projects()) === beforeProjects,
     "late project must not be inserted",
   );
   assert(
-    f.state.get(b.value.sessionsAtom) === before,
+    (flushSolid(), b.value.sessions()) === before,
     "late session operations must not write",
   );
   assert(
-    f.state.get(b.value.phaseAtom) === phase &&
-      f.state.get(b.value.errorAtom) === undefined,
+    (flushSolid(), b.value.phase()) === phase &&
+      (flushSolid(), b.value.error()) === undefined,
     "late failure must not write",
   );
   const fresh = f.store.get(f.agents, f.read());
@@ -284,17 +287,17 @@ test("machine scopes stay isolated while selection switches and old requests com
   await oldProject;
   await flush();
   assert(
-    f.state.get(a.value.phaseAtom) === "loading",
+    (flushSolid(), a.value.phase()) === "loading",
     "superseded list must not mark the new lifetime ready",
   );
-  assert(f.state.get(a.value.projectsAtom).length === 0);
+  assert((flushSolid(), a.value.projects()).length === 0);
   stopA();
   f.requests[1].resolve({ rows: [], catalogRevision: 1 });
   f.requests[2].reject(new Error("old a"));
   await flush();
   assert(
-    f.state.get(b.value.phaseAtom) === "ready" &&
-      f.state.get(b.value.errorAtom) === undefined,
+    (flushSolid(), b.value.phase()) === "ready" &&
+      (flushSolid(), b.value.error()) === undefined,
   );
   stopB();
   f.store.dispose();
@@ -312,18 +315,18 @@ test("old list success cannot write after final cleanup or overtake a newer refr
   f.requests[0].resolve({ rows: [], catalogRevision: 0 });
   await flush();
   assert(
-    f.state.get(entry.value.phaseAtom) === "loading",
+    (flushSolid(), entry.value.phase()) === "loading",
     "superseded initial refresh must not mark ready",
   );
   stop();
-  const sessions = f.state.get(entry.value.sessionsAtom);
-  const phase = f.state.get(entry.value.phaseAtom);
+  const sessions = (flushSolid(), entry.value.sessions());
+  const phase = (flushSolid(), entry.value.phase());
   f.requests[1].resolve({ rows: [], catalogRevision: 1 });
   await newer;
   await flush();
   assert(
-    f.state.get(entry.value.sessionsAtom) === sessions &&
-      f.state.get(entry.value.phaseAtom) === phase,
+    (flushSolid(), entry.value.sessions()) === sessions &&
+      (flushSolid(), entry.value.phase()) === phase,
   );
   stopSession();
   f.store.dispose();

@@ -1,8 +1,14 @@
+import {
+  createSignal,
+  createMemo,
+  createRoot,
+  getOwner,
+  runWithOwner,
+  untrack,
+  type Accessor,
+} from "solid-js";
 import { bunja } from "bunja";
-import { atom, type PrimitiveAtom } from "jotai/vanilla";
-import type { Store } from "jotai/vanilla";
 import { nowBunja } from "./now.ts";
-import { JotaiStoreScope } from "./jotai-store.ts";
 import {
   authenticateWebTransport,
   closeWebTransport as closeProtocolWebTransport,
@@ -24,64 +30,55 @@ import { MachineBaseUrlScope } from "./machine-scopes.ts";
 import { machineBunja, machineStoreBunja } from "./machine-store.ts";
 import type { Machine } from "./machines.ts";
 import type { ConnectionState } from "./types.ts";
-
 const CLIENT_CREDENTIAL_RENEWAL_INTERVAL_MS = 24 * 60 * 60 * 1000;
-const DATAGRAM_PING_INTERVAL_MS = 5_000;
-const DATAGRAM_PING_TIMEOUT_MS = 5_000;
-
+const DATAGRAM_PING_INTERVAL_MS = 5000;
+const DATAGRAM_PING_TIMEOUT_MS = 5000;
 interface DatagramRuntime {
   closed: boolean;
   nextPingId: number;
   onRtt: (rttMs: number) => void;
+  onFailure: () => void;
   pendingPing?: DatagramPing;
   pingInterval: ReturnType<typeof setInterval>;
   writer: WritableStreamDefaultWriter<Uint8Array>;
 }
-
 interface DatagramPing {
   pingId: number;
   startedAt: number;
   timeout: ReturnType<typeof setTimeout>;
 }
-
 interface ManagedRpcSession {
+  closed: boolean;
   generation: number;
   authenticatedClientId?: string;
   datagrams: DatagramRuntime;
   credentialRenewalStarted: boolean;
   transport: WebTransport;
 }
-
 interface IdleDaemonInfoState {
   phase: "idle";
 }
-
 interface LoadingDaemonInfoState {
   phase: "loading";
 }
-
 interface ReadyDaemonInfoState {
   daemonInfo: DaemonInfo;
   phase: "ready";
   receivedAtMs: number;
 }
-
 interface ErrorDaemonInfoState {
   message: string;
   phase: "error";
 }
-
 export type DaemonInfoState =
   | IdleDaemonInfoState
   | LoadingDaemonInfoState
   | ReadyDaemonInfoState
   | ErrorDaemonInfoState;
-
 interface RpcSessionState {
   connection: ConnectionState;
   daemonInfo: DaemonInfoState;
 }
-
 interface RpcSessionController {
   close: () => void;
   closeRpcSession: () => void;
@@ -91,10 +88,9 @@ interface RpcSessionController {
     confirmationCode: string,
     clientLabel: string,
   ) => ReturnType<typeof startPairing>;
-  stateAtom: PrimitiveAtom<RpcSessionState>;
+  state: Accessor<RpcSessionState>;
   webTransport: () => Promise<WebTransport>;
 }
-
 interface RpcSessionControllerEnv {
   getMachine: () => Machine | undefined;
   machineId: string;
@@ -103,60 +99,51 @@ interface RpcSessionControllerEnv {
     machineId: string,
     clientCredentialExpiresAtUnix: number,
   ) => void;
-  store: Store;
 }
-
 function initialRpcSessionState(): RpcSessionState {
   return {
     connection: { phase: "idle" },
     daemonInfo: { phase: "idle" },
   };
 }
-
 export const rpcSessionBunja = bunja(() => {
   bunja.use(MachineBaseUrlScope);
-  const store = bunja.use(JotaiStoreScope);
   const machineState = bunja.use(machineBunja);
   const machines = bunja.use(machineStoreBunja);
   const now = bunja.use(nowBunja);
+  const owner = getOwner();
   let activeController: RpcSessionController | undefined;
   const idleRpcSessionState = initialRpcSessionState();
-
-  const activeControllerAtom = atom<RpcSessionController | undefined>(
-    undefined,
-  );
-  const rpcSessionAtom = atom<RpcSessionState>((get) => {
-    const controller = get(activeControllerAtom);
+  const [activeControllerValue, writeActiveController] = createSignal<
+    RpcSessionController | undefined
+  >(undefined);
+  const rpcSession = createMemo<RpcSessionState>(() => {
+    const controller = activeControllerValue();
     if (!controller) return idleRpcSessionState;
-    return get(controller.stateAtom);
+    return controller.state();
   });
-  const connectionAtom = atom((get) => get(rpcSessionAtom).connection);
-  const daemonInfoAtom = atom((get) => get(rpcSessionAtom).daemonInfo);
-  const daemonInstanceIdAtom = atom((get) => {
-    const daemonInfo = get(daemonInfoAtom);
-    return daemonInfo.phase === "ready"
-      ? daemonInfo.daemonInfo.instanceId
-      : undefined;
+  const connection = createMemo(() => rpcSession().connection);
+  const daemonInfo = createMemo(() => rpcSession().daemonInfo);
+  const daemonInstanceId = createMemo(() => {
+    const info = daemonInfo();
+    return info.phase === "ready" ? info.daemonInfo.instanceId : undefined;
   });
-  const daemonServerTimeMsAtom = atom((get) => {
-    const daemonInfo = get(daemonInfoAtom);
-    if (daemonInfo.phase !== "ready") return undefined;
-    const { serverTimeMs } = daemonInfo.daemonInfo;
+  const daemonServerTimeMs = createMemo(() => {
+    const info = daemonInfo();
+    if (info.phase !== "ready") return undefined;
+    const { serverTimeMs } = info.daemonInfo;
     if (serverTimeMs <= 0) return undefined;
-    const elapsedMs = Math.max(
-      0,
-      get(now.nowEverySecondAtom) - daemonInfo.receivedAtMs,
-    );
+    const elapsedMs = Math.max(0, now.nowEverySecond() - info.receivedAtMs);
     return serverTimeMs + elapsedMs;
   });
-  const daemonUptimeSecondsAtom = atom((get) => {
-    const daemonInfo = get(daemonInfoAtom);
-    if (daemonInfo.phase !== "ready") return undefined;
-    const { startedAtMs } = daemonInfo.daemonInfo;
+  const daemonUptimeSeconds = createMemo(() => {
+    const info = daemonInfo();
+    if (info.phase !== "ready") return undefined;
+    const { startedAtMs } = info.daemonInfo;
     if (startedAtMs <= 0) return undefined;
-    const daemonServerTimeMs = get(daemonServerTimeMsAtom);
-    if (daemonServerTimeMs === undefined) return undefined;
-    const uptimeSeconds = Math.floor((daemonServerTimeMs - startedAtMs) / 1000);
+    const serverTime = daemonServerTimeMs();
+    if (serverTime === undefined) return undefined;
+    const uptimeSeconds = Math.floor((serverTime - startedAtMs) / 1000);
     return Math.max(0, uptimeSeconds);
   });
   bunja.effect(() => {
@@ -165,7 +152,6 @@ export const rpcSessionBunja = bunja(() => {
       disposeController();
     };
   });
-
   function controller(): RpcSessionController {
     const current = activeController;
     if (current) return current;
@@ -176,37 +162,44 @@ export const rpcSessionBunja = bunja(() => {
     setActiveController(controller);
     return controller;
   }
-
   function replaceController() {
     disposeController();
     setActiveController(instantiateController());
   }
-
   function disposeController() {
     activeController?.close();
     setActiveController(undefined);
   }
-
   function setActiveController(controller: RpcSessionController | undefined) {
     activeController = controller;
-    store.set(activeControllerAtom, controller);
+    writeActiveController(controller);
   }
-
   function instantiateController(): RpcSessionController | undefined {
     const machineId = machineState.machineId;
-    if (!machineId || !store.get(machineState.machineAtom)) {
+    if (!machineId || !untrack(machineState.machine)) {
       return undefined;
     }
-    const rpcController: RpcSessionController = createRpcSessionController(
-      controllerEnv(machineId, () => {
-        if (activeController === rpcController) {
-          rpcController.closeRpcSession();
-        }
+    const created = runWithOwner(owner, () =>
+      createRoot((dispose) => {
+        const controller = createRpcSessionController(
+          controllerEnv(machineId, () => {
+            if (activeController === rpcController)
+              rpcController.closeRpcSession();
+          }),
+        );
+        const rpcController: RpcSessionController = {
+          ...controller,
+          close() {
+            controller.close();
+            dispose();
+          },
+        };
+        return rpcController;
       }),
     );
-    return rpcController;
+    created.reconnect();
+    return created;
   }
-
   function controllerEnv(
     machineId: string,
     onAuthenticatedSessionInvalidated: () => void,
@@ -216,41 +209,33 @@ export const rpcSessionBunja = bunja(() => {
       machineId,
       onAuthenticatedSessionInvalidated,
       setMachineCredentialExpiry: machines.setMachineCredentialExpiry,
-      store,
     };
   }
-
   function closeRpcSession() {
     activeController?.closeRpcSession();
   }
-
   function reconnect() {
     activeController?.reconnect();
   }
-
   function resetController() {
     replaceController();
   }
-
   function startPairingSession(confirmationCode: string, clientLabel: string) {
     return controller().startPairingSession(confirmationCode, clientLabel);
   }
-
   function completePairingSession(code: string) {
     return controller().completePairingSession(code);
   }
-
   function webTransport(): Promise<WebTransport> {
     return controller().webTransport();
   }
-
   return {
     closeRpcSession,
-    connectionAtom,
-    daemonInfoAtom,
-    daemonInstanceIdAtom,
-    daemonServerTimeMsAtom,
-    daemonUptimeSecondsAtom,
+    connection,
+    daemonInfo,
+    daemonInstanceId,
+    daemonServerTimeMs,
+    daemonUptimeSeconds,
     completePairingSession,
     reconnect,
     resetController,
@@ -258,7 +243,6 @@ export const rpcSessionBunja = bunja(() => {
     webTransport,
   };
 });
-
 function createRpcSessionController(
   env: RpcSessionControllerEnv,
 ): RpcSessionController {
@@ -266,31 +250,27 @@ function createRpcSessionController(
   let sessionGeneration = 0;
   let pairingStarted = false;
   let rpcSession: Promise<ManagedRpcSession> | undefined;
-  const stateAtom = atom<RpcSessionState>(initialRpcSessionState());
-
+  const [state, setState] = createSignal<RpcSessionState>(
+    initialRpcSessionState(),
+  );
   const rpcController: RpcSessionController = {
     close,
     closeRpcSession,
     completePairingSession,
     reconnect,
     startPairingSession,
-    stateAtom,
+    state,
     webTransport: authenticatedWebTransport,
   };
-
-  void openInitialSession();
-
   function close() {
     if (closed) return;
     closed = true;
     closeRpcSession();
   }
-
   function reconnect() {
     closeRpcSession();
     void openInitialSession();
   }
-
   async function openInitialSession(): Promise<void> {
     const generation = sessionGeneration;
     try {
@@ -299,7 +279,6 @@ function createRpcSessionController(
       if (!closed && generation === sessionGeneration) setConnectionOffline();
     }
   }
-
   function authenticatedRpcSession(): Promise<ManagedRpcSession> {
     const machine = currentMachine();
     if (!machine?.clientId || !machine.clientSecret) {
@@ -307,36 +286,23 @@ function createRpcSessionController(
     }
     return getAuthenticatedRpcSession(machine);
   }
-
   async function authenticatedWebTransport(): Promise<WebTransport> {
     return (await authenticatedRpcSession()).transport;
   }
-
   function getRpcSession(): Promise<ManagedRpcSession> {
     if (rpcSession) return rpcSession;
     const machine = currentMachine();
     if (!machine) throw new Error("missing machine");
     const session = openRpcSession(machine, sessionGeneration);
     rpcSession = session;
-    session
-      .then((openedSession) => {
-        openedSession.transport.closed
-          .catch(() => {})
-          .finally(() => {
-            if (rpcSession !== session || closed) return;
-            rpcSession = undefined;
-            handleTransportClosed();
-          });
-      })
-      .catch(() => {
-        if (rpcSession === session) {
-          rpcSession = undefined;
-          if (!closed) setConnectionOffline();
-        }
-      });
+    session.catch(() => {
+      if (rpcSession === session) {
+        rpcSession = undefined;
+        if (!closed) setConnectionOffline();
+      }
+    });
     return session;
   }
-
   async function getAuthenticatedRpcSession(
     machine: Machine,
   ): Promise<ManagedRpcSession> {
@@ -344,7 +310,6 @@ function createRpcSessionController(
     await authenticateManagedSession(session, machine);
     return session;
   }
-
   async function openRpcSession(
     machine: Machine,
     generation: number,
@@ -352,7 +317,16 @@ function createRpcSessionController(
     const session = manageRpcSession(
       await openWebTransport(machine),
       generation,
-      setDatagramRtt,
+      (rttMs) => {
+        if (!closed && generation === sessionGeneration) setDatagramRtt(rttMs);
+      },
+      () => {
+        if (closed || generation !== sessionGeneration) return;
+        rpcSession = undefined;
+        pairingStarted = false;
+        sessionGeneration++;
+        setConnectionOffline();
+      },
     );
     if (closed || generation !== sessionGeneration) {
       closeManagedRpcSession(session);
@@ -383,7 +357,6 @@ function createRpcSessionController(
     void refreshDaemonInfoForCurrentMachine({ loadingAlreadySet: true });
     return session;
   }
-
   async function renewCredential(session: ManagedRpcSession): Promise<void> {
     const machine = currentMachine();
     if (
@@ -410,7 +383,6 @@ function createRpcSessionController(
       // The next renewal tick or authenticated session will retry.
     }
   }
-
   function startCredentialRenewalLoop(session: ManagedRpcSession): void {
     if (session.credentialRenewalStarted) return;
     session.credentialRenewalStarted = true;
@@ -422,7 +394,6 @@ function createRpcSessionController(
       .catch(() => {})
       .finally(() => clearInterval(timer));
   }
-
   function closeRpcSession() {
     sessionGeneration++;
     pairingStarted = false;
@@ -431,7 +402,6 @@ function createRpcSessionController(
     session?.then(closeManagedRpcSession).catch(() => {});
     if (!closed) setConnectionOffline();
   }
-
   async function startPairingSession(
     confirmationCode: string,
     clientLabel: string,
@@ -449,7 +419,6 @@ function createRpcSessionController(
       return response;
     });
   }
-
   async function completePairingSession(code: string) {
     if (!pairingStarted || !rpcSession) {
       throw new Error("Pairing was not started on this connection");
@@ -465,7 +434,6 @@ function createRpcSessionController(
     );
     return credentials;
   }
-
   async function withControllerRpcSession<T>(
     session: Promise<ManagedRpcSession>,
     run: (session: ManagedRpcSession) => Promise<T>,
@@ -477,21 +445,14 @@ function createRpcSessionController(
     }
     return run(managedSession);
   }
-
   function isControllerRpcSession(
     session: Promise<ManagedRpcSession>,
   ): boolean {
     return !closed && rpcSession === session;
   }
-
-  function setState(update: (state: RpcSessionState) => RpcSessionState) {
-    env.store.set(stateAtom, update);
-  }
-
   function currentMachine(): Machine | undefined {
     return env.getMachine();
   }
-
   async function authenticateManagedSession(
     session: ManagedRpcSession,
     machine: Machine,
@@ -505,7 +466,6 @@ function createRpcSessionController(
       machine.clientSecret,
     );
   }
-
   async function authenticateManagedSessionWithCredential(
     session: ManagedRpcSession,
     clientId: string,
@@ -516,15 +476,10 @@ function createRpcSessionController(
     session.authenticatedClientId = clientId;
     startCredentialRenewalLoop(session);
   }
-
-  function handleTransportClosed() {
-    if (closed) return;
-    sessionGeneration++;
-    setConnectionOffline();
-  }
-
   async function refreshDaemonInfoForCurrentMachine(
-    options: { loadingAlreadySet?: boolean } = {},
+    options: {
+      loadingAlreadySet?: boolean;
+    } = {},
   ): Promise<void> {
     const generation = sessionGeneration;
     if (!options.loadingAlreadySet) {
@@ -557,7 +512,6 @@ function createRpcSessionController(
       }));
     }
   }
-
   function setConnectionOffline() {
     setState((state) => ({
       ...state,
@@ -565,7 +519,6 @@ function createRpcSessionController(
       daemonInfo: { phase: "idle" },
     }));
   }
-
   function setDatagramRtt(rttMs: number) {
     setState((state) => {
       if (state.connection.phase !== "reachable") return state;
@@ -575,43 +528,48 @@ function createRpcSessionController(
       };
     });
   }
-
   return rpcController;
 }
-
 function manageRpcSession(
   transport: WebTransport,
   generation: number,
   onDatagramRtt: (rttMs: number) => void,
+  onFailure: () => void,
 ): ManagedRpcSession {
-  const managed = {
+  const managed: ManagedRpcSession = {
+    closed: false,
     generation,
     authenticatedClientId: undefined,
-    datagrams: startDatagramRuntime(transport, onDatagramRtt),
+    datagrams: startDatagramRuntime(transport, onDatagramRtt, fail),
     credentialRenewalStarted: false,
     transport,
   };
-  transport.closed
-    .catch(() => {})
-    .finally(() => {
-      closeDatagramRuntime(managed.datagrams);
-    });
+  // Observe loss as soon as transport.ready resolves, including while auth or
+  // credential renewal is still pending. Both clean close and rejection count.
+  transport.closed.then(fail, fail);
+  function fail() {
+    if (managed.closed) return;
+    closeManagedRpcSession(managed);
+    onFailure();
+  }
   return managed;
 }
-
 function closeManagedRpcSession(session: ManagedRpcSession): void {
+  if (session.closed) return;
+  session.closed = true;
   closeDatagramRuntime(session.datagrams);
   closeProtocolWebTransport(session.transport);
 }
-
 function startDatagramRuntime(
   transport: WebTransport,
   onRtt: (rttMs: number) => void,
+  onFailure: () => void,
 ): DatagramRuntime {
   const runtime: DatagramRuntime = {
     closed: false,
     nextPingId: 0,
     onRtt,
+    onFailure,
     pingInterval: setInterval(
       () => sendDatagramPing(runtime),
       DATAGRAM_PING_INTERVAL_MS,
@@ -622,7 +580,6 @@ function startDatagramRuntime(
   sendDatagramPing(runtime);
   return runtime;
 }
-
 async function readDatagrams(
   transport: WebTransport,
   runtime: DatagramRuntime,
@@ -631,11 +588,15 @@ async function readDatagrams(
   try {
     while (!runtime.closed) {
       const { done, value } = await reader.read();
-      if (done) break;
+      if (runtime.closed) break;
+      if (done) {
+        failDatagramRuntime(runtime);
+        break;
+      }
       await handleIncomingDatagram(runtime, value);
     }
   } catch {
-    closeDatagramRuntime(runtime);
+    failDatagramRuntime(runtime);
   } finally {
     try {
       reader.releaseLock();
@@ -644,7 +605,6 @@ async function readDatagrams(
     }
   }
 }
-
 async function handleIncomingDatagram(
   runtime: DatagramRuntime,
   bytes: Uint8Array,
@@ -655,7 +615,6 @@ async function handleIncomingDatagram(
   } catch {
     return;
   }
-
   if (message.kind === DatagramMessageKind.Ping) {
     try {
       await runtime.writer.write(
@@ -665,11 +624,10 @@ async function handleIncomingDatagram(
         }),
       );
     } catch {
-      closeDatagramRuntime(runtime);
+      failDatagramRuntime(runtime);
     }
     return;
   }
-
   if (message.kind === DatagramMessageKind.Pong) {
     const pending = runtime.pendingPing;
     if (!pending || pending.pingId !== message.pingId) return;
@@ -679,17 +637,17 @@ async function handleIncomingDatagram(
     );
   }
 }
-
 function sendDatagramPing(runtime: DatagramRuntime): void {
-  if (runtime.closed) return;
-  clearPendingDatagramPing(runtime);
+  // Keep the outstanding deadline. The interval must not replace a ping just
+  // before its timeout fires (both timers use the same interval).
+  if (runtime.closed || runtime.pendingPing) return;
   const pingId = nextDatagramPingId(runtime);
   const pending: DatagramPing = {
     pingId,
     startedAt: performance.now(),
     timeout: setTimeout(() => {
       if (runtime.pendingPing !== pending) return;
-      runtime.pendingPing = undefined;
+      failDatagramRuntime(runtime);
     }, DATAGRAM_PING_TIMEOUT_MS),
   };
   runtime.pendingPing = pending;
@@ -702,22 +660,24 @@ function sendDatagramPing(runtime: DatagramRuntime): void {
     )
     .catch(() => {
       if (runtime.pendingPing === pending) clearPendingDatagramPing(runtime);
-      closeDatagramRuntime(runtime);
+      failDatagramRuntime(runtime);
     });
 }
-
 function nextDatagramPingId(runtime: DatagramRuntime): number {
   runtime.nextPingId =
     runtime.nextPingId >= Number.MAX_SAFE_INTEGER ? 1 : runtime.nextPingId + 1;
   return runtime.nextPingId;
 }
-
 function clearPendingDatagramPing(runtime: DatagramRuntime): void {
   if (!runtime.pendingPing) return;
   clearTimeout(runtime.pendingPing.timeout);
   runtime.pendingPing = undefined;
 }
-
+function failDatagramRuntime(runtime: DatagramRuntime): void {
+  if (runtime.closed) return;
+  closeDatagramRuntime(runtime);
+  runtime.onFailure();
+}
 function closeDatagramRuntime(runtime: DatagramRuntime): void {
   if (runtime.closed) return;
   runtime.closed = true;

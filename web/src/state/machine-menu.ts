@@ -1,41 +1,35 @@
+import { createSignal, createMemo } from "solid-js";
 import { bunja } from "bunja";
-import { atom } from "jotai/vanilla";
-import { JotaiStoreScope } from "./jotai-store.ts";
 import { machineStoreBunja } from "./machine-store.ts";
 import { MachineMenuState } from "./types.ts";
-
 export const machineMenuBunja = bunja(() => {
-  const store = bunja.use(JotaiStoreScope);
   const machines = bunja.use(machineStoreBunja);
-
-  const machineMenuAtom = atom<MachineMenuState | undefined>(undefined);
-  const menuMachineAtom = atom((get) =>
-    get(machines.machinesAtom).find(
-      (machine) => machine.id === get(machineMenuAtom)?.machineId,
-    ),
+  const [machineMenu, setMachineMenu] = createSignal<
+    MachineMenuState | undefined
+  >(undefined);
+  const menuMachine = createMemo(() =>
+    machines
+      .machines()
+      .find((machine) => machine.id === machineMenu()?.machineId),
   );
-
   function openMachineMenu(machineId: string, x: number, y: number) {
     machines.selectMachine(machineId);
-    store.set(machineMenuAtom, {
+    setMachineMenu({
       machineId,
       x: Math.max(8, Math.min(x, globalThis.innerWidth - 190)),
       y: Math.max(8, Math.min(y, globalThis.innerHeight - 150)),
     });
   }
-
   function closeMachineMenu() {
-    store.set(machineMenuAtom, undefined);
+    setMachineMenu(undefined);
   }
-
   function selectMachine(machineId: string) {
-    store.set(machineMenuAtom, undefined);
+    setMachineMenu(undefined);
     machines.selectMachine(machineId);
   }
-
   return {
-    machineMenuAtom,
-    menuMachineAtom,
+    machineMenu,
+    menuMachine,
     openMachineMenu,
     closeMachineMenu,
     selectMachine,

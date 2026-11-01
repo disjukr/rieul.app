@@ -1,7 +1,12 @@
 import { bunja } from "bunja";
-import { atom, type PrimitiveAtom } from "jotai/vanilla";
-import { atomWithStorage } from "jotai/vanilla/utils";
-import { type JotaiStore, JotaiStoreScope } from "./jotai-store.ts";
+import {
+  createSignal,
+  createMemo,
+  createEffect,
+  untrack,
+  flush,
+  type Setter,
+} from "solid-js";
 import { isInvalidCredentialsError } from "../protocol/client.ts";
 import {
   subscribeDirectory,
@@ -23,6 +28,8 @@ import { StreamState } from "./types.ts";
 import { WorkbenchTabIdScope } from "./workbench-scopes.ts";
 
 export const trashLocationPath = "rieul://trash";
+const invalidPairingMessage =
+  "Pairing is no longer valid. Pair this machine again.";
 
 export type ExplorerSpecialLocation = "trash";
 
@@ -39,73 +46,88 @@ interface ExplorerNavigationState {
 
 export const explorerMachineBunja = bunja(() => {
   const machine = bunja.use(machineBunja);
-
-  const connectionKeyAtom = atom((get) =>
-    explorerConnectionKey(get(machine.machineAtom)),
+  const connectionKey = createMemo(() =>
+    explorerConnectionKey(machine.machine()),
   );
-
   return {
-    machineAtom: machine.machineAtom,
-    isPairedAtom: machine.isPairedAtom,
-    connectionKeyAtom,
+    machine: machine.machine,
+    isPaired: machine.isPaired,
+    connectionKey,
   };
 });
 
 export const explorerRefreshBunja = bunja(() => {
   bunja.use(MachineIdScope);
   bunja.use(WorkbenchTabIdScope);
-  const store = bunja.use(JotaiStoreScope);
-  const refreshAtom = atom(0);
-
+  const [refreshRevision, setRefreshRevision] = createSignal(0);
   function refresh() {
-    store.set(refreshAtom, (current) => current + 1);
+    setRefreshRevision((current) => current + 1);
   }
-
-  return {
-    refreshAtom,
-    refresh,
-  };
+  return { refreshRevision, refresh };
 });
 
 export const explorerNavigationBunja = bunja(() => {
   const machineId = bunja.use(MachineIdScope);
-  const paneScopeId = requireScopeValue(
+  const tabId = requireScopeValue(
     bunja.use(WorkbenchTabIdScope),
     "Workbench tab id",
   );
-  const store = bunja.use(JotaiStoreScope);
-
-  const navigationStateAtom = atomWithStorage<ExplorerNavigationState>(
-    explorerNavigationStorageKey(machineId, paneScopeId),
-    { history: [], location: { type: "root" } },
-    undefined,
-    { getOnInit: true },
-  );
-  const locationAtom = atom((get) => get(navigationStateAtom).location);
-  const currentPathAtom = atom((get) =>
-    currentPathFromLocation(get(locationAtom)),
-  );
-  const directoryPathAtom = atom((get) =>
-    directoryPathFromLocation(get(locationAtom)),
-  );
-  const openedFileAtom = atom((get) => {
-    const location = get(locationAtom);
-    return location.type === "file" ? location.entry : undefined;
-  });
-  const displayPathAtom = atom((get) =>
-    displayPathFromLocation(get(locationAtom)),
-  );
-  const specialLocationAtom = atom(
-    (get): ExplorerSpecialLocation | undefined =>
-      get(locationAtom).type === "trash" ? "trash" : undefined,
-  );
-  const historyAtom = atom((get) => get(navigationStateAtom).history);
-  const selectedPathAtom = atom<string | undefined>(undefined);
-
-  function selectEntry(entry: FsEntry) {
-    store.set(selectedPathAtom, entry.path);
+  const storageKey = explorerNavigationStorageKey(machineId, tabId);
+  const empty: ExplorerNavigationState = {
+    history: [],
+    location: { type: "root" },
+  };
+  let initial = empty;
+  let storage: Storage | undefined;
+  try {
+    storage = globalThis.localStorage;
+    const saved = storage?.getItem(storageKey);
+    if (saved !== null && saved !== undefined)
+      initial = JSON.parse(saved) as ExplorerNavigationState;
+  } catch {
+    /* Match the existing unavailable/corrupt-storage fallback. */
   }
+  const [navigationState, setNavigationState] = createSignal(initial);
+  const location = createMemo(() => navigationState().location);
+  const currentPath = createMemo(() => currentPathFromLocation(location()));
+  const directoryPath = createMemo(() => directoryPathFromLocation(location()));
+  const openedFile = createMemo(() => {
+    const current = location();
+    return current.type === "file" ? current.entry : undefined;
+  });
+  const displayPath = createMemo(() => displayPathFromLocation(location()));
+  const specialLocation = createMemo<ExplorerSpecialLocation | undefined>(() =>
+    location().type === "trash" ? "trash" : undefined,
+  );
+  const history = createMemo(() => navigationState().history);
+  const [selectedPath, setSelectedPath] = createSignal<string | undefined>();
 
+  function persistNavigation(next: ExplorerNavigationState) {
+    storage?.setItem(storageKey, JSON.stringify(next));
+  }
+  bunja.effect(() => {
+    function onStorage(event: StorageEvent) {
+      if (
+        event.key !== storageKey ||
+        (event.storageArea && event.storageArea !== storage)
+      )
+        return;
+      try {
+        setNavigationState(
+          event.newValue === null
+            ? empty
+            : (JSON.parse(event.newValue) as ExplorerNavigationState),
+        );
+      } catch {
+        setNavigationState(empty);
+      }
+    }
+    globalThis.addEventListener?.("storage", onStorage);
+    return () => globalThis.removeEventListener?.("storage", onStorage);
+  });
+  function selectEntry(entry: FsEntry) {
+    setSelectedPath(entry.path);
+  }
   function navigate(path?: string) {
     if (path === trashLocationPath) {
       navigateTrash();
@@ -113,92 +135,104 @@ export const explorerNavigationBunja = bunja(() => {
     }
     navigateTo(locationFromPath(path));
   }
-
-  function navigateTo(location: ExplorerLocation) {
-    store.set(navigationStateAtom, (current) => ({
+  function navigateTo(next: ExplorerLocation) {
+    const updated = setNavigationState((current) => ({
       history: [...current.history, current.location],
-      location,
+      location: next,
     }));
-    store.set(selectedPathAtom, undefined);
+    persistNavigation(updated);
+    setSelectedPath(undefined);
   }
-
   function navigateTrash() {
     navigateTo({ type: "trash" });
   }
-
-  function replaceWithLocation(location: ExplorerLocation) {
-    store.set(navigationStateAtom, (current) => ({
+  function replaceWithLocation(next: ExplorerLocation) {
+    const updated = setNavigationState((current) => ({
       ...current,
-      location,
+      location: next,
     }));
-    store.set(selectedPathAtom, undefined);
+    persistNavigation(updated);
+    setSelectedPath(undefined);
   }
-
   function replaceWithTrash() {
     replaceWithLocation({ type: "trash" });
   }
-
   function replaceWithPath(path?: string) {
     replaceWithLocation(locationFromPath(path));
   }
-
   function replaceWithMovedDirectory(path?: string) {
-    store.set(navigationStateAtom, {
+    const updated = setNavigationState({
       history: [],
       location: locationFromPath(path),
     });
-    store.set(selectedPathAtom, undefined);
+    persistNavigation(updated);
+    setSelectedPath(undefined);
   }
-
   function goBack() {
-    const history = store.get(navigationStateAtom).history;
-    if (history.length === 0) return;
-    const next = history[history.length - 1];
-    store.set(navigationStateAtom, {
-      history: history.slice(0, -1),
-      location: next,
+    let moved = false;
+    const updated = setNavigationState((current) => {
+      if (!current.history.length) return current;
+      moved = true;
+      return {
+        history: current.history.slice(0, -1),
+        location: current.history[current.history.length - 1],
+      };
     });
-    store.set(
-      selectedPathAtom,
-      next.type === "file" ? next.entry.path : undefined,
+    if (!moved) return;
+    persistNavigation(updated);
+    setSelectedPath(
+      updated.location.type === "file"
+        ? updated.location.entry.path
+        : undefined,
     );
   }
-
   function goUp() {
-    const location = store.get(locationAtom);
-    if (location.type === "trash" || location.type === "root") return;
-    if (location.type === "file") {
-      navigate(location.directoryPath);
-      return;
-    }
-    navigate(parentPath(location.path));
+    let moved = false;
+    const updated = setNavigationState((current) => {
+      const previous = current.location;
+      if (previous.type === "trash" || previous.type === "root") return current;
+      moved = true;
+      const path =
+        previous.type === "file"
+          ? previous.directoryPath
+          : parentPath(previous.path);
+      return {
+        history: [...current.history, previous],
+        location: locationFromPath(path),
+      };
+    });
+    if (!moved) return;
+    persistNavigation(updated);
+    setSelectedPath(undefined);
   }
-
   function openEntry(entry: FsEntry) {
     if (entry.kind === FsEntryKind.Directory) {
       navigate(entry.path);
       return;
     }
-    store.set(selectedPathAtom, entry.path);
+    setSelectedPath(entry.path);
   }
-
   function openFile(entry: FsEntry) {
-    navigateTo({
-      type: "file",
-      directoryPath: directoryPathFromLocation(store.get(locationAtom)),
-      entry,
-    });
-    store.set(selectedPathAtom, entry.path);
+    const updated = setNavigationState((current) => ({
+      history: [...current.history, current.location],
+      location: {
+        type: "file",
+        directoryPath: directoryPathFromLocation(current.location),
+        entry,
+      },
+    }));
+    persistNavigation(updated);
+    setSelectedPath(entry.path);
   }
-
   return {
-    directoryPathAtom,
-    currentPathAtom,
-    displayPathAtom,
-    historyAtom,
-    openedFileAtom,
-    selectedPathAtom,
-    specialLocationAtom,
+    directoryPath,
+    currentPath,
+    displayPath,
+    history,
+    openedFile,
+    selectedPath,
+    setSelectedPath,
+    specialLocation,
     selectEntry,
     navigate,
     navigateTrash,
@@ -212,250 +246,255 @@ export const explorerNavigationBunja = bunja(() => {
   };
 });
 
-// A row observer requests a stream; the Bunja graph owns its usable lifetime.
-// Either side can mount first. Teardown only releases captured subscriptions,
-// because Bunja 3 disposes dependencies before this owner's effects.
-function ownObservedStream<T>(
-  rowsAtom: PrimitiveAtom<T>,
-  subscribe: () => () => void,
-) {
-  let active = false;
-  let observed = false;
-  let stop: (() => void) | undefined;
-  function reconcile() {
-    if (active && observed) {
-      stop ??= subscribe();
-    } else {
-      const current = stop;
-      stop = undefined;
-      current?.();
-    }
-  }
-  rowsAtom.onMount = () => {
-    observed = true;
-    reconcile();
-    return () => {
-      observed = false;
-      reconcile();
-    };
-  };
-  bunja.effect(() => {
-    active = true;
-    reconcile();
-    return () => {
-      active = false;
-      reconcile();
-    };
-  });
-}
-
 export const explorerRootsBunja = bunja(() => {
   bunja.use(MachineIdScope);
   bunja.use(WorkbenchTabIdScope);
-  const store = bunja.use(JotaiStoreScope);
   const machineState = bunja.use(explorerMachineBunja);
   const machines = bunja.use(machineStoreBunja);
   const rpcSession = bunja.use(rpcSessionBunja);
   const refresh = bunja.use(explorerRefreshBunja);
-
-  const rootsAtom = atom<FsEntry[]>([]);
-  const rootsStateAtom = atom<StreamState>({
+  const [dataRows, setRoots] = createSignal<FsEntry[]>([]);
+  const [rootsState, setRootsState] = createSignal<StreamState>({
     phase: "idle",
     message: "Roots idle",
   });
-  const rootsSubscriptionKeyAtom = atom((get) =>
+  // Bunja's mount callback can precede an observer, or vice versa. Only this
+  // lifecycle gate permits writes from the graph's owned initialization scope.
+  const [mounted, setMounted] = createSignal(false, { ownedWrite: true });
+  let alive = false;
+  let cancelStream: (() => void) | undefined;
+  const subscriptionKey = createMemo(() =>
     [
-      get(machineState.connectionKeyAtom),
-      get(machineState.isPairedAtom) ? "paired" : "unpaired",
-      get(refresh.refreshAtom),
+      machineState.connectionKey(),
+      machineState.isPaired() ? "paired" : "unpaired",
+      refresh.refreshRevision(),
     ].join("\n"),
   );
-  const visibleRowsAtom = atom((get) => sortEntries(get(rootsAtom)));
-
-  ownObservedStream(rootsAtom, () => {
-    let stopCurrent: (() => void) | undefined;
-
-    function start() {
-      stopCurrent?.();
-      stopCurrent = undefined;
-
-      const machine = store.get(machineState.machineAtom);
-      if (!machine || !store.get(machineState.isPairedAtom)) {
-        store.set(rootsAtom, []);
-        store.set(rootsStateAtom, { phase: "idle", message: "Roots idle" });
-        return;
-      }
-      const activeMachine = machine;
-
-      let cancelled = false;
-      let iterator: AsyncGenerator<RootsTableEvent> | undefined;
-      stopCurrent = () => {
-        cancelled = true;
-        void iterator?.return(undefined);
-      };
-      store.set(rootsStateAtom, {
-        phase: "connecting",
-        message: "Opening roots",
-      });
-      void (async () => {
-        try {
-          const transport = await rpcSession.webTransport();
-          if (cancelled) return;
-          iterator = subscribeRoots(transport);
-          for await (const event of iterator) {
-            if (cancelled) break;
-            applyRootsEvent(event, store, rootsAtom, rootsStateAtom);
-          }
-        } catch (err) {
-          if (!cancelled) {
-            if (
-              handleInvalidCredentials(
-                activeMachine,
-                err,
-                machines.clearMachineCredentials,
-                rpcSession.closeRpcSession,
-              )
-            ) {
-              store.set(rootsStateAtom, {
-                phase: "error",
-                message: "Pairing is no longer valid. Pair this machine again.",
-              });
-              return;
-            }
-            store.set(rootsStateAtom, {
-              phase: "error",
-              message: errorMessage(err),
-            });
-          }
-        }
-      })();
-    }
-
-    const unsubscribe = store.sub(rootsSubscriptionKeyAtom, start);
-    start();
+  bunja.effect(() => {
+    alive = true;
+    setMounted(true);
     return () => {
-      unsubscribe();
-      stopCurrent?.();
+      alive = false;
+      setMounted(false);
+      cancelStream?.();
+      cancelStream = undefined;
     };
   });
-
-  return {
-    rootsAtom,
-    rootsStateAtom,
-    visibleRowsAtom,
-  };
+  // The lazy demand memo owns only the subscription effect, not the row data.
+  // Row patches therefore cannot recreate the stream. Its last observer
+  // disposing tears down the effect; a retained observer cannot outlive Bunja.
+  const demand = createMemo(
+    () => {
+      createEffect(
+        () => (mounted() ? subscriptionKey() : undefined),
+        (key) => {
+          if (!alive || key === undefined) return;
+          const activeMachine = untrack(machineState.machine);
+          if (!activeMachine || !untrack(machineState.isPaired)) {
+            setRoots([]);
+            const previous = untrack(rootsState);
+            if (
+              previous.phase === "error" &&
+              previous.message === invalidPairingMessage
+            )
+              return;
+            setRootsState({ phase: "idle", message: "Roots idle" });
+            return;
+          }
+          let cancelled = false;
+          let iterator: AsyncGenerator<RootsTableEvent> | undefined;
+          const cancel = () => {
+            if (cancelled) return;
+            cancelled = true;
+            void iterator?.return(undefined);
+          };
+          cancelStream = cancel;
+          setRootsState({ phase: "connecting", message: "Opening roots" });
+          void (async () => {
+            try {
+              const transport = await rpcSession.webTransport();
+              // Commit command intent before accepting a late network result.
+              flush();
+              if (cancelled || !alive) return;
+              iterator = subscribeRoots(transport);
+              for await (const event of iterator) {
+                flush();
+                if (cancelled || !alive) break;
+                applyRootsEvent(event, setRoots, setRootsState);
+              }
+            } catch (error) {
+              flush();
+              if (cancelled || !alive) return;
+              if (
+                handleInvalidCredentials(
+                  activeMachine,
+                  error,
+                  machines.clearMachineCredentials,
+                  rpcSession.closeRpcSession,
+                )
+              ) {
+                setRootsState({
+                  phase: "error",
+                  message: invalidPairingMessage,
+                });
+                return;
+              }
+              setRootsState({ phase: "error", message: errorMessage(error) });
+            }
+          })();
+          return () => {
+            cancel();
+            if (cancelStream === cancel) cancelStream = undefined;
+          };
+        },
+      );
+      return true;
+    },
+    { lazy: true },
+  );
+  const roots = createMemo(
+    () => {
+      demand();
+      return dataRows();
+    },
+    { lazy: true },
+  );
+  const visibleRows = createMemo(() => sortEntries(roots()), { lazy: true });
+  return { roots, rootsState, visibleRows };
 });
 
 export const explorerDirectoryBunja = bunja(() => {
   bunja.use(MachineIdScope);
   bunja.use(WorkbenchTabIdScope);
-  const store = bunja.use(JotaiStoreScope);
   const machineState = bunja.use(explorerMachineBunja);
   const machines = bunja.use(machineStoreBunja);
   const rpcSession = bunja.use(rpcSessionBunja);
   const refresh = bunja.use(explorerRefreshBunja);
   const navigation = bunja.use(explorerNavigationBunja);
-
-  const directoryRowsAtom = atom<FsEntry[]>([]);
-  const directoryStateAtom = atom<StreamState>({
+  const [dataRows, setDirectoryRows] = createSignal<FsEntry[]>([]);
+  const [directoryState, setDirectoryState] = createSignal<StreamState>({
     phase: "idle",
     message: "Directory idle",
   });
-  const directorySubscriptionKeyAtom = atom((get) =>
+  // Bunja's mount callback can precede an observer, or vice versa. Only this
+  // lifecycle gate permits writes from the graph's owned initialization scope.
+  const [mounted, setMounted] = createSignal(false, { ownedWrite: true });
+  let alive = false;
+  let cancelStream: (() => void) | undefined;
+  const subscriptionKey = createMemo(() =>
     [
-      get(machineState.connectionKeyAtom),
-      get(machineState.isPairedAtom) ? "paired" : "unpaired",
-      get(navigation.directoryPathAtom) ?? "",
-      get(refresh.refreshAtom),
+      machineState.connectionKey(),
+      machineState.isPaired() ? "paired" : "unpaired",
+      navigation.directoryPath() ?? "",
+      refresh.refreshRevision(),
     ].join("\n"),
   );
-  const visibleRowsAtom = atom((get) => sortEntries(get(directoryRowsAtom)));
-
-  ownObservedStream(directoryRowsAtom, () => {
-    let stopCurrent: (() => void) | undefined;
-
-    function start() {
-      stopCurrent?.();
-      stopCurrent = undefined;
-      store.set(directoryRowsAtom, []);
-      store.set(navigation.selectedPathAtom, undefined);
-
-      const machine = store.get(machineState.machineAtom);
-      const directoryPath = store.get(navigation.directoryPathAtom);
-      if (!machine || !store.get(machineState.isPairedAtom) || !directoryPath) {
-        store.set(directoryStateAtom, {
-          phase: "idle",
-          message: "Directory idle",
-        });
-        return;
-      }
-      const activeMachine = machine;
-
-      let cancelled = false;
-      let iterator: AsyncGenerator<DirectoryTableEvent> | undefined;
-      stopCurrent = () => {
-        cancelled = true;
-        void iterator?.return(undefined);
-      };
-      store.set(directoryStateAtom, {
-        phase: "connecting",
-        message: "Opening directory",
-      });
-      void (async () => {
-        try {
-          const transport = await rpcSession.webTransport();
-          if (cancelled) return;
-          iterator = subscribeDirectory(transport, { path: directoryPath });
-          for await (const event of iterator) {
-            if (cancelled) break;
-            applyDirectoryEvent(
-              event,
-              store,
-              directoryRowsAtom,
-              directoryStateAtom,
-              (path) => {
-                navigation.replaceWithMovedDirectory(path);
-              },
-            );
-          }
-        } catch (err) {
-          if (!cancelled) {
-            if (
-              handleInvalidCredentials(
-                activeMachine,
-                err,
-                machines.clearMachineCredentials,
-                rpcSession.closeRpcSession,
-              )
-            ) {
-              store.set(directoryStateAtom, {
-                phase: "error",
-                message: "Pairing is no longer valid. Pair this machine again.",
-              });
-              return;
-            }
-            store.set(directoryStateAtom, {
-              phase: "error",
-              message: errorMessage(err),
-            });
-          }
-        }
-      })();
-    }
-
-    const unsubscribe = store.sub(directorySubscriptionKeyAtom, start);
-    start();
+  bunja.effect(() => {
+    alive = true;
+    setMounted(true);
     return () => {
-      unsubscribe();
-      stopCurrent?.();
+      alive = false;
+      setMounted(false);
+      cancelStream?.();
+      cancelStream = undefined;
     };
   });
-
-  return {
-    directoryRowsAtom,
-    directoryStateAtom,
-    visibleRowsAtom,
-  };
+  // The lazy demand memo owns only the subscription effect, not the row data.
+  // Row patches therefore cannot recreate the stream. Its last observer
+  // disposing tears down the effect; a retained observer cannot outlive Bunja.
+  const demand = createMemo(
+    () => {
+      createEffect(
+        () => (mounted() ? subscriptionKey() : undefined),
+        (key) => {
+          if (!alive || key === undefined) return;
+          setDirectoryRows([]);
+          navigation.setSelectedPath(undefined);
+          const activeMachine = untrack(machineState.machine);
+          const path = untrack(navigation.directoryPath);
+          if (!activeMachine || !untrack(machineState.isPaired) || !path) {
+            const previous = untrack(directoryState);
+            if (
+              previous.phase === "error" &&
+              previous.message === invalidPairingMessage
+            )
+              return;
+            setDirectoryState({ phase: "idle", message: "Directory idle" });
+            return;
+          }
+          let cancelled = false;
+          let iterator: AsyncGenerator<DirectoryTableEvent> | undefined;
+          const cancel = () => {
+            if (cancelled) return;
+            cancelled = true;
+            void iterator?.return(undefined);
+          };
+          cancelStream = cancel;
+          setDirectoryState({
+            phase: "connecting",
+            message: "Opening directory",
+          });
+          void (async () => {
+            try {
+              const transport = await rpcSession.webTransport();
+              // Commit command intent before accepting a late network result.
+              flush();
+              if (cancelled || !alive) return;
+              iterator = subscribeDirectory(transport, { path });
+              for await (const event of iterator) {
+                flush();
+                if (cancelled || !alive) break;
+                applyDirectoryEvent(
+                  event,
+                  setDirectoryRows,
+                  setDirectoryState,
+                  (path) => navigation.replaceWithMovedDirectory(path),
+                );
+              }
+            } catch (error) {
+              flush();
+              if (cancelled || !alive) return;
+              if (
+                handleInvalidCredentials(
+                  activeMachine,
+                  error,
+                  machines.clearMachineCredentials,
+                  rpcSession.closeRpcSession,
+                )
+              ) {
+                setDirectoryState({
+                  phase: "error",
+                  message: invalidPairingMessage,
+                });
+                return;
+              }
+              setDirectoryState({
+                phase: "error",
+                message: errorMessage(error),
+              });
+            }
+          })();
+          return () => {
+            cancel();
+            if (cancelStream === cancel) cancelStream = undefined;
+          };
+        },
+      );
+      return true;
+    },
+    { lazy: true },
+  );
+  const directoryRows = createMemo(
+    () => {
+      demand();
+      return dataRows();
+    },
+    { lazy: true },
+  );
+  const visibleRows = createMemo(() => sortEntries(directoryRows()), {
+    lazy: true,
+  });
+  return { directoryRows, directoryState, visibleRows };
 });
 
 export const explorerBunja = bunja(() => {
@@ -465,40 +504,40 @@ export const explorerBunja = bunja(() => {
   const roots = bunja.use(explorerRootsBunja);
   const directory = bunja.use(explorerDirectoryBunja);
   const refresh = bunja.use(explorerRefreshBunja);
-
-  const rowsAtom = atom((get) => {
-    if (get(navigation.directoryPathAtom)) {
-      return get(directory.directoryRowsAtom);
-    }
-    return get(navigation.specialLocationAtom) ? [] : get(roots.rootsAtom);
-  });
-  const openedFileAtom = atom((get) => {
-    const openedFile = get(navigation.openedFileAtom);
-    if (!openedFile) return undefined;
-    return (
-      get(rowsAtom).find((entry) => entry.path === openedFile.path) ??
-      openedFile
-    );
-  });
-  const visibleRowsAtom = atom((get) => sortEntries(get(rowsAtom)));
-  const selectedEntryAtom = atom(
-    (get) =>
-      get(rowsAtom).find(
-        (entry) => entry.path === get(navigation.selectedPathAtom),
-      ) ?? undefined,
+  const rows = createMemo(
+    () =>
+      navigation.directoryPath()
+        ? directory.directoryRows()
+        : navigation.specialLocation()
+          ? []
+          : roots.roots(),
+    { lazy: true },
   );
-
+  const openedFile = createMemo(
+    () => {
+      const file = navigation.openedFile();
+      return file
+        ? (rows().find((entry) => entry.path === file.path) ?? file)
+        : undefined;
+    },
+    { lazy: true },
+  );
+  const visibleRows = createMemo(() => sortEntries(rows()), { lazy: true });
+  const selectedEntry = createMemo(
+    () => rows().find((entry) => entry.path === navigation.selectedPath()),
+    { lazy: true },
+  );
   return {
-    currentPathAtom: navigation.currentPathAtom,
-    directoryPathAtom: navigation.directoryPathAtom,
-    displayPathAtom: navigation.displayPathAtom,
-    historyAtom: navigation.historyAtom,
-    openedFileAtom,
-    refreshAtom: refresh.refreshAtom,
-    selectedPathAtom: navigation.selectedPathAtom,
-    specialLocationAtom: navigation.specialLocationAtom,
-    visibleRowsAtom,
-    selectedEntryAtom,
+    currentPath: navigation.currentPath,
+    directoryPath: navigation.directoryPath,
+    displayPath: navigation.displayPath,
+    history: navigation.history,
+    openedFile,
+    refreshRevision: refresh.refreshRevision,
+    selectedPath: navigation.selectedPath,
+    specialLocation: navigation.specialLocation,
+    visibleRows,
+    selectedEntry,
     refresh: refresh.refresh,
     selectEntry: navigation.selectEntry,
     navigate: navigation.navigate,
@@ -649,27 +688,26 @@ function displayPathFromLocation(
 
 function applyRootsEvent(
   event: RootsTableEvent,
-  store: JotaiStore,
-  rootsAtom: PrimitiveAtom<FsEntry[]>,
-  rootsStateAtom: PrimitiveAtom<StreamState>,
+  setRoots: Setter<FsEntry[]>,
+  setRootsState: Setter<StreamState>,
 ) {
   if (event.type === "snapshot") {
-    store.set(rootsAtom, event.rows);
-    store.set(rootsStateAtom, { phase: "live", message: "Roots live" });
+    setRoots(event.rows);
+    setRootsState({ phase: "live", message: "Roots live" });
     return;
   }
   if (event.type === "patch") {
-    store.set(rootsAtom, (current) =>
+    setRoots((current) =>
       applyEntryPatch(
         current,
         event.removes.map((item) => item.path),
         event.upserts,
       ),
     );
-    store.set(rootsStateAtom, { phase: "live", message: "Roots updated" });
+    setRootsState({ phase: "live", message: "Roots updated" });
     return;
   }
-  store.set(rootsStateAtom, {
+  setRootsState({
     phase: "closed",
     message: `Roots closed: ${subscriptionCloseReasonLabel(event.reason)}`,
   });
@@ -677,21 +715,20 @@ function applyRootsEvent(
 
 function applyDirectoryEvent(
   event: DirectoryTableEvent,
-  store: JotaiStore,
-  directoryRowsAtom: PrimitiveAtom<FsEntry[]>,
-  directoryStateAtom: PrimitiveAtom<StreamState>,
+  setDirectoryRows: Setter<FsEntry[]>,
+  setDirectoryState: Setter<StreamState>,
   onMoved: (path: string | undefined) => void,
 ) {
   if (event.type === "snapshot") {
-    store.set(directoryRowsAtom, event.rows);
-    store.set(directoryStateAtom, {
+    setDirectoryRows(event.rows);
+    setDirectoryState({
       phase: "live",
       message: "Directory live",
     });
     return;
   }
   if (event.type === "patch") {
-    store.set(directoryRowsAtom, (current) => {
+    setDirectoryRows((current) => {
       const removedNames = new Set(event.removes.map((item) => item.name));
       const remaining = current.filter(
         (entry) => !removedNames.has(entry.name),
@@ -702,14 +739,14 @@ function applyDirectoryEvent(
         ...event.upserts,
       ]);
     });
-    store.set(directoryStateAtom, {
+    setDirectoryState({
       phase: "live",
       message: "Directory updated",
     });
     return;
   }
   if (event.reason.type === "moved") onMoved(event.reason.to);
-  store.set(directoryStateAtom, {
+  setDirectoryState({
     phase: "closed",
     message: `Directory closed: ${subscriptionCloseReasonLabel(event.reason)}`,
   });

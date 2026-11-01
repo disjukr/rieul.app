@@ -1,6 +1,13 @@
+import {
+  createSignal,
+  createMemo,
+  createEffect,
+  createRoot,
+  getOwner,
+  runWithOwner,
+  untrack,
+} from "solid-js";
 import { bunja } from "bunja";
-import { atom } from "jotai/vanilla";
-import { JotaiStoreScope } from "./jotai-store.ts";
 import {
   createAgentProject,
   createAgentSession,
@@ -22,126 +29,109 @@ import {
 } from "../protocol/generated/rpc.ts";
 import { machineBunja } from "./machine-store.ts";
 import type { Machine } from "./machines.ts";
-
 export type AgentCatalogPhase = "idle" | "loading" | "ready" | "error";
-
 export function agentSessionTitle(
   session: Pick<AgentSessionSummary, "title" | "lastMessagePreview">,
 ): string {
   return session.title ?? session.lastMessagePreview ?? "New session";
 }
-
 import { rpcSessionBunja } from "./rpc-session.ts";
-
 export const agentsBunja = bunja(() => {
-  const store = bunja.use(JotaiStoreScope);
   const machineState = bunja.use(machineBunja);
   const rpcSession = bunja.use(rpcSessionBunja);
-
-  const providersAtom = atom<AgentProviderInfo[]>([]);
-  const projectsAtom = atom<AgentProjectInfo[]>([]);
-  const sessionsAtom = atom<AgentSessionSummary[]>([]);
-  const phaseAtom = atom<AgentCatalogPhase>("idle");
-  const errorAtom = atom<string | undefined>(undefined);
-  const availableProvidersAtom = atom((get) =>
-    get(providersAtom).filter(
+  const [providers, setProviders] = createSignal<AgentProviderInfo[]>([]);
+  const [projects, setProjects] = createSignal<AgentProjectInfo[]>([]);
+  const [sessions, setSessions] = createSignal<AgentSessionSummary[]>([]);
+  const [phase, setPhase] = createSignal<AgentCatalogPhase>("idle");
+  const [error, setError] = createSignal<string | undefined>(undefined);
+  const availableProviders = createMemo(() =>
+    providers().filter(
       (provider) =>
         provider.availability === AgentProviderAvailability.Available,
     ),
   );
-  const subscriptionKeyAtom = atom((get) =>
+  const subscriptionKey = createMemo(() =>
     agentSubscriptionKey(
-      get(machineState.machineAtom),
-      get(machineState.isPairedAtom),
-      get(rpcSession.daemonInstanceIdAtom),
+      machineState.machine(),
+      machineState.isPaired(),
+      rpcSession.daemonInstanceId(),
     ),
   );
-
   let refreshVersion = 0;
   let lifetime = 0;
   let active = false;
   const isCurrent = (version: number) => active && version === lifetime;
-
+  const owner = getOwner();
   bunja.effect(() => {
     active = true;
     let stopCurrent: (() => void) | undefined;
-
     function start() {
       stopCurrent?.();
       stopCurrent = undefined;
       refreshVersion += 1;
       lifetime += 1;
-      store.set(providersAtom, []);
-      store.set(projectsAtom, []);
-      store.set(sessionsAtom, []);
-      store.set(errorAtom, undefined);
-
-      const machine = store.get(machineState.machineAtom);
-      const paired = store.get(machineState.isPairedAtom);
-      const daemonInstanceId = store.get(rpcSession.daemonInstanceIdAtom);
+      setProviders([]);
+      setProjects([]);
+      setSessions([]);
+      setError(undefined);
+      const machine = untrack(machineState.machine);
+      const paired = untrack(machineState.isPaired);
+      const daemonInstanceId = untrack(rpcSession.daemonInstanceId);
       if (!machine || !paired || !daemonInstanceId) {
-        store.set(phaseAtom, "idle");
+        setPhase("idle");
         return;
       }
-
-      store.set(phaseAtom, "loading");
+      setPhase("loading");
       let cancelled = false;
-      let providers: AsyncGenerator<AgentProvidersTableEvent> | undefined;
-      let projects: AsyncGenerator<AgentProjectsTableEvent> | undefined;
+      let providerStream: AsyncGenerator<AgentProvidersTableEvent> | undefined;
+      let projectStream: AsyncGenerator<AgentProjectsTableEvent> | undefined;
       stopCurrent = () => {
         cancelled = true;
-        void providers?.return(undefined);
-        void projects?.return(undefined);
+        void providerStream?.return(undefined);
+        void projectStream?.return(undefined);
       };
-
       void (async () => {
         try {
           const transport = await rpcSession.webTransport();
           if (cancelled) return;
-          providers = subscribeAgentProviders(transport);
-          for await (const event of providers) {
+          providerStream = subscribeAgentProviders(transport);
+          for await (const event of providerStream) {
             if (cancelled) break;
-            store.set(
-              providersAtom,
-              applyProviderEvent(store.get(providersAtom), event),
-            );
+            setProviders((current) => applyProviderEvent(current, event));
           }
         } catch (error) {
-          if (!cancelled) setError(error);
+          if (!cancelled) reportError(error);
         }
       })();
-
       void (async () => {
         try {
           const transport = await rpcSession.webTransport();
           if (cancelled) return;
-          projects = subscribeAgentProjects(transport);
-          for await (const event of projects) {
+          projectStream = subscribeAgentProjects(transport);
+          for await (const event of projectStream) {
             if (cancelled) break;
-            store.set(
-              projectsAtom,
-              applyProjectEvent(store.get(projectsAtom), event),
-            );
+            setProjects((current) => applyProjectEvent(current, event));
           }
         } catch (error) {
-          if (!cancelled) setError(error);
+          if (!cancelled) reportError(error);
         }
       })();
-
       void refreshSessions();
     }
-
-    const unsubscribe = store.sub(subscriptionKeyAtom, start);
-    start();
+    const dispose = runWithOwner(owner, () =>
+      createRoot((dispose) => {
+        createEffect(subscriptionKey, () => start());
+        return dispose;
+      }),
+    );
     return () => {
       active = false;
       lifetime += 1;
       refreshVersion += 1;
-      unsubscribe();
+      dispose();
       stopCurrent?.();
     };
   });
-
   async function refreshSessions() {
     const version = ++refreshVersion;
     const generation = lifetime;
@@ -155,28 +145,26 @@ export const agentsBunja = bunja(() => {
         },
       );
       if (!isCurrent(generation) || version !== refreshVersion) return;
-      store.set(sessionsAtom, response.rows);
-      store.set(errorAtom, undefined);
-      store.set(phaseAtom, "ready");
+      setSessions(response.rows);
+      setError(undefined);
+      setPhase("ready");
     } catch (error) {
       if (isCurrent(generation) && version === refreshVersion) {
-        setError(error);
+        reportError(error);
       }
     }
   }
-
   async function addProject(rootPath: string): Promise<AgentProjectInfo> {
     const generation = lifetime;
     const project = await createAgentProject(await rpcSession.webTransport(), {
       rootPath,
     });
     if (!isCurrent(generation)) return project;
-    store.set(projectsAtom, (current) =>
+    setProjects((current) =>
       upsertById(current, project, (item) => item.projectId),
     );
     return project;
   }
-
   async function addSession(
     providerId: string,
     workspace: CreateAgentWorkspace,
@@ -188,12 +176,11 @@ export const agentsBunja = bunja(() => {
       workspace,
     });
     if (!isCurrent(generation)) return session;
-    store.set(sessionsAtom, (current) =>
+    setSessions((current) =>
       upsertById(current, session.summary, (item) => item.sessionId),
     );
     return session;
   }
-
   async function archiveSession(sessionId: string): Promise<AgentSessionInfo> {
     const generation = lifetime;
     const session = await updateAgentSession(await rpcSession.webTransport(), {
@@ -201,34 +188,28 @@ export const agentsBunja = bunja(() => {
       sessionId,
     });
     if (!isCurrent(generation)) return session;
-    store.set(sessionsAtom, (current) =>
+    setSessions((current) =>
       current.filter((item) => item.sessionId !== sessionId),
     );
     return session;
   }
-
-  function setError(error: unknown) {
-    store.set(
-      errorAtom,
-      error instanceof Error ? error.message : String(error),
-    );
-    store.set(phaseAtom, "error");
+  function reportError(error: unknown) {
+    setError(error instanceof Error ? error.message : String(error));
+    setPhase("error");
   }
-
   return {
     addProject,
     addSession,
     archiveSession,
-    availableProvidersAtom,
-    errorAtom,
-    phaseAtom,
-    projectsAtom,
-    providersAtom,
+    availableProviders,
+    error,
+    phase,
+    projects,
+    providers,
     refreshSessions,
-    sessionsAtom,
+    sessions,
   };
 });
-
 function agentSubscriptionKey(
   machine: Machine | undefined,
   selectedIsPaired: boolean,
@@ -243,7 +224,6 @@ function agentSubscriptionKey(
     daemonInstanceId,
   ].join("\n");
 }
-
 function applyProviderEvent(
   current: AgentProviderInfo[],
   event: AgentProvidersTableEvent,
@@ -257,7 +237,6 @@ function applyProviderEvent(
         (item) => item.providerId,
       );
 }
-
 function applyProjectEvent(
   current: AgentProjectInfo[],
   event: AgentProjectsTableEvent,
@@ -271,7 +250,6 @@ function applyProjectEvent(
         (item) => item.projectId,
       );
 }
-
 function applyPatch<T>(
   current: T[],
   removes: string[],
@@ -287,7 +265,6 @@ function applyPatch<T>(
   }
   return next;
 }
-
 function upsertById<T>(current: T[], item: T, id: (item: T) => string): T[] {
   const itemId = id(item);
   const index = current.findIndex((currentItem) => id(currentItem) === itemId);

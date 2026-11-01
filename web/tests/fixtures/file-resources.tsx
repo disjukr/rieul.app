@@ -1,9 +1,7 @@
 import { override } from "bunja";
-import { atom, createStore } from "jotai/vanilla";
 import { createSignal, Show } from "solid-js";
 import { render } from "@solidjs/web";
 import { BunjaProvider } from "../../src/solid/bunja.tsx";
-import { JotaiProvider } from "../../src/solid/jotai.tsx";
 import { FsEntryKind } from "../../src/protocol/generated/rpc.ts";
 import { type Machine } from "../../src/state/machines.ts";
 import { FilesActionsContext } from "../../src/view/workbench/tool/files/context.tsx";
@@ -41,11 +39,15 @@ type ViewerState =
   | { phase: "detecting" }
   | { phase: "error"; message: string }
   | { phase: "ready"; initialBytes: Uint8Array; impl: FileViewerImplId };
-const machineAtom = atom<Machine | undefined>({
+const machine = createSignal<Machine | undefined>({
   id: "fixture",
   name: "Fixture",
   baseUrl: "https://fixture.invalid",
-});
+})[0];
+const [imageImpl, setImageImpl] = createSignal<FileViewerImplId | undefined>(
+  "image",
+);
+const [pdfImpl, setPdfImpl] = createSignal<FileViewerImplId | undefined>("pdf");
 const imageModel = {
   fsEntry: {
     kind: FsEntryKind.File,
@@ -54,13 +56,14 @@ const imageModel = {
     size: png.length,
     readonly: true,
   },
-  implAtom: atom<FileViewerImplId | undefined>("image"),
-  stateAtom: atom<ViewerState>({
+  impl: imageImpl,
+  setImpl: setImageImpl,
+  state: createSignal<ViewerState>({
     phase: "ready",
     initialBytes: png,
     impl: "image",
-  }),
-  machineAtom,
+  })[0],
+  machine,
   tabId: "image",
   webTransport: async (): Promise<WebTransport> => {
     throw new Error("Fixture must use complete initial bytes");
@@ -74,13 +77,14 @@ const pdfModel = {
     size: pdf.length,
     readonly: true,
   },
-  implAtom: atom<FileViewerImplId | undefined>("pdf"),
-  stateAtom: atom<ViewerState>({
+  impl: pdfImpl,
+  setImpl: setPdfImpl,
+  state: createSignal<ViewerState>({
     phase: "ready",
     initialBytes: pdf,
     impl: "pdf",
-  }),
-  machineAtom,
+  })[0],
+  machine,
   tabId: "pdf",
   webTransport: imageModel.webTransport,
 };
@@ -106,7 +110,7 @@ const actions = {
   openFolderMenu() {},
   selectEntry() {},
 };
-const store = createStore();
+
 function Fixture() {
   const [mode, setMode] = createSignal<"image" | "pdf" | undefined>();
   return (
@@ -114,24 +118,23 @@ function Fixture() {
       <button onClick={() => setMode("image")}>Show image</button>
       <button onClick={() => setMode("pdf")}>Show PDF</button>
       <button onClick={() => setMode(undefined)}>Remove viewer</button>
-      <JotaiProvider store={store}>
-        <FilesActionsContext value={() => actions}>
-          <Show when={mode() === "image"}>
-            <BunjaProvider
-              overrides={[override(fileViewerBunja, () => imageModel)]}
-            >
-              <ImageFileViewer />
-            </BunjaProvider>
-          </Show>
-          <Show when={mode() === "pdf"}>
-            <BunjaProvider
-              overrides={[override(fileViewerBunja, () => pdfModel)]}
-            >
-              <PdfFileViewer />
-            </BunjaProvider>
-          </Show>
-        </FilesActionsContext>
-      </JotaiProvider>
+
+      <FilesActionsContext value={() => actions}>
+        <Show when={mode() === "image"}>
+          <BunjaProvider
+            overrides={[override(fileViewerBunja, () => imageModel)]}
+          >
+            <ImageFileViewer />
+          </BunjaProvider>
+        </Show>
+        <Show when={mode() === "pdf"}>
+          <BunjaProvider
+            overrides={[override(fileViewerBunja, () => pdfModel)]}
+          >
+            <PdfFileViewer />
+          </BunjaProvider>
+        </Show>
+      </FilesActionsContext>
     </>
   );
 }

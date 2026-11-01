@@ -1,6 +1,6 @@
 import { createMemo, useContext } from "solid-js";
 import { ArrowLeft, ArrowUp } from "../../../../../solid/icons.tsx";
-import { useAtomValue } from "../../../../../solid/jotai.tsx";
+
 import {
   FilesActionsContext,
   FilesExplorerContext,
@@ -25,10 +25,10 @@ const pathToolbarButtonClassName = [
 export function FilesNavbar() {
   const explorer = requireFilesExplorer(useContext(FilesExplorerContext));
   const actions = requireFilesActions(useContext(FilesActionsContext));
-  const currentPath = useAtomValue(() => explorer().currentPathAtom);
-  const displayPath = useAtomValue(() => explorer().displayPathAtom);
-  const history = useAtomValue(() => explorer().historyAtom);
-  const specialLocation = useAtomValue(() => explorer().specialLocationAtom);
+  const currentPath = () => explorer().currentPath();
+  const displayPath = () => explorer().displayPath();
+  const history = () => explorer().history();
+  const specialLocation = () => explorer().specialLocation();
   const canGoBack = createMemo(() => history().length > 0);
   const canGoUp = createMemo(
     () => currentPath() !== undefined && !specialLocation(),

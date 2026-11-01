@@ -1,5 +1,5 @@
 import { untrack, createMemo, createSignal, createEffect } from "solid-js";
-import { useAtomValue } from "../../../../solid/jotai.tsx";
+
 import { useBunja } from "../../../../solid/bunja.tsx";
 import {
   FilePlus2,
@@ -133,15 +133,13 @@ export function FilesTool() {
   const machineStore = useBunja(machineStoreBunja);
   const rpcSession = useBunja(rpcSessionBunja);
   const filesTool = useBunja(filesToolBunja);
-  const machine = useAtomValue(() => machineStore().selectedAtom);
-  const isPaired = useAtomValue(() => machineStore().selectedIsPairedAtom);
-  const daemonInstanceId = useAtomValue(
-    () => rpcSession().daemonInstanceIdAtom,
-  );
+  const machine = () => machineStore().selected();
+  const isPaired = () => machineStore().selectedIsPaired();
+  const daemonInstanceId = () => rpcSession().daemonInstanceId();
   const workbench = useBunja(workbenchBunja);
   const paneState = useBunja(workbenchPaneBunja);
   const tabState = useBunja(workbenchTabBunja);
-  const tab = useAtomValue(() => tabState().tabAtom);
+  const tab = () => tabState().tab();
   const initialLocation = createMemo(
     () => {
       const current = tab();
@@ -154,15 +152,14 @@ export function FilesTool() {
   );
   const explorer = useBunja(explorerBunja);
   const initialFilesLocationAppliedRef = { current: false };
-  const currentPathAtom = createMemo(() => explorer().currentPathAtom);
   const goBack = createMemo(() => explorer().goBack);
   const goUp = createMemo(() => explorer().goUp);
   const navigate = createMemo(() => explorer().navigate);
   const openEntry = createMemo(() => explorer().openEntry);
   const selectEntry = createMemo(() => explorer().selectEntry);
-  const openedFile = useAtomValue(() => explorer().openedFileAtom);
-  const specialLocation = useAtomValue(() => explorer().specialLocationAtom);
-  const currentPath = useAtomValue(() => currentPathAtom());
+  const openedFile = () => explorer().openedFile();
+  const specialLocation = () => explorer().specialLocation();
+  const currentPath = () => explorer().currentPath();
   const filesView = createMemo(() =>
     specialLocation() === "trash" ? "trash" : "browser",
   );
@@ -173,8 +170,8 @@ export function FilesTool() {
   const [deleteEntry, setDeleteEntry] = createSignal<DeleteEntryState>();
   const [renameEntry, setRenameEntry] = createSignal<RenameEntryState>();
   const [createFile, setCreateFile] = createSignal<CreateFileState>();
-  const defaultShell = useAtomValue(() => filesTool().defaultShellAtom);
-  const terminalShells = useAtomValue(() => filesTool().terminalShellsAtom);
+  const defaultShell = () => filesTool().defaultShell();
+  const terminalShells = () => filesTool().terminalShells();
   createEffect(
     () => ({
       tab: initialLocation(),

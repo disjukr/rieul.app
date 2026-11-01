@@ -1,8 +1,7 @@
+import { createRoot, flush as flushSolid } from "solid-js";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createBunjaStore, createReadScopeFn } from "bunja";
-import { createStore } from "jotai/vanilla";
-import { JotaiStoreScope } from "../src/state/jotai-store.ts";
 import { layoutBunja } from "../src/view/state.tsx";
 
 test("layout shares drag ownership and releases listeners and transition timer on final unmount", (t) => {
@@ -29,10 +28,9 @@ test("layout shares drag ownership and releases listeners and transition timer o
     });
   }
   t.mock.timers.enable({ apis: ["setTimeout"] });
-  const state = createStore();
-  const store = createBunjaStore();
+  const store = createBunjaStore({ wrapInstance: (init) => createRoot(init) });
   t.after(() => store.dispose());
-  const read = createReadScopeFn([[JotaiStoreScope, state]], () => {
+  const read = createReadScopeFn([], () => {
     throw new Error("Unexpected scope");
   });
   const a = store.get(layoutBunja, read),
@@ -52,19 +50,20 @@ test("layout shares drag ownership and releases listeners and transition timer o
     "restarting a drag must release its predecessor",
   );
   a.value.toggleMachinePanel();
-  assert.equal(state.get(a.value.machinePanelTransitioningAtom), true);
+  assert.equal((flushSolid(), a.value.machinePanelTransitioning()), true);
   stopA();
   assert.equal(listeners.get("pointermove")?.size, 1);
   assert.equal(style.cursor, "col-resize");
   stopB();
   for (const callbacks of listeners.values()) assert.equal(callbacks.size, 0);
   assert.deepEqual(style, { cursor: "default", userSelect: "text" });
-  assert.equal(state.get(a.value.machinePanelTransitioningAtom), false);
-  const writes = t.mock.method(state, "set");
+  assert.equal((flushSolid(), a.value.machinePanelTransitioning()), false);
+  const before = a.value.machinePanelTransitioning();
   t.mock.timers.tick(1000);
+  flushSolid();
   assert.equal(
-    writes.mock.callCount(),
-    0,
-    "released timeout must not write to the old instance",
+    a.value.machinePanelTransitioning(),
+    before,
+    "released timeout cannot change the old instance",
   );
 });

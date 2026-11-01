@@ -1,7 +1,7 @@
 import type { ParentProps } from "solid-js";
 import { bunja } from "bunja";
-import { atom } from "jotai/vanilla";
-import { useAtomValue } from "../../solid/jotai.tsx";
+import { createMemo } from "solid-js";
+
 import { useBunja } from "../../solid/bunja.tsx";
 import { ChevronLeft } from "../../solid/icons.tsx";
 import { machineStoreBunja } from "../../state/machine-store.ts";
@@ -48,17 +48,17 @@ const modalHeadClassName = [
   "[&_h2]:m-0 [&_h2]:text-[var(--rieul-text-primary)] [&_h2]:text-[18px] [&_h2]:tracking-[0]",
 ].join(" ");
 const workbenchRegionBunja = bunja(() => {
-  const { machinesAtom, selectedAtom } = bunja.use(machineStoreBunja);
-  const hasMachinesAtom = atom((get) => get(machinesAtom).length > 0);
+  const { machines, selected } = bunja.use(machineStoreBunja);
+  const hasMachines = createMemo(() => machines().length > 0);
   return {
-    hasMachinesAtom,
-    selectedAtom,
+    hasMachines,
+    selected,
   };
 });
 export function WorkbenchRegion() {
   const _model = useBunja(workbenchRegionBunja);
-  const hasMachines = useAtomValue(() => _model().hasMachinesAtom);
-  const selected = useAtomValue(() => _model().selectedAtom);
+  const hasMachines = () => _model().hasMachines();
+  const selected = () => _model().selected();
   return (
     <>
       {(() => {

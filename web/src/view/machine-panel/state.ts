@@ -1,5 +1,5 @@
+import { latest } from "solid-js";
 import { bunja } from "bunja";
-import { JotaiStoreScope } from "../../state/jotai-store.ts";
 import type { AvailableShellInfo } from "../../protocol/generated/rpc.ts";
 import { machineMenuBunja } from "../../state/machine-menu.ts";
 import { machineStoreBunja } from "../../state/machine-store.ts";
@@ -15,7 +15,6 @@ import { layoutBunja } from "../state.tsx";
 const machineMenuWidth = 176;
 
 export const machinePanelBunja = bunja(() => {
-  const store = bunja.use(JotaiStoreScope);
   const layout = bunja.use(layoutBunja);
   const machineStore = bunja.use(machineStoreBunja);
   const machineMenu = bunja.use(machineMenuBunja);
@@ -29,7 +28,7 @@ export const machinePanelBunja = bunja(() => {
   ) {
     event.preventDefault();
     event.stopPropagation();
-    if (store.get(machineMenu.machineMenuAtom)?.machineId === machine.id) {
+    if (latest(machineMenu.machineMenu)?.machineId === machine.id) {
       machineMenu.closeMachineMenu();
       return;
     }
@@ -42,7 +41,7 @@ export const machinePanelBunja = bunja(() => {
   }
 
   function openTerminalShell(shell?: AvailableShellInfo) {
-    const selectedShell = shell ?? store.get(terminalShells.defaultShellAtom);
+    const selectedShell = shell ?? latest(terminalShells.defaultShell);
     if (!selectedShell) return;
     workbench.openTerminalTab({
       launch: {
@@ -58,20 +57,20 @@ export const machinePanelBunja = bunja(() => {
   }
 
   return {
-    activeToolAtom: workbench.activeToolAtom,
-    connectionAtom: rpcSession.connectionAtom,
-    machineAtom: machineStore.selectedAtom,
-    machinePanelCollapsedAtom: layout.machinePanelCollapsedAtom,
+    activeTool: workbench.activeTool,
+    connection: rpcSession.connection,
+    machine: machineStore.selected,
+    machinePanelCollapsed: layout.machinePanelCollapsed,
     machinePanelMaxWidth: layout.machinePanelMaxWidth,
     machinePanelMinWidth: layout.machinePanelMinWidth,
-    machinePanelWidthAtom: layout.machinePanelWidthAtom,
+    machinePanelWidth: layout.machinePanelWidth,
     openMachineTitleMenu,
     openFilesView,
     openTerminalShell,
     resizeMachinePanelWithKeyboard: layout.resizeMachinePanelWithKeyboard,
     selectTool: workbench.selectTool,
     startMachinePanelResize: layout.startMachinePanelResize,
-    defaultShellAtom: terminalShells.defaultShellAtom,
-    terminalShellsAtom: terminalShells.terminalShellsAtom,
+    defaultShell: terminalShells.defaultShell,
+    terminalShells: terminalShells.terminalShells,
   };
 });

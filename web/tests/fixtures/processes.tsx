@@ -2,8 +2,6 @@ import { bunja, createScope, override } from "bunja";
 import { BunjaProvider, bindScope, useBunja } from "../../src/solid/bunja.tsx";
 import { createContext, createSignal, For } from "solid-js";
 import { render } from "@solidjs/web";
-import { atom } from "jotai/vanilla";
-import { useAtomValue, JotaiProvider } from "../../src/solid/jotai.tsx";
 import { processesBunja } from "../../src/state/processes.ts";
 import { rpcSessionBunja } from "../../src/state/rpc-session.ts";
 import { encodeProcessesTableEventValue } from "../../src/protocol/generated/rpc.ts";
@@ -31,11 +29,11 @@ const overrides = [
       resetController: unused,
       startPairingSession: async () => unused(),
       completePairingSession: async () => unused(),
-      connectionAtom: atom({ phase: "idle" as const }),
-      daemonInstanceIdAtom: atom<string | undefined>(id),
-      daemonServerTimeMsAtom: atom<number | undefined>(undefined),
-      daemonUptimeSecondsAtom: atom<number | undefined>(undefined),
-      daemonInfoAtom: atom<DaemonInfoState>({
+      connection: createSignal({ phase: "idle" as const })[0],
+      daemonInstanceId: createSignal<string | undefined>(id)[0],
+      daemonServerTimeMs: createSignal<number | undefined>(undefined)[0],
+      daemonUptimeSeconds: createSignal<number | undefined>(undefined)[0],
+      daemonInfo: createSignal<DaemonInfoState>({
         phase: "ready",
         receivedAtMs: 0,
         daemonInfo: {
@@ -46,7 +44,7 @@ const overrides = [
           startedAtMs: 0,
           serverTimeMs: 0,
         },
-      }),
+      })[0],
       webTransport: async () =>
         ({
           async createBidirectionalStream() {
@@ -86,7 +84,7 @@ const overrides = [
 ];
 function Consumer(props: { name: string }) {
   const source = useBunja(processesBunja);
-  const state = useAtomValue(() => source().stateAtom);
+  const state = () => source().state();
   return (
     <output aria-label={props.name}>
       {state().phase}:
@@ -115,11 +113,9 @@ function Fixture() {
 }
 render(
   () => (
-    <JotaiProvider>
-      <BunjaProvider overrides={overrides}>
-        <Fixture />
-      </BunjaProvider>
-    </JotaiProvider>
+    <BunjaProvider overrides={overrides}>
+      <Fixture />
+    </BunjaProvider>
   ),
   document.getElementById("root")!,
 );

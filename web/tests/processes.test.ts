@@ -1,3 +1,4 @@
+import { createRoot, createSignal, flush as flushSolid } from "solid-js";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -8,8 +9,6 @@ import {
   override,
   type Bunja,
 } from "bunja";
-import { atom, createStore } from "jotai/vanilla";
-import { JotaiStoreScope } from "../src/state/jotai-store.ts";
 import { processesBunja } from "../src/state/processes.ts";
 import { rpcSessionBunja } from "../src/state/rpc-session.ts";
 import { encodeProcessesTableEventValue } from "../src/protocol/generated/rpc.ts";
@@ -44,7 +43,11 @@ const row = (pid: number, name = String(pid)): ProcessInfo => ({
   status: { type: "run" as const },
 });
 async function flush() {
-  for (let i = 0; i < 20; i++) await Promise.resolve();
+  for (let i = 0; i < 20; i++) {
+    flushSolid();
+    await Promise.resolve();
+  }
+  flushSolid();
 }
 function stream() {
   let controller!: ReadableStreamDefaultController<Uint8Array>;
@@ -76,7 +79,6 @@ function stream() {
   };
 }
 function fixture() {
-  const state = createStore();
   const SessionScope = createScope<ReturnType<typeof session>>();
   type RpcSession =
     typeof rpcSessionBunja extends Bunja<infer Value> ? Value : never;
@@ -92,38 +94,42 @@ function fixture() {
     },
   } as WebTransport;
   function session() {
+    const [daemonInstanceId, setDaemonInstanceId] = createSignal<
+      string | undefined
+    >("fixture");
+    const [daemonInfo, setDaemonInfo] = createSignal<DaemonInfoState>(ready());
     return {
       closeRpcSession: unused,
       reconnect: unused,
       resetController: unused,
       startPairingSession: async () => unused(),
       completePairingSession: async () => unused(),
-      connectionAtom: atom({ phase: "idle" as const }),
-      daemonInstanceIdAtom: atom<string | undefined>("fixture"),
-      daemonServerTimeMsAtom: atom<number | undefined>(undefined),
-      daemonUptimeSecondsAtom: atom<number | undefined>(undefined),
-      daemonInfoAtom: atom<DaemonInfoState>(ready()),
+      connection: createSignal({ phase: "idle" as const })[0],
+      daemonInstanceId,
+      setDaemonInstanceId,
+      daemonServerTimeMs: createSignal(undefined)[0],
+      daemonUptimeSeconds: createSignal(undefined)[0],
+      daemonInfo,
+      setDaemonInfo,
       webTransport: async () => transport,
-    } satisfies RpcSession;
+    } satisfies RpcSession & {
+      setDaemonInstanceId: typeof setDaemonInstanceId;
+      setDaemonInfo: typeof setDaemonInfo;
+    };
   }
   const sessions = [session(), session()];
   const store = createBunjaStore({
+    wrapInstance: (init) => createRoot(init),
     overrides: [override(rpcSessionBunja, () => bunja.use(SessionScope))],
   });
   const get = (index = 0) =>
     store.get(
       processesBunja,
-      createReadScopeFn(
-        [
-          [JotaiStoreScope, state],
-          [SessionScope, sessions[index]],
-        ],
-        () => {
-          throw new Error("missing scope");
-        },
-      ),
+      createReadScopeFn([[SessionScope, sessions[index]]], () => {
+        throw new Error("missing scope");
+      }),
     );
-  return { state, store, sessions, streams, get, transport };
+  return { store, sessions, streams, get, transport };
 }
 
 test("list and tree share one stream, patches and final cleanup; sessions stay isolated", async () => {
@@ -147,11 +153,11 @@ test("list and tree share one stream, patches and final cleanup; sessions stay i
     upserts: [row(3), row(1, "new")],
   });
   await flush();
-  assert.deepEqual(f.state.get(a.value.stateAtom).rows, [
+  assert.deepEqual((flushSolid(), a.value.state()).rows, [
     row(1, "new"),
     row(3),
   ]);
-  assert.deepEqual(f.state.get(other.value.stateAtom).rows, []);
+  assert.deepEqual((flushSolid(), other.value.state()).rows, []);
   stopA();
   assert.equal(f.streams[0].returns(), 0);
   stopB();
@@ -173,24 +179,28 @@ test("disconnect/reconnect clears rows and rejects late events and failures", as
   await flush();
   f.streams[0].send({ type: "snapshot", rows: [row(1)] });
   await flush();
-  f.state.set(f.sessions[0].daemonInfoAtom, { phase: "idle" });
-  assert.deepEqual(f.state.get(entry.value.stateAtom), {
+  f.sessions[0].setDaemonInfo({ phase: "idle" });
+  flushSolid();
+  assert.deepEqual((flushSolid(), entry.value.state()), {
     phase: "loading",
     rows: [],
   });
-  f.state.set(f.sessions[0].daemonInfoAtom, ready());
+  f.sessions[0].setDaemonInfo(ready());
+  flushSolid();
   await flush();
   f.streams[0].send({ type: "snapshot", rows: [row(99)] });
   f.streams[1].send({ type: "snapshot", rows: [row(2)] });
   await flush();
-  assert.deepEqual(f.state.get(entry.value.stateAtom).rows, [row(2)]);
-  f.state.set(f.sessions[0].daemonInfoAtom, { phase: "loading" });
-  f.state.set(f.sessions[0].daemonInfoAtom, ready());
+  assert.deepEqual((flushSolid(), entry.value.state()).rows, [row(2)]);
+  f.sessions[0].setDaemonInfo({ phase: "loading" });
+  flushSolid();
+  f.sessions[0].setDaemonInfo(ready());
+  flushSolid();
   await flush();
   f.streams[1].fail(new Error("stale failure"));
   f.streams[2].send({ type: "snapshot", rows: [row(3)] });
   await flush();
-  assert.deepEqual(f.state.get(entry.value.stateAtom).rows, [row(3)]);
+  assert.deepEqual((flushSolid(), entry.value.state()).rows, [row(3)]);
   stop();
   f.store.dispose();
 });
@@ -211,32 +221,35 @@ test("unmount while transport is pending cannot subscribe after remount", async 
   assert.equal(f.streams.length, 1);
   f.streams[0].send({ type: "snapshot", rows: [row(4)] });
   await flush();
-  assert.deepEqual(f.state.get(next.value.stateAtom).rows, [row(4)]);
+  assert.deepEqual((flushSolid(), next.value.state()).rows, [row(4)]);
   stopNext();
   f.store.dispose();
 });
 
 test("unsupported, daemon failure, and stream failure remain visible states", async () => {
   const f = fixture();
-  f.state.set(f.sessions[0].daemonInfoAtom, ready(false));
+  f.sessions[0].setDaemonInfo(ready(false));
+  flushSolid();
   const entry = f.get(),
     stop = entry.mount();
   await flush();
   assert.equal(f.streams.length, 0);
-  assert.equal(f.state.get(entry.value.stateAtom).phase, "unsupported");
-  f.state.set(f.sessions[0].daemonInfoAtom, {
+  assert.equal((flushSolid(), entry.value.state()).phase, "unsupported");
+  f.sessions[0].setDaemonInfo({
     phase: "error",
     message: "fixture",
   });
+  flushSolid();
   assert.equal(
-    f.state.get(entry.value.stateAtom).message,
+    (flushSolid(), entry.value.state()).message,
     "Daemon info unavailable",
   );
-  f.state.set(f.sessions[0].daemonInfoAtom, ready());
+  f.sessions[0].setDaemonInfo(ready());
+  flushSolid();
   await flush();
   f.streams[0].fail(new Error("stream failed"));
   await flush();
-  assert.deepEqual(f.state.get(entry.value.stateAtom), {
+  assert.deepEqual((flushSolid(), entry.value.state()), {
     phase: "error",
     message: "stream failed",
     rows: [],

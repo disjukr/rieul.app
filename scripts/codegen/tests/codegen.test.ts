@@ -74,7 +74,8 @@ const rustBaseline = {
   wire: "ef71c3825e1750fea98e7734423be01aec84aa0642765c7fe05d9388c1befd1a",
   "socket-wire":
     "72af8be28ae16e56d51180ab97c92e6884d7f25a810570e02e7bacf8b3b61109",
-  rpc: "c537a4a668a566d9fc14cd728695aed69188152ff263d59be8829ebd71e9509a",
+  // Issue #45 appends update RPCs 64/65 and their message types; existing IDs stay unchanged.
+  rpc: "b0722e39adac43edd43b8cb7d2a3b7d2f0faca482f0df01b33b86bcc16776640",
   ipc: "02ab284ae877404a3b2650ca21c6efa402d0372d74593b21b2a4295a5c65172a",
 };
 for (const [schema, hash] of Object.entries(rustBaseline))

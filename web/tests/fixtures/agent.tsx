@@ -1,10 +1,7 @@
-import { bunja, override } from "bunja";
-import { atom } from "jotai/vanilla";
+import { override } from "bunja";
 import { createSignal, Show } from "solid-js";
 import { render } from "@solidjs/web";
 import { BunjaProvider } from "../../src/solid/bunja";
-import { JotaiProvider } from "../../src/solid/jotai";
-import { JotaiStoreScope } from "../../src/state/jotai-store.ts";
 import { agentsBunja, type AgentCatalogPhase } from "../../src/state/agents.ts";
 import { rpcSessionBunja } from "../../src/state/rpc-session.ts";
 import {
@@ -109,7 +106,7 @@ const transport = {
 const overrides = [
   override(rpcSessionBunja, () =>
     rpcSessionStub({
-      daemonInstanceIdAtom: atom<string | undefined>("daemon"),
+      daemonInstanceId: createSignal<string | undefined>("daemon")[0],
       webTransport: () => {
         metrics.transports++;
         return new Promise((resolve) => pending.push(resolve));
@@ -120,34 +117,33 @@ const overrides = [
     addProject: unused,
     addSession: unused,
     archiveSession: unused,
-    availableProvidersAtom: atom<AgentProviderInfo[]>([]),
-    errorAtom: atom<string | undefined>(),
-    phaseAtom: atom<AgentCatalogPhase>("ready"),
-    projectsAtom: atom<AgentProjectInfo[]>([]),
-    providersAtom: atom<AgentProviderInfo[]>([]),
-    sessionsAtom: atom<AgentSessionSummary[]>([]),
+    availableProviders: createSignal<AgentProviderInfo[]>([])[0],
+    error: createSignal<string | undefined>()[0],
+    phase: createSignal<AgentCatalogPhase>("ready")[0],
+    projects: createSignal<AgentProjectInfo[]>([])[0],
+    providers: createSignal<AgentProviderInfo[]>([])[0],
+    sessions: createSignal<AgentSessionSummary[]>([])[0],
     refreshSessions: async () => {},
   })),
   override(workbenchTabBunja, () => {
-    const store = bunja.use(JotaiStoreScope);
-    const tabAtom = atom<WorkbenchTab | undefined>({
+    const [tab, setTab] = createSignal<WorkbenchTab | undefined>({
       id: "tab",
       tool: "agent",
       title: "Agent",
       agentSessionId: "A",
     });
     selectB = () =>
-      store.set(tabAtom, (current) =>
+      setTab((current) =>
         current ? { ...current, agentSessionId: "B" } : current,
       );
     return {
       paneId: "pane",
       tabId: "tab",
-      tabAtom,
-      activeAtom: atom(true),
-      dirtyAtom: atom(false),
-      focusedAtom: atom(true),
-      showCloseAtom: atom(false),
+      tab,
+      active: createSignal(true)[0],
+      dirty: createSignal(false)[0],
+      focused: createSignal(true)[0],
+      showClose: createSignal(false)[0],
       selectTab: unused,
       setAgentSession() {
         metrics.tabWrites++;
@@ -180,11 +176,9 @@ function Fixture() {
 }
 render(
   () => (
-    <JotaiProvider>
-      <BunjaProvider overrides={overrides}>
-        <Fixture />
-      </BunjaProvider>
-    </JotaiProvider>
+    <BunjaProvider overrides={overrides}>
+      <Fixture />
+    </BunjaProvider>
   ),
   document.getElementById("root")!,
 );

@@ -1,7 +1,7 @@
 import { Dynamic } from "@solidjs/web";
 import { createMemo, Loading } from "solid-js";
 import { useBunja } from "../../../../../../solid/bunja.tsx";
-import { useAtomValue } from "../../../../../../solid/jotai.tsx";
+
 import { Loader2 } from "../../../../../../solid/icons.tsx";
 import { FileViewerFooter } from "./footer/index.tsx";
 import { getFileViewerImpl } from "./impl/index.ts";
@@ -18,8 +18,8 @@ const fileViewerClassName = [
 ].join(" ");
 export function FileViewer() {
   const viewer = useBunja(fileViewerBunja);
-  const state = useAtomValue(() => viewer().stateAtom);
-  const impl = useAtomValue(() => viewer().implAtom);
+  const state = () => viewer().state();
+  const impl = () => viewer().impl();
   const Impl = createMemo(() => {
     const value = impl();
     return value ? getFileViewerImpl(value).Component : undefined;

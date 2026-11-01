@@ -12,6 +12,7 @@ import {
 import path from "node:path";
 import { prepareRuntimes, execute, root, sha256 } from "./runtimes.mjs";
 import { publishReplacement } from "./publish.mjs";
+import { bundlePermissions } from "./bundle-permissions.mjs";
 const windows = process.platform === "win32";
 if (!windows && process.platform !== "darwin")
   throw new Error("Desktop packaging supports Windows/macOS");
@@ -212,6 +213,7 @@ if (!windows) {
     '<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict><key>CFBundleExecutable</key><string>rieul-gui</string><key>CFBundleIdentifier</key><string>app.rieul</string><key>CFBundleName</key><string>Rieul</string><key>CFBundlePackageType</key><string>APPL</string><key>LSUIElement</key><true/><key>LSMinimumSystemVersion</key><string>13.0</string></dict></plist>',
   );
 }
+if (!windows) await bundlePermissions(output, true);
 await execute(executable, ["--verify-bundle"], { windowsHide: true });
 let previous;
 if (exists) {

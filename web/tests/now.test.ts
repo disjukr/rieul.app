@@ -1,9 +1,8 @@
+import { createRoot, flush as flushSolid } from "solid-js";
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createBunjaStore, createReadScopeFn } from "bunja";
-import { createStore } from "jotai/vanilla";
+import { createBunjaStore } from "bunja";
 import { nowBunja } from "../src/state/now.ts";
-import { JotaiStoreScope } from "../src/state/jotai-store.ts";
 
 test("clock shares a frame loop, isolates stores and ignores callbacks after final release", () => {
   const originalRequest = globalThis.requestAnimationFrame;
@@ -21,19 +20,14 @@ test("clock shares a frame loop, isolates stores and ignores callbacks after fin
     frames.delete(id);
   };
   Date.now = () => time;
-  const store = createBunjaStore();
+  const store = createBunjaStore({ wrapInstance: (init) => createRoot(init) });
   try {
-    const a = createStore(),
-      b = createStore();
-    const aRead = createReadScopeFn([[JotaiStoreScope, a]], () => {
-      throw new Error("missing scope");
+    const otherStore = createBunjaStore({
+      wrapInstance: (init) => createRoot(init),
     });
-    const bRead = createReadScopeFn([[JotaiStoreScope, b]], () => {
-      throw new Error("missing scope");
-    });
-    const first = store.get(nowBunja, aRead),
-      second = store.get(nowBunja, aRead),
-      other = store.get(nowBunja, bRead);
+    const first = store.get(nowBunja, () => undefined as never),
+      second = store.get(nowBunja, () => undefined as never),
+      other = otherStore.get(nowBunja, () => undefined as never);
     assert.equal(first.value, second.value);
     assert.notEqual(first.value, other.value);
     const releaseFirst = first.mount(),
@@ -46,16 +40,17 @@ test("clock shares a frame loop, isolates stores and ignores callbacks after fin
     frames.delete(id);
     time = 2345;
     tick(0);
-    assert.equal(a.get(first.value.nowEverySecondAtom), 2000);
-    assert.equal(b.get(other.value.nowEverySecondAtom), 1000);
+    assert.equal((flushSolid(), first.value.nowEverySecond()), 2000);
+    assert.equal((flushSolid(), other.value.nowEverySecond()), 1000);
     releaseSecond();
     const remaining = frames.size;
     time = 3456;
     tick(0);
-    assert.equal(a.get(first.value.nowAtom), 2345);
+    assert.equal((flushSolid(), first.value.now()), 2345);
     assert.equal(frames.size, remaining);
     releaseOther();
     assert.equal(frames.size, 0);
+    otherStore.dispose();
   } finally {
     store.dispose();
     globalThis.requestAnimationFrame = originalRequest;

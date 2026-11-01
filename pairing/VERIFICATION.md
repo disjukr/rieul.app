@@ -111,4 +111,23 @@ The official default local packaging path (no `--app-sign` argument) was also ve
 
 There is a distinct local signing limitation: explicitly requesting `--app-sign -` produces **hardened ad-hoc** binaries. That extracted payload failed loading the GPUiX addon with macOS's “mapping process and mapped file (non-platform) have different Team IDs” error. The wrapper signing code is unchanged from `ea33bfa`; baseline CI run 41219139571 passed the same explicit hardened-ad-hoc PKG command and extracted native QA on macOS 15. This evidence does not establish a Solid v2 regression, nor explain the full OS/environment difference. No entitlement, library-validation setting or system security policy was changed to obtain the successful default-local result.
 
-The existing installed app is Developer ID signed with TeamIdentifier `D379GLRLPV`; a default local ad-hoc build has a different designated requirement. Its successful fixture launch does not establish identical OS trust/TCC identity. The installed app and its config, credentials, certificates and SQLite state remain untouched; final installation is gated on integrated CI and privileged install availability.
+The existing installed app is Developer ID signed with TeamIdentifier `D379GLRLPV`; a default local ad-hoc build has a different designated requirement. Its successful fixture launch does not establish identical OS trust/TCC identity. The installed app and its config, credentials, certificates and SQLite state remained untouched during this initial verification.
+
+### Dependency file permissions
+
+The official `desktop-0.6.12` release passed Developer ID signing, notarization,
+and native QA. Its installation on the Mac Studio was subsequently confirmed as
+0.6.12 with both daemon and GUI launchd services running. A separate read-only
+audit found 3,719 group/world-writable dependency files in both the installed app
+and extracted PKG: 3,708 at 0666, nine at 0777, and two at 0776. Root ownership
+and valid signatures did not prevent UID 501 from having write access.
+
+Packaging now removes group/other write bits from unsigned staging while
+preserving executable bits. It rejects special files, special permission bits,
+hard links, dangling links and symlinks that escape the bundle. It never follows
+symlinks when changing modes. Signed apps, extracted PKGs and mounted DMG apps
+are checked read-only and fail packaging if unsafe permissions remain. Regression
+fixtures cover writable files/directories, executable preservation, internal and
+escaped symlinks, hard links and FIFOs. The original 0.6.12 payload is rejected by
+the new check. This source fix does not modify an existing installation; repair
+requires a separately authorized, newly signed release and update.

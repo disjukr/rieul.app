@@ -155,10 +155,10 @@ test("explorer child observers wait for the shared Bunja owner and retain one su
   expect(await metrics()).toEqual({ opens: 1, closes: 1, earlyCalls: 0 });
 });
 
-test("Jotai observes child mount writes and isolates Provider stores", async ({
+test("Solid signals observe child mount writes and isolate Bunja providers", async ({
   page,
 }) => {
-  await page.goto("/tests/fixtures/jotai.html");
+  await page.goto("/tests/fixtures/signals.html");
   await expect(page.getByLabel("first", { exact: true })).toHaveText("1");
   await expect(page.getByLabel("second", { exact: true })).toHaveText("0");
   await page.getByRole("button", { name: "Increment first" }).click();
@@ -212,37 +212,39 @@ test("pane split and close preserve the controlled workbench layout", async ({
   expect(errors).toEqual([]);
 });
 
-test("Solid atom bridge releases replaced atoms and stores and ignores stale writes", async ({
+test("Solid signals release replaced scope lifetimes and ignore stale writes", async ({
   page,
 }) => {
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
-  await page.goto("/tests/fixtures/jotai.html");
+  await page.goto("/tests/fixtures/signals.html");
   const result = page.getByLabel("replacement", { exact: true });
   const metrics = () =>
     page.evaluate(
       () =>
         (
           window as unknown as {
-            atomFixture: { mounts: number; cleanups: number };
+            signalFixture: { mounts: number; cleanups: number };
           }
-        ).atomFixture,
+        ).signalFixture,
     );
   await expect(result).toHaveText("10");
   await expect.poll(metrics).toEqual({ mounts: 1, cleanups: 0 });
-  await page.getByRole("button", { name: "Replace atom", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Replace signal", exact: true })
+    .click();
   await expect(result).toHaveText("20");
   await expect.poll(metrics).toEqual({ mounts: 2, cleanups: 1 });
   await page
-    .getByRole("button", { name: "Write stale atom", exact: true })
+    .getByRole("button", { name: "Write stale signal", exact: true })
     .click();
   await expect(result).toHaveText("20");
   await page
-    .getByRole("button", { name: "Replace store", exact: true })
+    .getByRole("button", { name: "Replace domain", exact: true })
     .click();
   await expect.poll(metrics).toEqual({ mounts: 3, cleanups: 2 });
   await page
-    .getByRole("button", { name: "Write old store", exact: true })
+    .getByRole("button", { name: "Write old domain", exact: true })
     .click();
   await expect(result).toHaveText("20");
   await page

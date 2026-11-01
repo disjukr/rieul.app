@@ -495,6 +495,8 @@ if [[ -n "$SIGN_IDENTITY" ]]; then
   bun_codesign_args+=(--entitlements "$BUN_ENTITLEMENTS")
 fi
 
+# Normalize unsigned staging before any signatures are made.
+node "$REPO_ROOT/pairing/scripts/bundle-permissions.mjs" normalize "$APP_PATH"
 # Every runtime/addon/bridge is signed before the enclosing app.
 while IFS= read -r -d '' native_file; do
   if /usr/bin/file -b "$native_file" | grep -q 'Mach-O'; then
@@ -518,6 +520,7 @@ codesign "${codesign_args[@]}" \
 codesign "${codesign_args[@]}" "$APP_PATH"
 "$APP_PATH/Contents/MacOS/rieul-gui" --verify-bundle
 codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+node "$REPO_ROOT/pairing/scripts/bundle-permissions.mjs" verify "$APP_PATH"
 if [[ -n "$SIGN_IDENTITY" ]]; then
   bash "$SCRIPT_DIR/test-signed-bun-ffi.sh" "$APP_PATH"
 fi
@@ -601,6 +604,7 @@ elif ! layout_dmg_volume "$VOLUME_NAME" "$MOUNT_DIR" "$APP_NAME"; then
 fi
 "$MOUNT_DIR/$APP_NAME.app/Contents/MacOS/rieul-gui" --verify-bundle
 codesign --verify --deep --strict "$MOUNT_DIR/$APP_NAME.app"
+node "$REPO_ROOT/pairing/scripts/bundle-permissions.mjs" verify "$MOUNT_DIR/$APP_NAME.app"
 detach_build_image
 hdiutil convert "$RW_DMG_PATH" \
   -ov \

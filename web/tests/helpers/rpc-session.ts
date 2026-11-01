@@ -1,5 +1,6 @@
+import { createSignal } from "solid-js";
 import type { Bunja } from "bunja";
-import { atom } from "jotai/vanilla";
+
 import type { rpcSessionBunja } from "../../src/state/rpc-session.ts";
 export type RpcSession =
   typeof rpcSessionBunja extends Bunja<infer Value> ? Value : never;
@@ -15,11 +16,11 @@ export function rpcSessionStub(values: Partial<RpcSession>): RpcSession {
     startPairingSession: async () => unused(),
     completePairingSession: async () => unused(),
     webTransport: async () => unused(),
-    connectionAtom: atom({ phase: "idle" as const }),
-    daemonInfoAtom: atom({ phase: "idle" as const }),
-    daemonInstanceIdAtom: atom<string | undefined>(undefined),
-    daemonServerTimeMsAtom: atom<number | undefined>(undefined),
-    daemonUptimeSecondsAtom: atom<number | undefined>(undefined),
+    connection: createSignal({ phase: "idle" as const })[0],
+    daemonInfo: createSignal({ phase: "idle" as const })[0],
+    daemonInstanceId: createSignal(undefined)[0],
+    daemonServerTimeMs: createSignal(undefined)[0],
+    daemonUptimeSeconds: createSignal(undefined)[0],
     ...values,
   };
 }

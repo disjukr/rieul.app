@@ -33,8 +33,11 @@ environment. No new signing key or weaker identity policy is part of this CI ste
 
 ## Separate integration gate
 
-No ready isolated macOS VM was found in the checked local apps, PATH, and common
-VM directories. No VM manager, OS image, or security access was provisioned.
+Initially no ready isolated macOS VM was found. The user subsequently authorized
+an isolated Tart guest. Official Tart 2.41.1 was downloaded and its Cirrus Labs
+Developer ID signature and notarization verified; the official Tahoe base image
+is downloading with a 60-minute / 120-GiB bound. No guest has booted yet, and no
+host Rieul service or security settings were changed.
 Before production activation, approved signed/notarized old/new fixtures and an
 isolated guest or disposable dedicated Mac are still needed to verify:
 
@@ -47,3 +50,26 @@ Keep signing credentials in the existing approved signing environment; transfer
 artifacts rather than credentials to the test guest. A real system-service test
 must not target the user's installed Rieul service. The current workflow addition
 is a nonprivileged regression gate, not that native integration gate.
+
+## Solid native integration checkpoint
+
+Main `6b8deea8b5343b0d4d0d7dfd4b5d65f105e1113c` is merged normally. The updater
+Bunja uses native Solid accessors/setters and an owner-bound effect root. No
+Jotai bridge is restored. Existing daemon menu placement is preserved. Tests
+exercise stale connection responses, stale installation consent, synchronous
+duplicate requests before Solid flush, disposal, visible deferral, explicit
+manual confirmation/cancellation, and replacement-daemon dialog invalidation.
+
+Validation after integration: updater 45 pass / 1 intentionally ignored; host
+92 pass / 3 intentionally ignored; macOS all-target check; root Node suite 62
+pass; TypeScript checks and production web build pass. Browser suite used the
+installed Chrome with an isolated Playwright profile because bundled Chromium
+was absent: 26 passed initially, one updater fixture locator was ambiguous
+(the fixture output also has role=status); after scoping the locator both
+updater browser tests passed. Thus all 27 distinct browser tests passed.
+
+The RPC generator golden changed only for the appended update RPC schema
+(64/65 and associated types); TypeScript generated artifacts match generation.
+The signed-fixture workflow remains a local, non-dispatched review draft outside
+`.github/workflows`. Actual signed lifecycle, rollback, reboot, multiuser and
+downtime evidence remains pending. Production updater activation is unchanged.
