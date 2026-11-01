@@ -1,4 +1,5 @@
 #![cfg_attr(windows, windows_subsystem = "windows")]
+mod button;
 mod shell;
 mod view;
 fn main() -> anyhow::Result<()> {

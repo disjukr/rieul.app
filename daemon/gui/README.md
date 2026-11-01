@@ -13,23 +13,17 @@ The separate lockfile prevents GPUI's newer dependencies from changing the syste
 daemon's dependency graph. Node remains a **build-time** requirement of the shared
 BDL protocol generator; it will not be needed in the final GUI runtime bundle.
 
-## Implementation checkpoint
+## Implementation
 
-- Toolkit-independent request controller, using existing Rust IPC models.
-- Validation before state mutation, generation-scoped confirmation replies,
-  cryptographically seeded candidate randomization, rejection on replacement,
-  close, peer disconnect and disposal, and generation-scoped notification fallback.
-- Tokio socket transport using the existing CBOR sequence and stream IDs. Tests
-  cover fragmented requests, half-close rejection, and duplicate activation.
-- Unix socket ownership/type checks and inode-aware cleanup. Windows named-pipe
-  implementation is present but requires Windows validation and contention tests.
-- A macOS GPUI view and statically linked existing AppKit lifecycle bridge are
-  under construction. macOS ARM64 `cargo check` and `cargo build --features native
---locked` passed with Rust 1.99.1. A five-second startup check passed, followed by
-  an actual native-process IPC smoke test: activate, show pairing code, replace a
-  pending confirmation with daemon info, and receive a false confirmation reply.
-  The smoke run emitted no stderr and terminated only its owned fixture process.
-  These checks do not establish screenshot/OS-input parity.
+The controller and Tokio transport use the existing Rust IPC models, strict
+validation before mutation, generation-scoped replies and notification fallback.
+Replacement, disconnect, close and process shutdown reject outstanding requests.
+The single native process owns the window, tray and IPC listener. There is no
+launcher/Node/Bun descendant process or runtime image lock to clean up.
+
+The view preserves original dimensions, gradient, shadows, text and QR encoding.
+A small Element wrapper reports disabled controls to AccessKit while also blocking
+pointer/keyboard activation. Tab/Shift-Tab and Enter/Space use GPUI focus handling.
 
 ## Dependency selection evidence
 
@@ -50,8 +44,7 @@ machine has Command Line Tools, not full Xcode/Metal tools. It compiles Metal
 shaders through the supported runtime API, without changing OS security settings.
 Final release shader choice, startup timing, target OS, and signed execution still
 need validation. Upstream GPUI/platform, zlog, ztracing and ztracing_macro manifests
-at this revision declare Apache-2.0; a complete transitive license bundle is still
-required before packaging.
+at this revision declare Apache-2.0; a complete transitive license bundle is included in each native package.
 
 ## Packaging / updater coordination contract
 
@@ -66,16 +59,13 @@ Preserve these public artifact identities when switching implementations:
   manifest's Node/Bun version fields as proof of native payload integrity.
 - `pairing/scripts/package.mjs`, bundle verification/publish/refresh/permission
   scripts, both OS development launchers, MSI/MSIX verification, Mac PKG/DMG
-  signing, CI and release native QA all currently require the JavaScript payload.
-  Switch them together only after native lifecycle and screenshot parity pass.
+  signing, CI and release native QA previously required the JavaScript payload.
+  They now build and validate the native payload together.
 - Preserve the Windows native WNDPROC event queue from `635ba591`; no JS or Rust
   UI re-entry inside OS window callbacks.
 - Retain hardened signing, permission checks and notarization. Remove obsolete
   Node/Bun-specific JIT entitlements only as part of native payload packaging.
   Do not weaken library validation or alter the installed app's security identity.
-
-No packaging, updater, production GUI launcher, web client, credentials, Vercel
-configuration, installed app or services have been modified in this checkpoint.
 
 ## Remaining gates
 

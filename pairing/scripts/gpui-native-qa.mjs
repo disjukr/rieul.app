@@ -179,6 +179,19 @@ try {
   ).result;
   await app.wait((s) => s.route.kind === "pairingCode");
   await app.screenshot("code");
+  await app.call("key", { key: "tab" });
+  await delay(100);
+  await app.screenshot("keyboard-focus");
+  await app.call("key", { key: "enter" });
+  await delay(80);
+  assert.equal(
+    await app.call("clipboardMatches", { expected: "123456" }),
+    true,
+  );
+  await app.call("restoreClipboard");
+  evidence.checks.push(
+    "keyboard tab/enter and clipboard with original content restored",
+  );
   for (let cycle = 0; cycle < 3; cycle++) {
     const old = app.confirm("42");
     const first = await app.wait((s) => s.route.kind === "confirmPairing");

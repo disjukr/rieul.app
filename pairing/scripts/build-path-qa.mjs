@@ -1,57 +1,47 @@
-import { cp, mkdir, mkdtemp, symlink, stat } from "node:fs/promises";
-import { spawn } from "node:child_process";
-import { fileURLToPath } from "node:url";
+// Build the actual native entry point and package from a spaced Unicode checkout.
+import { cp, mkdir, mkdtemp, symlink } from "node:fs/promises";
 import path from "node:path";
-const root = fileURLToPath(new URL("..", import.meta.url));
-const temp = path.join(root, "../tmp");
-await mkdir(temp, { recursive: true });
-const fixture = await mkdtemp(path.join(temp, "build 공백 경로 "));
-const pairing = path.join(fixture, "pairing");
-await mkdir(pairing, { recursive: true });
+import { root, execute } from "./build-tools.mjs";
+const repo = path.resolve(root, "..");
+await mkdir(path.join(repo, "tmp"), { recursive: true });
+const fixture = await mkdtemp(
+  path.join(repo, "tmp", "native build 공백 경로 "),
+);
+const filter = (source) =>
+  !["target", "node_modules", ".git", "artifacts", "dist"].includes(
+    path.basename(source),
+  );
 for (const name of [
-  "src",
-  "scripts/build.ts",
-  "scripts/solid-plugin.ts",
-  "scripts/solid-preload.ts",
-  "scripts/runtime-preload.ts",
+  "Cargo.toml",
+  "Cargo.lock",
+  "daemon",
+  "pairing",
+  "protocol",
+  "scripts/codegen",
   "package.json",
-  "tsconfig.json",
-  "bunfig.toml",
-  process.platform === "win32"
-    ? "native/bin/rieul_pairing_windows.dll"
-    : "native/bin/librieul_pairing_macos.dylib",
-  "assets",
+  "LICENSE",
+  "LICENSE-MIT",
+  "LICENSE-APACHE",
 ])
-  await cp(path.join(root, name), path.join(pairing, name), {
+  await cp(path.join(repo, name), path.join(fixture, name), {
     recursive: true,
-  });
-for (const name of ["src/protocol"])
-  await cp(path.join(root, "../web", name), path.join(fixture, "web", name), {
-    recursive: true,
+    filter,
   });
 await symlink(
-  path.join(root, "node_modules"),
-  path.join(pairing, "node_modules"),
+  path.join(repo, "node_modules"),
+  path.join(fixture, "node_modules"),
   process.platform === "win32" ? "junction" : "dir",
 );
-const child = spawn(
-  process.env.RIEUL_PAIRING_BUN ?? "bun",
-  ["scripts/build.ts"],
-  { cwd: pairing, stdio: "inherit", windowsHide: true },
+await execute(
+  process.execPath,
+  [path.join(fixture, "pairing/scripts/package.mjs")],
+  {
+    cwd: fixture,
+    env: {
+      ...process.env,
+      CARGO_TARGET_DIR: path.join(repo, "daemon/gui/target"),
+    },
+    maxBuffer: 16 * 1024 * 1024,
+  },
 );
-await new Promise((resolve, reject) => {
-  child.once("error", reject);
-  child.once("exit", (code) =>
-    code === 0 ? resolve() : reject(new Error(`Path QA build exited ${code}`)),
-  );
-});
-for (const name of [
-  "dist/host.js",
-  "dist/main.js",
-  "dist/runtime-preload.js",
-  "dist/assets/icon.ico",
-])
-  await stat(path.join(pairing, name));
-console.log(
-  JSON.stringify({ fixture, actualBuild: true, spaceAndUnicodePath: true }),
-);
+console.log(JSON.stringify({ spacedUnicodeSourceAndBundle: true, fixture }));

@@ -221,22 +221,36 @@ pub struct Listener {
 impl Listener {
     pub async fn bind(path: &std::path::Path) -> Result<Option<Self>> {
         use tokio::net::windows::named_pipe::{ClientOptions, ServerOptions};
-        match ClientOptions::new().open(path) {
-            Ok(mut stream) => {
-                tokio::time::timeout(Duration::from_secs(5), activate(&mut stream)).await??;
-                return Ok(None);
+        // A second process can arrive while the server creates its next instance.
+        // Wait for that instance instead of treating ERROR_PIPE_BUSY as a failure.
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+        loop {
+            match ClientOptions::new().open(path) {
+                Ok(mut stream) => {
+                    tokio::time::timeout(Duration::from_secs(5), activate(&mut stream)).await??;
+                    return Ok(None);
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    match ServerOptions::new().first_pipe_instance(true).create(path) {
+                        Ok(inner) => {
+                            return Ok(Some(Self {
+                                inner,
+                                path: path.into(),
+                            }));
+                        }
+                        Err(error) if error.raw_os_error() == Some(5) => {} // concurrent first instance
+                        Err(error) => return Err(error).context("bind GUI pipe"),
+                    }
+                }
+                Err(error) if error.raw_os_error() == Some(231) => {}
+                Err(error) => return Err(error.into()),
             }
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-            Err(e) => return Err(e.into()),
+            ensure!(
+                tokio::time::Instant::now() < deadline,
+                "GUI pipe activation deadline"
+            );
+            tokio::time::sleep(Duration::from_millis(20)).await;
         }
-        let inner = ServerOptions::new()
-            .first_pipe_instance(true)
-            .create(path)
-            .context("bind GUI pipe")?;
-        Ok(Some(Self {
-            inner,
-            path: path.into(),
-        }))
     }
     pub async fn run(mut self, events: mpsc::Sender<Event>) -> Result<()> {
         use tokio::net::windows::named_pipe::ServerOptions;

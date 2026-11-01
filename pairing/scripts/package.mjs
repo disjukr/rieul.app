@@ -11,7 +11,7 @@ import {
   readdir,
 } from "node:fs/promises";
 import path from "node:path";
-import { execute, root, sha256 } from "./runtimes.mjs";
+import { execute, root, sha256 } from "./build-tools.mjs";
 import { publishReplacement } from "./publish.mjs";
 import { bundlePermissions } from "./bundle-permissions.mjs";
 const windows = process.platform === "win32";
@@ -68,7 +68,9 @@ const bundle = windows
 await mkdir(bundle, { recursive: true });
 const cargo = process.env.RIEUL_CARGO ?? "cargo";
 const manifestPath = path.resolve(root, "../daemon/gui/Cargo.toml");
-const guiTarget = path.resolve(root, "../daemon/gui/target");
+const guiTarget = path.resolve(
+  process.env.CARGO_TARGET_DIR ?? path.resolve(root, "../daemon/gui/target"),
+);
 const buildEnv = { ...process.env, MACOSX_DEPLOYMENT_TARGET: "13.0" };
 await execute(
   cargo,

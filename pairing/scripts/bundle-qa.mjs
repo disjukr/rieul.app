@@ -3,7 +3,7 @@ import path from "node:path";
 import { readFile, writeFile, open, mkdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
-import { execute } from "./runtimes.mjs";
+import { execute } from "./build-tools.mjs";
 const repo = fileURLToPath(new URL("../..", import.meta.url));
 const argument = process.argv.indexOf("--bundle");
 if (argument < 0)

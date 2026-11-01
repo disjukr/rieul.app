@@ -1,4 +1,4 @@
-use crate::shell::Shell;
+use crate::{button::Button, shell::Shell};
 use gpui::{div, img, prelude::*, px, rgb, rgba, *};
 use rieul_gui::{
     controller::{Controller, Effect, Info, Route},
@@ -12,6 +12,9 @@ use std::{
 struct View {
     #[cfg(feature = "qa")]
     qa: Option<mpsc::Receiver<serde_json::Value>>,
+    #[cfg(feature = "qa")]
+    qa_clipboard: Option<ClipboardItem>,
+    root_focus: FocusHandle,
     controller: Controller,
     events: mpsc::Receiver<Event>,
     shell: Shell,
@@ -103,11 +106,16 @@ impl View {
             self.feedback.clear();
             self.error.clear();
             self.copied = false;
+            window.focus(&self.root_focus, cx);
         }
         cx.notify();
     }
     fn quit(&mut self, cx: &mut Context<Self>) {
         self.controller.dispose();
+        #[cfg(feature = "qa")]
+        if let Some(previous) = self.qa_clipboard.take() {
+            cx.write_to_clipboard(previous);
+        }
         cx.spawn(async move |_, cx| {
             cx.background_executor()
                 .timer(Duration::from_millis(100))
@@ -134,6 +142,13 @@ impl View {
                 .show_info(self.controller.info.clone())
                 .map(|effects| self.effects(effects, window)),
             Action::Copy(value) => {
+                #[cfg(feature = "qa")]
+                if self.qa.is_some() && self.qa_clipboard.is_none() {
+                    self.qa_clipboard = Some(
+                        cx.read_from_clipboard()
+                            .unwrap_or_else(|| ClipboardItem::new_string(String::new())),
+                    );
+                }
                 cx.write_to_clipboard(ClipboardItem::new_string(value));
                 self.copied = true;
                 Ok(())
@@ -186,7 +201,7 @@ impl View {
         label: impl Into<SharedString>,
         action: Action,
         cx: &Context<Self>,
-    ) -> Stateful<Div> {
+    ) -> Button {
         let id = id.into();
         let label = label.into();
         let generation = self.controller.generation;
@@ -198,7 +213,7 @@ impl View {
         let code_button = id.as_ref() == "copy-pairing-code";
         let keyboard_action = action.clone();
         let disabled = self.resolved && matches!(action, Action::Resolve(..));
-        div()
+        let inner = div()
             .id(id.clone())
             .accessibility_id(id)
             .aria_label(label.clone())
@@ -237,7 +252,8 @@ impl View {
                             rgb(0x20242d)
                         }),
                 )
-            })
+            });
+        Button { inner, disabled }
     }
     fn property(
         &self,
@@ -258,6 +274,9 @@ impl View {
             .flex_col()
             .child(
                 div()
+                    .id(format!("property-label-{label}"))
+                    .role(Role::Label)
+                    .aria_label(label)
                     .text_color(rgb(0x667085))
                     .font_weight(FontWeight::BOLD)
                     .line_height(px(18.))
@@ -277,6 +296,9 @@ impl View {
                     .gap(px(8.))
                     .child(
                         div()
+                            .id(format!("property-value-{label}"))
+                            .role(Role::Label)
+                            .aria_label(value.clone())
                             .flex_1()
                             .min_w_0()
                             .font_family(if cfg!(windows) { "Consolas" } else { "Menlo" })
@@ -286,7 +308,13 @@ impl View {
                             .border_color(rgb(0xd8dde7))
                             .bg(rgb(0xf4f6fa))
                             .px(px(6.))
-                            .child(value),
+                            .child(if label == "Config" {
+                                value
+                                    .replace('/', "\u{200b}/\u{2060}")
+                                    .replace('\\', "\u{200b}\\\u{2060}")
+                            } else {
+                                value
+                            }),
                     )
                     .child(
                         self.button(
@@ -367,6 +395,9 @@ impl Render for View {
                             .border_1()
                             .border_color(rgba(0xffffff75))
                             .shadow(small_shadow())
+                            .id("daemon-qr")
+                            .role(Role::Image)
+                            .aria_label("QR code to open this daemon in Rieul")
                             .child(img(self.qr.as_ref().unwrap().1.clone()).size(px(146.))),
                     )
                     .child(
@@ -470,6 +501,9 @@ impl Render for View {
                             )
                             .child(
                                 div()
+                                    .id("pairing-code")
+                                    .role(Role::Label)
+                                    .aria_label(model.pairing_code.clone())
                                     .font_family(if cfg!(windows) { "Consolas" } else { "Menlo" })
                                     .text_size(px(42.))
                                     .line_height(px(63.))
@@ -529,6 +563,10 @@ impl Render for View {
                             .text_size(px(18.))
                             .line_height(px(27.))
                             .font_weight(FontWeight::EXTRA_BOLD)
+                            .id("route-title")
+                            .role(Role::Heading)
+                            .aria_level(1)
+                            .aria_label("Select the code shown on your client.")
                             .child("Select the code shown on your client."),
                     )
                     .child(
@@ -552,7 +590,11 @@ impl Render for View {
                                         div()
                                             .text_size(px(11.))
                                             .text_color(rgb(0x667085))
+                                            .line_height(px(16.5))
                                             .font_weight(FontWeight::BOLD)
+                                            .id("client-label-caption")
+                                            .role(Role::Label)
+                                            .aria_label("CLIENT")
                                             .child("CLIENT"),
                                     )
                                     .child(
@@ -561,6 +603,13 @@ impl Render for View {
                                             .text_size(px(15.))
                                             .line_height(px(22.5))
                                             .font_weight(FontWeight::EXTRA_BOLD)
+                                            .id("client-label")
+                                            .role(Role::Label)
+                                            .aria_label(if model.client_label.trim().is_empty() {
+                                                "Unknown client".to_owned()
+                                            } else {
+                                                model.client_label.clone()
+                                            })
                                             .child(if model.client_label.trim().is_empty() {
                                                 "Unknown client".into()
                                             } else {
@@ -573,11 +622,21 @@ impl Render for View {
                                             .gap(px(6.))
                                             .mt(px(6.))
                                             .text_size(px(11.))
+                                            .line_height(px(14.))
+                                            .text_color(rgb(0x475467))
                                             .child(
                                                 div()
                                                     .text_color(rgb(0x4f8cff))
+                                                    .font_weight(FontWeight::BOLD)
+                                                    .flex_shrink_0()
                                                     .child("Wants to connect to daemon →"),
                                             )
+                                            .id("confirmation-daemon")
+                                            .role(Role::Label)
+                                            .aria_label(format!(
+                                                "Wants to connect to daemon {}",
+                                                model.daemon_url
+                                            ))
                                             .child(model.daemon_url),
                                     ),
                             )
@@ -595,6 +654,9 @@ impl Render for View {
                                                     .text_color(rgb(0xb42318)),
                                             )
                                         })
+                                        .id("confirmation-feedback")
+                                        .role(Role::Label)
+                                        .aria_label(self.feedback.clone())
                                         .child(self.feedback.clone()),
                                 )
                             })
@@ -613,6 +675,18 @@ impl Render for View {
             }
         };
         div()
+            .id("root")
+            .track_focus(&self.root_focus)
+            .on_key_down(|event, window, cx| {
+                if event.keystroke.key == "tab" {
+                    if event.keystroke.modifiers.shift {
+                        window.focus_prev(cx);
+                    } else {
+                        window.focus_next(cx);
+                    }
+                    cx.stop_propagation();
+                }
+            })
             .relative()
             .flex()
             .flex_col()
@@ -653,6 +727,9 @@ impl Render for View {
                             div()
                                 .text_color(rgb(0xb42318))
                                 .px(px(16.))
+                                .id("error")
+                                .role(Role::Label)
+                                .aria_label(self.error.clone())
                                 .child(self.error.clone()),
                         )
                     })
@@ -842,9 +919,14 @@ pub fn run() -> anyhow::Result<()> {
                         }
                     })
                     .detach();
+                    let root_focus = cx.focus_handle().tab_index(-1);
+                    window.focus(&root_focus, cx);
                     View {
+                        root_focus,
                         #[cfg(feature = "qa")]
                         qa,
+                        #[cfg(feature = "qa")]
+                        qa_clipboard: None,
                         controller: Controller::new(info),
                         events: rx,
                         shell,
@@ -924,6 +1006,16 @@ impl View {
                     Ok(
                         serde_json::json!({"route":route,"generation":self.controller.generation,"visible":self.shell.is_visible(),"feedback":self.feedback,"error":self.error,"a11y":window.debug_a11y_tree_json()}),
                     )
+                }
+                "clipboardMatches" => Ok(serde_json::json!(
+                    cx.read_from_clipboard().and_then(|v| v.text()).as_deref()
+                        == command["expected"].as_str()
+                )),
+                "restoreClipboard" => {
+                    if let Some(previous) = self.qa_clipboard.take() {
+                        cx.write_to_clipboard(previous);
+                    }
+                    Ok(serde_json::json!(true))
                 }
                 "hideForCapture" => {
                     self.shell.visible(false);

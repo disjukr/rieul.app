@@ -93,3 +93,82 @@ pub fn verify(executable: &Path) -> Result<PathBuf> {
     }
     Ok(root)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn fixture() -> (tempfile::TempDir, PathBuf, PathBuf, serde_json::Value) {
+        let temp = tempfile::tempdir().unwrap();
+        let executable = if cfg!(target_os = "macos") {
+            temp.path().join("Rieul.app/Contents/MacOS/rieul-gui")
+        } else {
+            temp.path().join("gui/rieul-windows-gui.exe")
+        };
+        std::fs::create_dir_all(executable.parent().unwrap()).unwrap();
+        std::fs::write(&executable, b"fixture executable").unwrap();
+        let root = root(&executable).unwrap();
+        let mut files = BTreeMap::new();
+        for name in [
+            "assets/tray.png",
+            "assets/icon.ico",
+            "licenses/dependencies.json",
+        ] {
+            let path = root.join(name);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(&path, name).unwrap();
+            files.insert(name, hash(&path).unwrap());
+        }
+        let manifest = serde_json::json!({"schema_version":2,"implementation":"rust-gpui","gpui_revision":GPUI_REVISION,"platform":if cfg!(windows){"win32"}else{"darwin"},"arch":if cfg!(target_arch="aarch64"){"arm64"}else{"x64"},"executable_sha256":hash(&executable).unwrap(),"files":files});
+        std::fs::write(
+            root.join("bundle.json"),
+            serde_json::to_vec(&manifest).unwrap(),
+        )
+        .unwrap();
+        (temp, executable, root, manifest)
+    }
+    #[test]
+    fn validates_payload_and_detects_tampering() {
+        let (_temp, exe, root, _) = fixture();
+        assert!(verify(&exe).is_ok());
+        std::fs::write(root.join("assets/tray.png"), b"changed").unwrap();
+        assert!(
+            verify(&exe)
+                .unwrap_err()
+                .to_string()
+                .contains("integrity failed")
+        );
+    }
+    #[test]
+    fn validates_executable_digest() {
+        let (_temp, exe, _, _) = fixture();
+        std::fs::write(&exe, b"changed").unwrap();
+        assert!(
+            verify(&exe)
+                .unwrap_err()
+                .to_string()
+                .contains("executable integrity")
+        );
+    }
+    #[test]
+    fn rejects_traversal_missing_assets_and_wrong_schema() {
+        for case in 0..3 {
+            let (_temp, exe, root, mut m) = fixture();
+            match case {
+                0 => {
+                    m["files"]["../outside"] = serde_json::json!("0".repeat(64));
+                }
+                1 => {
+                    m["files"]
+                        .as_object_mut()
+                        .unwrap()
+                        .remove("assets/tray.png");
+                }
+                _ => {
+                    m["schema_version"] = serde_json::json!(1);
+                }
+            }
+            std::fs::write(root.join("bundle.json"), serde_json::to_vec(&m).unwrap()).unwrap();
+            assert!(verify(&exe).is_err());
+        }
+    }
+}
