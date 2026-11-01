@@ -171,6 +171,19 @@ fn parse_job(job: Job, text: &str) -> Result<JobState> {
     }
     Ok(JobState { pid })
 }
+/// `gui/<uid>` can be absent even when that UID owns background processes.
+/// Only classify the observed launchctl domain errors for a typed GUI target;
+/// permission, transport, system-domain and unrecognized errors remain fatal.
+fn absent_gui_domain(job: Job, code: i32, text: &str) -> bool {
+    let Job::Gui(uid) = job else {
+        return false;
+    };
+    let text = text.trim();
+    ((code == 112 || code == 113)
+        && text == format!("Bad request.\nCould not find domain for user gui: {uid}"))
+        || (code == 125
+            && text == "Could not print domain: 125: Domain does not support specified action")
+}
 pub(super) struct Native<'a> {
     pub state: &'a Dir,
 }
@@ -181,7 +194,7 @@ impl Control for Native<'_> {
             "/bin/launchctl",
             &["print", &Job::Gui(uid).target()?],
         )?;
-        if code == 113 && text.contains("Could not find domain") {
+        if absent_gui_domain(Job::Gui(uid), code, &text) {
             return Ok(false);
         }
         if code == 0 || (code == 113 && text.contains("Could not find service")) {
@@ -205,8 +218,8 @@ impl Control for Native<'_> {
     fn inspect(&mut self, job: Job) -> Result<Option<JobState>> {
         let target = job.target()?;
         let (code, text) = run(self.state, "/bin/launchctl", &["print", &target])?;
-        if code == 113
-            && (text.contains("Could not find service") || text.contains("Could not find domain"))
+        if absent_gui_domain(job, code, &text)
+            || (code == 113 && text.contains("Could not find service"))
         {
             return Ok(None);
         }
@@ -279,6 +292,29 @@ fn write_worker_registration(state: &Dir) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn observed_absent_gui_domains_do_not_hide_system_or_authorization_errors() {
+        let absent = "Bad request.\nCould not find domain for user gui: 24\n";
+        let background = "Could not print domain: 125: Domain does not support specified action\n";
+        assert!(absent_gui_domain(Job::Gui(24), 112, absent));
+        assert!(absent_gui_domain(Job::Gui(24), 113, absent));
+        assert!(absent_gui_domain(Job::Gui(205), 125, background));
+        assert!(!absent_gui_domain(Job::Gui(25), 112, absent));
+        for job in [Job::System, Job::LegacySystem, Job::Worker] {
+            assert!(!absent_gui_domain(job, 112, absent));
+            assert!(!absent_gui_domain(job, 125, background));
+        }
+        for (code, text) in [
+            (1, "Operation not permitted"),
+            (112, "Permission denied"),
+            (125, "Could not print domain: 125: other failure"),
+            (141, "Reentrancy avoided"),
+            (0, absent),
+            (113, "Could not find service in domain for user gui: 24"),
+        ] {
+            assert!(!absent_gui_domain(Job::Gui(24), code, text));
+        }
+    }
     #[test]
     fn worker_registration_is_fixed_root_job_without_automatic_relaunch() {
         use std::os::unix::fs::{MetadataExt, PermissionsExt};
