@@ -11,7 +11,7 @@ jobs:
     timeout-minutes: 90
     env:
       # Reviewed source, never an arbitrary workflow input.
-      REVIEWED_SHA: 614ac2f75e0f6935a8c550187538fe32b3728926
+      REVIEWED_SHA: 58779bf55d6d941e3687e082e2a1fbee7adfde17
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
