@@ -32,4 +32,4 @@ while True:
     descriptor+=20
 for error in missing:print('MISSING IMPORT',error,flush=True)
 if missing:raise SystemExit(1)
-print('All directly imported DLL entry points are present')
+print('All directly imported DLL entry points are present in Python activation context; executable manifest differences require a direct launch')
