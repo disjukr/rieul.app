@@ -452,6 +452,21 @@ mod readiness_wait_tests {
         assert!(!wait_for_readiness(Duration::ZERO, || panic!("expired wait")).unwrap());
     }
     #[test]
+    fn pending_probe_expires_after_a_positive_timeout() {
+        let timeout = Duration::from_millis(1);
+        let started = Instant::now();
+        let mut calls = 0;
+        assert!(!wait_for_readiness(timeout, || {
+            calls += 1;
+            Ok(None)
+        })
+        .unwrap());
+        assert!(calls > 0);
+        assert!(started.elapsed() >= timeout);
+        // The deadline is checked between synchronous probes; it is not an
+        // upper bound on probe execution or total wall-clock shutdown time.
+    }
+    #[test]
     fn parked_instance_and_inspection_errors_never_become_ready() {
         assert!(!wait_for_readiness(Duration::from_secs(1), || Ok(Some(false))).unwrap());
         assert!(
