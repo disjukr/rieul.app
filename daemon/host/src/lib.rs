@@ -12,3 +12,5 @@ mod shell_integration;
 pub mod maintenance;
 
 pub mod updates;
+
+pub mod desktop;

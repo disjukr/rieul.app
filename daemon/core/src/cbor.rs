@@ -127,6 +127,13 @@ fn encode_type_value(major: u8, value: u64, out: &mut Vec<u8>) {
 }
 
 fn decode_value(cursor: &mut Cursor<&[u8]>) -> Result<Value, CborError> {
+    decode_value_at(cursor, 0)
+}
+
+fn decode_value_at(cursor: &mut Cursor<&[u8]>, depth: usize) -> Result<Value, CborError> {
+    if depth > 64 {
+        return Err(CborError::LengthTooLarge);
+    }
     let initial = read_u8(cursor)?;
     let major = initial >> 5;
     let additional = initial & 0x1f;
@@ -141,6 +148,14 @@ fn decode_value(cursor: &mut Cursor<&[u8]>) -> Result<Value, CborError> {
         }
         2 => {
             let len = checked_len(decode_argument(additional, cursor)?)?;
+            if len
+                > cursor
+                    .get_ref()
+                    .len()
+                    .saturating_sub(cursor.position() as usize)
+            {
+                return Err(CborError::UnexpectedEnd);
+            }
             let mut bytes = vec![0u8; len];
             cursor
                 .read_exact(&mut bytes)
@@ -149,6 +164,14 @@ fn decode_value(cursor: &mut Cursor<&[u8]>) -> Result<Value, CborError> {
         }
         3 => {
             let len = checked_len(decode_argument(additional, cursor)?)?;
+            if len
+                > cursor
+                    .get_ref()
+                    .len()
+                    .saturating_sub(cursor.position() as usize)
+            {
+                return Err(CborError::UnexpectedEnd);
+            }
             let mut bytes = vec![0u8; len];
             cursor
                 .read_exact(&mut bytes)
@@ -159,21 +182,37 @@ fn decode_value(cursor: &mut Cursor<&[u8]>) -> Result<Value, CborError> {
         }
         4 => {
             let len = checked_len(decode_argument(additional, cursor)?)?;
+            if len
+                > cursor
+                    .get_ref()
+                    .len()
+                    .saturating_sub(cursor.position() as usize)
+            {
+                return Err(CborError::UnexpectedEnd);
+            }
             let mut items = Vec::with_capacity(len);
             for _ in 0..len {
-                items.push(decode_value(cursor)?);
+                items.push(decode_value_at(cursor, depth + 1)?);
             }
             Ok(Value::Array(items))
         }
         5 => {
             let len = checked_len(decode_argument(additional, cursor)?)?;
+            if len
+                > cursor
+                    .get_ref()
+                    .len()
+                    .saturating_sub(cursor.position() as usize)
+            {
+                return Err(CborError::UnexpectedEnd);
+            }
             let mut map = BTreeMap::new();
             for _ in 0..len {
-                let key = decode_value(cursor)?;
+                let key = decode_value_at(cursor, depth + 1)?;
                 let Value::U64(key) = key else {
                     return Err(CborError::ExpectedUnsignedMapKey);
                 };
-                let value = decode_value(cursor)?;
+                let value = decode_value_at(cursor, depth + 1)?;
                 if map.insert(key, value).is_some() {
                     return Err(CborError::DuplicateMapKey);
                 }
@@ -278,5 +317,24 @@ mod tests {
     fn rejects_duplicate_map_keys() {
         let bytes = [0xa2, 0x01, 0x01, 0x01, 0x02];
         assert_eq!(Value::decode(&bytes), Err(CborError::DuplicateMapKey));
+    }
+}
+
+#[cfg(test)]
+mod desktop_bounds_tests {
+    use super::*;
+    #[test]
+    fn declared_lengths_never_allocate_beyond_received_bytes() {
+        for major in [0x5b, 0x7b, 0x9b, 0xbb] {
+            let mut bytes = vec![major];
+            bytes.extend_from_slice(&u64::MAX.to_be_bytes());
+            assert!(Value::decode(&bytes).is_err());
+        }
+    }
+    #[test]
+    fn excessive_nesting_is_rejected_without_stack_exhaustion() {
+        let mut bytes = vec![0x81; 1000];
+        bytes.push(0xf6);
+        assert_eq!(Value::decode(&bytes), Err(CborError::LengthTooLarge));
     }
 }

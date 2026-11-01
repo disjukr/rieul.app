@@ -68,6 +68,13 @@ export enum ProcId {
   AttachAgentSession = 63,
   GetUpdateStatus = 64,
   RequestUpdate = 65,
+  GetDesktopCapabilities = 66,
+  AttachDesktop = 67,
+  ConfigureDesktopViewports = 68,
+  SetDesktopControl = 69,
+  RenewDesktopLease = 70,
+  DetachDesktop = 71,
+  WriteDesktopInput = 72,
 }
 
 export interface SubscribeWindowDetailReq {
@@ -728,6 +735,174 @@ export type WriteFileError =
 
 export type FsMutationError =
   | { type: "failed"; message: string }
+;
+
+export enum DesktopAvailability {
+  Unsupported = 0,
+  PermissionRequired = 1,
+  Available = 2,
+}
+
+export enum DesktopControlAction {
+  Acquire = 0,
+  Release = 1,
+  Takeover = 2,
+}
+
+export enum DesktopKeyboardMode {
+  Physical = 0,
+  Text = 1,
+}
+
+export enum DesktopWheelUnit {
+  Pixels = 0,
+  Lines = 1,
+  Pages = 2,
+}
+
+export interface DesktopCapabilities {
+  profile: number;
+  capture: DesktopAvailability;
+  input: DesktopAvailability;
+  codecs: DesktopCodec[];
+  composition: boolean;
+  relativePointer: boolean;
+  maxViewports: number;
+  maxInputFrameBytes: number;
+  maxInputStreamBytes: number;
+  reason?: string;
+}
+
+export interface DesktopCodec {
+  codec: string;
+  description?: Uint8Array;
+  hardware: boolean;
+}
+
+export interface DesktopRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface DesktopDisplay {
+  displayId: string;
+  bounds: DesktopRect;
+  scale: number;
+  dpi: number;
+}
+
+export interface AttachDesktopReq {
+  profile: number;
+  codecs: string[];
+  mediaUniStreams: boolean;
+  keyboardMode: DesktopKeyboardMode;
+}
+
+export interface DesktopAttachRef {
+  attachId: string;
+}
+
+export interface DesktopLease {
+  attachId: string;
+  remainingMs: number;
+}
+
+export interface DesktopControl {
+  holderAttachId?: string;
+  inputEpoch: number;
+}
+
+export interface DesktopViewport {
+  viewportId: string;
+  displayId: string;
+  crop: DesktopRect;
+  width: number;
+  height: number;
+  fps: number;
+  bitrate: number;
+}
+
+export interface ConfigureDesktopViewportsReq {
+  attachId: string;
+  layoutEpoch: number;
+  viewports: DesktopViewport[];
+  totalBitrate: number;
+}
+
+export interface DesktopTrack {
+  trackId: number;
+  viewport: DesktopViewport;
+  codec: DesktopCodec;
+  codecEpoch: number;
+}
+
+export interface DesktopConfiguration {
+  layoutEpoch: number;
+  tracks: DesktopTrack[];
+  totalBitrate: number;
+}
+
+export interface SetDesktopControlReq {
+  attachId: string;
+  action: DesktopControlAction;
+}
+
+export type DesktopEvent =
+  | { type: "attached"; attachId: string; layoutEpoch: number; displays: DesktopDisplay[]; control: DesktopControl; leaseMs: number }
+  | { type: "layout"; layoutEpoch: number; displays: DesktopDisplay[] }
+  | { type: "control"; control: DesktopControl }
+  | { type: "configured"; configuration: DesktopConfiguration }
+  | { type: "cursor"; layoutEpoch: number; x: number; y: number; visible: boolean; shape?: Uint8Array; hotspotX: number; hotspotY: number }
+  | { type: "closed"; reason: string }
+;
+
+export interface DesktopInputFrame {
+  attachId: string;
+  inputEpoch: number;
+  sequence: number;
+  layoutEpoch: number;
+  event: DesktopInputEvent;
+}
+
+export type DesktopInputEvent =
+  | { type: "physicalKey"; usage: number; down: boolean; repeat: boolean }
+  | { type: "textCommit"; text: string }
+  | { type: "composition"; text: string; selectionStart: number; selectionEnd: number }
+  | { type: "absolutePointer"; viewportId: string; x: number; y: number }
+  | { type: "relativePointer"; dx: number; dy: number }
+  | { type: "button"; viewportId: string; x: number; y: number; button: number; down: boolean }
+  | { type: "wheel"; viewportId: string; x: number; y: number; dx: number; dy: number; unit: DesktopWheelUnit }
+  | { type: "releaseAll" }
+  | { type: "feedback"; trackId: number; codecEpoch: number; groupId: number; decodeMicros: number; renderMicros: number; queueDepth: number; requestKeyframe: boolean }
+;
+
+export interface DesktopInputReceipt {
+  lastSequence: number;
+}
+
+export interface DesktopMediaObject {
+  attachId: string;
+  trackId: number;
+  layoutEpoch: number;
+  codecEpoch: number;
+  groupId: number;
+  objectId: number;
+  timestampMicros: number;
+  keyframe: boolean;
+  data: Uint8Array;
+}
+
+export type DesktopError =
+  | { type: "failed"; message: string }
+  | { type: "unsupported"; message: string }
+  | { type: "permissionDenied"; message: string }
+  | { type: "notFound"; message: string }
+  | { type: "busy"; message: string }
+  | { type: "invalidConfiguration"; message: string }
+  | { type: "staleEpoch"; message: string }
+  | { type: "limitExceeded"; message: string }
 ;
 
 export interface DaemonInfo {
@@ -2543,6 +2718,90 @@ export const requestUpdateProc: ProcCodec<RequestUpdateReq, UpdateStatus, Update
   decodeError: decodeUpdateErrorValue,
 };
 
+export const getDesktopCapabilitiesProc: ProcCodec<undefined, DesktopCapabilities, DesktopError> = {
+  id: ProcId.GetDesktopCapabilities,
+  name: "GetDesktopCapabilities",
+  stream: "unary",
+  requestType: "void",
+  responseType: "DesktopCapabilities",
+  errorType: "DesktopError",
+  encodeRequest: encodeVoidValue,
+  decodeResponse: decodeDesktopCapabilitiesValue,
+  decodeError: decodeDesktopErrorValue,
+};
+
+export const attachDesktopProc: ProcCodec<AttachDesktopReq, DesktopEvent, DesktopError> = {
+  id: ProcId.AttachDesktop,
+  name: "AttachDesktop",
+  stream: "server",
+  requestType: "AttachDesktopReq",
+  responseType: "DesktopEvent",
+  errorType: "DesktopError",
+  encodeRequest: encodeAttachDesktopReqValue,
+  decodeResponse: decodeDesktopEventValue,
+  decodeError: decodeDesktopErrorValue,
+};
+
+export const configureDesktopViewportsProc: ProcCodec<ConfigureDesktopViewportsReq, DesktopConfiguration, DesktopError> = {
+  id: ProcId.ConfigureDesktopViewports,
+  name: "ConfigureDesktopViewports",
+  stream: "unary",
+  requestType: "ConfigureDesktopViewportsReq",
+  responseType: "DesktopConfiguration",
+  errorType: "DesktopError",
+  encodeRequest: encodeConfigureDesktopViewportsReqValue,
+  decodeResponse: decodeDesktopConfigurationValue,
+  decodeError: decodeDesktopErrorValue,
+};
+
+export const setDesktopControlProc: ProcCodec<SetDesktopControlReq, DesktopControl, DesktopError> = {
+  id: ProcId.SetDesktopControl,
+  name: "SetDesktopControl",
+  stream: "unary",
+  requestType: "SetDesktopControlReq",
+  responseType: "DesktopControl",
+  errorType: "DesktopError",
+  encodeRequest: encodeSetDesktopControlReqValue,
+  decodeResponse: decodeDesktopControlValue,
+  decodeError: decodeDesktopErrorValue,
+};
+
+export const renewDesktopLeaseProc: ProcCodec<DesktopAttachRef, DesktopLease, DesktopError> = {
+  id: ProcId.RenewDesktopLease,
+  name: "RenewDesktopLease",
+  stream: "unary",
+  requestType: "DesktopAttachRef",
+  responseType: "DesktopLease",
+  errorType: "DesktopError",
+  encodeRequest: encodeDesktopAttachRefValue,
+  decodeResponse: decodeDesktopLeaseValue,
+  decodeError: decodeDesktopErrorValue,
+};
+
+export const detachDesktopProc: ProcCodec<DesktopAttachRef, undefined, DesktopError> = {
+  id: ProcId.DetachDesktop,
+  name: "DetachDesktop",
+  stream: "unary",
+  requestType: "DesktopAttachRef",
+  responseType: "void",
+  errorType: "DesktopError",
+  encodeRequest: encodeDesktopAttachRefValue,
+  decodeResponse: decodeVoidValue,
+  decodeError: decodeDesktopErrorValue,
+};
+
+export const writeDesktopInputProc: ProcCodec<DesktopInputFrame, DesktopInputReceipt, DesktopError> = {
+  id: ProcId.WriteDesktopInput,
+  name: "WriteDesktopInput",
+  stream: "client",
+  requestType: "DesktopInputFrame",
+  responseType: "DesktopInputReceipt",
+  errorType: "DesktopError",
+  encodeRequest: encodeDesktopInputFrameValue,
+  decodeResponse: decodeDesktopInputReceiptValue,
+  decodeError: decodeDesktopErrorValue,
+};
+
 export const procs = {
   [ProcId.GetDaemonInfo]: getDaemonInfoProc,
   [ProcId.StartPairing]: startPairingProc,
@@ -2609,6 +2868,13 @@ export const procs = {
   [ProcId.AttachAgentSession]: attachAgentSessionProc,
   [ProcId.GetUpdateStatus]: getUpdateStatusProc,
   [ProcId.RequestUpdate]: requestUpdateProc,
+  [ProcId.GetDesktopCapabilities]: getDesktopCapabilitiesProc,
+  [ProcId.AttachDesktop]: attachDesktopProc,
+  [ProcId.ConfigureDesktopViewports]: configureDesktopViewportsProc,
+  [ProcId.SetDesktopControl]: setDesktopControlProc,
+  [ProcId.RenewDesktopLease]: renewDesktopLeaseProc,
+  [ProcId.DetachDesktop]: detachDesktopProc,
+  [ProcId.WriteDesktopInput]: writeDesktopInputProc,
 } as const;
 
 export function encodeSubscribeWindowDetailReqValue(value: SubscribeWindowDetailReq): CborValue {
@@ -5872,6 +6138,682 @@ export function decodeFsMutationErrorValue(value: CborValue): FsMutationError {
       };
   }
   throw new Error(`unknown FsMutationError variant ${variantId}`);
+}
+
+export function encodeDesktopAvailabilityValue(value: DesktopAvailability): CborValue {
+  return integer(value);
+}
+
+export function decodeDesktopAvailabilityValue(value: CborValue): DesktopAvailability {
+  const id = integer(value);
+  if (![0, 1, 2].includes(id)) throw new Error(`unknown DesktopAvailability variant ${id}`);
+  return id as DesktopAvailability;
+}
+
+export function encodeDesktopControlActionValue(value: DesktopControlAction): CborValue {
+  return integer(value);
+}
+
+export function decodeDesktopControlActionValue(value: CborValue): DesktopControlAction {
+  const id = integer(value);
+  if (![0, 1, 2].includes(id)) throw new Error(`unknown DesktopControlAction variant ${id}`);
+  return id as DesktopControlAction;
+}
+
+export function encodeDesktopKeyboardModeValue(value: DesktopKeyboardMode): CborValue {
+  return integer(value);
+}
+
+export function decodeDesktopKeyboardModeValue(value: CborValue): DesktopKeyboardMode {
+  const id = integer(value);
+  if (![0, 1].includes(id)) throw new Error(`unknown DesktopKeyboardMode variant ${id}`);
+  return id as DesktopKeyboardMode;
+}
+
+export function encodeDesktopWheelUnitValue(value: DesktopWheelUnit): CborValue {
+  return integer(value);
+}
+
+export function decodeDesktopWheelUnitValue(value: CborValue): DesktopWheelUnit {
+  const id = integer(value);
+  if (![0, 1, 2].includes(id)) throw new Error(`unknown DesktopWheelUnit variant ${id}`);
+  return id as DesktopWheelUnit;
+}
+
+export function encodeDesktopCapabilitiesValue(value: DesktopCapabilities): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, u53(required(value.profile, "DesktopCapabilities.profile")));
+  fields.set(2, encodeDesktopAvailabilityValue(required(value.capture, "DesktopCapabilities.capture")));
+  fields.set(3, encodeDesktopAvailabilityValue(required(value.input, "DesktopCapabilities.input")));
+  fields.set(4, required(value.codecs, "DesktopCapabilities.codecs").map((item) => encodeDesktopCodecValue(item)));
+  fields.set(5, bool(required(value.composition, "DesktopCapabilities.composition")));
+  fields.set(6, bool(required(value.relativePointer, "DesktopCapabilities.relativePointer")));
+  fields.set(7, u53(required(value.maxViewports, "DesktopCapabilities.maxViewports")));
+  fields.set(8, u53(required(value.maxInputFrameBytes, "DesktopCapabilities.maxInputFrameBytes")));
+  fields.set(9, u53(required(value.maxInputStreamBytes, "DesktopCapabilities.maxInputStreamBytes")));
+  if (value.reason !== undefined) fields.set(10, text(value.reason));
+  return fields;
+}
+
+export function decodeDesktopCapabilitiesValue(value: CborValue): DesktopCapabilities {
+  const fields = expectMap(value);
+  return {
+    profile: fieldOrDefault(fields.get(1), (value) => integer(value), () => 0),
+    capture: fieldOrDefault(fields.get(2), (value) => decodeDesktopAvailabilityValue(value), () => DesktopAvailability.Unsupported),
+    input: fieldOrDefault(fields.get(3), (value) => decodeDesktopAvailabilityValue(value), () => DesktopAvailability.Unsupported),
+    codecs: fieldOrDefault(fields.get(4), (value) => array(value).map((item) => decodeDesktopCodecValue(item)), () => []),
+    composition: fieldOrDefault(fields.get(5), (value) => boolValue(value), () => false),
+    relativePointer: fieldOrDefault(fields.get(6), (value) => boolValue(value), () => false),
+    maxViewports: fieldOrDefault(fields.get(7), (value) => integer(value), () => 0),
+    maxInputFrameBytes: fieldOrDefault(fields.get(8), (value) => integer(value), () => 0),
+    maxInputStreamBytes: fieldOrDefault(fields.get(9), (value) => integer(value), () => 0),
+    reason: optionalField(fields.get(10), (value) => textValue(value)),
+  };
+}
+
+export function encodeDesktopCodecValue(value: DesktopCodec): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, text(required(value.codec, "DesktopCodec.codec")));
+  if (value.description !== undefined) fields.set(2, bytes(value.description));
+  fields.set(3, bool(required(value.hardware, "DesktopCodec.hardware")));
+  return fields;
+}
+
+export function decodeDesktopCodecValue(value: CborValue): DesktopCodec {
+  const fields = expectMap(value);
+  return {
+    codec: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+    description: optionalField(fields.get(2), (value) => bytesValue(value)),
+    hardware: fieldOrDefault(fields.get(3), (value) => boolValue(value), () => false),
+  };
+}
+
+export function encodeDesktopRectValue(value: DesktopRect): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, i53(required(value.x, "DesktopRect.x")));
+  fields.set(2, i53(required(value.y, "DesktopRect.y")));
+  fields.set(3, u53(required(value.width, "DesktopRect.width")));
+  fields.set(4, u53(required(value.height, "DesktopRect.height")));
+  return fields;
+}
+
+export function decodeDesktopRectValue(value: CborValue): DesktopRect {
+  const fields = expectMap(value);
+  return {
+    x: fieldOrDefault(fields.get(1), (value) => integer(value), () => 0),
+    y: fieldOrDefault(fields.get(2), (value) => integer(value), () => 0),
+    width: fieldOrDefault(fields.get(3), (value) => integer(value), () => 0),
+    height: fieldOrDefault(fields.get(4), (value) => integer(value), () => 0),
+  };
+}
+
+export function encodeDesktopDisplayValue(value: DesktopDisplay): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, text(required(value.displayId, "DesktopDisplay.displayId")));
+  fields.set(2, encodeDesktopRectValue(required(value.bounds, "DesktopDisplay.bounds")));
+  fields.set(3, f64(required(value.scale, "DesktopDisplay.scale")));
+  fields.set(4, f64(required(value.dpi, "DesktopDisplay.dpi")));
+  return fields;
+}
+
+export function decodeDesktopDisplayValue(value: CborValue): DesktopDisplay {
+  const fields = expectMap(value);
+  return {
+    displayId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+    bounds: fieldOrDefault(fields.get(2), (value) => decodeDesktopRectValue(value), () => defaultDesktopRect()),
+    scale: fieldOrDefault(fields.get(3), (value) => f64Value(value), () => 0),
+    dpi: fieldOrDefault(fields.get(4), (value) => f64Value(value), () => 0),
+  };
+}
+
+export function encodeAttachDesktopReqValue(value: AttachDesktopReq): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, u53(required(value.profile, "AttachDesktopReq.profile")));
+  fields.set(2, required(value.codecs, "AttachDesktopReq.codecs").map((item) => text(item)));
+  fields.set(3, bool(required(value.mediaUniStreams, "AttachDesktopReq.mediaUniStreams")));
+  fields.set(4, encodeDesktopKeyboardModeValue(required(value.keyboardMode, "AttachDesktopReq.keyboardMode")));
+  return fields;
+}
+
+export function decodeAttachDesktopReqValue(value: CborValue): AttachDesktopReq {
+  const fields = expectMap(value);
+  return {
+    profile: fieldOrDefault(fields.get(1), (value) => integer(value), () => 0),
+    codecs: fieldOrDefault(fields.get(2), (value) => array(value).map((item) => textValue(item)), () => []),
+    mediaUniStreams: fieldOrDefault(fields.get(3), (value) => boolValue(value), () => false),
+    keyboardMode: fieldOrDefault(fields.get(4), (value) => decodeDesktopKeyboardModeValue(value), () => DesktopKeyboardMode.Physical),
+  };
+}
+
+export function encodeDesktopAttachRefValue(value: DesktopAttachRef): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, text(required(value.attachId, "DesktopAttachRef.attachId")));
+  return fields;
+}
+
+export function decodeDesktopAttachRefValue(value: CborValue): DesktopAttachRef {
+  const fields = expectMap(value);
+  return {
+    attachId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+  };
+}
+
+export function encodeDesktopLeaseValue(value: DesktopLease): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, text(required(value.attachId, "DesktopLease.attachId")));
+  fields.set(2, u53(required(value.remainingMs, "DesktopLease.remainingMs")));
+  return fields;
+}
+
+export function decodeDesktopLeaseValue(value: CborValue): DesktopLease {
+  const fields = expectMap(value);
+  return {
+    attachId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+    remainingMs: fieldOrDefault(fields.get(2), (value) => integer(value), () => 0),
+  };
+}
+
+export function encodeDesktopControlValue(value: DesktopControl): CborValue {
+  const fields = new Map<number, CborValue>();
+  if (value.holderAttachId !== undefined) fields.set(1, text(value.holderAttachId));
+  fields.set(2, u53(required(value.inputEpoch, "DesktopControl.inputEpoch")));
+  return fields;
+}
+
+export function decodeDesktopControlValue(value: CborValue): DesktopControl {
+  const fields = expectMap(value);
+  return {
+    holderAttachId: optionalField(fields.get(1), (value) => textValue(value)),
+    inputEpoch: fieldOrDefault(fields.get(2), (value) => integer(value), () => 0),
+  };
+}
+
+export function encodeDesktopViewportValue(value: DesktopViewport): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, text(required(value.viewportId, "DesktopViewport.viewportId")));
+  fields.set(2, text(required(value.displayId, "DesktopViewport.displayId")));
+  fields.set(3, encodeDesktopRectValue(required(value.crop, "DesktopViewport.crop")));
+  fields.set(4, u53(required(value.width, "DesktopViewport.width")));
+  fields.set(5, u53(required(value.height, "DesktopViewport.height")));
+  fields.set(6, u53(required(value.fps, "DesktopViewport.fps")));
+  fields.set(7, u53(required(value.bitrate, "DesktopViewport.bitrate")));
+  return fields;
+}
+
+export function decodeDesktopViewportValue(value: CborValue): DesktopViewport {
+  const fields = expectMap(value);
+  return {
+    viewportId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+    displayId: fieldOrDefault(fields.get(2), (value) => textValue(value), () => ""),
+    crop: fieldOrDefault(fields.get(3), (value) => decodeDesktopRectValue(value), () => defaultDesktopRect()),
+    width: fieldOrDefault(fields.get(4), (value) => integer(value), () => 0),
+    height: fieldOrDefault(fields.get(5), (value) => integer(value), () => 0),
+    fps: fieldOrDefault(fields.get(6), (value) => integer(value), () => 0),
+    bitrate: fieldOrDefault(fields.get(7), (value) => integer(value), () => 0),
+  };
+}
+
+export function encodeConfigureDesktopViewportsReqValue(value: ConfigureDesktopViewportsReq): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, text(required(value.attachId, "ConfigureDesktopViewportsReq.attachId")));
+  fields.set(2, u53(required(value.layoutEpoch, "ConfigureDesktopViewportsReq.layoutEpoch")));
+  fields.set(3, required(value.viewports, "ConfigureDesktopViewportsReq.viewports").map((item) => encodeDesktopViewportValue(item)));
+  fields.set(4, u53(required(value.totalBitrate, "ConfigureDesktopViewportsReq.totalBitrate")));
+  return fields;
+}
+
+export function decodeConfigureDesktopViewportsReqValue(value: CborValue): ConfigureDesktopViewportsReq {
+  const fields = expectMap(value);
+  return {
+    attachId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+    layoutEpoch: fieldOrDefault(fields.get(2), (value) => integer(value), () => 0),
+    viewports: fieldOrDefault(fields.get(3), (value) => array(value).map((item) => decodeDesktopViewportValue(item)), () => []),
+    totalBitrate: fieldOrDefault(fields.get(4), (value) => integer(value), () => 0),
+  };
+}
+
+export function encodeDesktopTrackValue(value: DesktopTrack): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, u53(required(value.trackId, "DesktopTrack.trackId")));
+  fields.set(2, encodeDesktopViewportValue(required(value.viewport, "DesktopTrack.viewport")));
+  fields.set(3, encodeDesktopCodecValue(required(value.codec, "DesktopTrack.codec")));
+  fields.set(4, u53(required(value.codecEpoch, "DesktopTrack.codecEpoch")));
+  return fields;
+}
+
+export function decodeDesktopTrackValue(value: CborValue): DesktopTrack {
+  const fields = expectMap(value);
+  return {
+    trackId: fieldOrDefault(fields.get(1), (value) => integer(value), () => 0),
+    viewport: fieldOrDefault(fields.get(2), (value) => decodeDesktopViewportValue(value), () => defaultDesktopViewport()),
+    codec: fieldOrDefault(fields.get(3), (value) => decodeDesktopCodecValue(value), () => defaultDesktopCodec()),
+    codecEpoch: fieldOrDefault(fields.get(4), (value) => integer(value), () => 0),
+  };
+}
+
+export function encodeDesktopConfigurationValue(value: DesktopConfiguration): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, u53(required(value.layoutEpoch, "DesktopConfiguration.layoutEpoch")));
+  fields.set(2, required(value.tracks, "DesktopConfiguration.tracks").map((item) => encodeDesktopTrackValue(item)));
+  fields.set(3, u53(required(value.totalBitrate, "DesktopConfiguration.totalBitrate")));
+  return fields;
+}
+
+export function decodeDesktopConfigurationValue(value: CborValue): DesktopConfiguration {
+  const fields = expectMap(value);
+  return {
+    layoutEpoch: fieldOrDefault(fields.get(1), (value) => integer(value), () => 0),
+    tracks: fieldOrDefault(fields.get(2), (value) => array(value).map((item) => decodeDesktopTrackValue(item)), () => []),
+    totalBitrate: fieldOrDefault(fields.get(3), (value) => integer(value), () => 0),
+  };
+}
+
+export function encodeSetDesktopControlReqValue(value: SetDesktopControlReq): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, text(required(value.attachId, "SetDesktopControlReq.attachId")));
+  fields.set(2, encodeDesktopControlActionValue(required(value.action, "SetDesktopControlReq.action")));
+  return fields;
+}
+
+export function decodeSetDesktopControlReqValue(value: CborValue): SetDesktopControlReq {
+  const fields = expectMap(value);
+  return {
+    attachId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+    action: fieldOrDefault(fields.get(2), (value) => decodeDesktopControlActionValue(value), () => DesktopControlAction.Acquire),
+  };
+}
+
+export function encodeDesktopEventValue(value: DesktopEvent): CborValue {
+  switch (value.type) {
+    case "attached": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.attachId, "DesktopEvent.Attached.attachId")));
+      fields.set(2, u53(required(value.layoutEpoch, "DesktopEvent.Attached.layoutEpoch")));
+      fields.set(3, required(value.displays, "DesktopEvent.Attached.displays").map((item) => encodeDesktopDisplayValue(item)));
+      fields.set(4, encodeDesktopControlValue(required(value.control, "DesktopEvent.Attached.control")));
+      fields.set(5, u53(required(value.leaseMs, "DesktopEvent.Attached.leaseMs")));
+      return [0, fields];
+    }
+    case "layout": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, u53(required(value.layoutEpoch, "DesktopEvent.Layout.layoutEpoch")));
+      fields.set(2, required(value.displays, "DesktopEvent.Layout.displays").map((item) => encodeDesktopDisplayValue(item)));
+      return [1, fields];
+    }
+    case "control": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, encodeDesktopControlValue(required(value.control, "DesktopEvent.Control.control")));
+      return [2, fields];
+    }
+    case "configured": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, encodeDesktopConfigurationValue(required(value.configuration, "DesktopEvent.Configured.configuration")));
+      return [3, fields];
+    }
+    case "cursor": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, u53(required(value.layoutEpoch, "DesktopEvent.Cursor.layoutEpoch")));
+      fields.set(2, i53(required(value.x, "DesktopEvent.Cursor.x")));
+      fields.set(3, i53(required(value.y, "DesktopEvent.Cursor.y")));
+      fields.set(4, bool(required(value.visible, "DesktopEvent.Cursor.visible")));
+      if (value.shape !== undefined) fields.set(5, bytes(value.shape));
+      fields.set(6, u53(required(value.hotspotX, "DesktopEvent.Cursor.hotspotX")));
+      fields.set(7, u53(required(value.hotspotY, "DesktopEvent.Cursor.hotspotY")));
+      return [4, fields];
+    }
+    case "closed": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.reason, "DesktopEvent.Closed.reason")));
+      return [5, fields];
+    }
+  }
+}
+
+export function decodeDesktopEventValue(value: CborValue): DesktopEvent {
+  const [variantId, fields] = expectUnion(value);
+  switch (variantId) {
+    case 0:
+      return {
+        type: "attached",
+        attachId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+        layoutEpoch: fieldOrDefault(fields.get(2), (value) => integer(value), () => 0),
+        displays: fieldOrDefault(fields.get(3), (value) => array(value).map((item) => decodeDesktopDisplayValue(item)), () => []),
+        control: fieldOrDefault(fields.get(4), (value) => decodeDesktopControlValue(value), () => defaultDesktopControl()),
+        leaseMs: fieldOrDefault(fields.get(5), (value) => integer(value), () => 0),
+      };
+    case 1:
+      return {
+        type: "layout",
+        layoutEpoch: fieldOrDefault(fields.get(1), (value) => integer(value), () => 0),
+        displays: fieldOrDefault(fields.get(2), (value) => array(value).map((item) => decodeDesktopDisplayValue(item)), () => []),
+      };
+    case 2:
+      return {
+        type: "control",
+        control: fieldOrDefault(fields.get(1), (value) => decodeDesktopControlValue(value), () => defaultDesktopControl()),
+      };
+    case 3:
+      return {
+        type: "configured",
+        configuration: fieldOrDefault(fields.get(1), (value) => decodeDesktopConfigurationValue(value), () => defaultDesktopConfiguration()),
+      };
+    case 4:
+      return {
+        type: "cursor",
+        layoutEpoch: fieldOrDefault(fields.get(1), (value) => integer(value), () => 0),
+        x: fieldOrDefault(fields.get(2), (value) => integer(value), () => 0),
+        y: fieldOrDefault(fields.get(3), (value) => integer(value), () => 0),
+        visible: fieldOrDefault(fields.get(4), (value) => boolValue(value), () => false),
+        shape: optionalField(fields.get(5), (value) => bytesValue(value)),
+        hotspotX: fieldOrDefault(fields.get(6), (value) => integer(value), () => 0),
+        hotspotY: fieldOrDefault(fields.get(7), (value) => integer(value), () => 0),
+      };
+    case 5:
+      return {
+        type: "closed",
+        reason: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+  }
+  throw new Error(`unknown DesktopEvent variant ${variantId}`);
+}
+
+export function encodeDesktopInputFrameValue(value: DesktopInputFrame): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, text(required(value.attachId, "DesktopInputFrame.attachId")));
+  fields.set(2, u53(required(value.inputEpoch, "DesktopInputFrame.inputEpoch")));
+  fields.set(3, u53(required(value.sequence, "DesktopInputFrame.sequence")));
+  fields.set(4, u53(required(value.layoutEpoch, "DesktopInputFrame.layoutEpoch")));
+  fields.set(5, encodeDesktopInputEventValue(required(value.event, "DesktopInputFrame.event")));
+  return fields;
+}
+
+export function decodeDesktopInputFrameValue(value: CborValue): DesktopInputFrame {
+  const fields = expectMap(value);
+  return {
+    attachId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+    inputEpoch: fieldOrDefault(fields.get(2), (value) => integer(value), () => 0),
+    sequence: fieldOrDefault(fields.get(3), (value) => integer(value), () => 0),
+    layoutEpoch: fieldOrDefault(fields.get(4), (value) => integer(value), () => 0),
+    event: fieldOrDefault(fields.get(5), (value) => decodeDesktopInputEventValue(value), () => defaultDesktopInputEvent()),
+  };
+}
+
+export function encodeDesktopInputEventValue(value: DesktopInputEvent): CborValue {
+  switch (value.type) {
+    case "physicalKey": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, u53(required(value.usage, "DesktopInputEvent.PhysicalKey.usage")));
+      fields.set(2, bool(required(value.down, "DesktopInputEvent.PhysicalKey.down")));
+      fields.set(3, bool(required(value.repeat, "DesktopInputEvent.PhysicalKey.repeat")));
+      return [0, fields];
+    }
+    case "textCommit": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.text, "DesktopInputEvent.TextCommit.text")));
+      return [1, fields];
+    }
+    case "composition": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.text, "DesktopInputEvent.Composition.text")));
+      fields.set(2, u53(required(value.selectionStart, "DesktopInputEvent.Composition.selectionStart")));
+      fields.set(3, u53(required(value.selectionEnd, "DesktopInputEvent.Composition.selectionEnd")));
+      return [2, fields];
+    }
+    case "absolutePointer": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.viewportId, "DesktopInputEvent.AbsolutePointer.viewportId")));
+      fields.set(2, f64(required(value.x, "DesktopInputEvent.AbsolutePointer.x")));
+      fields.set(3, f64(required(value.y, "DesktopInputEvent.AbsolutePointer.y")));
+      return [3, fields];
+    }
+    case "relativePointer": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, f64(required(value.dx, "DesktopInputEvent.RelativePointer.dx")));
+      fields.set(2, f64(required(value.dy, "DesktopInputEvent.RelativePointer.dy")));
+      return [4, fields];
+    }
+    case "button": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.viewportId, "DesktopInputEvent.Button.viewportId")));
+      fields.set(2, f64(required(value.x, "DesktopInputEvent.Button.x")));
+      fields.set(3, f64(required(value.y, "DesktopInputEvent.Button.y")));
+      fields.set(4, u53(required(value.button, "DesktopInputEvent.Button.button")));
+      fields.set(5, bool(required(value.down, "DesktopInputEvent.Button.down")));
+      return [5, fields];
+    }
+    case "wheel": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.viewportId, "DesktopInputEvent.Wheel.viewportId")));
+      fields.set(2, f64(required(value.x, "DesktopInputEvent.Wheel.x")));
+      fields.set(3, f64(required(value.y, "DesktopInputEvent.Wheel.y")));
+      fields.set(4, f64(required(value.dx, "DesktopInputEvent.Wheel.dx")));
+      fields.set(5, f64(required(value.dy, "DesktopInputEvent.Wheel.dy")));
+      fields.set(6, encodeDesktopWheelUnitValue(required(value.unit, "DesktopInputEvent.Wheel.unit")));
+      return [6, fields];
+    }
+    case "releaseAll": {
+      const fields = new Map<number, CborValue>();
+      return [7, fields];
+    }
+    case "feedback": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, u53(required(value.trackId, "DesktopInputEvent.Feedback.trackId")));
+      fields.set(2, u53(required(value.codecEpoch, "DesktopInputEvent.Feedback.codecEpoch")));
+      fields.set(3, u53(required(value.groupId, "DesktopInputEvent.Feedback.groupId")));
+      fields.set(4, u53(required(value.decodeMicros, "DesktopInputEvent.Feedback.decodeMicros")));
+      fields.set(5, u53(required(value.renderMicros, "DesktopInputEvent.Feedback.renderMicros")));
+      fields.set(6, u53(required(value.queueDepth, "DesktopInputEvent.Feedback.queueDepth")));
+      fields.set(7, bool(required(value.requestKeyframe, "DesktopInputEvent.Feedback.requestKeyframe")));
+      return [8, fields];
+    }
+  }
+}
+
+export function decodeDesktopInputEventValue(value: CborValue): DesktopInputEvent {
+  const [variantId, fields] = expectUnion(value);
+  switch (variantId) {
+    case 0:
+      return {
+        type: "physicalKey",
+        usage: fieldOrDefault(fields.get(1), (value) => integer(value), () => 0),
+        down: fieldOrDefault(fields.get(2), (value) => boolValue(value), () => false),
+        repeat: fieldOrDefault(fields.get(3), (value) => boolValue(value), () => false),
+      };
+    case 1:
+      return {
+        type: "textCommit",
+        text: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+    case 2:
+      return {
+        type: "composition",
+        text: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+        selectionStart: fieldOrDefault(fields.get(2), (value) => integer(value), () => 0),
+        selectionEnd: fieldOrDefault(fields.get(3), (value) => integer(value), () => 0),
+      };
+    case 3:
+      return {
+        type: "absolutePointer",
+        viewportId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+        x: fieldOrDefault(fields.get(2), (value) => f64Value(value), () => 0),
+        y: fieldOrDefault(fields.get(3), (value) => f64Value(value), () => 0),
+      };
+    case 4:
+      return {
+        type: "relativePointer",
+        dx: fieldOrDefault(fields.get(1), (value) => f64Value(value), () => 0),
+        dy: fieldOrDefault(fields.get(2), (value) => f64Value(value), () => 0),
+      };
+    case 5:
+      return {
+        type: "button",
+        viewportId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+        x: fieldOrDefault(fields.get(2), (value) => f64Value(value), () => 0),
+        y: fieldOrDefault(fields.get(3), (value) => f64Value(value), () => 0),
+        button: fieldOrDefault(fields.get(4), (value) => integer(value), () => 0),
+        down: fieldOrDefault(fields.get(5), (value) => boolValue(value), () => false),
+      };
+    case 6:
+      return {
+        type: "wheel",
+        viewportId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+        x: fieldOrDefault(fields.get(2), (value) => f64Value(value), () => 0),
+        y: fieldOrDefault(fields.get(3), (value) => f64Value(value), () => 0),
+        dx: fieldOrDefault(fields.get(4), (value) => f64Value(value), () => 0),
+        dy: fieldOrDefault(fields.get(5), (value) => f64Value(value), () => 0),
+        unit: fieldOrDefault(fields.get(6), (value) => decodeDesktopWheelUnitValue(value), () => DesktopWheelUnit.Pixels),
+      };
+    case 7:
+      return {
+        type: "releaseAll",
+      };
+    case 8:
+      return {
+        type: "feedback",
+        trackId: fieldOrDefault(fields.get(1), (value) => integer(value), () => 0),
+        codecEpoch: fieldOrDefault(fields.get(2), (value) => integer(value), () => 0),
+        groupId: fieldOrDefault(fields.get(3), (value) => integer(value), () => 0),
+        decodeMicros: fieldOrDefault(fields.get(4), (value) => integer(value), () => 0),
+        renderMicros: fieldOrDefault(fields.get(5), (value) => integer(value), () => 0),
+        queueDepth: fieldOrDefault(fields.get(6), (value) => integer(value), () => 0),
+        requestKeyframe: fieldOrDefault(fields.get(7), (value) => boolValue(value), () => false),
+      };
+  }
+  throw new Error(`unknown DesktopInputEvent variant ${variantId}`);
+}
+
+export function encodeDesktopInputReceiptValue(value: DesktopInputReceipt): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, u53(required(value.lastSequence, "DesktopInputReceipt.lastSequence")));
+  return fields;
+}
+
+export function decodeDesktopInputReceiptValue(value: CborValue): DesktopInputReceipt {
+  const fields = expectMap(value);
+  return {
+    lastSequence: fieldOrDefault(fields.get(1), (value) => integer(value), () => 0),
+  };
+}
+
+export function encodeDesktopMediaObjectValue(value: DesktopMediaObject): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, text(required(value.attachId, "DesktopMediaObject.attachId")));
+  fields.set(2, u53(required(value.trackId, "DesktopMediaObject.trackId")));
+  fields.set(3, u53(required(value.layoutEpoch, "DesktopMediaObject.layoutEpoch")));
+  fields.set(4, u53(required(value.codecEpoch, "DesktopMediaObject.codecEpoch")));
+  fields.set(5, u53(required(value.groupId, "DesktopMediaObject.groupId")));
+  fields.set(6, u53(required(value.objectId, "DesktopMediaObject.objectId")));
+  fields.set(7, u53(required(value.timestampMicros, "DesktopMediaObject.timestampMicros")));
+  fields.set(8, bool(required(value.keyframe, "DesktopMediaObject.keyframe")));
+  fields.set(9, bytes(required(value.data, "DesktopMediaObject.data")));
+  return fields;
+}
+
+export function decodeDesktopMediaObjectValue(value: CborValue): DesktopMediaObject {
+  const fields = expectMap(value);
+  return {
+    attachId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+    trackId: fieldOrDefault(fields.get(2), (value) => integer(value), () => 0),
+    layoutEpoch: fieldOrDefault(fields.get(3), (value) => integer(value), () => 0),
+    codecEpoch: fieldOrDefault(fields.get(4), (value) => integer(value), () => 0),
+    groupId: fieldOrDefault(fields.get(5), (value) => integer(value), () => 0),
+    objectId: fieldOrDefault(fields.get(6), (value) => integer(value), () => 0),
+    timestampMicros: fieldOrDefault(fields.get(7), (value) => integer(value), () => 0),
+    keyframe: fieldOrDefault(fields.get(8), (value) => boolValue(value), () => false),
+    data: fieldOrDefault(fields.get(9), (value) => bytesValue(value), () => new Uint8Array()),
+  };
+}
+
+export function encodeDesktopErrorValue(value: DesktopError): CborValue {
+  switch (value.type) {
+    case "failed": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.message, "DesktopError.Failed.message")));
+      return [0, fields];
+    }
+    case "unsupported": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.message, "DesktopError.Unsupported.message")));
+      return [1, fields];
+    }
+    case "permissionDenied": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.message, "DesktopError.PermissionDenied.message")));
+      return [2, fields];
+    }
+    case "notFound": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.message, "DesktopError.NotFound.message")));
+      return [3, fields];
+    }
+    case "busy": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.message, "DesktopError.Busy.message")));
+      return [4, fields];
+    }
+    case "invalidConfiguration": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.message, "DesktopError.InvalidConfiguration.message")));
+      return [5, fields];
+    }
+    case "staleEpoch": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.message, "DesktopError.StaleEpoch.message")));
+      return [6, fields];
+    }
+    case "limitExceeded": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.message, "DesktopError.LimitExceeded.message")));
+      return [7, fields];
+    }
+  }
+}
+
+export function decodeDesktopErrorValue(value: CborValue): DesktopError {
+  const [variantId, fields] = expectUnion(value);
+  switch (variantId) {
+    case 0:
+      return {
+        type: "failed",
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+    case 1:
+      return {
+        type: "unsupported",
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+    case 2:
+      return {
+        type: "permissionDenied",
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+    case 3:
+      return {
+        type: "notFound",
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+    case 4:
+      return {
+        type: "busy",
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+    case 5:
+      return {
+        type: "invalidConfiguration",
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+    case 6:
+      return {
+        type: "staleEpoch",
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+    case 7:
+      return {
+        type: "limitExceeded",
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+  }
+  throw new Error(`unknown DesktopError variant ${variantId}`);
 }
 
 export function encodeDaemonInfoValue(value: DaemonInfo): CborValue {
@@ -10770,6 +11712,175 @@ function defaultWriteFileError(): WriteFileError {
 }
 
 function defaultFsMutationError(): FsMutationError {
+  return {
+    type: "failed",
+    message: "",
+  };
+}
+
+function defaultDesktopCapabilities(): DesktopCapabilities {
+  return {
+    profile: 0,
+    capture: DesktopAvailability.Unsupported,
+    input: DesktopAvailability.Unsupported,
+    codecs: [],
+    composition: false,
+    relativePointer: false,
+    maxViewports: 0,
+    maxInputFrameBytes: 0,
+    maxInputStreamBytes: 0,
+  };
+}
+
+function defaultDesktopCodec(): DesktopCodec {
+  return {
+    codec: "",
+    hardware: false,
+  };
+}
+
+function defaultDesktopRect(): DesktopRect {
+  return {
+    x: 0,
+    y: 0,
+    width: 0,
+    height: 0,
+  };
+}
+
+function defaultDesktopDisplay(): DesktopDisplay {
+  return {
+    displayId: "",
+    bounds: defaultDesktopRect(),
+    scale: 0,
+    dpi: 0,
+  };
+}
+
+function defaultAttachDesktopReq(): AttachDesktopReq {
+  return {
+    profile: 0,
+    codecs: [],
+    mediaUniStreams: false,
+    keyboardMode: DesktopKeyboardMode.Physical,
+  };
+}
+
+function defaultDesktopAttachRef(): DesktopAttachRef {
+  return {
+    attachId: "",
+  };
+}
+
+function defaultDesktopLease(): DesktopLease {
+  return {
+    attachId: "",
+    remainingMs: 0,
+  };
+}
+
+function defaultDesktopControl(): DesktopControl {
+  return {
+    inputEpoch: 0,
+  };
+}
+
+function defaultDesktopViewport(): DesktopViewport {
+  return {
+    viewportId: "",
+    displayId: "",
+    crop: defaultDesktopRect(),
+    width: 0,
+    height: 0,
+    fps: 0,
+    bitrate: 0,
+  };
+}
+
+function defaultConfigureDesktopViewportsReq(): ConfigureDesktopViewportsReq {
+  return {
+    attachId: "",
+    layoutEpoch: 0,
+    viewports: [],
+    totalBitrate: 0,
+  };
+}
+
+function defaultDesktopTrack(): DesktopTrack {
+  return {
+    trackId: 0,
+    viewport: defaultDesktopViewport(),
+    codec: defaultDesktopCodec(),
+    codecEpoch: 0,
+  };
+}
+
+function defaultDesktopConfiguration(): DesktopConfiguration {
+  return {
+    layoutEpoch: 0,
+    tracks: [],
+    totalBitrate: 0,
+  };
+}
+
+function defaultSetDesktopControlReq(): SetDesktopControlReq {
+  return {
+    attachId: "",
+    action: DesktopControlAction.Acquire,
+  };
+}
+
+function defaultDesktopEvent(): DesktopEvent {
+  return {
+    type: "attached",
+    attachId: "",
+    layoutEpoch: 0,
+    displays: [],
+    control: defaultDesktopControl(),
+    leaseMs: 0,
+  };
+}
+
+function defaultDesktopInputFrame(): DesktopInputFrame {
+  return {
+    attachId: "",
+    inputEpoch: 0,
+    sequence: 0,
+    layoutEpoch: 0,
+    event: defaultDesktopInputEvent(),
+  };
+}
+
+function defaultDesktopInputEvent(): DesktopInputEvent {
+  return {
+    type: "physicalKey",
+    usage: 0,
+    down: false,
+    repeat: false,
+  };
+}
+
+function defaultDesktopInputReceipt(): DesktopInputReceipt {
+  return {
+    lastSequence: 0,
+  };
+}
+
+function defaultDesktopMediaObject(): DesktopMediaObject {
+  return {
+    attachId: "",
+    trackId: 0,
+    layoutEpoch: 0,
+    codecEpoch: 0,
+    groupId: 0,
+    objectId: 0,
+    timestampMicros: 0,
+    keyframe: false,
+    data: new Uint8Array(),
+  };
+}
+
+function defaultDesktopError(): DesktopError {
   return {
     type: "failed",
     message: "",

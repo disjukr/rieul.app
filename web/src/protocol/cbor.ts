@@ -139,7 +139,8 @@ function encodeTypeValue(major: number, value: number, out: number[]) {
   else out.push(prefix | 27, ...be(value, 8));
 }
 
-function decode(bytes: Uint8Array, state: { offset: number }): CborValue {
+function decode(bytes: Uint8Array, state: { offset: number }, depth = 0): CborValue {
+  if (depth > 64) throw new Error("CBOR nesting limit exceeded");
   const initial = read(bytes, state);
   const major = initial >> 5;
   const additional = initial & 0x1f;
@@ -147,30 +148,34 @@ function decode(bytes: Uint8Array, state: { offset: number }): CborValue {
   if (major === 1) return -1 - readNegativeArg(bytes, state, additional);
   if (major === 2) {
     const len = readArg(bytes, state, additional);
+    if (len > bytes.length - state.offset) throw new Error("unexpected end of CBOR");
     return readBytes(bytes, state, len);
   }
   if (major === 3) {
     const len = readArg(bytes, state, additional);
+    if (len > bytes.length - state.offset) throw new Error("unexpected end of CBOR");
     return new TextDecoder("utf-8", { fatal: true }).decode(
       readBytes(bytes, state, len),
     );
   }
   if (major === 4) {
     const len = readArg(bytes, state, additional);
-    return Array.from({ length: len }, () => decode(bytes, state));
+    if (len > bytes.length - state.offset) throw new Error("unexpected end of CBOR");
+    return Array.from({ length: len }, () => decode(bytes, state, depth + 1));
   }
   if (major === 5) {
     const len = readArg(bytes, state, additional);
+    if (len > bytes.length - state.offset) throw new Error("unexpected end of CBOR");
     const map = new Map<number, CborValue>();
     for (let i = 0; i < len; i++) {
-      const key = decode(bytes, state);
+      const key = decode(bytes, state, depth + 1);
       if (typeof key !== "number" || !Number.isSafeInteger(key) || key < 0) {
         throw new Error("expected unsigned safe-integer map key");
       }
       if (map.has(key)) {
         throw new Error("duplicate CBOR map key");
       }
-      map.set(key, decode(bytes, state));
+      map.set(key, decode(bytes, state, depth + 1));
     }
     return map;
   }
