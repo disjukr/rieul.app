@@ -10,6 +10,8 @@ use std::{
 };
 
 struct View {
+    #[cfg(feature = "qa")]
+    qa: Option<mpsc::Receiver<serde_json::Value>>,
     controller: Controller,
     events: mpsc::Receiver<Event>,
     shell: Shell,
@@ -59,6 +61,8 @@ impl View {
             };
             self.effects(effects, window);
         }
+        #[cfg(feature = "qa")]
+        self.qa_tick(window, cx);
         let events = self.shell.events();
         if events & 1 != 0 {
             let effects = self.controller.close();
@@ -76,7 +80,7 @@ impl View {
         }
         if events & 8 != 0 {
             self.controller.dispose();
-            cx.quit();
+            self.quit(cx);
         }
         if let Some((generation, token, started)) = self.notification {
             let result = if token == 0 {
@@ -102,6 +106,16 @@ impl View {
         }
         cx.notify();
     }
+    fn quit(&mut self, cx: &mut Context<Self>) {
+        self.controller.dispose();
+        cx.spawn(async move |_, cx| {
+            cx.background_executor()
+                .timer(Duration::from_millis(100))
+                .await;
+            let _ = cx.update(|cx| cx.quit());
+        })
+        .detach();
+    }
     fn action(
         &mut self,
         action: Action,
@@ -124,11 +138,26 @@ impl View {
                 self.copied = true;
                 Ok(())
             }
-            Action::Config => std::process::Command::new("/usr/bin/open")
-                .arg(&self.controller.info.config_path)
-                .spawn()
-                .map(|_| ())
-                .map_err(Into::into),
+            Action::Config => {
+                #[cfg(target_os = "macos")]
+                {
+                    std::process::Command::new("/usr/bin/open")
+                        .arg(&self.controller.info.config_path)
+                        .status()
+                        .and_then(|status| {
+                            if status.success() {
+                                Ok(())
+                            } else {
+                                Err(std::io::Error::other("Open config failed"))
+                            }
+                        })
+                        .map_err(Into::into)
+                }
+                #[cfg(windows)]
+                {
+                    Shell::open_config(&self.controller.info.config_path)
+                }
+            }
             Action::Resolve(accepted, cancelled) => {
                 if self.resolved {
                     return;
@@ -168,26 +197,30 @@ impl View {
         };
         let code_button = id.as_ref() == "copy-pairing-code";
         let keyboard_action = action.clone();
+        let disabled = self.resolved && matches!(action, Action::Resolve(..));
         div()
             .id(id.clone())
             .accessibility_id(id)
             .aria_label(label.clone())
             .role(Role::Button)
-            .tab_index(0)
+            .when(!disabled, |b| b.tab_index(0))
             .flex()
             .items_center()
             .justify_center()
             .h(px(28.))
             .px(px(8.))
             .rounded(px(4.))
-            .cursor_pointer()
-            .hover(|s| s.bg(rgb(0xf7f8fb)))
+            .when(!disabled, |b| {
+                b.cursor_pointer().hover(|s| s.bg(rgb(0xf7f8fb)))
+            })
             .focus_visible(|s| s.border_2().border_color(rgb(0x4f8cff)))
             .on_click(cx.listener(move |this, _, window, cx| {
-                this.action(action.clone(), generation, window, cx)
+                if !disabled {
+                    this.action(action.clone(), generation, window, cx)
+                }
             }))
             .on_key_down(cx.listener(move |this, event: &KeyDownEvent, window, cx| {
-                if event.keystroke.key == "enter" || event.keystroke.key == "space" {
+                if !disabled && (event.keystroke.key == "enter" || event.keystroke.key == "space") {
                     this.action(keyboard_action.clone(), generation, window, cx);
                     cx.stop_propagation();
                 }
@@ -246,7 +279,7 @@ impl View {
                         div()
                             .flex_1()
                             .min_w_0()
-                            .font_family("Menlo")
+                            .font_family(if cfg!(windows) { "Consolas" } else { "Menlo" })
                             .line_height(px(16.8))
                             .rounded(px(3.))
                             .border_1()
@@ -333,6 +366,7 @@ impl Render for View {
                             .rounded(px(12.))
                             .border_1()
                             .border_color(rgba(0xffffff75))
+                            .shadow(small_shadow())
                             .child(img(self.qr.as_ref().unwrap().1.clone()).size(px(146.))),
                     )
                     .child(
@@ -376,6 +410,7 @@ impl Render for View {
                                 div()
                                     .h(px(27.))
                                     .text_size(px(18.))
+                                    .line_height(px(27.))
                                     .font_weight(FontWeight::EXTRA_BOLD)
                                     .child("Pairing code"),
                             )
@@ -405,6 +440,9 @@ impl Render for View {
                             .flex_1()
                             .rounded(px(12.))
                             .bg(rgb(0xf8f8f8))
+                            .border_1()
+                            .border_color(rgba(0xffffff75))
+                            .shadow(small_shadow())
                             .child(
                                 div()
                                     .absolute()
@@ -423,12 +461,18 @@ impl Render for View {
                                                 .child("Copied"),
                                         )
                                     })
-                                    .child(svg().path("clipboard").size(px(17.))),
+                                    .child(
+                                        svg()
+                                            .path("clipboard")
+                                            .size(px(17.))
+                                            .text_color(rgb(0x20242d)),
+                                    ),
                             )
                             .child(
                                 div()
-                                    .font_family("Menlo")
+                                    .font_family(if cfg!(windows) { "Consolas" } else { "Menlo" })
                                     .text_size(px(42.))
+                                    .line_height(px(63.))
                                     .font_weight(FontWeight::EXTRA_BOLD)
                                     .children(
                                         model
@@ -460,6 +504,15 @@ impl Render for View {
                         .border_color(rgb(0xd8dde7))
                         .bg(rgb(0xf9f9fa))
                         .text_size(px(28.))
+                        .line_height(px(42.))
+                        .shadow(small_shadow())
+                        .when(self.feedback.contains("did not match"), |b| {
+                            if accepted {
+                                b.border_color(rgb(0x4f8cff))
+                            } else {
+                                b.opacity(0.45)
+                            }
+                        })
                         .font_weight(FontWeight::EXTRA_BOLD),
                     );
                 }
@@ -474,6 +527,7 @@ impl Render for View {
                             .border_b_1()
                             .border_color(rgba(0xffffff61))
                             .text_size(px(18.))
+                            .line_height(px(27.))
                             .font_weight(FontWeight::EXTRA_BOLD)
                             .child("Select the code shown on your client."),
                     )
@@ -505,6 +559,7 @@ impl Render for View {
                                         div()
                                             .mt(px(2.))
                                             .text_size(px(15.))
+                                            .line_height(px(22.5))
                                             .font_weight(FontWeight::EXTRA_BOLD)
                                             .child(if model.client_label.trim().is_empty() {
                                                 "Unknown client".into()
@@ -527,13 +582,33 @@ impl Render for View {
                                     ),
                             )
                             .child(buttons)
-                            .child(self.feedback.clone())
-                            .child(div().flex().flex_1().items_end().child(self.button(
-                                "cancel",
-                                "Cancel",
-                                Action::Resolve(false, true),
-                                cx,
-                            ))),
+                            .when(!self.feedback.is_empty(), |d| {
+                                d.child(
+                                    div()
+                                        .flex()
+                                        .gap(px(6.))
+                                        .when(self.feedback.contains("did not match"), |d| {
+                                            d.text_color(rgb(0xb42318)).child(
+                                                svg()
+                                                    .path("alert")
+                                                    .size(px(14.))
+                                                    .text_color(rgb(0xb42318)),
+                                            )
+                                        })
+                                        .child(self.feedback.clone()),
+                                )
+                            })
+                            .child(
+                                div().flex().flex_1().items_end().child(
+                                    self.button(
+                                        "cancel",
+                                        "Cancel",
+                                        Action::Resolve(false, true),
+                                        cx,
+                                    )
+                                    .when(self.resolved, |b| b.opacity(0.48)),
+                                ),
+                            ),
                     )
             }
         };
@@ -561,12 +636,26 @@ impl Render for View {
                     .flex_col()
                     .flex_1()
                     .rounded(px(16.))
+                    .shadow(vec![
+                        BoxShadow::new(px(0.), px(34.), rgba(0x131b2a36).into())
+                            .blur_radius(px(90.)),
+                        BoxShadow::new(px(0.), px(10.), rgba(0x131b2a1f).into())
+                            .blur_radius(px(30.)),
+                        BoxShadow::new(px(0.), px(1.), rgba(0xffffffc2).into()).inset(),
+                    ])
                     .border_1()
                     .border_color(rgba(0xffffff75))
                     .bg(rgb(0xf4f4f6))
                     .overflow_hidden()
                     .child(content)
-                    .child(self.error.clone())
+                    .when(!self.error.is_empty(), |d| {
+                        d.child(
+                            div()
+                                .text_color(rgb(0xb42318))
+                                .px(px(16.))
+                                .child(self.error.clone()),
+                        )
+                    })
                     .child(
                         div()
                             .absolute()
@@ -581,6 +670,12 @@ impl Render for View {
                     ),
             )
     }
+}
+fn small_shadow() -> Vec<BoxShadow> {
+    vec![
+        BoxShadow::new(px(0.), px(1.), rgba(0x20242d0f).into()).blur_radius(px(2.)),
+        BoxShadow::new(px(0.), px(1.), rgba(0x20242d08).into()).blur_radius(px(1.)),
+    ]
 }
 fn backdrop() -> Arc<RenderImage> {
     let pixels = image::RgbaImage::from_fn(1280, 720, |x, y| {
@@ -607,28 +702,72 @@ fn backdrop() -> Arc<RenderImage> {
 }
 pub fn run() -> anyhow::Result<()> {
     let args: Vec<_> = std::env::args().collect();
-    // Prototype requires an explicit fixture config; never silently attaches to installed data.
-    let index = args
-        .iter()
-        .position(|s| s == "--config")
-        .ok_or_else(|| anyhow::anyhow!("prototype requires --config <fixture.yaml>"))?;
-    let path = std::path::absolute(
-        args.get(index + 1)
-            .ok_or_else(|| anyhow::anyhow!("missing config path"))?,
-    )?;
+    #[cfg(feature = "qa")]
+    let qa = if std::env::var("RIEUL_PAIRING_AUTOMATION").as_deref() == Ok("1") {
+        anyhow::ensure!(
+            args.iter().any(|arg| arg == "--config"),
+            "automation requires explicit fixture config"
+        );
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            use std::io::BufRead;
+            for line in std::io::stdin().lock().lines() {
+                let Ok(line) = line else { break };
+                if line.len() > 65536 {
+                    break;
+                }
+                if let Ok(command) = serde_json::from_str(&line) {
+                    if tx.send(command).is_err() {
+                        break;
+                    }
+                }
+            }
+        });
+        Some(rx)
+    } else {
+        None
+    };
+    let config = if let Some(index) = args.iter().position(|s| s == "--config") {
+        std::path::PathBuf::from(
+            args.get(index + 1)
+                .ok_or_else(|| anyhow::anyhow!("missing config path"))?,
+        )
+    } else {
+        #[cfg(target_os = "macos")]
+        {
+            std::path::PathBuf::from("/Library/Application Support/rieul/rieul.yaml")
+        }
+        #[cfg(windows)]
+        {
+            std::path::PathBuf::from(
+                std::env::var_os("ProgramData").unwrap_or_else(|| r"C:\ProgramData".into()),
+            )
+            .join("Rieul/rieul.yaml")
+        }
+    };
+    let path = std::path::absolute(config)?;
     let path = path.canonicalize().unwrap_or(path);
     let profile = rieul_daemon_core::config::profile_id_for_config_path(&path);
+    #[cfg(target_os = "macos")]
     let address = std::path::PathBuf::from(format!(
         "/tmp/rieul-gui-profile-{profile}-{}.sock",
         unsafe { libc::getuid() }
     ));
+    #[cfg(windows)]
+    let address = std::path::PathBuf::from(format!(r"\\.\pipe\rieul-gui-profile-{profile}"));
     let runtime = tokio::runtime::Runtime::new()?;
     let Some(listener) = runtime.block_on(Listener::bind(&address))? else {
         return Ok(());
     };
     let (tx, rx) = mpsc::channel();
     runtime.spawn(listener.run(tx));
-    let yaml: serde_yaml::Value = serde_yaml::from_str(&std::fs::read_to_string(&path)?)?;
+    let config_text = match std::fs::read_to_string(&path) {
+        Ok(text) => text,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(error) => return Err(error.into()),
+    };
+    let yaml: serde_yaml::Value =
+        serde_yaml::from_str(&config_text).unwrap_or(serde_yaml::Value::Null);
     let domain = yaml
         .get("domain")
         .and_then(|v| v.as_str())
@@ -651,63 +790,79 @@ pub fn run() -> anyhow::Result<()> {
         config_path: path.to_string_lossy().into_owned(),
         daemon_url,
     };
-    Application::with_platform(std::rc::Rc::new(gpui_macos::MacPlatform::new(false)))
-        .with_assets(Icons)
-        .run(move |cx| {
-            let bounds = Bounds::centered(None, size(px(640.), px(360.)), cx);
-            cx.open_window(
-                WindowOptions {
-                    window_bounds: Some(WindowBounds::Windowed(bounds)),
-                    is_resizable: false,
-                    show: false,
-                    focus: false,
-                    titlebar: Some(TitlebarOptions {
-                        title: Some("Daemon info".into()),
-                        ..Default::default()
-                    }),
+    application().with_assets(Icons).run(move |cx| {
+        let bounds = Bounds::centered(None, size(px(640.), px(360.)), cx);
+        cx.open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(bounds)),
+                is_resizable: false,
+                show: false,
+                focus: false,
+                titlebar: Some(TitlebarOptions {
+                    title: Some("Daemon info".into()),
                     ..Default::default()
-                },
-                |window, cx| {
-                    cx.new(|cx: &mut Context<View>| {
-                        let shell = Shell::new(concat!(
+                }),
+                ..Default::default()
+            },
+            |window, cx| {
+                cx.new(|cx: &mut Context<View>| {
+                    let resources =
+                        rieul_gui::bundle::root(&std::env::current_exe().unwrap()).unwrap();
+                    let resources = if resources.join("bundle.json").exists() {
+                        resources.join("assets")
+                    } else {
+                        std::path::PathBuf::from(concat!(
                             env!("CARGO_MANIFEST_DIR"),
-                            "/../../pairing/assets/tray.png"
+                            "/../../pairing/assets"
                         ))
-                        .expect("AppKit shell");
-                        shell.visible(args.iter().any(|s| s == "--show"));
-                        cx.spawn_in(window, async move |this, cx| {
-                            loop {
-                                cx.background_executor()
-                                    .timer(Duration::from_millis(16))
-                                    .await;
-                                if this
-                                    .update_in(cx, |view, window, cx| view.tick(window, cx))
-                                    .is_err()
-                                {
-                                    break;
-                                }
+                    };
+                    let shell = Shell::new(
+                        resources
+                            .join(if cfg!(windows) {
+                                "icon.ico"
+                            } else {
+                                "tray.png"
+                            })
+                            .to_str()
+                            .unwrap(),
+                    )
+                    .expect("native shell");
+                    shell.visible(args.iter().any(|s| s == "--show"));
+                    cx.spawn_in(window, async move |this, cx| {
+                        loop {
+                            cx.background_executor()
+                                .timer(Duration::from_millis(16))
+                                .await;
+                            if this
+                                .update_in(cx, |view, window, cx| view.tick(window, cx))
+                                .is_err()
+                            {
+                                break;
                             }
-                        })
-                        .detach();
-                        View {
-                            controller: Controller::new(info),
-                            events: rx,
-                            shell,
-                            generation: 0,
-                            changed: Instant::now(),
-                            resolved: false,
-                            feedback: String::new(),
-                            copied: false,
-                            error: String::new(),
-                            notification: None,
-                            backdrop: backdrop(),
-                            qr: None,
                         }
                     })
-                },
-            )
-            .unwrap();
-        });
+                    .detach();
+                    View {
+                        #[cfg(feature = "qa")]
+                        qa,
+                        controller: Controller::new(info),
+                        events: rx,
+                        shell,
+                        generation: 0,
+                        changed: Instant::now(),
+                        resolved: false,
+                        feedback: String::new(),
+                        copied: false,
+                        error: String::new(),
+                        notification: None,
+                        backdrop: backdrop(),
+                        qr: None,
+                    }
+                })
+            },
+        )
+        .unwrap();
+    });
     runtime.shutdown_timeout(Duration::from_secs(2));
     Ok(())
 }
@@ -723,11 +878,144 @@ impl AssetSource for Icons {
                 r#"<path d="M15 3h6v6M10 14 21 3M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5"/>"#
             }
             "check" => r#"<path d="m20 6-11 11-5-5"/>"#,
+            "alert" => r#"<circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/>"#,
             _ => return Ok(None),
         };
         Ok(Some(std::borrow::Cow::Owned(format!(r#"<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">{body}</svg>"#).into_bytes())))
     }
     fn list(&self, _: &str) -> gpui::Result<Vec<SharedString>> {
         Ok(vec!["clipboard".into(), "external".into(), "check".into()])
+    }
+}
+
+fn application() -> Application {
+    #[cfg(target_os = "macos")]
+    {
+        Application::with_platform(std::rc::Rc::new(gpui_macos::MacPlatform::new(false)))
+    }
+    #[cfg(windows)]
+    {
+        Application::with_platform(std::rc::Rc::new(
+            gpui_windows::WindowsPlatform::new(false).expect("Windows platform"),
+        ))
+    }
+}
+
+#[cfg(feature = "qa")]
+impl View {
+    fn qa_tick(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let command = self.qa.as_ref().and_then(|rx| rx.try_recv().ok());
+        let Some(command) = command else { return };
+        let id = command["id"].clone();
+        let result = (|| -> anyhow::Result<serde_json::Value> {
+            match command["method"].as_str().unwrap_or("") {
+                "snapshot" => {
+                    let route = match &self.controller.route {
+                        Route::Idle(info) | Route::Info(info) => {
+                            serde_json::json!({"kind":"daemonInfo","daemonUrl":info.daemon_url,"configPath":info.config_path})
+                        }
+                        Route::Code(model) => {
+                            serde_json::json!({"kind":"pairingCode","pairingCode":model.pairing_code})
+                        }
+                        Route::Confirm { model, candidates } => {
+                            serde_json::json!({"kind":"confirmPairing","confirmationCode":model.confirmation_code,"candidates":candidates})
+                        }
+                    };
+                    Ok(
+                        serde_json::json!({"route":route,"generation":self.controller.generation,"visible":self.shell.is_visible(),"feedback":self.feedback,"error":self.error,"a11y":window.debug_a11y_tree_json()}),
+                    )
+                }
+                "hideForCapture" => {
+                    self.shell.visible(false);
+                    Ok(serde_json::json!(true))
+                }
+                "screenshot" => {
+                    window.render_to_image()?.save(
+                        command["path"]
+                            .as_str()
+                            .ok_or_else(|| anyhow::anyhow!("missing screenshot path"))?,
+                    )?;
+                    Ok(serde_json::json!(true))
+                }
+                "click" => {
+                    let position = point(
+                        px(command["x"].as_f64().unwrap_or(0.) as f32),
+                        px(command["y"].as_f64().unwrap_or(0.) as f32),
+                    );
+                    window.defer(cx, move |window, cx| {
+                        window.dispatch_event(
+                            PlatformInput::MouseMove(MouseMoveEvent {
+                                position,
+                                pressed_button: None,
+                                modifiers: Modifiers::default(),
+                            }),
+                            cx,
+                        );
+                        window.dispatch_event(
+                            PlatformInput::MouseDown(MouseDownEvent {
+                                position,
+                                button: MouseButton::Left,
+                                click_count: 1,
+                                ..Default::default()
+                            }),
+                            cx,
+                        );
+                        window.dispatch_event(
+                            PlatformInput::MouseUp(MouseUpEvent {
+                                position,
+                                button: MouseButton::Left,
+                                click_count: 1,
+                                ..Default::default()
+                            }),
+                            cx,
+                        );
+                    });
+                    Ok(serde_json::json!(true))
+                }
+                "key" => {
+                    let keystroke =
+                        Keystroke::parse(match command["key"].as_str().unwrap_or("enter") {
+                            "enter" => "enter",
+                            "space" => "space",
+                            "tab" => "tab",
+                            "shift-tab" => "shift-tab",
+                            "escape" => "escape",
+                            _ => anyhow::bail!("unsupported QA key"),
+                        })?;
+                    window.defer(cx, move |window, cx| {
+                        window.dispatch_event(
+                            PlatformInput::KeyDown(KeyDownEvent {
+                                keystroke,
+                                is_held: false,
+                                prefer_character_input: false,
+                            }),
+                            cx,
+                        );
+                    });
+                    Ok(serde_json::json!(true))
+                }
+                "close" => {
+                    self.shell.close();
+                    Ok(serde_json::json!(true))
+                }
+                "quit" => {
+                    self.quit(cx);
+                    Ok(serde_json::json!(true))
+                }
+                "resolve" => {
+                    self.controller.resolve(
+                        command["accepted"].as_bool().unwrap_or(false),
+                        command["generation"].as_u64().unwrap_or(u64::MAX),
+                    )?;
+                    Ok(serde_json::json!(true))
+                }
+                _ => anyhow::bail!("unknown QA method"),
+            }
+        })();
+        let response = match result {
+            Ok(value) => serde_json::json!({"id":id,"result":value}),
+            Err(error) => serde_json::json!({"id":id,"error":error.to_string()}),
+        };
+        println!("{response}");
     }
 }

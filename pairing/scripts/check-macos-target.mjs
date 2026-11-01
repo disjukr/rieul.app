@@ -31,7 +31,7 @@ async function visit(directory) {
   }
 }
 await visit(root);
-assert.ok(checked >= 5, `Incomplete native bundle: ${checked} Mach-O images`);
+assert.ok(checked >= 1, `Incomplete native bundle: ${checked} Mach-O images`);
 assert.deepEqual(
   unsupported,
   [],

@@ -5,6 +5,8 @@ mod macos {
     unsafe extern "C" {
         fn rieul_macos_init(icon: *const std::ffi::c_char) -> i32;
         fn rieul_macos_show(visible: i32) -> i32;
+        fn rieul_macos_visible() -> i32;
+        fn rieul_macos_close() -> i32;
         fn rieul_macos_take_events() -> u32;
         fn rieul_macos_notify(title: *const std::ffi::c_char, body: *const std::ffi::c_char)
         -> u32;
@@ -24,6 +26,14 @@ mod macos {
         pub fn visible(&self, visible: bool) {
             unsafe {
                 rieul_macos_show(i32::from(visible));
+            }
+        }
+        pub fn is_visible(&self) -> bool {
+            unsafe { rieul_macos_visible() != 0 }
+        }
+        pub fn close(&self) {
+            unsafe {
+                rieul_macos_close();
             }
         }
         pub fn events(&self) -> u32 {
@@ -49,3 +59,8 @@ mod macos {
 }
 #[cfg(target_os = "macos")]
 pub use macos::Shell;
+#[cfg(windows)]
+#[path = "windows_shell.rs"]
+mod windows;
+#[cfg(windows)]
+pub use windows::Shell;

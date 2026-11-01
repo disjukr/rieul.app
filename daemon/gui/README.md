@@ -1,7 +1,6 @@
 # Native GPUI port (work in progress)
 
-This isolated Cargo workspace is not wired into the production GUI launcher or
-installers. Run only with a disposable, explicit `--config` file. No real daemon,
+This isolated Cargo workspace builds the native GUI used by the desktop packaging scripts. Run only with a disposable, explicit `--config` file. No real daemon,
 service registration, user data, or security setting is required by its tests.
 
 ```sh
@@ -26,7 +25,7 @@ BDL protocol generator; it will not be needed in the final GUI runtime bundle.
   implementation is present but requires Windows validation and contention tests.
 - A macOS GPUI view and statically linked existing AppKit lifecycle bridge are
   under construction. macOS ARM64 `cargo check` and `cargo build --features native
-  --locked` passed with Rust 1.99.1. A five-second startup check passed, followed by
+--locked` passed with Rust 1.99.1. A five-second startup check passed, followed by
   an actual native-process IPC smoke test: activate, show pairing code, replace a
   pending confirmation with daemon info, and receive a false confirmation reply.
   The smoke run emitted no stderr and terminated only its owned fixture process.
@@ -38,7 +37,7 @@ Official crates.io `gpui = 0.2.2` compiled through its framework code on this Ma
 but does not contain the AccessKit/accessible-label APIs required to preserve the
 current GUI. It is not an acceptable final dependency for the port.
 
-Official Zed commit `a4b39c38e0056a5631a6f49f7fb13d4d1c4b6a9c` has
+Official Zed commit `025d2a06ee7920777bf4947f11e46a1f52e62cbb` has
 `StatefulInteractiveElement::{role, accessibility_id, aria_label}`, tab navigation,
 and macOS/Windows AccessKit adapters. GPUI and the target platform crate are
 pinned to this exact commit. GPUI's upstream toolchain is 1.98.1; this machine has
@@ -103,8 +102,25 @@ The smoke fixture's first assertion used response payload key 1; corrected to
 protocol key 2 and rerun successfully. This was a fixture error, not a protocol
 implementation change.
 
-Full workspace `pnpm install --frozen-lockfile` was rejected by pnpm's minimum
-release-age policy for `bunja@4.0.0-alpha.2`. No policy or web dependency was
-changed. The unrelated existing BDL 0.8.3, YAML 1.0.12 and tsx codegen dependencies
-were used read-only from the other checkout to run Rust protocol generation.
-The native GUI binary does not launch Node or Bun.
+Workspace `pnpm install --frozen-lockfile` succeeds with the repository's pinned
+pnpm 10.28.0. The earlier minimum-release-age rejection came from a fallback pnpm
+11.25.0. No lockfile, release-age policy, web dependencies or Vercel settings changed.
+
+## Native packaging checkpoint
+
+The package builder now ships Rust GPUI, assets and dependency license notices;
+Node/Bun and JS modules are absent. The existing GUI executable paths and bundle
+identity are unchanged. The private pairing/bundle.json schema is now v2:
+implementation, platform, arch, gpui_revision, executable_sha256 and files.
+The root updater uses its separate signed update manifest and unchanged launcher
+identity; its source and recovery protocol are not modified. Signing refreshes the
+GUI digest before sealing the outer app, and no JIT entitlements are needed.
+
+Mac ARM64 disposable-profile QA has passed native pointer approval, rejection,
+cancel, close/hide/reopen, stale generation, duplicate activation and independent
+profile shutdown. Tests use the native renderer and event dispatch, not OS-input
+injection. Cross-platform CI and final visual parity remain in progress.
+
+The official GPUI pin precedes the CAMetalDisplayLink change in 0373366f43;
+that newer renderer aborts when screenshot readback runs on this Mac. The pinned
+revision retains AccessKit support and passes screenshot capture and clean exit.

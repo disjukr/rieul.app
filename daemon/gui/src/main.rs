@@ -1,16 +1,18 @@
 #![cfg_attr(windows, windows_subsystem = "windows")]
-// Native integration is deliberately not connected to the production launcher
-// until both platform shells and visual/lifecycle regression gates pass.
-#[cfg(target_os = "macos")]
 mod shell;
-#[cfg(target_os = "macos")]
 mod view;
-#[cfg(target_os = "macos")]
 fn main() -> anyhow::Result<()> {
+    let executable = std::env::current_exe()?;
+    let verify = std::env::args().any(|arg| arg == "--verify-bundle");
+    let root = rieul_gui::bundle::root(&executable)?;
+    if verify || root.join("bundle.json").exists() {
+        rieul_gui::bundle::verify(&executable)?;
+        if verify {
+            println!("verified native Rust GPUI payload v2");
+            return Ok(());
+        }
+    } else if !cfg!(debug_assertions) {
+        anyhow::bail!("packaged native GUI manifest is missing");
+    }
     view::run()
-}
-#[cfg(not(target_os = "macos"))]
-fn main() {
-    eprintln!("The isolated GPUI prototype currently requires macOS; production GUI is unchanged.");
-    std::process::exit(1);
 }

@@ -7,7 +7,8 @@ rust-version = "1.98"
 
 [features]
 default = []
-native = ["dep:gpui", "dep:gpui_macos", "dep:image", "dep:qrcode"]
+qa = ["native", "gpui/test-support", "gpui_macos?/test-support", "gpui_windows?/test-support"]
+native = ["dep:gpui", "dep:gpui_macos", "dep:gpui_windows", "dep:image", "dep:qrcode"]
 
 [[bin]]
 name = "rieul-gpui"
@@ -18,11 +19,14 @@ required-features = ["native"]
 anyhow = "1"
 libc = "0.2"
 serde_yaml = "0.9"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
 rieul-daemon-core = { path = "../core" }
 rand = "0.9"
 url = "2"
 tokio = { version = "1", features = ["rt-multi-thread", "net", "io-util", "sync", "time", "macros"] }
-gpui = { git = "https://github.com/zed-industries/zed", rev = "a4b39c38e0056a5631a6f49f7fb13d4d1c4b6a9c", default-features = false, optional = true }
+gpui = { git = "https://github.com/zed-industries/zed", rev = "025d2a06ee7920777bf4947f11e46a1f52e62cbb", default-features = false, optional = true }
 
 image = { version = "0.25", default-features = false, features = ["png"], optional = true }
 qrcode = { version = "0.14", default-features = false, optional = true }
@@ -36,4 +40,9 @@ cc = "1"
 [workspace]
 
 [target.'cfg(target_os = "macos")'.dependencies]
-gpui_macos = { git = "https://github.com/zed-industries/zed", rev = "a4b39c38e0056a5631a6f49f7fb13d4d1c4b6a9c", default-features = false, features = ["font-kit", "runtime_shaders"], optional = true }
+gpui_macos = { git = "https://github.com/zed-industries/zed", rev = "025d2a06ee7920777bf4947f11e46a1f52e62cbb", default-features = false, features = ["font-kit", "runtime_shaders"], optional = true }
+
+[target.'cfg(windows)'.dependencies]
+gpui_windows = { git = "https://github.com/zed-industries/zed", rev = "025d2a06ee7920777bf4947f11e46a1f52e62cbb", default-features = false, optional = true }
+rieul-windows-close-guard = { path = "../windows-close-guard" }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_UI_Shell", "Win32_System_LibraryLoader", "Win32_Graphics_Gdi", "Win32_Security"] }
