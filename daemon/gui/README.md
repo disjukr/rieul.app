@@ -110,8 +110,8 @@ code rejection with disabled candidates and titlebar close-to-hide. Renderer QA
 is not an OS-input audit. Tray/notification behavior and Windows runtime results
 must not be inferred from macOS screenshots.
 
-The same-architecture, release, ad-hoc signed comparison at `a99c493` uses the same
-daemon build: app 270,516,769 → 45,793,955 bytes; PKG 90,124,675 → 15,497,300 bytes.
+The same-architecture, release, ad-hoc signed comparison at `203c685` uses the same
+daemon build: app 270,518,481 → 45,796,284 bytes; PKG 90,126,820 → 15,498,623 bytes.
 This includes dependency notices and keyboard fixes. No host installation or release is part of
 these checks.
 
@@ -126,7 +126,8 @@ Node/Bun and JS modules are absent. The existing GUI executable paths and bundle
 identity are unchanged. The private pairing/bundle.json schema is now v2:
 implementation, platform, arch, gpui_revision, executable_sha256 and files.
 The root updater uses its separate signed update manifest and unchanged launcher
-identity; its source and recovery protocol are not modified. Signing refreshes the
+identity. The recovery protocol and manifest schema are unchanged; the Apple
+Silicon-only policy adds host and staged Mach-O architecture checks before replacement. Signing refreshes the
 GUI digest before sealing the outer app, and no JIT entitlements are needed.
 
 Mac ARM64 disposable-profile QA has passed native pointer approval, rejection,
