@@ -1,5 +1,5 @@
 import { useContext } from "solid-js";
-import { useAtomValue } from "../../../../../solid/jotai.tsx";
+
 import { FilesExplorerContext, requireFilesExplorer } from "../context.tsx";
 import { DirectoryContent } from "./directory/index.tsx";
 import { FileViewer } from "./file-viewer/index.tsx";
@@ -10,7 +10,7 @@ interface FilesContentProps {
 }
 export function FilesContent(props: FilesContentProps) {
   const explorer = requireFilesExplorer(useContext(FilesExplorerContext));
-  const openedFile = useAtomValue(() => explorer().openedFileAtom);
+  const openedFile = () => explorer().openedFile();
   return (
     <>
       {props.view === "trash" ? (

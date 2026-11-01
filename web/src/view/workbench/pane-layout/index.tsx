@@ -2,7 +2,7 @@ import type { LayoutState } from "../../../state/layout.ts";
 import type { TabSplitDropSide } from "./tab-drag.ts";
 import { createMemo, createSignal, For, onCleanup } from "solid-js";
 import { WorkbenchPaneIdContext } from "../../../state/workbench-context.ts";
-import { useAtomValue } from "../../../solid/jotai.tsx";
+
 import { useBunja } from "../../../solid/bunja.tsx";
 import { layoutReducer, type BranchNode } from "../../../state/layout.ts";
 import { workbenchBunja } from "../../../state/workbench.ts";
@@ -24,7 +24,7 @@ type Target = {
 };
 export function WorkbenchPaneLayout() {
   const workbench = useBunja(workbenchBunja);
-  const layout = useAtomValue(() => workbench().layoutAtom);
+  const layout = () => workbench().layout();
   const [drag, setDrag] = createSignal<Drag>();
   const [target, setTarget] = createSignal<Target>();
   const [point, setPoint] = createSignal({

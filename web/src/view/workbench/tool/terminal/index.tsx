@@ -6,7 +6,7 @@ import {
   onCleanup,
   untrack,
 } from "solid-js";
-import { useAtomValue } from "../../../../solid/jotai.tsx";
+
 import { useBunja } from "../../../../solid/bunja.tsx";
 import type { FitAddon } from "@xterm/addon-fit";
 import type { Terminal as XTerm } from "@xterm/xterm";
@@ -138,13 +138,11 @@ export function TerminalTool() {
   const machineModal = useBunja(machineModalBunja);
   const rpcSession = useBunja(rpcSessionBunja);
   const tabState = useBunja(workbenchTabBunja);
-  const machine = useAtomValue(() => machineStore().selectedAtom);
-  const isPaired = useAtomValue(() => machineStore().selectedIsPairedAtom);
-  const daemonInstanceId = useAtomValue(
-    () => rpcSession().daemonInstanceIdAtom,
-  );
-  const tab = useAtomValue(() => tabState().tabAtom);
-  const focused = useAtomValue(() => tabState().focusedAtom);
+  const machine = () => machineStore().selected();
+  const isPaired = () => machineStore().selectedIsPaired();
+  const daemonInstanceId = () => rpcSession().daemonInstanceId();
+  const tab = () => tabState().tab();
+  const focused = () => tabState().focused();
   const [hostElement, setHostElement] = createSignal<HTMLDivElement>();
   const machineRef = { current: undefined as Machine | undefined };
   const activeRef = { current: false };

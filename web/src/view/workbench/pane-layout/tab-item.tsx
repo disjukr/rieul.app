@@ -4,7 +4,7 @@ import type {
   WorkbenchTab,
 } from "../../../state/workbench.ts";
 import { createMemo } from "solid-js";
-import { useAtomValue } from "../../../solid/jotai.tsx";
+
 import { useBunja } from "../../../solid/bunja.tsx";
 import {
   Activity,
@@ -72,13 +72,13 @@ const workbenchTabTitleClassName =
 const activePaneTabClassName = "z-[8]";
 export function WorkbenchTabItem(props: WorkbenchTabItemProps) {
   const tabState = useBunja(workbenchTabBunja);
-  const tab = useAtomValue(() => tabState().tabAtom);
-  const active = useAtomValue(() => tabState().activeAtom);
-  const dirty = useAtomValue(() => tabState().dirtyAtom);
-  const showClose = useAtomValue(() => tabState().showCloseAtom);
+  const tab = () => tabState().tab();
+  const active = () => tabState().active();
+  const dirty = () => tabState().dirty();
+  const showClose = () => tabState().showClose();
   const label = useWorkbenchTabLabel(tab);
   const navigation = useBunja(explorerNavigationBunja);
-  const specialLocation = useAtomValue(() => navigation().specialLocationAtom);
+  const specialLocation = () => navigation().specialLocation();
   const tabClassName = createMemo(() =>
     className(
       workbenchTabClassName,
@@ -192,9 +192,9 @@ function useWorkbenchTabLabel(
   tab: Accessor<WorkbenchTab | undefined>,
 ): Accessor<string> {
   const navigation = useBunja(explorerNavigationBunja);
-  const currentPath = useAtomValue(() => navigation().currentPathAtom);
-  const openedFile = useAtomValue(() => navigation().openedFileAtom);
-  const specialLocation = useAtomValue(() => navigation().specialLocationAtom);
+  const currentPath = () => navigation().currentPath();
+  const openedFile = () => navigation().openedFile();
+  const specialLocation = () => navigation().specialLocation();
   return createMemo(() => {
     if (!tab()) return "Files";
     if (tab()!.tool === "files") {

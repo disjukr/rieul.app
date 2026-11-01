@@ -1,5 +1,6 @@
+import { flush } from "solid-js";
 import { useBunja } from "../../solid/bunja.tsx";
-import { useAtomValue } from "../../solid/jotai.tsx";
+
 import { machineModalBunja } from "../../state/machine-modal.ts";
 import { machineStoreBunja } from "../../state/machine-store.ts";
 import { rpcSessionBunja } from "../../state/rpc-session.ts";
@@ -18,22 +19,20 @@ export function TopBarRegion() {
   const rpcSession = useBunja(rpcSessionBunja);
   const terminalShellsState = useBunja(terminalShellsBunja);
   const workbench = useBunja(workbenchBunja);
-  const selected = useAtomValue(() => machineStore().selectedAtom);
-  const machines = useAtomValue(() => machineStore().machinesAtom);
-  const selectedId = useAtomValue(() => machineStore().selectedIdAtom);
-  const connection = useAtomValue(() => machinePanel().connectionAtom);
-  const daemonInfo = useAtomValue(() => rpcSession().daemonInfoAtom);
-  const activeTool = useAtomValue(() => workbench().activeToolAtom);
-  const panes = useAtomValue(() => workbench().panesAtom);
-  const terminalShells = useAtomValue(
-    () => terminalShellsState().terminalShellsAtom,
-  );
-  const machinePanelCollapsed = useAtomValue(
-    () => layout().machinePanelCollapsedAtom,
-  );
+  const selected = () => machineStore().selected();
+  const machines = () => machineStore().machines();
+  const selectedId = () => machineStore().selectedId();
+  const connection = () => machinePanel().connection();
+  const daemonInfo = () => rpcSession().daemonInfo();
+  const activeTool = () => workbench().activeTool();
+  const panes = () => workbench().panes();
+  const terminalShells = () => terminalShellsState().terminalShells();
+  const machinePanelCollapsed = () => layout().machinePanelCollapsed();
 
   function reconnectMachine(machineId: string) {
     machineStore().selectMachine(machineId);
+    // Resolve the RPC scope after the selected machine has committed.
+    flush();
     void rpcSession().reconnect();
   }
 
@@ -44,6 +43,7 @@ export function TopBarRegion() {
   function unpairMachine(machineId: string) {
     machineStore().clearMachineCredentials(machineId);
     machineStore().selectMachine(machineId);
+    flush();
     rpcSession().resetController();
   }
 

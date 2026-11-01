@@ -1,7 +1,7 @@
 import { Show, createEffect, createMemo, createSignal } from "solid-js";
 
 import { useBunja } from "../../solid/bunja.tsx";
-import { useAtomValue, useSetAtom } from "../../solid/jotai.tsx";
+
 import { machineModalBunja } from "../../state/machine-modal.ts";
 import { machineStoreBunja } from "../../state/machine-store.ts";
 import { normalizeMachineUrl } from "../../state/machines.ts";
@@ -16,14 +16,10 @@ interface MachineAddFormContainerProps {
 
 export function MachinePanelRegion() {
   const machinePanel = useBunja(machinePanelBunja);
-  const selected = useAtomValue(() => machinePanel().machineAtom);
-  const connection = useAtomValue(() => machinePanel().connectionAtom);
-  const machinePanelCollapsed = useAtomValue(
-    () => machinePanel().machinePanelCollapsedAtom,
-  );
-  const machinePanelWidth = useAtomValue(
-    () => machinePanel().machinePanelWidthAtom,
-  );
+  const selected = () => machinePanel().machine();
+  const connection = () => machinePanel().connection();
+  const machinePanelCollapsed = () => machinePanel().machinePanelCollapsed();
+  const machinePanelWidth = () => machinePanel().machinePanelWidth();
 
   return (
     <MachinePanel
@@ -51,15 +47,11 @@ export function MachineAddFormContainer(
 ) {
   const machineModal = useBunja(machineModalBunja);
   const machineStore = useBunja(machineStoreBunja);
-  const machineName = useAtomValue(() => machineModal().machineNameAtom);
-  const baseUrl = useAtomValue(() => machineModal().baseUrlAtom);
-  const machineFormError = useAtomValue(
-    () => machineModal().machineFormErrorAtom,
-  );
-  const machineModalMode = useAtomValue(
-    () => machineModal().machineModalModeAtom,
-  );
-  const machines = useAtomValue(() => machineStore().machinesAtom);
+  const machineName = () => machineModal().machineName();
+  const baseUrl = () => machineModal().baseUrl();
+  const machineFormError = () => machineModal().machineFormError();
+  const machineModalMode = () => machineModal().machineModalMode();
+  const machines = () => machineStore().machines();
   const machineNameInputRef = { current: null as HTMLInputElement | null };
 
   createEffect(
@@ -100,37 +92,29 @@ export function MachineAddFormContainer(
 export function MachineModalHost() {
   const machineStore = useBunja(machineStoreBunja);
   const machineModal = useBunja(machineModalBunja);
-  const machines = useAtomValue(() => machineStore().machinesAtom);
-  const selected = useAtomValue(() => machineStore().selectedAtom);
-  const machineName = useAtomValue(() => machineModal().machineNameAtom);
-  const baseUrl = useAtomValue(() => machineModal().baseUrlAtom);
-  const configNameDraft = useAtomValue(
-    () => machineModal().configNameDraftAtom,
-  );
-  const configUrlDraft = useAtomValue(() => machineModal().configUrlDraftAtom);
-  const machineModalMode = useAtomValue(
-    () => machineModal().machineModalModeAtom,
-  );
-  const machineFormError = useAtomValue(
-    () => machineModal().machineFormErrorAtom,
-  );
-  const pairingCode = useAtomValue(() => machineModal().pairingCodeAtom);
-  const pairingConfirmationCode = useAtomValue(
-    () => machineModal().pairingConfirmationCodeAtom,
-  );
-  const pairingCodeExpiresAtUnix = useAtomValue(
-    () => machineModal().pairingCodeExpiresAtUnixAtom,
-  );
-  const isRequestingPairingCode = useAtomValue(
-    () => machineModal().isRequestingPairingCodeAtom,
-  );
-  const isPairing = useAtomValue(() => machineModal().isPairingAtom);
-  const modalTitle = useAtomValue(() => machineModal().modalTitleAtom);
-  const setConfigNameDraft = useSetAtom(
-    () => machineModal().configNameDraftAtom,
-  );
-  const setConfigUrlDraft = useSetAtom(() => machineModal().configUrlDraftAtom);
-  const setPairingCode = useSetAtom(() => machineModal().pairingCodeAtom);
+  const machines = () => machineStore().machines();
+  const selected = () => machineStore().selected();
+  const machineName = () => machineModal().machineName();
+  const baseUrl = () => machineModal().baseUrl();
+  const configNameDraft = () => machineModal().configNameDraft();
+  const configUrlDraft = () => machineModal().configUrlDraft();
+  const machineModalMode = () => machineModal().machineModalMode();
+  const machineFormError = () => machineModal().machineFormError();
+  const pairingCode = () => machineModal().pairingCode();
+  const pairingConfirmationCode = () =>
+    machineModal().pairingConfirmationCode();
+  const pairingCodeExpiresAtUnix = () =>
+    machineModal().pairingCodeExpiresAtUnix();
+  const isRequestingPairingCode = () =>
+    machineModal().isRequestingPairingCode();
+  const isPairing = () => machineModal().isPairing();
+  const modalTitle = () => machineModal().modalTitle();
+  const setConfigNameDraft = (value: string) =>
+    machineModal().setConfigNameDraft(value);
+  const setConfigUrlDraft = (value: string) =>
+    machineModal().setConfigUrlDraft(value);
+  const setPairingCode = (value: string) =>
+    machineModal().setPairingCode(value);
   const machineNameInputRef = { current: null as HTMLInputElement | null };
   const configNameInputRef = { current: null as HTMLInputElement | null };
   const pairingCodeInputRef = { current: null as HTMLInputElement | null };

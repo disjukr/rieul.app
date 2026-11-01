@@ -4,7 +4,7 @@ import type {
   WindowsTableEvent,
 } from "../../../../protocol/generated/rpc.ts";
 import { createSignal, createMemo, createEffect } from "solid-js";
-import { useAtomValue } from "../../../../solid/jotai.tsx";
+
 import { useBunja } from "../../../../solid/bunja.tsx";
 import {
   AppWindow,
@@ -108,14 +108,14 @@ export function WindowsTool() {
   const rpcSession = useBunja(rpcSessionBunja);
   const paneState = useBunja(workbenchPaneBunja);
   const tabState = useBunja(workbenchTabBunja);
-  const machine = useAtomValue(() => machineStore().selectedAtom);
-  const isPaired = useAtomValue(() => machineStore().selectedIsPairedAtom);
-  const daemonInfo = useAtomValue(() => rpcSession().daemonInfoAtom);
+  const machine = () => machineStore().selected();
+  const isPaired = () => machineStore().selectedIsPaired();
+  const daemonInfo = () => rpcSession().daemonInfo();
   const readyDaemonInfo = createMemo(() => {
     const value = daemonInfo();
     return value.phase === "ready" ? value.daemonInfo : undefined;
   });
-  const tab = useAtomValue(() => tabState().tabAtom);
+  const tab = () => tabState().tab();
   const selectedWindowId = createMemo(() => tab()?.windowDetailId);
   const windowListSupported = createMemo(
     () =>

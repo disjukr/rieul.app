@@ -3,7 +3,7 @@ import type { TabSplitDropSide, WorkbenchTabDropTarget } from "./tab-drag.ts";
 import { ModalDialog } from "../../ui/dialog.tsx";
 import { createSignal, createMemo, createEffect, For } from "solid-js";
 import { WorkbenchTabIdContext } from "../../../state/workbench-context.ts";
-import { useAtomValue } from "../../../solid/jotai.tsx";
+
 import { useBunja } from "../../../solid/bunja.tsx";
 import { layoutReducer } from "../../../state/layout.ts";
 import {
@@ -160,15 +160,13 @@ export function WorkbenchPaneView(props: WorkbenchPaneViewProps) {
   const terminalShellsState = useBunja(terminalShellsBunja);
   const workbench = useBunja(workbenchBunja);
   const paneState = useBunja(workbenchPaneBunja);
-  const machine = useAtomValue(() => machineStore().selectedAtom);
-  const defaultShell = useAtomValue(
-    () => terminalShellsState().defaultShellAtom,
-  );
-  const panes = useAtomValue(() => workbench().panesAtom);
-  const pane = useAtomValue(() => paneState().paneAtom);
-  const paneCount = useAtomValue(() => paneState().paneCountAtom);
-  const active = useAtomValue(() => paneState().activeAtom);
-  const layout = useAtomValue(() => workbench().layoutAtom);
+  const machine = () => machineStore().selected();
+  const defaultShell = () => terminalShellsState().defaultShell();
+  const panes = () => workbench().panes();
+  const pane = () => paneState().pane();
+  const paneCount = () => paneState().paneCount();
+  const active = () => paneState().active();
+  const layout = () => workbench().layout();
   function removeLayoutPane(nodeId: string) {
     workbench().setLayout(
       layoutReducer(layout(), {

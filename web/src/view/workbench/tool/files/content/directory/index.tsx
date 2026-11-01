@@ -1,5 +1,5 @@
 import { useContext } from "solid-js";
-import { useAtomValue } from "../../../../../../solid/jotai.tsx";
+
 import type { FsEntry } from "../../../../../../protocol/generated/rpc.ts";
 import { displayName } from "../../../../../../state/explorer.ts";
 import {
@@ -39,10 +39,10 @@ export function DirectoryContent() {
   );
   const explorer = requireFilesExplorer(useContext(FilesExplorerContext));
   const rename = requireFilesRenameState(useContext(FilesRenameContext));
-  const currentPath = useAtomValue(() => explorer().currentPathAtom);
-  const rows = useAtomValue(() => explorer().visibleRowsAtom);
-  const selectedEntry = useAtomValue(() => explorer().selectedEntryAtom);
-  const selectedPath = useAtomValue(() => explorer().selectedPathAtom);
+  const currentPath = () => explorer().currentPath();
+  const rows = () => explorer().visibleRows();
+  const selectedEntry = () => explorer().selectedEntry();
+  const selectedPath = () => explorer().selectedPath();
   return (
     <div class={directoryContentClassName}>
       <div class={browserLayoutClassName}>

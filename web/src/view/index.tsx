@@ -2,7 +2,7 @@ import type { JSX } from "@solidjs/web";
 import { createEffect } from "solid-js";
 
 import { useBunja } from "../solid/bunja.tsx";
-import { useAtomValue } from "../solid/jotai.tsx";
+
 import { machineStoreBunja } from "../state/machine-store.ts";
 import { MachineBaseUrlContext, MachineIdContext } from "../state/machine.tsx";
 import { className } from "./class-name.ts";
@@ -79,13 +79,9 @@ interface LayoutProps {
 function Layout(componentProps: LayoutProps) {
   const layout = useBunja(layoutBunja);
   const shellRef = { current: null as HTMLElement | null | null };
-  const machinePanelCollapsed = useAtomValue(
-    () => layout().machinePanelCollapsedAtom,
-  );
-  const machinePanelTransitioning = useAtomValue(
-    () => layout().machinePanelTransitioningAtom,
-  );
-  const machinePanelWidth = useAtomValue(() => layout().machinePanelWidthAtom);
+  const machinePanelCollapsed = () => layout().machinePanelCollapsed();
+  const machinePanelTransitioning = () => layout().machinePanelTransitioning();
+  const machinePanelWidth = () => layout().machinePanelWidth();
 
   createEffect(
     () => [],
@@ -146,7 +142,7 @@ function Layout(componentProps: LayoutProps) {
 
 function SelectedMachineIdProvider(componentProps: { children?: JSX.Element }) {
   const machineStore = useBunja(machineStoreBunja);
-  const selected = useAtomValue(() => machineStore().selectedAtom);
+  const selected = () => machineStore().selected();
   return (
     <MachineIdContext value={() => selected()?.id}>
       <MachineBaseUrlContext value={() => selected()?.baseUrl}>

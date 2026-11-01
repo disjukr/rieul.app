@@ -6,7 +6,7 @@ import type {
 import type { ConnectionState } from "../../../../state/types.ts";
 import type { BreadcrumbItem } from "../../../ui/breadcrumb.tsx";
 import { createSignal, createMemo, createEffect } from "solid-js";
-import { useAtomValue } from "../../../../solid/jotai.tsx";
+
 import { useBunja } from "../../../../solid/bunja.tsx";
 import { nowBunja } from "../../../../state/now.ts";
 import {
@@ -208,24 +208,18 @@ export function DaemonTool() {
   const rpcSession = useBunja(rpcSessionBunja);
   const tabState = useBunja(workbenchTabBunja);
   const workbench = useBunja(workbenchBunja);
-  const daemonInfo = useAtomValue(() => rpcSession().daemonInfoAtom);
+  const daemonInfo = () => rpcSession().daemonInfo();
   const readyDaemonInfo = createMemo(() => {
     const value = daemonInfo();
     return value.phase === "ready" ? value.daemonInfo : undefined;
   });
-  const daemonServerTimeMs = useAtomValue(
-    () => rpcSession().daemonServerTimeMsAtom,
-  );
-  const daemonUptimeSeconds = useAtomValue(
-    () => rpcSession().daemonUptimeSecondsAtom,
-  );
-  const connection = useAtomValue(() => rpcSession().connectionAtom);
-  const daemonInstanceId = useAtomValue(
-    () => rpcSession().daemonInstanceIdAtom,
-  );
-  const machine = useAtomValue(() => machines().selectedAtom);
-  const isPaired = useAtomValue(() => machines().selectedIsPairedAtom);
-  const tab = useAtomValue(() => tabState().tabAtom);
+  const daemonServerTimeMs = () => rpcSession().daemonServerTimeMs();
+  const daemonUptimeSeconds = () => rpcSession().daemonUptimeSeconds();
+  const connection = () => rpcSession().connection();
+  const daemonInstanceId = () => rpcSession().daemonInstanceId();
+  const machine = () => machines().selected();
+  const isPaired = () => machines().selectedIsPaired();
+  const tab = () => tabState().tab();
   const connectionLabel = createMemo(() =>
     formatDaemonConnectionLabel(connection()),
   );
@@ -1091,7 +1085,7 @@ interface ClientInformationSectionProps {
 }
 function ClientInformationSection(props: ClientInformationSectionProps) {
   const now = useBunja(nowBunja);
-  const nowMs = useAtomValue(() => now().nowEverySecondAtom);
+  const nowMs = () => now().nowEverySecond();
   const isCurrent = createMemo(
     () => props.client.clientId === props.currentClientId,
   );

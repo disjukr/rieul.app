@@ -10,7 +10,7 @@ import type {
   CreateAgentWorkspace,
 } from "../../../../protocol/generated/rpc.ts";
 import { createSignal, createMemo, createEffect, onCleanup } from "solid-js";
-import { useAtomValue } from "../../../../solid/jotai.tsx";
+
 import { useBunja } from "../../../../solid/bunja.tsx";
 import {
   AlertCircle,
@@ -169,7 +169,7 @@ const primaryButtonClassName = [
 ].join(" ");
 export function AgentTool() {
   const tabState = useBunja(workbenchTabBunja);
-  const tab = useAtomValue(() => tabState().tabAtom);
+  const tab = () => tabState().tab();
   const sessionId = createMemo(() => tab()?.agentSessionId);
   return (
     <>
@@ -183,8 +183,8 @@ export function AgentTool() {
 function AgentLanding() {
   const agents = useBunja(agentsBunja);
   const tabState = useBunja(workbenchTabBunja);
-  const providers = useAtomValue(() => agents().availableProvidersAtom);
-  const projects = useAtomValue(() => agents().projectsAtom);
+  const providers = () => agents().availableProviders();
+  const projects = () => agents().projects();
   const [providerId, setProviderId] = createSignal("");
   const [workspaceValue, setWorkspaceValue] = createSignal("task");
   const [creating, setCreating] = createSignal(false);
@@ -316,10 +316,8 @@ function AgentConversation(props: { sessionId: string }) {
   const agents = useBunja(agentsBunja);
   const rpcSession = useBunja(rpcSessionBunja);
   const tabState = useBunja(workbenchTabBunja);
-  const daemonInstanceId = useAtomValue(
-    () => rpcSession().daemonInstanceIdAtom,
-  );
-  const sessions = useAtomValue(() => agents().sessionsAtom);
+  const daemonInstanceId = () => rpcSession().daemonInstanceId();
+  const sessions = () => agents().sessions();
   const [state, setState] = createSignal<LiveSessionState>(() =>
     initialLiveState(),
   );

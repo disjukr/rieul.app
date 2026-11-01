@@ -11,7 +11,7 @@ import type {
 import type { WorkbenchProcessPage } from "../../../../state/workbench.ts";
 import type { BreadcrumbItem } from "../../../ui/breadcrumb.tsx";
 import { createSignal, createMemo, createEffect } from "solid-js";
-import { useAtomValue } from "../../../../solid/jotai.tsx";
+
 import { useBunja } from "../../../../solid/bunja.tsx";
 import { nowBunja } from "../../../../state/now.ts";
 import {
@@ -192,14 +192,14 @@ export function ProcessesTool() {
   const rpcSession = useBunja(rpcSessionBunja);
   const paneState = useBunja(workbenchPaneBunja);
   const tabState = useBunja(workbenchTabBunja);
-  const machine = useAtomValue(() => machineStore().selectedAtom);
-  const isPaired = useAtomValue(() => machineStore().selectedIsPairedAtom);
-  const daemonInfo = useAtomValue(() => rpcSession().daemonInfoAtom);
+  const machine = () => machineStore().selected();
+  const isPaired = () => machineStore().selectedIsPaired();
+  const daemonInfo = () => rpcSession().daemonInfo();
   const readyDaemonInfo = createMemo(() => {
     const value = daemonInfo();
     return value.phase === "ready" ? value.daemonInfo : undefined;
   });
-  const tab = useAtomValue(() => tabState().tabAtom);
+  const tab = () => tabState().tab();
   const selectedPid = createMemo(() => tab()?.processDetailPid);
   const selectedPage = createMemo(() =>
     selectedPid() === undefined ? undefined : (tab()?.processPage ?? "detail"),
@@ -447,7 +447,7 @@ interface ProcessListViewProps {
 }
 function ProcessListView(props: ProcessListViewProps) {
   const _model = useBunja(processesBunja);
-  const state = useAtomValue(() => _model().stateAtom);
+  const state = () => _model().state();
   return (
     <>
       {(() => {
@@ -541,7 +541,7 @@ interface ProcessChildrenViewProps {
 }
 function ProcessChildrenView(props: ProcessChildrenViewProps) {
   const _model2 = useBunja(processesBunja);
-  const state = useAtomValue(() => _model2().stateAtom);
+  const state = () => _model2().state();
   const tree = createMemo(() => buildProcessTreeNodes(state().rows, props.pid));
   return (
     <>
@@ -838,7 +838,7 @@ interface ProcessDetailSummaryProps {
 }
 function ProcessDetailSummary(props: ProcessDetailSummaryProps) {
   const now = useBunja(nowBunja);
-  const nowMs = useAtomValue(() => now().nowEverySecondAtom);
+  const nowMs = () => now().nowEverySecond();
   const _value = createMemo(() => props.detail);
   return (
     <>

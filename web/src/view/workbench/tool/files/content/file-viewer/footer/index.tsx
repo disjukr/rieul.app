@@ -1,6 +1,6 @@
 import { createMemo } from "solid-js";
 import { useBunja } from "../../../../../../../solid/bunja.tsx";
-import { useAtom } from "../../../../../../../solid/jotai.tsx";
+
 import { formatSize } from "../../../../../../../state/explorer.ts";
 import { fileViewerImpls, isFileViewerImpl } from "../impl/index.ts";
 import { fileViewerBunja } from "../state.tsx";
@@ -19,7 +19,7 @@ const fileViewerImplSelectClassName = [
 const fileViewerFooterSizeClassName = "flex-[0_0_auto]";
 export function FileViewerFooter() {
   const viewer = useBunja(fileViewerBunja);
-  const [impl, setImpl] = useAtom(() => viewer().implAtom);
+  const impl = () => viewer().impl();
   const disabled = createMemo(() => impl() === undefined);
   return (
     <div class={fileViewerFooterClassName}>
@@ -32,7 +32,7 @@ export function FileViewerFooter() {
           aria-label="File viewer"
           onChange={(event) => {
             const value = event.currentTarget.value;
-            if (isFileViewerImpl(value)) setImpl(value);
+            if (isFileViewerImpl(value)) viewer().setImpl(value);
           }}
         >
           {Object.entries(fileViewerImpls).map(([id, viewerImpl]) => (

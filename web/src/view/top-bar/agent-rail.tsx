@@ -15,7 +15,7 @@ import {
   RefreshCw,
   X,
 } from "../../solid/icons.tsx";
-import { useAtomValue } from "../../solid/jotai.tsx";
+
 import { agentsBunja, agentSessionTitle } from "../../state/agents.ts";
 import {
   type WorkbenchAgentTabConfig,
@@ -89,16 +89,12 @@ const errorClassName =
 export function AgentRail() {
   const agents = useBunja(agentsBunja);
   const workbench = useBunja(workbenchBunja);
-  const projects = useAtomValue(() => agents().projectsAtom);
-  const sessions = useAtomValue(() => agents().sessionsAtom);
-  const availableProviders = useAtomValue(
-    () => agents().availableProvidersAtom,
-  );
-  const phase = useAtomValue(() => agents().phaseAtom);
-  const error = useAtomValue(() => agents().errorAtom);
-  const activeAgentSessionId = useAtomValue(
-    () => workbench().activeAgentSessionIdAtom,
-  );
+  const projects = () => agents().projects();
+  const sessions = () => agents().sessions();
+  const availableProviders = () => agents().availableProviders();
+  const phase = () => agents().phase();
+  const error = () => agents().error();
+  const activeAgentSessionId = () => workbench().activeAgentSessionId();
   const [form, setForm] = createSignal<"project" | "session" | undefined>();
   const [rootPath, setRootPath] = createSignal("");
   const [providerId, setProviderId] = createSignal("");

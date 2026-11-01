@@ -8,7 +8,7 @@ import {
   Loading,
 } from "solid-js";
 import { useBunja } from "../../../../../../../../solid/bunja.tsx";
-import { useAtomValue } from "../../../../../../../../solid/jotai.tsx";
+
 import { writeFile } from "../../../../../../../../protocol/generated/client.ts";
 import {
   type FsEntry,
@@ -63,9 +63,9 @@ export default function TextFileViewer() {
   const viewer = useBunja(fileViewerBunja);
   const tabState = useBunja(workbenchTabBunja);
   const fsEntry = requireFsEntry(useContext(FsEntryContext));
-  const viewerState = useAtomValue(() => viewer().stateAtom);
-  const machine = useAtomValue(() => viewer().machineAtom);
-  const dirty = useAtomValue(() => tabState().dirtyAtom);
+  const viewerState = () => viewer().state();
+  const machine = () => viewer().machine();
+  const dirty = () => tabState().dirty();
   const webTransport = createMemo(() => viewer().webTransport);
   const requiresConfirmation = createMemo(() => {
     const size = fsEntry().size;
@@ -219,7 +219,7 @@ export default function TextFileViewer() {
           saveId !== saveGeneration ||
           viewer().fsEntry.path !== savedEntry.path ||
           viewer().tabId !== savedViewer.tabId ||
-          viewer().machineAtom !== savedViewer.machineAtom
+          viewer().machine !== savedViewer.machine
         )
           return;
         loadedFileVersionKeyRef.current = currentFileVersionKey;
@@ -246,7 +246,7 @@ export default function TextFileViewer() {
           saveId !== saveGeneration ||
           viewer().fsEntry.path !== savedEntry.path ||
           viewer().tabId !== savedViewer.tabId ||
-          viewer().machineAtom !== savedViewer.machineAtom
+          viewer().machine !== savedViewer.machine
         )
           return;
         setState((current) =>

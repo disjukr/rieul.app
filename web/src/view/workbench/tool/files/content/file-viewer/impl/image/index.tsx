@@ -1,6 +1,6 @@
 import { createMemo, createSignal, createEffect, useContext } from "solid-js";
 import { useBunja } from "../../../../../../../../solid/bunja.tsx";
-import { useAtomValue } from "../../../../../../../../solid/jotai.tsx";
+
 import {
   ImageOff,
   Maximize2,
@@ -109,8 +109,8 @@ export default function ImageFileViewer() {
   const actions = requireFilesActions(useContext(FilesActionsContext));
   const viewer = useBunja(fileViewerBunja);
   const fsEntry = createMemo(() => viewer().fsEntry);
-  const viewerState = useAtomValue(() => viewer().stateAtom);
-  const machine = useAtomValue(() => viewer().machineAtom);
+  const viewerState = () => viewer().state();
+  const machine = () => viewer().machine();
   const webTransport = createMemo(() => viewer().webTransport);
   const requiresConfirmation = createMemo(() => {
     const size = fsEntry().size;

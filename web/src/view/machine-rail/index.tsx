@@ -1,7 +1,7 @@
-import { createEffect } from "solid-js";
+import { createEffect, flush } from "solid-js";
 
 import { useBunja } from "../../solid/bunja.tsx";
-import { useAtomValue } from "../../solid/jotai.tsx";
+
 import { machineMenuBunja } from "../../state/machine-menu.ts";
 import { machineModalBunja } from "../../state/machine-modal.ts";
 import { machineStoreBunja } from "../../state/machine-store.ts";
@@ -21,10 +21,10 @@ export function MachineRailRegion() {
   const machineStore = useBunja(machineStoreBunja);
   const machineMenuState = useBunja(machineMenuBunja);
   const machineModal = useBunja(machineModalBunja);
-  const machines = useAtomValue(() => machineStore().machinesAtom);
-  const selectedId = useAtomValue(() => machineStore().selectedIdAtom);
-  const machineMenu = useAtomValue(() => machineMenuState().machineMenuAtom);
-  const menuMachine = useAtomValue(() => machineMenuState().menuMachineAtom);
+  const machines = () => machineStore().machines();
+  const selectedId = () => machineStore().selectedId();
+  const machineMenu = () => machineMenuState().machineMenu();
+  const menuMachine = () => machineMenuState().menuMachine();
 
   createEffect(
     () => ({
@@ -122,16 +122,21 @@ function MachineContextMenuHost(componentProps: MachineContextMenuHostProps) {
   const rpcSession = useBunja(rpcSessionBunja);
 
   function reconnectMachine() {
+    const session = rpcSession();
     machineMenuState().closeMachineMenu();
     machineStore().selectMachine(componentProps.machine.id);
-    void rpcSession().reconnect();
+    // Closing the menu releases its owner; keep its already scoped session.
+    flush();
+    void session.reconnect();
   }
 
   function unpairMachine() {
+    const session = rpcSession();
     machineMenuState().closeMachineMenu();
     machineStore().clearMachineCredentials(componentProps.machine.id);
     machineStore().selectMachine(componentProps.machine.id);
-    rpcSession().resetController();
+    flush();
+    session.resetController();
   }
 
   return (
