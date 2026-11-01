@@ -59,6 +59,10 @@ pub(super) trait Control {
         Ok(self.sessions()?.contains(&uid))
     }
     fn inspect(&mut self, job: Job) -> Result<Option<JobState>>;
+    /// Enumeration only; saved recovery targets always use strict inspection.
+    fn discover_gui(&mut self, uid: u32) -> Result<Option<JobState>> {
+        self.inspect(Job::Gui(uid))
+    }
     fn stop(&mut self, job: Job) -> Result<()>;
     fn start(&mut self, job: Job) -> Result<()>;
     fn submit_worker(&mut self) -> Result<()>;
@@ -179,10 +183,34 @@ fn absent_gui_domain(job: Job, code: i32, text: &str) -> bool {
         return false;
     };
     let text = text.trim();
-    ((code == 112 || code == 113)
-        && text == format!("Bad request.\nCould not find domain for user gui: {uid}"))
-        || (code == 125
-            && text == "Could not print domain: 125: Domain does not support specified action")
+    (code == 112 || code == 113)
+        && text == format!("Bad request.\nCould not find domain for user gui: {uid}")
+}
+pub(super) fn gui_domain_result(uid: u32, code: i32, text: &str) -> Result<bool> {
+    if absent_gui_domain(Job::Gui(uid), code, text) {
+        return Ok(false);
+    }
+    if code == 0 || (code == 113 && text.contains("Could not find service")) {
+        return Ok(true);
+    }
+    bail!("cannot inspect saved GUI domain ({code})")
+}
+fn inspected_job(job: Job, code: i32, text: &str) -> Result<Option<JobState>> {
+    if absent_gui_domain(job, code, text)
+        || (code == 113 && text.contains("Could not find service"))
+    {
+        return Ok(None);
+    }
+    ensure!(code == 0, "cannot inspect launchd job ({code})");
+    Ok(Some(parse_job(job, text)?))
+}
+fn discovered_gui(uid: u32, code: i32, text: &str) -> Result<Option<JobState>> {
+    if code == 125
+        && text.trim() == "Could not print domain: 125: Domain does not support specified action"
+    {
+        return Ok(None);
+    }
+    inspected_job(Job::Gui(uid), code, text)
 }
 pub(super) struct Native<'a> {
     pub state: &'a Dir,
@@ -194,13 +222,7 @@ impl Control for Native<'_> {
             "/bin/launchctl",
             &["print", &Job::Gui(uid).target()?],
         )?;
-        if absent_gui_domain(Job::Gui(uid), code, &text) {
-            return Ok(false);
-        }
-        if code == 0 || (code == 113 && text.contains("Could not find service")) {
-            return Ok(true);
-        }
-        bail!("cannot inspect GUI domain")
+        gui_domain_result(uid, code, &text)
     }
 
     fn sessions(&mut self) -> Result<Vec<u32>> {
@@ -218,13 +240,12 @@ impl Control for Native<'_> {
     fn inspect(&mut self, job: Job) -> Result<Option<JobState>> {
         let target = job.target()?;
         let (code, text) = run(self.state, "/bin/launchctl", &["print", &target])?;
-        if absent_gui_domain(job, code, &text)
-            || (code == 113 && text.contains("Could not find service"))
-        {
-            return Ok(None);
-        }
-        ensure!(code == 0, "cannot inspect launchd job ({code})");
-        Ok(Some(parse_job(job, &text)?))
+        inspected_job(job, code, &text)
+    }
+    fn discover_gui(&mut self, uid: u32) -> Result<Option<JobState>> {
+        let target = Job::Gui(uid).target()?;
+        let (code, text) = run(self.state, "/bin/launchctl", &["print", &target])?;
+        discovered_gui(uid, code, &text)
     }
     fn stop(&mut self, job: Job) -> Result<()> {
         if self.inspect(job)?.is_none() {
@@ -298,7 +319,10 @@ mod tests {
         let background = "Could not print domain: 125: Domain does not support specified action\n";
         assert!(absent_gui_domain(Job::Gui(24), 112, absent));
         assert!(absent_gui_domain(Job::Gui(24), 113, absent));
-        assert!(absent_gui_domain(Job::Gui(205), 125, background));
+        assert!(!absent_gui_domain(Job::Gui(205), 125, background));
+        assert!(discovered_gui(205, 125, background).unwrap().is_none());
+        assert!(gui_domain_result(205, 125, background).is_err());
+        assert!(inspected_job(Job::Gui(205), 125, background).is_err());
         assert!(!absent_gui_domain(Job::Gui(25), 112, absent));
         for job in [Job::System, Job::LegacySystem, Job::Worker] {
             assert!(!absent_gui_domain(job, 112, absent));
