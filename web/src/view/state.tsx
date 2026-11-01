@@ -1,7 +1,5 @@
 import { bunja } from "bunja";
-import { atom } from "jotai/vanilla";
-import { atomWithStorage } from "jotai/vanilla/utils";
-import { JotaiStoreScope } from "../state/jotai-store.ts";
+import { createMemo, createSignal } from "solid-js";
 
 const machinePanelMinWidth = 176;
 const machinePanelMaxWidth = 320;
@@ -14,37 +12,86 @@ const machinePanelWidthStorageKey = "rieul.app-rail-width.v1";
 type MachinePanelWidthUpdate = number | ((width: number) => number);
 
 export const layoutBunja = bunja(() => {
-  const store = bunja.use(JotaiStoreScope);
-  const storedMachinePanelWidthAtom = atomWithStorage(
-    machinePanelWidthStorageKey,
-    204,
+  function readMachinePanelWidth(): number {
+    try {
+      const stored = globalThis.localStorage?.getItem(
+        machinePanelWidthStorageKey,
+      );
+      return stored === null || stored === undefined ? 204 : JSON.parse(stored);
+    } catch {
+      return 204;
+    }
+  }
+  function readMachinePanelCollapsed(): boolean {
+    try {
+      const stored = globalThis.localStorage?.getItem(
+        machinePanelCollapsedStorageKey,
+      );
+      return stored === null || stored === undefined
+        ? false
+        : JSON.parse(stored);
+    } catch {
+      return false;
+    }
+  }
+  const [storedMachinePanelWidth, setStoredMachinePanelWidth] = createSignal(
+    readMachinePanelWidth(),
   );
-  const machinePanelWidthAtom = atom(
-    (get) => clampMachinePanelWidth(get(storedMachinePanelWidthAtom)),
-    (get, set, update: MachinePanelWidthUpdate) => {
-      const current = get(storedMachinePanelWidthAtom);
-      const next = typeof update === "function" ? update(current) : update;
-      set(storedMachinePanelWidthAtom, clampMachinePanelWidth(next));
-    },
+  const machinePanelWidth = createMemo(() =>
+    clampMachinePanelWidth(storedMachinePanelWidth()),
   );
-  const machinePanelCollapsedAtom = atomWithStorage(
-    machinePanelCollapsedStorageKey,
-    false,
+  const [machinePanelCollapsed, updateMachinePanelCollapsed] = createSignal(
+    readMachinePanelCollapsed(),
   );
-  const machinePanelTransitioningAtom = atom(false);
+  const [machinePanelTransitioning, setMachinePanelTransitioning] =
+    createSignal(false);
+
+  function setMachinePanelWidth(update: MachinePanelWidthUpdate) {
+    const next = setStoredMachinePanelWidth((current) =>
+      clampMachinePanelWidth(
+        typeof update === "function" ? update(current) : update,
+      ),
+    );
+    globalThis.localStorage?.setItem(
+      machinePanelWidthStorageKey,
+      JSON.stringify(next),
+    );
+  }
+  function setMachinePanelCollapsed(
+    update: boolean | ((collapsed: boolean) => boolean),
+  ) {
+    const next = updateMachinePanelCollapsed((current) =>
+      typeof update === "function" ? update(current) : update,
+    );
+    globalThis.localStorage?.setItem(
+      machinePanelCollapsedStorageKey,
+      JSON.stringify(next),
+    );
+  }
   let machinePanelTransitionTimeout:
     | ReturnType<typeof globalThis.setTimeout>
     | undefined;
 
   let stopActiveResize: (() => void) | undefined;
 
-  bunja.effect(() => () => {
-    stopActiveResize?.();
-    if (machinePanelTransitionTimeout !== undefined) {
-      globalThis.clearTimeout(machinePanelTransitionTimeout);
-      machinePanelTransitionTimeout = undefined;
+  bunja.effect(() => {
+    function onStorage(event: StorageEvent) {
+      if (event.storageArea !== globalThis.localStorage) return;
+      if (event.key === machinePanelWidthStorageKey)
+        setStoredMachinePanelWidth(readMachinePanelWidth());
+      if (event.key === machinePanelCollapsedStorageKey)
+        updateMachinePanelCollapsed(readMachinePanelCollapsed());
     }
-    store.set(machinePanelTransitioningAtom, false);
+    globalThis.addEventListener?.("storage", onStorage);
+    return () => {
+      globalThis.removeEventListener?.("storage", onStorage);
+      stopActiveResize?.();
+      if (machinePanelTransitionTimeout !== undefined) {
+        globalThis.clearTimeout(machinePanelTransitionTimeout);
+        machinePanelTransitionTimeout = undefined;
+      }
+      setMachinePanelTransitioning(false);
+    };
   });
 
   function clampMachinePanelWidth(width: number) {
@@ -63,9 +110,12 @@ export const layoutBunja = bunja(() => {
   function startMachinePanelResize(event: PointerEvent) {
     event.preventDefault();
     stopActiveResize?.();
-    store.set(machinePanelTransitioningAtom, false);
+    setMachinePanelTransitioning(false);
     const initialX = event.clientX;
-    const initialWidth = store.get(machinePanelWidthAtom);
+    // A resize may follow another command before Solid commits its frame.
+    const initialWidth = clampMachinePanelWidth(
+      setStoredMachinePanelWidth((width) => width),
+    );
     const previousCursor = document.body.style.cursor;
     const previousUserSelect = document.body.style.userSelect;
 
@@ -73,8 +123,7 @@ export const layoutBunja = bunja(() => {
     document.body.style.userSelect = "none";
 
     function resize(moveEvent: PointerEvent) {
-      store.set(
-        machinePanelWidthAtom,
+      setMachinePanelWidth(
         clampMachinePanelWidth(initialWidth + moveEvent.clientX - initialX),
       );
     }
@@ -98,27 +147,23 @@ export const layoutBunja = bunja(() => {
     const step = event.shiftKey ? 40 : 16;
     if (event.key === "ArrowLeft") {
       event.preventDefault();
-      store.set(machinePanelTransitioningAtom, false);
-      store.set(machinePanelWidthAtom, (width) =>
-        clampMachinePanelWidth(width - step),
-      );
+      setMachinePanelTransitioning(false);
+      setMachinePanelWidth((width) => clampMachinePanelWidth(width - step));
     }
     if (event.key === "ArrowRight") {
       event.preventDefault();
-      store.set(machinePanelTransitioningAtom, false);
-      store.set(machinePanelWidthAtom, (width) =>
-        clampMachinePanelWidth(width + step),
-      );
+      setMachinePanelTransitioning(false);
+      setMachinePanelWidth((width) => clampMachinePanelWidth(width + step));
     }
     if (event.key === "Home") {
       event.preventDefault();
-      store.set(machinePanelTransitioningAtom, false);
-      store.set(machinePanelWidthAtom, machinePanelMinWidth);
+      setMachinePanelTransitioning(false);
+      setMachinePanelWidth(machinePanelMinWidth);
     }
     if (event.key === "End") {
       event.preventDefault();
-      store.set(machinePanelTransitioningAtom, false);
-      store.set(machinePanelWidthAtom, (width) =>
+      setMachinePanelTransitioning(false);
+      setMachinePanelWidth((width) =>
         clampMachinePanelWidth(Math.max(width, machinePanelMaxWidth)),
       );
     }
@@ -128,20 +173,23 @@ export const layoutBunja = bunja(() => {
     if (machinePanelTransitionTimeout !== undefined) {
       globalThis.clearTimeout(machinePanelTransitionTimeout);
     }
-    store.set(machinePanelTransitioningAtom, true);
-    store.set(machinePanelCollapsedAtom, (collapsed) => !collapsed);
+    setMachinePanelTransitioning(true);
+    setMachinePanelCollapsed((collapsed) => !collapsed);
     machinePanelTransitionTimeout = globalThis.setTimeout(() => {
-      store.set(machinePanelTransitioningAtom, false);
+      setMachinePanelTransitioning(false);
       machinePanelTransitionTimeout = undefined;
     }, machinePanelTransitionMs);
   }
 
   return {
-    machinePanelCollapsedAtom,
+    machinePanelCollapsed,
     machinePanelMaxWidth,
     machinePanelMinWidth,
-    machinePanelTransitioningAtom,
-    machinePanelWidthAtom,
+    machinePanelTransitioning,
+    machinePanelWidth,
+    setMachinePanelWidth,
+    setMachinePanelCollapsed,
+    setMachinePanelTransitioning,
     resizeMachinePanelWithKeyboard,
     startMachinePanelResize,
     toggleMachinePanel,

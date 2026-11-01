@@ -1,8 +1,6 @@
 import { bunja } from "bunja";
-import { atom } from "jotai/vanilla";
-import { atomWithStorage } from "jotai/vanilla/utils";
+import { createMemo, createSignal } from "solid-js";
 import { createLayout, layoutReducer, type LayoutState } from "./layout.ts";
-import { JotaiStoreScope } from "./jotai-store.ts";
 import type { TerminalLaunchSpec } from "../protocol/generated/rpc.ts";
 import { copyExplorerNavigationState } from "./explorer.ts";
 import { copyFileViewerState } from "./file-viewer.ts";
@@ -103,7 +101,6 @@ export type TabDropPosition = "before" | "after" | "end";
 
 export const workbenchBunja = bunja(() => {
   const machineId = bunja.use(MachineIdScope);
-  const store = bunja.use(JotaiStoreScope);
   const initialPaneId = `pane-${crypto.randomUUID()}`;
   const initialTab = createFilesTab();
   const initialLayout = createLayout((builder) => builder.leaf(initialPaneId));
@@ -118,44 +115,65 @@ export const workbenchBunja = bunja(() => {
       },
     ],
   };
-  const stateAtom = atomWithStorage<WorkbenchState>(
-    workbenchStorageKey(machineId),
-    initialState,
-    undefined,
-    { getOnInit: true },
+  const storageKey = workbenchStorageKey(machineId);
+  function readStoredState(): WorkbenchState {
+    try {
+      const stored = globalThis.localStorage?.getItem(storageKey);
+      return stored === null || stored === undefined
+        ? initialState
+        : JSON.parse(stored);
+    } catch {
+      return initialState;
+    }
+  }
+  const [state, setState] = createSignal<WorkbenchState>(readStoredState());
+  const layout = createMemo(() => {
+    const current = state();
+    return pruneStaleLayoutLeaves(current.layout, current.panes);
+  });
+  const activePaneId = createMemo(() => activePaneFromState(state())?.id);
+  const activeTool = createMemo(
+    () => activeTabFromPane(activePaneFromState(state()))?.tool ?? "files",
   );
-  const layoutAtom = atom((get) => {
-    const state = get(stateAtom);
-    return pruneStaleLayoutLeaves(state.layout, state.panes);
-  });
-  const activePaneIdAtom = atom((get) => {
-    const state = get(stateAtom);
-    return activePaneFromState(state)?.id;
-  });
-  const activeToolAtom = atom((get) => {
-    const state = get(stateAtom);
-    return activeTabFromPane(activePaneFromState(state))?.tool ?? "files";
-  });
-  const activeAgentSessionIdAtom = atom((get) => {
-    const state = get(stateAtom);
-    const activeTab = activeTabFromPane(activePaneFromState(state));
+  const activeAgentSessionId = createMemo(() => {
+    const activeTab = activeTabFromPane(activePaneFromState(state()));
     return activeTab?.tool === "agent" ? activeTab.agentSessionId : undefined;
   });
-  const panesAtom = atom((get) => get(stateAtom).panes);
+  const panes = createMemo(() => state().panes);
+
+  bunja.effect(() => {
+    if (typeof globalThis.addEventListener !== "function") return;
+    function onStorage(event: StorageEvent) {
+      if (
+        event.storageArea !== globalThis.localStorage ||
+        event.key !== storageKey
+      )
+        return;
+      setState(readStoredState());
+    }
+    globalThis.addEventListener("storage", onStorage);
+    return () => globalThis.removeEventListener("storage", onStorage);
+  });
+
+  function updateState(update: (current: WorkbenchState) => WorkbenchState) {
+    // The native updater receives queued writes even before the UI commits.
+    const next = setState(update);
+    globalThis.localStorage?.setItem(storageKey, JSON.stringify(next));
+  }
 
   function setLayout(layout: LayoutState) {
-    store.set(stateAtom, (current) => ({
+    updateState((current) => ({
       ...current,
       layout: pruneStaleLayoutLeaves(layout, current.panes),
     }));
   }
 
   function selectTool(tool: WorkbenchTool) {
-    store.set(stateAtom, (current) => openToolTabInActivePane(current, tool));
+    updateState((current) => openToolTabInActivePane(current, tool));
   }
 
   function focusPane(paneId: string) {
-    store.set(stateAtom, (current) => {
+    updateState((current) => {
       if (current.activePaneId === paneId) return current;
       if (!current.panes.some((pane) => pane.id === paneId)) return current;
       return { ...current, activePaneId: paneId };
@@ -163,31 +181,33 @@ export const workbenchBunja = bunja(() => {
   }
 
   function addPane(sourcePaneId?: string): string {
-    const sourcePane =
-      sourcePaneId === undefined
-        ? undefined
-        : store.get(stateAtom).panes.find((pane) => pane.id === sourcePaneId);
-    const sourceTab =
-      sourcePane?.tabs.find((tab) => tab.id === sourcePane.activeTabId) ??
-      sourcePane?.tabs[0];
-    const tab =
-      sourceTab === undefined ? createFilesTab() : cloneWorkbenchTab(sourceTab);
-    const pane: WorkbenchPane = {
-      id: `pane-${crypto.randomUUID()}`,
-      tabs: [tab],
-      activeTabId: tab.id,
-    };
-    if (sourceTab) copyTabState(machineId, sourceTab, tab);
-    store.set(stateAtom, (current) => ({
-      ...current,
-      activePaneId: pane.id,
-      panes: [...current.panes, pane],
-    }));
-    return pane.id;
+    const paneId = `pane-${crypto.randomUUID()}`;
+    let copied: { source: WorkbenchTab; target: WorkbenchTab } | undefined;
+    updateState((current) => {
+      const sourcePane = current.panes.find((pane) => pane.id === sourcePaneId);
+      const sourceTab =
+        sourcePane?.tabs.find((tab) => tab.id === sourcePane.activeTabId) ??
+        sourcePane?.tabs[0];
+      const tab =
+        sourceTab === undefined
+          ? createFilesTab()
+          : cloneWorkbenchTab(sourceTab);
+      if (sourceTab) copied = { source: sourceTab, target: tab };
+      return {
+        ...current,
+        activePaneId: paneId,
+        panes: [
+          ...current.panes,
+          { id: paneId, tabs: [tab], activeTabId: tab.id },
+        ],
+      };
+    });
+    if (copied) copyTabState(machineId, copied.source, copied.target);
+    return paneId;
   }
 
   function removePane(paneId: string) {
-    store.set(stateAtom, (current) => {
+    updateState((current) => {
       if (current.panes.length <= 1) return current;
       const panes = current.panes.filter((pane) => pane.id !== paneId);
       return {
@@ -201,7 +221,7 @@ export const workbenchBunja = bunja(() => {
   }
 
   function updatePanes(update: (panes: WorkbenchPane[]) => WorkbenchPane[]) {
-    store.set(stateAtom, (current) => {
+    updateState((current) => {
       const panes = update(current.panes);
       return {
         ...current,
@@ -216,7 +236,7 @@ export const workbenchBunja = bunja(() => {
     config: WorkbenchFilesTabConfig = {},
   ): string {
     const tab = createFilesTab(config);
-    store.set(stateAtom, (current) => openTabInPane(current, paneId, tab));
+    updateState((current) => openTabInPane(current, paneId, tab));
     return tab.id;
   }
 
@@ -229,7 +249,7 @@ export const workbenchBunja = bunja(() => {
     config: WorkbenchAgentTabConfig = {},
   ): string {
     const tab = createAgentTab(config);
-    store.set(stateAtom, (current) => openTabInPane(current, paneId, tab));
+    updateState((current) => openTabInPane(current, paneId, tab));
     return tab.id;
   }
 
@@ -238,7 +258,7 @@ export const workbenchBunja = bunja(() => {
     config: WorkbenchProcessesTabConfig = {},
   ): string {
     const tab = createProcessesTab(config);
-    store.set(stateAtom, (current) => openTabInPane(current, paneId, tab));
+    updateState((current) => openTabInPane(current, paneId, tab));
     return tab.id;
   }
 
@@ -247,7 +267,7 @@ export const workbenchBunja = bunja(() => {
     config: WorkbenchWindowsTabConfig = {},
   ): string {
     const tab = createWindowsTab(config);
-    store.set(stateAtom, (current) => openTabInPane(current, paneId, tab));
+    updateState((current) => openTabInPane(current, paneId, tab));
     return tab.id;
   }
 
@@ -256,27 +276,25 @@ export const workbenchBunja = bunja(() => {
     config: WorkbenchTerminalTabConfig = {},
   ) {
     const tab = createTerminalTab(config);
-    store.set(stateAtom, (current) => openTabInPane(current, paneId, tab));
+    updateState((current) => openTabInPane(current, paneId, tab));
   }
 
   function openTerminalTab(config: WorkbenchTerminalTabConfig = {}) {
     const tab = createTerminalTab(config);
-    store.set(stateAtom, (current) => openTabInActivePane(current, tab));
+    updateState((current) => openTabInActivePane(current, tab));
   }
 
   function openFilesTab(config: WorkbenchFilesTabConfig = {}) {
     const tab = createFilesTab(config);
-    store.set(stateAtom, (current) => openTabInActivePane(current, tab));
+    updateState((current) => openTabInActivePane(current, tab));
   }
 
   function openDaemonTab() {
-    store.set(stateAtom, (current) =>
-      openToolTabInActivePane(current, "daemon"),
-    );
+    updateState((current) => openToolTabInActivePane(current, "daemon"));
   }
 
   function openAgentTab(config: WorkbenchAgentTabConfig = {}) {
-    store.set(stateAtom, (current) => {
+    updateState((current) => {
       const activePane = activePaneFromState(current);
       if (!activePane) return current;
       const existing = activePane.tabs.find(
@@ -300,12 +318,12 @@ export const workbenchBunja = bunja(() => {
 
   function openProcessesTab(config: WorkbenchProcessesTabConfig = {}) {
     const tab = createProcessesTab(config);
-    store.set(stateAtom, (current) => openTabInActivePane(current, tab));
+    updateState((current) => openTabInActivePane(current, tab));
   }
 
   function openWindowsTab(config: WorkbenchWindowsTabConfig = {}) {
     const tab = createWindowsTab(config);
-    store.set(stateAtom, (current) => openTabInActivePane(current, tab));
+    updateState((current) => openTabInActivePane(current, tab));
   }
 
   function setTerminalSessionId(
@@ -313,7 +331,7 @@ export const workbenchBunja = bunja(() => {
     tabId: string,
     terminalSessionId: string | undefined,
   ) {
-    store.set(stateAtom, (current) => ({
+    updateState((current) => ({
       ...current,
       panes: current.panes.map((pane) =>
         pane.id === paneId
@@ -336,7 +354,7 @@ export const workbenchBunja = bunja(() => {
     sessionId: string,
     title?: string,
   ) {
-    store.set(stateAtom, (current) => ({
+    updateState((current) => ({
       ...current,
       panes: current.panes.map((pane) =>
         pane.id === paneId
@@ -362,7 +380,7 @@ export const workbenchBunja = bunja(() => {
     tabId: string,
     snapshot: WorkbenchTerminalSessionSnapshot,
   ) {
-    store.set(stateAtom, (current) => {
+    updateState((current) => {
       let changed = false;
       const panes = current.panes.map((pane) => {
         if (pane.id !== paneId) return pane;
@@ -392,7 +410,7 @@ export const workbenchBunja = bunja(() => {
   }
 
   function setTabDirty(paneId: string, tabId: string, dirty: boolean) {
-    store.set(stateAtom, (current) => {
+    updateState((current) => {
       let changed = false;
       const panes = current.panes.map((pane) => {
         if (pane.id !== paneId) return pane;
@@ -415,7 +433,7 @@ export const workbenchBunja = bunja(() => {
     tabId: string,
     daemonClientDetailId: string | undefined,
   ) {
-    store.set(stateAtom, (current) => ({
+    updateState((current) => ({
       ...current,
       panes: current.panes.map((pane) =>
         pane.id === paneId
@@ -437,7 +455,7 @@ export const workbenchBunja = bunja(() => {
     tabId: string,
     daemonClientsPageOpen: boolean,
   ) {
-    store.set(stateAtom, (current) => ({
+    updateState((current) => ({
       ...current,
       panes: current.panes.map((pane) =>
         pane.id === paneId
@@ -459,7 +477,7 @@ export const workbenchBunja = bunja(() => {
     tabId: string,
     processDetailPid: number | undefined,
   ) {
-    store.set(stateAtom, (current) => ({
+    updateState((current) => ({
       ...current,
       panes: current.panes.map((pane) =>
         pane.id === paneId
@@ -486,7 +504,7 @@ export const workbenchBunja = bunja(() => {
     tabId: string,
     processPage: WorkbenchProcessPage,
   ) {
-    store.set(stateAtom, (current) => ({
+    updateState((current) => ({
       ...current,
       panes: current.panes.map((pane) =>
         pane.id === paneId
@@ -510,7 +528,7 @@ export const workbenchBunja = bunja(() => {
     tabId: string,
     windowDetailId: string | undefined,
   ) {
-    store.set(stateAtom, (current) => ({
+    updateState((current) => ({
       ...current,
       panes: current.panes.map((pane) =>
         pane.id === paneId
@@ -529,36 +547,38 @@ export const workbenchBunja = bunja(() => {
 
   function addToolTab(paneId: string, tool: WorkbenchTool): string {
     const tab = createWorkbenchTab(tool);
-    store.set(stateAtom, (current) => openTabInPane(current, paneId, tab));
+    updateState((current) => openTabInPane(current, paneId, tab));
     return tab.id;
   }
 
   function duplicateTab(paneId: string, tabId: string): string | undefined {
-    const sourcePane = store
-      .get(stateAtom)
-      .panes.find((pane) => pane.id === paneId);
-    const sourceTab = sourcePane?.tabs.find((tab) => tab.id === tabId);
-    if (!sourcePane || !sourceTab) return undefined;
-
-    const tab = cloneWorkbenchTab(sourceTab);
-    copyTabState(machineId, sourceTab, tab);
-    store.set(stateAtom, (current) => ({
-      ...current,
-      activePaneId: paneId,
-      panes: current.panes.map((pane) =>
-        pane.id === paneId
-          ? activatePaneTab(
-              { ...pane, tabs: insertTab(pane.tabs, tab, tabId, "after") },
-              tab.id,
-            )
-          : pane,
-      ),
-    }));
-    return tab.id;
+    let copied: { source: WorkbenchTab; target: WorkbenchTab } | undefined;
+    updateState((current) => {
+      const sourcePane = current.panes.find((pane) => pane.id === paneId);
+      const sourceTab = sourcePane?.tabs.find((tab) => tab.id === tabId);
+      if (!sourcePane || !sourceTab) return current;
+      const tab = cloneWorkbenchTab(sourceTab);
+      copied = { source: sourceTab, target: tab };
+      return {
+        ...current,
+        activePaneId: paneId,
+        panes: current.panes.map((pane) =>
+          pane.id === paneId
+            ? activatePaneTab(
+                { ...pane, tabs: insertTab(pane.tabs, tab, tabId, "after") },
+                tab.id,
+              )
+            : pane,
+        ),
+      };
+    });
+    if (!copied) return undefined;
+    copyTabState(machineId, copied.source, copied.target);
+    return copied.target.id;
   }
 
   function selectTab(paneId: string, tabId: string) {
-    store.set(stateAtom, (current) => ({
+    updateState((current) => ({
       ...current,
       activePaneId: paneId,
       panes: current.panes.map((pane) =>
@@ -589,28 +609,15 @@ export const workbenchBunja = bunja(() => {
     targetTabId: string | undefined,
     position: TabDropPosition,
   ): boolean {
-    const currentState = store.get(stateAtom);
-    const currentSourcePane = currentState.panes.find(
-      (pane) => pane.id === sourcePaneId,
-    );
-    const currentTargetPane = currentState.panes.find(
-      (pane) => pane.id === targetPaneId,
-    );
-    const currentMovingTab = currentSourcePane?.tabs.find(
-      (tab) => tab.id === tabId,
-    );
-    const removeSourcePane =
-      sourcePaneId !== targetPaneId &&
-      currentSourcePane !== undefined &&
-      currentTargetPane !== undefined &&
-      currentMovingTab !== undefined &&
-      currentSourcePane.tabs.length <= 1;
+    let removeSourcePane = false;
 
-    store.set(stateAtom, (current) => {
+    updateState((current) => {
       const sourcePane = current.panes.find((pane) => pane.id === sourcePaneId);
       const targetPane = current.panes.find((pane) => pane.id === targetPaneId);
       const movingTab = sourcePane?.tabs.find((tab) => tab.id === tabId);
       if (!sourcePane || !targetPane || !movingTab) return current;
+      removeSourcePane =
+        sourcePaneId !== targetPaneId && sourcePane.tabs.length <= 1;
 
       const panes = current.panes.flatMap((pane) => {
         if (sourcePaneId === targetPaneId && pane.id === sourcePaneId) {
@@ -651,24 +658,15 @@ export const workbenchBunja = bunja(() => {
     tabId: string,
     targetPaneId: string,
   ): MoveTabToNewPaneResult | undefined {
-    const currentState = store.get(stateAtom);
-    const currentSourcePane = currentState.panes.find(
-      (pane) => pane.id === sourcePaneId,
-    );
-    const currentMovingTab = currentSourcePane?.tabs.find(
-      (tab) => tab.id === tabId,
-    );
-    if (!currentSourcePane || !currentMovingTab) return undefined;
-    if (sourcePaneId === targetPaneId && currentSourcePane.tabs.length <= 1) {
-      return undefined;
-    }
-
     const newPaneId = `pane-${crypto.randomUUID()}`;
-    const sourcePaneRemoved = currentSourcePane.tabs.length <= 1;
-    store.set(stateAtom, (current) => {
+    let result: MoveTabToNewPaneResult | undefined;
+    updateState((current) => {
       const sourcePane = current.panes.find((pane) => pane.id === sourcePaneId);
       const movingTab = sourcePane?.tabs.find((tab) => tab.id === tabId);
       if (!sourcePane || !movingTab) return current;
+      if (sourcePaneId === targetPaneId && sourcePane.tabs.length <= 1)
+        return current;
+      result = { newPaneId, sourcePaneRemoved: sourcePane.tabs.length <= 1 };
 
       const newPane: WorkbenchPane = {
         id: newPaneId,
@@ -697,15 +695,15 @@ export const workbenchBunja = bunja(() => {
       };
     });
 
-    return { newPaneId, sourcePaneRemoved };
+    return result;
   }
 
   return {
-    layoutAtom,
-    activeToolAtom,
-    activeAgentSessionIdAtom,
-    activePaneIdAtom,
-    panesAtom,
+    layout,
+    activeTool,
+    activeAgentSessionId,
+    activePaneId,
+    panes,
     setLayout,
     selectTool,
     focusPane,
@@ -747,12 +745,11 @@ export const workbenchPaneBunja = bunja(() => {
   );
   const workbench = bunja.use(workbenchBunja);
 
-  const paneAtom = atom(
-    (get) =>
-      get(workbench.panesAtom).find((pane) => pane.id === paneId) ?? undefined,
+  const pane = createMemo(() =>
+    workbench.panes().find((pane) => pane.id === paneId),
   );
-  const paneCountAtom = atom((get) => get(workbench.panesAtom).length);
-  const activeAtom = atom((get) => get(workbench.activePaneIdAtom) === paneId);
+  const paneCount = createMemo(() => workbench.panes().length);
+  const active = createMemo(() => workbench.activePaneId() === paneId);
 
   function addPane(): string {
     return workbench.addPane(paneId);
@@ -880,9 +877,9 @@ export const workbenchPaneBunja = bunja(() => {
 
   return {
     paneId,
-    paneAtom,
-    paneCountAtom,
-    activeAtom,
+    pane,
+    paneCount,
+    active,
     addPane,
     addDaemonTab,
     addAgentTab,
@@ -916,19 +913,17 @@ export const workbenchTabBunja = bunja(() => {
   );
   const pane = bunja.use(workbenchPaneBunja);
 
-  const tabAtom = atom(
-    (get) =>
-      get(pane.paneAtom)?.tabs.find((tab) => tab.id === tabId) ?? undefined,
+  const tab = createMemo(() =>
+    pane.pane()?.tabs.find((tab) => tab.id === tabId),
   );
-  const activeAtom = atom((get) => get(pane.paneAtom)?.activeTabId === tabId);
-  const focusedAtom = atom(
-    (get) => get(pane.activeAtom) && get(pane.paneAtom)?.activeTabId === tabId,
+  const active = createMemo(() => pane.pane()?.activeTabId === tabId);
+  const focused = createMemo(
+    () => pane.active() && pane.pane()?.activeTabId === tabId,
   );
-  const showCloseAtom = atom((get) => {
-    const paneValue = get(pane.paneAtom);
-    return (paneValue?.tabs.length ?? 0) > 1 || get(pane.paneCountAtom) > 1;
-  });
-  const dirtyAtom = atom((get) => Boolean(get(tabAtom)?.dirty));
+  const showClose = createMemo(
+    () => (pane.pane()?.tabs.length ?? 0) > 1 || pane.paneCount() > 1,
+  );
+  const dirty = createMemo(() => Boolean(tab()?.dirty));
 
   function selectTab() {
     pane.selectTab(tabId);
@@ -975,11 +970,11 @@ export const workbenchTabBunja = bunja(() => {
   return {
     paneId: pane.paneId,
     tabId,
-    tabAtom,
-    activeAtom,
-    dirtyAtom,
-    focusedAtom,
-    showCloseAtom,
+    tab,
+    active,
+    dirty,
+    focused,
+    showClose,
     selectTab,
     setAgentSession,
     setDaemonClientDetailId,
