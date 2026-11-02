@@ -16,3 +16,7 @@ pub mod updates;
 pub mod desktop;
 
 pub mod desktop_ipc;
+
+// Unregistered, fixture-only foundations pending membership policy review.
+#[cfg(test)]
+mod cluster;

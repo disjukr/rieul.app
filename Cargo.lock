@@ -2131,6 +2131,7 @@ dependencies = [
  "rand",
  "rcgen",
  "rieul-daemon-core",
+ "ring",
  "rrule",
  "rusqlite",
  "rustls",
