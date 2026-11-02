@@ -15,6 +15,7 @@ function Fixture() {
     currentVersion: "0.6.13",
     targetVersion: "0.6.14",
     canInstall: true,
+    ordering: { epoch: "fixture", revision: 1 },
     reason: "Connected clients postpone automatic installation.",
   });
   const [token, setToken] = createSignal("first");

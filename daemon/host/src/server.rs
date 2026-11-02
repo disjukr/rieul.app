@@ -10,7 +10,7 @@ use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use anyhow::{bail, Context, Result};
-use rieul_daemon_core::generated::rpc::{RequestUpdateReq, UpdateAction};
+use crate::updates::UpdateCommand;
 type SharedUpdater = Option<Arc<dyn crate::updates::UpdateService>>;
 use notify::{Event, RecursiveMode, Watcher};
 use rieul_daemon_core::config::{
@@ -1210,8 +1210,9 @@ fn build_rpc_handlers(
         .renew_desktop_lease(HostRpcHandler::renew_desktop_lease_rpc)
         .detach_desktop(HostRpcHandler::detach_desktop_rpc)
         .write_desktop_input(HostRpcHandler::write_desktop_input_rpc)
-        .get_update_status(HostRpcHandler::get_update_status_rpc)
-        .request_update(HostRpcHandler::request_update_rpc)
+        .check_for_updates(HostRpcHandler::check_for_updates_rpc)
+        .install_update_confirmed(HostRpcHandler::install_update_confirmed_rpc)
+        .subscribe_update_status(HostRpcHandler::subscribe_update_status_rpc)
         .get_daemon_environment(HostRpcHandler::get_daemon_environment_rpc)
         .start_pairing(HostRpcHandler::start_pairing_rpc)
         .complete_pairing(HostRpcHandler::complete_pairing_rpc)
@@ -4825,57 +4826,115 @@ impl HostRpcHandler {
             .iter()
             .any(|record| record.client_id == client_id && record.expires_at_unix > now_unix()))
     }
-    fn get_update_status_rpc<'a>(
-        &'a mut self,
-        _: (),
-    ) -> RpcHandlerFuture<'a, Result<UnaryRpcOutcome>> {
+    fn subscribe_update_status_rpc<'a>(&'a mut self, _: ()) -> RpcHandlerFuture<'a, Result<()>> {
         Box::pin(async move {
-            let proc_id = ProcId::GetUpdateStatus.as_u64();
+            let proc_id = ProcId::SubscribeUpdateStatus.as_u64();
+            let send = self.response_stream();
+            let mut send = send.lock().await;
             if !self.updater_authorized().await? {
-                return Ok(UnaryRpcOutcome::Message(unauthorized_message(proc_id)));
+                write_reqres_message(
+                    &mut send,
+                    stream_generic_error_message(
+                        proc_id,
+                        RpcErrorCode::Unauthorized,
+                        "valid paired credentials are required",
+                    ),
+                )
+                .await?;
+                return Ok(());
             }
-            let status = match &self.updates {
-                Some(updater) => updater.status(),
-                None => Ok(crate::updates::unavailable()),
+            let unavailable = crate::updates::StatusFeed::default();
+            let mut changes = match &self.updates {
+                Some(updater) => updater.subscribe()?,
+                None => unavailable.subscribe(),
             };
-            match status {
-                Ok(status) => Ok(RpcResponse::GetUpdateStatus(status).into()),
-                Err(error) => Ok(UnaryRpcOutcome::Message(error_message(
-                    proc_id,
-                    "failed",
-                    &error.to_string(),
-                ))),
+            let mut credentials = self.client_credentials_events.subscribe();
+            let mut first = true;
+            loop {
+                if !self.updater_authorized().await? {
+                    return Ok(());
+                }
+                let snapshot = changes.borrow_and_update().clone();
+                let message = if first {
+                    stream_start_payload_message(snapshot.encode())
+                } else {
+                    stream_chunk_payload_message(snapshot.encode())
+                };
+                first = false;
+                // Transport backpressure cannot hold a subscription forever.
+                tokio::time::timeout(
+                    Duration::from_secs(10),
+                    write_reqres_message(&mut send, message),
+                )
+                .await??;
+                loop {
+                    tokio::select! {
+                        result = changes.changed() => { result?; break; }
+                        result = credentials.changed() => { result?; if !self.updater_authorized().await? { return Ok(()); } }
+                        _ = tokio::time::sleep(Duration::from_secs(1)) => {
+                            // Credential expiry only; updater state is never polled.
+                            if !self.updater_authorized().await? { return Ok(()); }
+                        }
+                        _ = send.stopped() => { return Ok(()); }
+                    }
+                }
             }
         })
     }
-    fn request_update_rpc<'a>(
+    fn check_for_updates_rpc<'a>(
         &'a mut self,
-        request: RequestUpdateReq,
+        _: (),
     ) -> RpcHandlerFuture<'a, Result<UnaryRpcOutcome>> {
-        Box::pin(async move {
-            let proc_id = ProcId::RequestUpdate.as_u64();
-            if !self.updater_authorized().await? {
-                return Ok(UnaryRpcOutcome::Message(unauthorized_message(proc_id)));
-            }
-            if request.action == UpdateAction::InstallConfirmed && !request.confirmed {
-                return Ok(UnaryRpcOutcome::Message(error_message(proc_id,"confirmation_required","Confirm client disconnection before installing; active work will still defer the update")));
-            }
-            let Some(updater) = &self.updates else {
-                return Ok(UnaryRpcOutcome::Message(error_message(
+        Box::pin(self.update_command(UpdateCommand::Check))
+    }
+    fn install_update_confirmed_rpc<'a>(
+        &'a mut self,
+        _: (),
+    ) -> RpcHandlerFuture<'a, Result<UnaryRpcOutcome>> {
+        Box::pin(self.update_command(UpdateCommand::InstallConfirmed))
+    }
+    async fn update_command(&mut self, command: UpdateCommand) -> Result<UnaryRpcOutcome> {
+        let proc_id = match command {
+            UpdateCommand::Check => ProcId::CheckForUpdates,
+            UpdateCommand::InstallConfirmed => ProcId::InstallUpdateConfirmed,
+        }
+        .as_u64();
+        if !self.updater_authorized().await? {
+            return Ok(UnaryRpcOutcome::Message(unauthorized_message(proc_id)));
+        }
+        let Some(updater) = &self.updates else {
+            return Ok(UnaryRpcOutcome::Message(error_message(
+                proc_id,
+                "failed",
+                "Updater is not activated",
+            )));
+        };
+        let result = updater.request(command).await;
+        // A credential can expire or be revoked while discovery is in progress.
+        if !self.updater_authorized().await? {
+            return Ok(UnaryRpcOutcome::Message(unauthorized_message(proc_id)));
+        }
+        match result {
+            Ok(status)
+                if status.phase == rieul_daemon_core::generated::rpc::UpdatePhase::Failed =>
+            {
+                Ok(UnaryRpcOutcome::Message(error_message(
                     proc_id,
                     "failed",
-                    "Updater is not activated",
-                )));
-            };
-            match updater.request(request) {
-                Ok(status) => Ok(RpcResponse::RequestUpdate(status).into()),
-                Err(error) => Ok(UnaryRpcOutcome::Message(error_message(
-                    proc_id,
-                    "failed",
-                    &error.to_string(),
-                ))),
+                    status.reason.as_deref().unwrap_or("Update failed"),
+                )))
             }
-        })
+            Ok(status) => Ok(match command {
+                UpdateCommand::Check => RpcResponse::CheckForUpdates(status),
+                UpdateCommand::InstallConfirmed => RpcResponse::InstallUpdateConfirmed(status),
+            }
+            .into()),
+            Err(error) => Ok(UnaryRpcOutcome::Message(error_message(
+                proc_id,
+                "failed",
+                &error.to_string(),
+            ))),
+        }
     }
 
     fn get_daemon_info_rpc<'a>(
@@ -5862,15 +5921,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn update_rpc_rechecks_revocation_expiry_and_requires_confirmation() {
-        use rieul_daemon_core::generated::rpc::{UpdatePhase, UpdateStatus};
-        for scenario in [
-            "unauthenticated",
-            "revoked",
-            "expired",
-            "valid",
-            "unconfirmed",
-        ] {
+    async fn update_rpc_rechecks_revocation_and_expiry() {
+        for scenario in ["unauthenticated", "revoked", "expired", "valid"] {
             let dir = tempfile::tempdir().unwrap();
             let config_path = dir.path().join("rieul.yaml");
             let credentials_path = client_credentials_path(&config_path);
@@ -5888,20 +5940,7 @@ mod tests {
                 cached.clone()
             };
             save_client_credentials(&credentials_path, &persisted).unwrap();
-            let request = if scenario == "unconfirmed" {
-                request_message(
-                    ProcId::RequestUpdate,
-                    Some(
-                        RequestUpdateReq {
-                            action: UpdateAction::InstallConfirmed,
-                            confirmed: false,
-                        }
-                        .encode(),
-                    ),
-                )
-            } else {
-                request_message(ProcId::GetUpdateStatus, None)
-            };
+            let request = request_message(ProcId::CheckForUpdates, None);
             let responses = handle_rpc_messages(
                 vec![request],
                 &config_path,
@@ -5923,15 +5962,17 @@ mod tests {
             )
             .await
             .unwrap();
+            assert!(matches!(
+                responses[0],
+                ReqResMessage::ResponseUnaryError { .. }
+            ));
+            let detail = format!("{:?}", responses[0]);
             if scenario == "valid" {
-                assert_eq!(
-                    UpdateStatus::decode(payload(&responses[0])).unwrap().phase,
-                    UpdatePhase::Unavailable
-                );
+                assert!(detail.contains("Method"), "{detail}");
             } else {
-                assert!(
-                    matches!(responses[0], ReqResMessage::ResponseUnaryError { .. }),
-                    "{scenario}: {responses:?}"
+                assert_eq!(
+                    RpcErrorPayload::decode(error(&responses[0])).unwrap().code,
+                    RpcErrorCode::Unauthorized
                 );
             }
         }

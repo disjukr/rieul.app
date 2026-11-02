@@ -716,6 +716,55 @@ mod tests {
             assert_eq!(gate.begin_drain().is_none(), fails);
         }
     }
+    struct FixtureUpdater(crate::updates::StatusFeed);
+    impl crate::updates::UpdateService for FixtureUpdater {
+        fn status(&self) -> Result<UpdateStatus> { Ok(self.0.subscribe().borrow().clone()) }
+        fn subscribe(&self) -> Result<watch::Receiver<UpdateStatus>> { Ok(self.0.subscribe()) }
+        fn request(&self, _: crate::updates::UpdateCommand) -> crate::updates::UpdateRequest<'_> {
+            Box::pin(async move { self.status() })
+        }
+    }
+    #[tokio::test]
+    async fn actual_webtransport_update_subscription_snapshot_order_reconnect_revoke_and_cleanup() {
+        tokio::time::timeout(Duration::from_secs(10), async {
+            let updater = Arc::new(FixtureUpdater(Default::default()));
+            let f = Fixture::with_updates(false, Some(updater.clone())).await;
+            let denied = f.unary(ProcId::CheckForUpdates, None).await;
+            assert!(matches!(denied, ReqResMessage::ResponseUnaryError { .. }));
+            f.authenticate().await;
+            async fn subscribe(f: &Fixture) -> ReqResMessageReader {
+                let (mut send, recv) = f.session.open_bi().await.unwrap();
+                send.write_all(&ReqResMessage::RequestUnary {
+                    proc_id: ProcId::SubscribeUpdateStatus.as_u64(), payload: None,
+                }.encode()).await.unwrap();
+                send.finish().unwrap();
+                ReqResMessageReader::new(recv)
+            }
+            async fn snapshot(reader: &mut ReqResMessageReader) -> UpdateStatus {
+                match reader.next().await.unwrap().unwrap() {
+                    ReqResMessage::ResponseStreamStart { payload: Some(bytes) } |
+                    ReqResMessage::ResponseStreamChunk { payload: bytes } => UpdateStatus::decode(&bytes).unwrap(),
+                    other => panic!("{other:?}"),
+                }
+            }
+            let mut stream = subscribe(&f).await;
+            let first = snapshot(&mut stream).await;
+            let mut next = first.clone(); next.phase = UpdatePhase::Downloading;
+            let sent = updater.0.publish(next);
+            assert_eq!(snapshot(&mut stream).await, sent);
+            assert!(sent.ordering.revision > first.ordering.revision);
+            stream.recv.stop(0).unwrap();
+            while updater.0.receivers() != 0 { tokio::task::yield_now().await; }
+            let mut stream = subscribe(&f).await;
+            assert_eq!(snapshot(&mut stream).await, sent);
+            save_client_credentials(&f.credentials_path, &ClientCredentials::default()).unwrap();
+            let mut next = sent; next.phase = UpdatePhase::Ready; updater.0.publish(next);
+            assert!(stream.next().await.unwrap().is_none());
+            assert_eq!(updater.0.receivers(), 0);
+            let denied = f.unary(ProcId::InstallUpdateConfirmed, None).await;
+            assert!(matches!(denied, ReqResMessage::ResponseUnaryError { .. }));
+        }).await.unwrap();
+    }
     struct Fixture {
         _dir: tempfile::TempDir,
         credentials_path: PathBuf,
@@ -740,6 +789,9 @@ mod tests {
             Self::with_ipc(false).await
         }
         async fn with_ipc(use_ipc: bool) -> Self {
+            Self::with_updates(use_ipc, None).await
+        }
+        async fn with_updates(use_ipc: bool, updates: SharedUpdater) -> Self {
             let dir = tempfile::tempdir().unwrap();
             let path = dir.path().join("rieul.yaml");
             let credentials_path = client_credentials_path(&path);
@@ -802,7 +854,7 @@ mod tests {
                     watch::channel(0).0,
                     None,
                     Arc::new(std::sync::atomic::AtomicUsize::new(0)),
-                    None,
+                    updates,
                     admission,
                     rt,
                     disconnect.subscribe(),

@@ -266,11 +266,22 @@ been connected. A failed candidate that has never reached readiness can answer
 the drain protocol while waiting for configuration, allowing rollback without
 claiming that a busy serving process is idle.
 
-GetUpdateStatus (64) and RequestUpdate (65) are registered RPCs. Existing valid
-paired clients have update authority because the current product has no separate
-administrator role; each call rechecks persisted revocation and expiry. Only
-Check and InstallConfirmed operations exist, with explicit confirmation required
-for the latter. No caller URL/path/version/command/validation override exists.
+The updater protocol uses `SubscribeUpdateStatus` (73), `CheckForUpdates` (74),
+and `InstallUpdateConfirmed` (75). IDs 64/65 are retired. Every snapshot has a
+required random process epoch and monotonically increasing revision. Subscription
+registration precedes its initial snapshot; a bounded watch retains the latest
+state for slow consumers. The separate worker's atomic journal/result writes are
+observed through filesystem notifications, not status polling.
+
+`CheckForUpdates` joins concurrent discovery, completes at download start (not
+archive completion), no-update `Idle`, or a discovery error. Accepted background
+work survives RPC cancellation. Its per-operation completion retains the outcome
+even if later work starts. `InstallUpdateConfirmed` itself is explicit consent to
+client disconnection, not permission to terminate work. Both commands recheck
+persisted credential revocation/expiry before dispatch and before returning.
+Subscription also checks credentials throughout its lifetime. No caller
+URL/path/version/command/validation override exists.
+
 The controller checks on startup and every six hours (implementation default),
 and stages while serving. Automatic dispatch requires zero connections and zero
 active work. The drain rechecks under scheduler/work admission gates. Reconnection
@@ -278,13 +289,16 @@ cancels automatic drain; confirmed manual drain rejects new connections and
 closes existing clients, but still refuses live PTYs, commands, transfers and ACP
 runtimes. Even idle ACP runtimes currently defer; no force override is provided.
 
-The existing DaemonInfoView now contains DaemonUpdateSection. Its Bunja/Jotai
-state polls only while mounted, drops stale responses, and binds confirmation to
-the daemon generation and target version. It must be ported with the newly
-requested project-wide Solid signal conversion; do not land its Jotai state as a
-new permanent architecture. Tests cover stale confirmations and reconnection
-while awaiting transport. No browser interaction test has run.
+The Solid/Bunja client subscribes only while mounted, displays Checking immediately,
+rejects late revisions and old epochs, and cancels its stream on replacement or
+unmount. Installation confirmation is bound to daemon generation and target.
+There is no compatibility polling: old daemons show an explicit upgrade-required
+message. Deploy this client together with a daemon implementing procedures 73–75;
+0.6.18 and earlier do not implement this contract. The autonomous updater and
+workload drain guards remain unchanged.
 
+Historical validation before the streaming protocol change follows (not its
+validation record):
 Validation at pause: host library 91 passed / 3 installed-ACP tests ignored;
 root updater 29 passed / 1 read-only signature test ignored in sandbox (before
 latest migration-start retry edit); web updater state 3 passed; web type checks

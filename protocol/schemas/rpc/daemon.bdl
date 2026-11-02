@@ -183,18 +183,26 @@ union RemoveClientError {
 }
 
 @ description
-| Returns updater state for an authenticated paired management client.
-@ id - 64
+| Procedure IDs 64 and 65 are retired; do not reuse them.
+| Completes when discovery has an outcome, not when the archive finishes downloading.
+| Concurrent callers join the same discovery. Accepted work survives disconnection.
+@ id - 74
 @ stream - unary
-proc GetUpdateStatus = void -> UpdateStatus throws UpdateError
+proc CheckForUpdates = void -> UpdateStatus throws UpdateError
 
 @ description
-| Requests only a fixed official update check or a confirmed installation.
-| No URL, path, version, command or validation override is accepted.
-| InstallConfirmed acknowledges client disconnection, not termination of work.
-@ id - 65
+| Explicitly requests installation and acknowledges client disconnection.
+| Active terminal, command, transfer, desktop and agent work remains protected.
+@ id - 75
 @ stream - unary
-proc RequestUpdate = RequestUpdateReq -> UpdateStatus throws UpdateError
+proc InstallUpdateConfirmed = void -> UpdateStatus throws UpdateError
+
+@ description
+| Emits the current snapshot, then newer snapshots. Slow consumers may skip
+| intermediate states. Reconnect starts with a new current snapshot.
+@ id - 73
+@ stream - server
+proc SubscribeUpdateStatus = void -> UpdateStatus throws UpdateError
 
 enum UpdatePhase {
   @ id - 0
@@ -218,18 +226,6 @@ enum UpdatePhase {
   @ id - 9
   Failed,
 }
-enum UpdateAction {
-  @ id - 1
-  Check,
-  @ id - 2
-  InstallConfirmed,
-}
-struct RequestUpdateReq {
-  @ id - 1
-  action: UpdateAction,
-  @ id - 2
-  confirmed: bool,
-}
 struct UpdateStatus {
   @ id - 1
   phase: UpdatePhase,
@@ -241,6 +237,15 @@ struct UpdateStatus {
   reason?: string,
   @ id - 5
   canInstall: bool,
+  @ id - 6
+  ordering: UpdateStatusOrdering,
+}
+
+struct UpdateStatusOrdering {
+  @ id - 1
+  epoch: string,
+  @ id - 2
+  revision: u53,
 }
 union UpdateError {
   @ id - 0
@@ -250,11 +255,6 @@ union UpdateError {
   ),
   @ id - 1
   PermissionDenied(
-    @ id - 1
-    message: string,
-  ),
-  @ id - 2
-  ConfirmationRequired(
     @ id - 1
     message: string,
   ),

@@ -149,11 +149,13 @@ export async function* callServerStream<Request, Response, ErrorPayload>(
   transport: WebTransport,
   proc: ProcCodec<Request, Response, ErrorPayload>,
   request: Request,
+  signal?: AbortSignal,
 ): AsyncGenerator<Response> {
   yield* streamServerEvents(
     transport,
     proc,
     encodeRequest(proc, request),
+    signal,
   );
 }
 
@@ -243,29 +245,31 @@ async function* streamServerEvents<Request, Response, ErrorPayload>(
   transport: WebTransport,
   proc: ProcCodec<Request, Response, ErrorPayload>,
   payload: Uint8Array | undefined,
+  signal?: AbortSignal,
 ): AsyncGenerator<Response> {
+  signal?.throwIfAborted();
   const stream = await transport.createBidirectionalStream();
-  const request = encodeReqResMessageSequence([{
-    kind: ReqResMessageKind.RequestUnary,
-    procId: proc.id,
-    payload,
-  }]);
+  const request = encodeReqResMessageSequence([
+    {
+      kind: ReqResMessageKind.RequestUnary,
+      procId: proc.id,
+      payload,
+    },
+  ]);
   const writer = stream.writable.getWriter();
-  try {
-    await writer.write(request);
-    await writer.close();
-  } finally {
-    try {
-      writer.releaseLock();
-    } catch {
-      // The stream may already be closing after a transport failure.
-    }
-  }
-
   const reader = stream.readable.getReader();
+  const abort = () => {
+    void writer.abort(signal?.reason).catch(() => {});
+    void reader.cancel(signal?.reason).catch(() => {});
+  };
+  signal?.addEventListener("abort", abort, { once: true });
+  if (signal?.aborted) abort();
   let buffered: Uint8Array<ArrayBufferLike> = new Uint8Array();
   let completed = false;
   try {
+    signal?.throwIfAborted();
+    await writer.write(request);
+    await writer.close();
     while (true) {
       const { done, value } = await reader.read();
       if (done) {
@@ -274,9 +278,8 @@ async function* streamServerEvents<Request, Response, ErrorPayload>(
       }
       buffered = concatBytes(buffered, value);
 
-      const { messages, readBytes } = decodeReqResMessageSequencePrefix(
-        buffered,
-      );
+      const { messages, readBytes } =
+        decodeReqResMessageSequencePrefix(buffered);
       if (readBytes > 0) buffered = buffered.slice(readBytes);
 
       for (const message of messages) {
@@ -300,6 +303,8 @@ async function* streamServerEvents<Request, Response, ErrorPayload>(
       throw new Error("incomplete stream response message");
     }
   } finally {
+    signal?.removeEventListener("abort", abort);
+    try { writer.releaseLock(); } catch { /* Transport already closed. */ }
     if (!completed) {
       try {
         await reader.cancel();

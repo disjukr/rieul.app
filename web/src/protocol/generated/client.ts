@@ -70,8 +70,6 @@ import {
   listAgentSessionTurnsProc,
   readAgentTerminalOutputProc,
   attachAgentSessionProc,
-  getUpdateStatusProc,
-  requestUpdateProc,
   getDesktopCapabilitiesProc,
   attachDesktopProc,
   configureDesktopViewportsProc,
@@ -79,6 +77,9 @@ import {
   renewDesktopLeaseProc,
   detachDesktopProc,
   writeDesktopInputProc,
+  subscribeUpdateStatusProc,
+  checkForUpdatesProc,
+  installUpdateConfirmedProc,
 } from "./rpc.ts";
 import type {
   ActiveAgentSessionsTableEvent,
@@ -151,7 +152,6 @@ import type {
   RemoveClientReq,
   RenamePathsReq,
   RenewClientCredentialRes,
-  RequestUpdateReq,
   RespondAgentPermissionReq,
   RestoreTrashItemsReq,
   RootsTableEvent,
@@ -443,14 +443,6 @@ export function attachAgentSession(transport: WebTransport, request: AttachAgent
   return callUnary(transport, attachAgentSessionProc, request);
 }
 
-export function getUpdateStatus(transport: WebTransport): Promise<UpdateStatus> {
-  return callUnary(transport, getUpdateStatusProc, undefined);
-}
-
-export function requestUpdate(transport: WebTransport, request: RequestUpdateReq): Promise<UpdateStatus> {
-  return callUnary(transport, requestUpdateProc, request);
-}
-
 export function getDesktopCapabilities(transport: WebTransport): Promise<DesktopCapabilities> {
   return callUnary(transport, getDesktopCapabilitiesProc, undefined);
 }
@@ -477,4 +469,16 @@ export function detachDesktop(transport: WebTransport, request: DesktopAttachRef
 
 export function writeDesktopInput(transport: WebTransport, requests: RpcClientStream<DesktopInputFrame>): Promise<DesktopInputReceipt> {
   return callClientStream(transport, writeDesktopInputProc, requests);
+}
+
+export function subscribeUpdateStatus(transport: WebTransport): AsyncGenerator<UpdateStatus> {
+  return callServerStream(transport, subscribeUpdateStatusProc, undefined);
+}
+
+export function checkForUpdates(transport: WebTransport): Promise<UpdateStatus> {
+  return callUnary(transport, checkForUpdatesProc, undefined);
+}
+
+export function installUpdateConfirmed(transport: WebTransport): Promise<UpdateStatus> {
+  return callUnary(transport, installUpdateConfirmedProc, undefined);
 }

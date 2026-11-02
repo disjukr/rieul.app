@@ -66,8 +66,6 @@ export enum ProcId {
   ListAgentSessionTurns = 61,
   ReadAgentTerminalOutput = 62,
   AttachAgentSession = 63,
-  GetUpdateStatus = 64,
-  RequestUpdate = 65,
   GetDesktopCapabilities = 66,
   AttachDesktop = 67,
   ConfigureDesktopViewports = 68,
@@ -75,6 +73,9 @@ export enum ProcId {
   RenewDesktopLease = 70,
   DetachDesktop = 71,
   WriteDesktopInput = 72,
+  SubscribeUpdateStatus = 73,
+  CheckForUpdates = 74,
+  InstallUpdateConfirmed = 75,
 }
 
 export interface SubscribeWindowDetailReq {
@@ -974,28 +975,23 @@ export enum UpdatePhase {
   Failed = 9,
 }
 
-export enum UpdateAction {
-  Check = 1,
-  InstallConfirmed = 2,
-}
-
-export interface RequestUpdateReq {
-  action: UpdateAction;
-  confirmed: boolean;
-}
-
 export interface UpdateStatus {
   phase: UpdatePhase;
   currentVersion?: string;
   targetVersion?: string;
   reason?: string;
   canInstall: boolean;
+  ordering: UpdateStatusOrdering;
+}
+
+export interface UpdateStatusOrdering {
+  epoch: string;
+  revision: number;
 }
 
 export type UpdateError =
   | { type: "failed"; message: string }
   | { type: "permissionDenied"; message: string }
-  | { type: "confirmationRequired"; message: string }
 ;
 
 export interface CommandLaunchSpec {
@@ -2698,30 +2694,6 @@ export const attachAgentSessionProc: ProcCodec<AttachAgentSessionReq, AgentSessi
   decodeError: decodeAgentRpcErrorValue,
 };
 
-export const getUpdateStatusProc: ProcCodec<undefined, UpdateStatus, UpdateError> = {
-  id: ProcId.GetUpdateStatus,
-  name: "GetUpdateStatus",
-  stream: "unary",
-  requestType: "void",
-  responseType: "UpdateStatus",
-  errorType: "UpdateError",
-  encodeRequest: encodeVoidValue,
-  decodeResponse: decodeUpdateStatusValue,
-  decodeError: decodeUpdateErrorValue,
-};
-
-export const requestUpdateProc: ProcCodec<RequestUpdateReq, UpdateStatus, UpdateError> = {
-  id: ProcId.RequestUpdate,
-  name: "RequestUpdate",
-  stream: "unary",
-  requestType: "RequestUpdateReq",
-  responseType: "UpdateStatus",
-  errorType: "UpdateError",
-  encodeRequest: encodeRequestUpdateReqValue,
-  decodeResponse: decodeUpdateStatusValue,
-  decodeError: decodeUpdateErrorValue,
-};
-
 export const getDesktopCapabilitiesProc: ProcCodec<undefined, DesktopCapabilities, DesktopError> = {
   id: ProcId.GetDesktopCapabilities,
   name: "GetDesktopCapabilities",
@@ -2806,6 +2778,42 @@ export const writeDesktopInputProc: ProcCodec<DesktopInputFrame, DesktopInputRec
   decodeError: decodeDesktopErrorValue,
 };
 
+export const subscribeUpdateStatusProc: ProcCodec<undefined, UpdateStatus, UpdateError> = {
+  id: ProcId.SubscribeUpdateStatus,
+  name: "SubscribeUpdateStatus",
+  stream: "server",
+  requestType: "void",
+  responseType: "UpdateStatus",
+  errorType: "UpdateError",
+  encodeRequest: encodeVoidValue,
+  decodeResponse: decodeUpdateStatusValue,
+  decodeError: decodeUpdateErrorValue,
+};
+
+export const checkForUpdatesProc: ProcCodec<undefined, UpdateStatus, UpdateError> = {
+  id: ProcId.CheckForUpdates,
+  name: "CheckForUpdates",
+  stream: "unary",
+  requestType: "void",
+  responseType: "UpdateStatus",
+  errorType: "UpdateError",
+  encodeRequest: encodeVoidValue,
+  decodeResponse: decodeUpdateStatusValue,
+  decodeError: decodeUpdateErrorValue,
+};
+
+export const installUpdateConfirmedProc: ProcCodec<undefined, UpdateStatus, UpdateError> = {
+  id: ProcId.InstallUpdateConfirmed,
+  name: "InstallUpdateConfirmed",
+  stream: "unary",
+  requestType: "void",
+  responseType: "UpdateStatus",
+  errorType: "UpdateError",
+  encodeRequest: encodeVoidValue,
+  decodeResponse: decodeUpdateStatusValue,
+  decodeError: decodeUpdateErrorValue,
+};
+
 export const procs = {
   [ProcId.GetDaemonInfo]: getDaemonInfoProc,
   [ProcId.StartPairing]: startPairingProc,
@@ -2870,8 +2878,6 @@ export const procs = {
   [ProcId.ListAgentSessionTurns]: listAgentSessionTurnsProc,
   [ProcId.ReadAgentTerminalOutput]: readAgentTerminalOutputProc,
   [ProcId.AttachAgentSession]: attachAgentSessionProc,
-  [ProcId.GetUpdateStatus]: getUpdateStatusProc,
-  [ProcId.RequestUpdate]: requestUpdateProc,
   [ProcId.GetDesktopCapabilities]: getDesktopCapabilitiesProc,
   [ProcId.AttachDesktop]: attachDesktopProc,
   [ProcId.ConfigureDesktopViewports]: configureDesktopViewportsProc,
@@ -2879,6 +2885,9 @@ export const procs = {
   [ProcId.RenewDesktopLease]: renewDesktopLeaseProc,
   [ProcId.DetachDesktop]: detachDesktopProc,
   [ProcId.WriteDesktopInput]: writeDesktopInputProc,
+  [ProcId.SubscribeUpdateStatus]: subscribeUpdateStatusProc,
+  [ProcId.CheckForUpdates]: checkForUpdatesProc,
+  [ProcId.InstallUpdateConfirmed]: installUpdateConfirmedProc,
 } as const;
 
 export function encodeSubscribeWindowDetailReqValue(value: SubscribeWindowDetailReq): CborValue {
@@ -7073,31 +7082,6 @@ export function decodeUpdatePhaseValue(value: CborValue): UpdatePhase {
   return id as UpdatePhase;
 }
 
-export function encodeUpdateActionValue(value: UpdateAction): CborValue {
-  return integer(value);
-}
-
-export function decodeUpdateActionValue(value: CborValue): UpdateAction {
-  const id = integer(value);
-  if (![1, 2].includes(id)) throw new Error(`unknown UpdateAction variant ${id}`);
-  return id as UpdateAction;
-}
-
-export function encodeRequestUpdateReqValue(value: RequestUpdateReq): CborValue {
-  const fields = new Map<number, CborValue>();
-  fields.set(1, encodeUpdateActionValue(required(value.action, "RequestUpdateReq.action")));
-  fields.set(2, bool(required(value.confirmed, "RequestUpdateReq.confirmed")));
-  return fields;
-}
-
-export function decodeRequestUpdateReqValue(value: CborValue): RequestUpdateReq {
-  const fields = expectMap(value);
-  return {
-    action: fieldOrDefault(fields.get(1), (value) => decodeUpdateActionValue(value), () => UpdateAction.Check),
-    confirmed: fieldOrDefault(fields.get(2), (value) => boolValue(value), () => false),
-  };
-}
-
 export function encodeUpdateStatusValue(value: UpdateStatus): CborValue {
   const fields = new Map<number, CborValue>();
   fields.set(1, encodeUpdatePhaseValue(required(value.phase, "UpdateStatus.phase")));
@@ -7105,6 +7089,7 @@ export function encodeUpdateStatusValue(value: UpdateStatus): CborValue {
   if (value.targetVersion !== undefined) fields.set(3, text(value.targetVersion));
   if (value.reason !== undefined) fields.set(4, text(value.reason));
   fields.set(5, bool(required(value.canInstall, "UpdateStatus.canInstall")));
+  fields.set(6, encodeUpdateStatusOrderingValue(required(value.ordering, "UpdateStatus.ordering")));
   return fields;
 }
 
@@ -7116,6 +7101,22 @@ export function decodeUpdateStatusValue(value: CborValue): UpdateStatus {
     targetVersion: optionalField(fields.get(3), (value) => textValue(value)),
     reason: optionalField(fields.get(4), (value) => textValue(value)),
     canInstall: fieldOrDefault(fields.get(5), (value) => boolValue(value), () => false),
+    ordering: fieldOrDefault(fields.get(6), (value) => decodeUpdateStatusOrderingValue(value), () => defaultUpdateStatusOrdering()),
+  };
+}
+
+export function encodeUpdateStatusOrderingValue(value: UpdateStatusOrdering): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, text(required(value.epoch, "UpdateStatusOrdering.epoch")));
+  fields.set(2, u53(required(value.revision, "UpdateStatusOrdering.revision")));
+  return fields;
+}
+
+export function decodeUpdateStatusOrderingValue(value: CborValue): UpdateStatusOrdering {
+  const fields = expectMap(value);
+  return {
+    epoch: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+    revision: fieldOrDefault(fields.get(2), (value) => integer(value), () => 0),
   };
 }
 
@@ -7131,11 +7132,6 @@ export function encodeUpdateErrorValue(value: UpdateError): CborValue {
       fields.set(1, text(required(value.message, "UpdateError.PermissionDenied.message")));
       return [1, fields];
     }
-    case "confirmationRequired": {
-      const fields = new Map<number, CborValue>();
-      fields.set(1, text(required(value.message, "UpdateError.ConfirmationRequired.message")));
-      return [2, fields];
-    }
   }
 }
 
@@ -7150,11 +7146,6 @@ export function decodeUpdateErrorValue(value: CborValue): UpdateError {
     case 1:
       return {
         type: "permissionDenied",
-        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
-      };
-    case 2:
-      return {
-        type: "confirmationRequired",
         message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
       };
   }
@@ -11974,17 +11965,18 @@ function defaultRemoveClientError(): RemoveClientError {
   };
 }
 
-function defaultRequestUpdateReq(): RequestUpdateReq {
-  return {
-    action: UpdateAction.Check,
-    confirmed: false,
-  };
-}
-
 function defaultUpdateStatus(): UpdateStatus {
   return {
     phase: UpdatePhase.Unavailable,
     canInstall: false,
+    ordering: defaultUpdateStatusOrdering(),
+  };
+}
+
+function defaultUpdateStatusOrdering(): UpdateStatusOrdering {
+  return {
+    epoch: "",
+    revision: 0,
   };
 }
 
