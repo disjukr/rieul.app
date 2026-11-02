@@ -36,6 +36,13 @@ if [[ -e "$legacy_agent" || -L "$legacy_agent" ]]; then
   echo "Installation deferred: explicitly retire $legacy_agent in the maintenance window." >&2
   exit 1
 fi
+background_without_gui() {
+  local uid="$1" text
+  text="$(/bin/launchctl print "user/$uid" 2>&1)" || return 1
+  [[ "$text" == "user/$uid = {"$'\n'* && "$text" == *'}' ]] || return 1
+  [[ "$text" == *$'\n\ttype = user\n'* && "$text" == *"$(printf '\n\thandle = %s\n' "$uid")"* ]] || return 1
+  [[ "$text" != *'gui asid'* && "$text" != *'subdomains ='* ]]
+}
 uids="$(/bin/ps -axo uid=)"
 for uid in $(printf '%s\n' "$uids" | /usr/bin/sort -un); do
   [[ "$uid" =~ ^[0-9]+$ ]] || exit 1
@@ -51,6 +58,17 @@ for uid in $(printf '%s\n' "$uids" | /usr/bin/sort -un); do
     fi
     if [[ ( "$code" == 112 || "$code" == 113 ) && "$output" == "$(printf 'Bad request.\nCould not find domain for user gui: %s' "$uid")" ]]; then
       continue
+    fi
+    if [[ "$code" == 125 && "$output" == 'Could not print domain: 125: Domain does not support specified action' ]] && background_without_gui "$uid"; then
+      if output="$(/bin/launchctl print "user/$uid/app.rieul.user" 2>&1)"; then
+        echo "Legacy background user agent is registered for $uid; explicit retirement required." >&2
+        exit 1
+      else
+        code=$?
+        if [[ "$code" == 113 && "$output" == *'Could not find service'* ]] && background_without_gui "$uid"; then
+          continue
+        fi
+      fi
     fi
     echo "Cannot establish legacy user-agent absence for $target (status $code); refusing installation." >&2
     exit 1

@@ -19,7 +19,13 @@ It also rejects a retained `/Library/LaunchAgents/app.rieul.user.plist`
 (including dangling links) or any observed `gui/<uid>/app.rieul.user` job.
 Migration repeats that legacy-agent check before GUI finalization/policy activation,
 including on recovery. Only explicit service/domain absence is accepted; ambiguous
-inspection (including status 125) fails closed. An administrator must explicitly
+inspection fails closed. Status 125 alone is not absence evidence. For the exact
+observed unsupported-domain response, migration additionally requires a successful
+matching user-domain print with no GUI ASID/subdomains, an absent legacy user job,
+and a repeated no-GUI association check. Unknown formats or an association fail.
+This uses the installed Apple launchctl(1) contract that associated user-login
+domains have their ASID displayed; background and GUI service sets are distinct.
+An administrator must explicitly
 retire the old agent in the maintenance window; no unknown job is terminated.
 Old releases lack a trustworthy idle/drain barrier: an explicitly arranged
 maintenance window is required. It does not kill legacy work. Existing protected

@@ -324,6 +324,17 @@ fn finish_gui_sessions(
     Ok(())
 }
 
+// launchctl(1) documents that user-domain print includes the GUI ASID when
+// associated with a login domain. Status 125 alone is never absence evidence.
+fn background_domain_without_gui(uid: u32, code: i32, text: &str) -> bool {
+    code == 0
+        && text.starts_with(&format!("user/{uid} = {{\n"))
+        && text.trim_end().ends_with('}')
+        && text.lines().any(|line| line == "\ttype = user")
+        && text.lines().any(|line| line == format!("\thandle = {uid}"))
+        && !text.contains("gui asid")
+        && !text.contains("subdomains =")
+}
 // Repeat before policy activation, including resumed migrations. A plist/job
 // introduced after installer preflight cannot silently survive migration.
 fn require_legacy_agent_absent(
@@ -344,8 +355,34 @@ fn require_legacy_agent_absent(
             || ((code == 112 || code == 113)
                 && text.trim()
                     == format!("Bad request.\nCould not find domain for user gui: {uid}"));
-        ensure!(
-            absent,
+        if absent {
+            continue;
+        }
+        if code == 125
+            && text.trim()
+                == "Could not print domain: 125: Domain does not support specified action"
+        {
+            let domain = format!("user/{uid}");
+            let (domain_code, domain_text) = inspect(&domain)?;
+            ensure!(
+                background_domain_without_gui(uid, domain_code, &domain_text),
+                "cannot prove no GUI association for {domain}"
+            );
+            // User and GUI service sets are distinct; also reject an old job
+            // loaded directly into the background user domain.
+            let (job_code, job_text) = inspect(&format!("{domain}/app.rieul.user"))?;
+            ensure!(
+                job_code == 113 && job_text.contains("Could not find service"),
+                "legacy background user job not absent"
+            );
+            let (again_code, again_text) = inspect(&domain)?;
+            ensure!(
+                background_domain_without_gui(uid, again_code, &again_text),
+                "user acquired GUI association during legacy check"
+            );
+            continue;
+        }
+        anyhow::bail!(
             "explicit maintenance retirement/absence verification required for {target} ({code})"
         );
     }
@@ -721,6 +758,70 @@ mod tests {
             }
         })
         .unwrap();
+    }
+    #[test]
+    fn status_125_requires_background_domain_proof_and_absent_user_job() {
+        let background = "user/55 = {\n\ttype = user\n\thandle = 55\n}\n";
+        for (user_job, associated, malformed) in [
+            (false, false, false),
+            (true, false, false),
+            (false, true, false),
+            (false, false, true),
+        ] {
+            let result = require_legacy_agent_absent(false, vec![55], |target| {
+                Ok(match target {
+                    "gui/55/app.rieul.user" => (
+                        125,
+                        "Could not print domain: 125: Domain does not support specified action"
+                            .into(),
+                    ),
+                    "user/55/app.rieul.user" => {
+                        if user_job {
+                            (0, "registered".into())
+                        } else {
+                            (113, "Could not find service".into())
+                        }
+                    }
+                    "user/55" => (
+                        0,
+                        if associated {
+                            background.replace("}", "\tgui asid = 123\n}")
+                        } else if malformed {
+                            "unknown format".into()
+                        } else {
+                            background.into()
+                        },
+                    ),
+                    _ => unreachable!(),
+                })
+            });
+            assert_eq!(result.is_ok(), !user_job && !associated && !malformed);
+        }
+        let mut prints = 0;
+        assert!(
+            require_legacy_agent_absent(false, vec![55], |target| {
+                Ok(if target == "gui/55/app.rieul.user" {
+                    (
+                        125,
+                        "Could not print domain: 125: Domain does not support specified action"
+                            .into(),
+                    )
+                } else if target.ends_with("app.rieul.user") {
+                    (113, "Could not find service".into())
+                } else {
+                    prints += 1;
+                    (
+                        0,
+                        if prints == 1 {
+                            background.into()
+                        } else {
+                            background.replace("}", "\tsubdomains = { gui/55 }\n}")
+                        },
+                    )
+                })
+            })
+            .is_err()
+        );
     }
     struct LiveWorker;
     impl Control for LiveWorker {

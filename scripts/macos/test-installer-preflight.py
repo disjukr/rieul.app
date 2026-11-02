@@ -16,6 +16,13 @@ with tempfile.TemporaryDirectory() as name:
     fake.write_text('''#!/bin/bash
 printf '%s\\n' "$*" >> "$CALLS"
 if [[ "$SCENARIO" == legacyjob && "$2" == gui/501/app.rieul.user ]]; then echo registered; exit 0; fi
+if [[ "$SCENARIO" == background* ]]; then
+  case "$2" in
+    gui/501/app.rieul.user) echo 'Could not print domain: 125: Domain does not support specified action'; exit 125;;
+    user/501) printf 'user/501 = {\\n\\ttype = user\\n\\thandle = 501\\n'; [[ "$SCENARIO" != background_gui ]] || printf '\\tgui asid = 123\\n'; echo '}'; exit 0;;
+    user/501/app.rieul.user) if [[ "$SCENARIO" == background_job ]]; then echo registered; exit 0; fi;;
+  esac
+fi
 case "$SCENARIO" in
  running) echo 'state = running'; exit 0;;
  ambiguous) echo 'Operation not permitted'; exit 1;;
@@ -26,12 +33,12 @@ esac
     fake.chmod(0o755)
     script = tmp / 'guard'
     script.write_text(source.replace('/bin/ps', str(ps)).replace('/Library/LaunchAgents', str(tmp / 'agents')).replace('/bin/launchctl', str(fake)).replace('/Library/Application Support/rieul', str(tmp / 'data')).replace('/Library/LaunchDaemons', str(tmp / 'launchdaemons')))
-    for scenario, expected in [('running', 1), ('ambiguous', 1), ('wrong113', 1), ('absent', 0), ('legacyjob', 1)]:
+    for scenario, expected in [('running', 1), ('ambiguous', 1), ('wrong113', 1), ('absent', 0), ('legacyjob', 1), ('background', 0), ('background_gui', 1), ('background_job', 1)]:
         calls = tmp / 'calls'
         calls.write_text('')
         result = subprocess.run(['/bin/bash', str(script)], env={**os.environ, 'SCENARIO': scenario, 'CALLS': str(calls)}, capture_output=True, text=True)
         assert result.returncode == expected, (scenario, result.stderr)
-        assert all(line.startswith(('print system/app.rieul.', 'print gui/501/app.rieul.user')) for line in calls.read_text().splitlines())
+        assert all(line.startswith(('print system/app.rieul.', 'print gui/501/app.rieul.user', 'print user/501')) for line in calls.read_text().splitlines())
     (tmp / 'launchdaemons').mkdir()
     legacy = tmp / 'launchdaemons/app.rieul.daemon.plist'
     legacy.write_text('stopped legacy registration')
