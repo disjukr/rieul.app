@@ -74,6 +74,8 @@ jobs:
         run: node scripts/macos-native-qa.mjs
       # Temporary-file/fake-service fixtures only: never install or register the
       # updater here. Signed root launchd/reboot integration remains a separate gate.
+      - name: Test installer maintenance guard without service changes
+        run: python3 scripts/macos/test-installer-preflight.py
       - name: Test updater recovery and server drain without service installation
         run: |
           cargo test -p rieul-macos-daemon --lib architecture --locked
@@ -87,6 +89,7 @@ jobs:
           GUI=$(find "$RUNNER_TEMP/rieul-expanded" -path '*/Rieul.app/Contents/MacOS/rieul-gui' -type f -print -quit)
           test -n "$GUI"
           "$GUI" --verify-bundle
+          python3 scripts/macos/test-installer-preflight.py "${GUI%/Contents/MacOS/rieul-gui}"
           codesign --verify --deep --strict "${GUI%/Contents/MacOS/rieul-gui}"
           (cd pairing && RIEUL_GUI_EXECUTABLE="$GUI" node scripts/macos-native-qa.mjs)
       - name: Verify root-owned update archive as an unprivileged user

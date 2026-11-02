@@ -232,6 +232,7 @@ if new_icns_from_svg \
   <string>rieul</string>"
 fi
 
+INSTALL_PREFLIGHT="$(cat "$SCRIPT_DIR/installer-preflight.sh")"
 cat >"$APP_PATH/Contents/Resources/install" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
@@ -265,16 +266,15 @@ if [[ ! -d "\$SOURCE_APP" ]]; then
   exit 1
 fi
 
+
+$INSTALL_PREFLIGHT
+
 echo "Installing \$DEST_APP"
 /bin/mkdir -p "\$APP_SUPPORT_DIR" "\$LOG_DIR"
-/usr/sbin/chown -R root:wheel "\$APP_SUPPORT_DIR"
+/usr/sbin/chown root:wheel "\$APP_SUPPORT_DIR"
 /bin/chmod 0755 "\$APP_SUPPORT_DIR"
 /usr/sbin/chown root:wheel "\$LOG_DIR"
 /bin/chmod 1777 "\$LOG_DIR"
-
-/bin/launchctl bootout system "\$SYSTEM_PLIST" >/dev/null 2>&1 || true
-/bin/launchctl bootout system "\$LEGACY_SYSTEM_PLIST" >/dev/null 2>&1 || true
-/bin/rm -f "\$LEGACY_SYSTEM_PLIST"
 
 console_user="\$(/usr/bin/stat -f %Su /dev/console 2>/dev/null || true)"
 console_uid=""
@@ -298,9 +298,24 @@ fi
 /bin/cp "\$DEST_APP/Contents/Resources/\$SYSTEM_LABEL.plist" "\$SYSTEM_PLIST"
 /usr/sbin/chown root:wheel "\$SYSTEM_PLIST"
 /bin/chmod 0644 "\$SYSTEM_PLIST"
-/bin/launchctl bootstrap system "\$SYSTEM_PLIST" >/dev/null 2>&1 || true
-/bin/launchctl enable "system/\$SYSTEM_LABEL" >/dev/null 2>&1 || true
-/bin/launchctl kickstart -k "system/\$SYSTEM_LABEL" >/dev/null 2>&1 || true
+# The root daemon is never started from the public app entry. The migration
+# validates the signed candidate, installs a protected runtime and enables policy
+# only after bound readiness. It returns after worker submission, not completion.
+"\$SYSTEM_DAEMON_EXE" migrate-updater
+migration_state="\$APP_SUPPORT_DIR/updates"
+completed=0
+for ((attempt=0; attempt<180; attempt++)); do
+  if [[ ! -e "\$migration_state/migration.json" && -f "\$migration_state/migration-result.json" && -f "\$migration_state/policy.json" ]] &&
+     [[ "\$(/usr/bin/plutil -extract enabled raw -o - "\$migration_state/policy.json" 2>/dev/null)" == true ]]; then
+    completed=1
+    break
+  fi
+  /bin/sleep 1
+done
+if [[ "\$completed" != 1 ]]; then
+  echo "Migration is not complete. Preserve updater state and retry the signed migrate-updater command; do not restart the legacy service." >&2
+  exit 1
+fi
 
 /bin/rm -f "\$LEGACY_LAUNCH_AGENT_PLIST"
 /bin/cp "\$DEST_APP/Contents/Resources/\$GUI_LABEL.plist" "\$GUI_PLIST"
@@ -400,7 +415,7 @@ cat >"$APP_PATH/Contents/Resources/$SYSTEM_LABEL.plist" <<EOF
   <string>app.rieul</string>
   <key>ProgramArguments</key>
   <array>
-    <string>$SYSTEM_DAEMON_EXE</string>
+    <string>$APP_SUPPORT_DIR/service/rieul-macos-system</string>
     <string>run</string>
   </array>
   <key>RunAtLoad</key>
@@ -477,6 +492,7 @@ codesign "${codesign_args[@]}" \
   "$APP_PATH/Contents/Library/LaunchServices/rieul-macos-system"
 codesign "${codesign_args[@]}" \
   "$APP_PATH/Contents/MacOS/rieul-macos-launcher"
+python3 "$SCRIPT_DIR/update-artifact.py" manifest "$APP_PATH"
 codesign "${codesign_args[@]}" "$APP_PATH"
 "$APP_PATH/Contents/MacOS/rieul-gui" --verify-bundle
 codesign --verify --deep --strict --verbose=2 "$APP_PATH"

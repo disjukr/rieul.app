@@ -2,7 +2,41 @@
 
 > Historical design/checkpoint notes below: the newest checkpoint is authoritative.
 
-## Current status
+## Release integration checkpoint (2026-11-02)
+
+The updater and GPUI lifecycle were validated on the isolated single-user VM
+at source 7596dcb (two consecutive commits, rollback and interrupted reboot).
+The subsequent 40f72789 GUI recovery corrections passed independent review and
+synthetic multi-user regressions; actual simultaneous login sessions remain untested.
+
+Official packaging now seals the update manifest after nested executable signing.
+The release workflow notarizes/staples the app itself, creates the fixed
+`rieul-macos-update.tar` plus SHA256, and wraps that same app in the independently
+signed/notarized PKG. Existing Developer ID/notary credentials are reused.
+
+The installer refuses registered legacy/system jobs before PKG payload replacement
+and repeats that guard in the bundled installer. Old releases lack a trustworthy
+idle/drain barrier: an explicitly arranged maintenance window is required. The
+installer does not kill legacy server work. Existing protected updater state also
+blocks installer overwrite; use normal update RPC or recover the existing migration.
+The bundled installer starts only the protected-runtime migration, waits for its
+completion and enabled policy, and never bootstraps root execution from the app.
+An interrupted first migration recovers forward via the signed migrate-updater
+command. It must not be repaired by restarting the old public-bundle root job.
+
+First-install administrator changes are limited to the signed app installation,
+fixed LaunchDaemon/LaunchAgent registrations, protected service executable,
+root-private updater state/policy and public-read GUI barrier. Existing configuration,
+pairing and database files are retained and are not recursively chowned. A missing
+fresh-install DB is initialized by the verified daemon; existing DB/sidecars must
+pass protected read-only validation and compatible schema checks. Policy becomes
+enabled only after nonce/PID/hash-bound readiness attests database schema 2.
+
+This checkpoint does not authorize host installation or certify the new installer
+against a newly signed fixture. Host 0.6.13 currently has a login child; application
+is deferred, and partial process visibility is not evidence of zero connections.
+
+## Historical initial status
 
 Local, incomplete implementation on `issue-45-update-preflight`; not published,
 installed, activated, or ready to close #45. The previous Sparkle/SMAppService
@@ -173,7 +207,6 @@ checked installed applications/PATH. No VM or new software was installed. A
 snapshot-capable isolated macOS VM with synthetic pairing/data, no host mounts,
 and no imported signing credentials is the intended destructive lifecycle test
 location; prepare notarized fixture artifacts through the approved release path.
-
 
 ## Paused checkpoint for the Solid signal migration (2026-11-01)
 

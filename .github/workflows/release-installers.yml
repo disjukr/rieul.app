@@ -194,7 +194,7 @@ jobs:
           echo "APP_SIGN_IDENTITY=$app_sign_identity" >>"$GITHUB_ENV"
           echo "INSTALLER_SIGN_IDENTITY=$installer_sign_identity" >>"$GITHUB_ENV"
 
-      - name: Build and sign macOS installer
+      - name: Build and sign macOS app
         shell: bash
         env:
           RELEASE_TAG: ${{ github.event.release.tag_name }}
@@ -206,10 +206,8 @@ jobs:
           fi
           version="${BASH_REMATCH[1]}"
           echo "MACOS_RELEASE_VERSION=$version" >>"$GITHUB_ENV"
-          ./scripts/macos/package-desktop-pkg.sh \
-            --version "$version" \
-            --app-sign "$APP_SIGN_IDENTITY" \
-            --installer-sign "$INSTALLER_SIGN_IDENTITY"
+          ./scripts/macos/package-desktop-dmg.sh \
+            --version "$version" --skip-dmg --sign "$APP_SIGN_IDENTITY"
 
       - name: Verify macOS signatures
         shell: bash
@@ -220,7 +218,6 @@ jobs:
           pkg_path="dist/macos/$package_base_name.pkg"
 
           codesign --verify --deep --strict --verbose=2 "$app_path"
-          pkgutil --check-signature "$pkg_path"
 
       - name: Verify Developer ID signed native GUI lifecycle
         shell: bash
@@ -229,6 +226,40 @@ jobs:
           export RIEUL_GUI_EXECUTABLE="$PWD/dist/macos/rieul-macos-desktop-$MACOS_RELEASE_VERSION-app/Rieul.app/Contents/MacOS/rieul-gui"
           cd pairing
           node scripts/macos-native-qa.mjs
+
+      - name: Notarize app and prepare fixed updater archive
+        shell: bash
+        env:
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          app_path="$PWD/dist/macos/rieul-macos-desktop-$MACOS_RELEASE_VERSION-app/Rieul.app"
+          # The updater needs an independently stapled app; the PKG ticket alone
+          # does not make an extracted update archive assessable offline.
+          test ! -e "$app_path/Contents/Resources/vm-test-only.json"
+          codesign --verify --deep --strict -R '=anchor apple generic and identifier "app.rieul" and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = "D379GLRLPV"' "$app_path"
+          codesign --verify --strict -R '=anchor apple generic and identifier "rieul-macos-system" and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = "D379GLRLPV"' "$app_path/Contents/Library/LaunchServices/rieul-macos-system"
+          ditto -c -k --keepParent "$app_path" "$RUNNER_TEMP/rieul-update-notarize.zip"
+          xcrun notarytool submit "$RUNNER_TEMP/rieul-update-notarize.zip" --key "$RUNNER_TEMP/notary-api-key.p8" --key-id "$APPLE_API_KEY_ID" --issuer "$APPLE_API_ISSUER_ID" --wait
+          xcrun stapler staple "$app_path"
+          xcrun stapler validate "$app_path"
+          codesign --verify --deep --strict "$app_path"
+          spctl --assess --type execute --verbose=2 "$app_path"
+          python3 scripts/macos/update-artifact.py archive "$app_path" --output dist/macos/rieul-macos-update.tar
+          (cd dist/macos && shasum -a 256 rieul-macos-update.tar > rieul-macos-update.tar.sha256)
+
+      - name: Package the same stapled app without resigning
+        shell: bash
+        run: |
+          set -euo pipefail
+          app_path="$PWD/dist/macos/rieul-macos-desktop-$MACOS_RELEASE_VERSION-app/Rieul.app"
+          ./scripts/macos/package-desktop-pkg.sh --version "$MACOS_RELEASE_VERSION" --prepared-app "$app_path" --installer-sign "$INSTALLER_SIGN_IDENTITY"
+          pkgutil --check-signature "dist/macos/rieul-macos-desktop-$MACOS_RELEASE_VERSION.pkg"
+          # Verify the installed payload retains its own app notarization ticket.
+          payload="$PWD/dist/macos/rieul-macos-desktop-$MACOS_RELEASE_VERSION-pkg/verified-expanded/Payload/Applications/Rieul.app"
+          xcrun stapler validate "$payload"
+          codesign --verify --deep --strict "$payload"
 
       - name: Notarize macOS installer
         shell: bash
@@ -280,6 +311,8 @@ jobs:
           gh release upload "${{ github.event.release.tag_name }}" \
             dist/macos/rieul-macos-desktop.pkg \
             dist/macos/rieul-macos-desktop.pkg.sha256 \
+            dist/macos/rieul-macos-update.tar \
+            dist/macos/rieul-macos-update.tar.sha256 \
             --clobber
 
       - name: Remove signing credentials

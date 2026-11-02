@@ -9,6 +9,7 @@ APP_SIGN_IDENTITY=""
 INSTALLER_SIGN_IDENTITY=""
 SKIP_BUILD=0
 GUI_APP_OVERRIDE=""
+PREPARED_APP=""
 
 usage() {
   cat <<'EOF'
@@ -22,6 +23,7 @@ Options:
   --installer-sign IDENTITY     Developer ID Installer identity for the PKG.
   --skip-build                  Reuse target/release daemon binaries and native pairing app.
   --gui-app PATH                Candidate native app (requires --skip-build).
+  --prepared-app PATH           Reuse an already signed app without rebuilding or resigning.
   -h, --help                    Show this help.
 EOF
 }
@@ -51,6 +53,10 @@ while [[ $# -gt 0 ]]; do
     --skip-build)
       SKIP_BUILD=1
       shift
+      ;;
+    --prepared-app)
+      PREPARED_APP="${2:?missing value for --prepared-app}"
+      shift 2
       ;;
     --gui-app)
       GUI_APP_OVERRIDE="${2:?missing value for --gui-app}"
@@ -119,13 +125,21 @@ fi
 if [[ -n "$APP_SIGN_IDENTITY" ]]; then
   app_build_args+=(--sign "$APP_SIGN_IDENTITY")
 fi
-"$SCRIPT_DIR/package-desktop-dmg.sh" "${app_build_args[@]}"
+if [[ -z "$PREPARED_APP" ]]; then
+  "$SCRIPT_DIR/package-desktop-dmg.sh" "${app_build_args[@]}"
+fi
 
 PACKAGE_BASE_NAME="rieul-macos-desktop-$VERSION"
-APP_PATH="$OUT_DIR/$PACKAGE_BASE_NAME-app/$APP_NAME.app"
+APP_PATH="${PREPARED_APP:-$OUT_DIR/$PACKAGE_BASE_NAME-app/$APP_NAME.app}"
+if [[ -n "$PREPARED_APP" ]]; then
+  [[ -z "$APP_SIGN_IDENTITY" && -z "$GUI_APP_OVERRIDE" && ! -L "$APP_PATH" ]] || { echo "Prepared app must not be rebuilt/resigned or a symlink." >&2; exit 1; }
+  [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP_PATH/Contents/Info.plist")" == app.rieul ]]
+  [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP_PATH/Contents/Info.plist")" == "$VERSION" ]]
+  codesign --verify --deep --strict "$APP_PATH"
+fi
 PKG_STAGING_DIR="$OUT_DIR/$PACKAGE_BASE_NAME-pkg"
 PKG_ROOT="$PKG_STAGING_DIR/root"
-PKG_SCRIPTS="$SCRIPT_DIR/pkg-scripts"
+PKG_SCRIPTS="$PKG_STAGING_DIR/scripts"
 COMPONENT_PLIST="$PKG_STAGING_DIR/components.plist"
 PKG_PATH="$OUT_DIR/$PACKAGE_BASE_NAME.pkg"
 
@@ -135,7 +149,9 @@ if [[ ! -d "$APP_PATH" ]]; then
 fi
 
 rm -rf "$PKG_STAGING_DIR"
-mkdir -p "$PKG_ROOT/Applications"
+mkdir -p "$PKG_ROOT/Applications" "$PKG_SCRIPTS"
+cp "$SCRIPT_DIR/pkg-scripts/"* "$PKG_SCRIPTS/"
+cat "$SCRIPT_DIR/installer-preflight.sh" >> "$PKG_SCRIPTS/preinstall"
 /usr/bin/ditto "$APP_PATH" "$PKG_ROOT/Applications/$APP_NAME.app"
 
 for script in preinstall postinstall; do

@@ -133,6 +133,21 @@ fn resume(state: &Dir, steps: &mut impl Steps) -> Result<()> {
     state.discard_child("migration-app")?;
     Ok(())
 }
+// Only initial installation may lack a database. Existing files still go through
+// protected no-follow/read-only validation; readiness must attest schema 2 after
+// the daemon initializes a new database before policy activation.
+fn initial_database_schema(data: &Dir) -> Result<u32> {
+    if !data.exists("daemon-state.sqlite3")? {
+        ensure!(
+            !data.exists("daemon-state.sqlite3-wal")?
+                && !data.exists("daemon-state.sqlite3-shm")?,
+            "orphan database sidecars"
+        );
+        return Ok(super::DATABASE_SCHEMA);
+    }
+    super::preparation::database_schema(data)
+}
+
 /// Called only by an explicit root invocation during the approved installer.
 /// No command-line path, URL, version, identity or policy override is accepted.
 pub fn prepare() -> Result<()> {
@@ -170,7 +185,7 @@ pub fn prepare() -> Result<()> {
                 &stage,
                 Version::parse(&manifest.version)?,
                 Version(0, 0, 0),
-                super::preparation::database_schema(&data)?,
+                initial_database_schema(&data)?,
             )?;
             identity.app_dev = original.0;
             identity.app_ino = original.1;
@@ -366,6 +381,32 @@ pub(super) fn worker(state: &Dir) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn initial_database_absence_does_not_hide_corruption_or_sidecars() {
+        use std::os::unix::fs::{PermissionsExt, symlink};
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::set_permissions(tmp.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+        let dir = Dir::open(
+            &tmp.path().canonicalize().unwrap(),
+            unsafe { libc::geteuid() },
+            false,
+        )
+        .unwrap();
+        assert_eq!(
+            initial_database_schema(&dir).unwrap(),
+            super::super::DATABASE_SCHEMA
+        );
+        dir.create("daemon-state.sqlite3-wal", 0o600).unwrap();
+        assert!(initial_database_schema(&dir).is_err());
+        dir.remove("daemon-state.sqlite3-wal").unwrap();
+        symlink("missing", tmp.path().join("daemon-state.sqlite3")).unwrap();
+        assert!(initial_database_schema(&dir).is_err());
+        std::fs::remove_file(tmp.path().join("daemon-state.sqlite3")).unwrap();
+        let db = rusqlite::Connection::open(tmp.path().join("daemon-state.sqlite3")).unwrap();
+        db.pragma_update(None, "user_version", 3).unwrap();
+        drop(db);
+        assert_eq!(initial_database_schema(&dir).unwrap(), 3); // candidate validator must reject incompatible schema
+    }
     struct LiveWorker;
     impl Control for LiveWorker {
         fn sessions(&mut self) -> Result<Vec<u32>> {

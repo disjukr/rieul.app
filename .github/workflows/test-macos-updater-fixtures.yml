@@ -97,7 +97,9 @@ jobs:
             app="$RUNNER_TEMP/vm-build/rieul-macos-desktop-$version-app/Rieul.app"
             printf '{"vm_test_only":true,"reviewed_sha":"%s"}\n' "$REVIEWED_SHA" > "$app/Contents/Resources/vm-test-only.json"
             chmod 0644 "$app/Contents/Resources/vm-test-only.json"
-            python3 scripts/macos/update-artifact.py manifest "$app"
+            if [[ ! -e "$app/Contents/Resources/rieul-update.json" ]]; then
+              python3 scripts/macos/update-artifact.py manifest "$app"
+            fi
             codesign --force --options runtime --timestamp --sign "$APP_SIGN_IDENTITY" "$app"
             codesign --verify --deep --strict "$app"
             zip="$RUNNER_TEMP/notarize-$version.zip"
