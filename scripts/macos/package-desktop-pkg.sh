@@ -136,6 +136,10 @@ if [[ -n "$PREPARED_APP" ]]; then
   [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP_PATH/Contents/Info.plist")" == app.rieul ]]
   [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP_PATH/Contents/Info.plist")" == "$VERSION" ]]
   codesign --verify --deep --strict "$APP_PATH"
+  for binary in "$APP_PATH/Contents/Library/LaunchServices/rieul-macos-system" "$APP_PATH/Contents/MacOS/rieul-macos-launcher"; do
+    reported_version="$("$binary" --version)" || { echo "Cannot query prepared binary version: $binary" >&2; exit 1; }
+    [[ "$reported_version" == "$(basename "$binary") $VERSION" ]] || { echo "Prepared app build version mismatch: $reported_version" >&2; exit 1; }
+  done
 fi
 PKG_STAGING_DIR="$OUT_DIR/$PACKAGE_BASE_NAME-pkg"
 PKG_ROOT="$PKG_STAGING_DIR/root"

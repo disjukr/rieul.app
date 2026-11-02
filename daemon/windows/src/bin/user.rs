@@ -7,6 +7,7 @@ use rieul_windows_daemon::user_process::run_user_process;
 use std::path::PathBuf;
 
 #[derive(Debug, Parser)]
+#[command(version = rieul_daemon_core::rpc::daemon_build_version())]
 #[command(name = "rieul-windows-user")]
 #[command(about = "Windows user-session process for rieul")]
 struct Args {

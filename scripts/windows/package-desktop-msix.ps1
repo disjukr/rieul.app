@@ -287,6 +287,14 @@ if (-not (Test-Path -LiteralPath $SystemExe)) {
 if (-not (Test-Path -LiteralPath $UserExe)) {
   throw "Missing release binary: $UserExe"
 }
+# --SkipBuild must not relabel stale binaries with a new installer version.
+foreach ($binary in @($SystemExe, $UserExe)) {
+  $reportedVersion = (& $binary --version | Out-String).Trim()
+  $expectedVersion = "$( [IO.Path]::GetFileNameWithoutExtension($binary) ) $Version"
+  if ($LASTEXITCODE -ne 0 -or $reportedVersion -ne $expectedVersion) {
+    throw "Build version mismatch: $binary reports '$reportedVersion', expected '$expectedVersion'. Rebuild without -SkipBuild."
+  }
+}
 Assert-GuiBundle $GuiBundle
 
 if (Test-Path -LiteralPath $StagingDir) {

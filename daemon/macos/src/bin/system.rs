@@ -26,6 +26,7 @@ use rieul_macos_daemon::process_sockets::MacProcessSocketsInUseService;
 use tracing::info;
 
 #[derive(Debug, Parser)]
+#[command(version = rieul_daemon_core::rpc::daemon_build_version())]
 #[command(name = "rieul-macos-system")]
 #[command(about = "macOS system daemon for rieul")]
 struct Args {

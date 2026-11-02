@@ -17,6 +17,7 @@ use rieul_windows_daemon::process_sockets::WindowsProcessSocketsInUseService;
 use rieul_windows_daemon::terminal_ipc::WindowsUserTerminalBackend;
 
 #[derive(Debug, Parser)]
+#[command(version = rieul_daemon_core::rpc::daemon_build_version())]
 #[command(name = "rieul-windows-system")]
 #[command(about = "Windows system daemon for rieul")]
 struct Args {

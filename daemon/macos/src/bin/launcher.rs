@@ -8,6 +8,7 @@ use std::path::PathBuf;
 use std::process::Command as ProcessCommand;
 
 #[derive(Debug, Parser)]
+#[command(version = rieul_daemon_core::rpc::daemon_build_version())]
 #[command(name = "rieul-macos-launcher")]
 #[command(about = "macOS Rieul Desktop installer and daemon GUI launcher")]
 struct Args {

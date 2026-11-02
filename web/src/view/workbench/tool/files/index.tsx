@@ -113,6 +113,7 @@ export function FilesTool() {
   );
   const explorer = useBunja(explorerBunja);
   const initialFilesLocationAppliedRef = { current: false };
+  let homeGeneration = 0;
   const [homeError, setHomeError] = createSignal<string>();
   const [homePending, setHomePending] = createSignal(false);
   const [homeAttempt, setHomeAttempt] = createSignal(0);
@@ -165,22 +166,25 @@ export function FilesTool() {
       }
       if (!currentMachine || !currentIsPaired) return;
       let cancelled = false;
+      const generation = ++homeGeneration;
+      const stale = () => cancelled || generation !== homeGeneration;
       setHomePending(true);
       setHomeError(undefined);
       void (async () => {
         try {
           const transport = await currentRpcSession.webTransport();
+          if (stale()) return;
           const environment = await getDaemonEnvironment(transport);
-          if (cancelled) return;
+          if (stale()) return;
           if (!environment.homeDirectory)
             throw new Error("No logged-in user home is available.");
           initialFilesLocationAppliedRef.current = true;
           currentExplorer.replaceWithPath(environment.homeDirectory);
         } catch (error) {
-          if (cancelled) return;
+          if (stale()) return;
           setHomeError(error instanceof Error ? error.message : String(error));
         } finally {
-          if (!cancelled) setHomePending(false);
+          if (!stale()) setHomePending(false);
         }
       })();
       return () => {
@@ -243,21 +247,31 @@ export function FilesTool() {
         globalThis.removeEventListener("keydown", closeModalOnEscape);
     },
   );
+  function supersedeInitialHome() {
+    ++homeGeneration;
+    initialFilesLocationAppliedRef.current = true;
+    setHomePending(false);
+    setHomeError(undefined);
+  }
   function goBackFromToolbar() {
+    supersedeInitialHome();
     const currentGoBack = goBack();
     currentGoBack();
   }
   function goUpFromToolbar() {
+    supersedeInitialHome();
     const currentGoUp = goUp();
     currentGoUp();
   }
   function navigateFromToolbar(path?: string) {
+    supersedeInitialHome();
     const currentOpenedFile = openedFile();
     const currentNavigate = navigate();
     if (currentOpenedFile && path === currentOpenedFile.path) return;
     currentNavigate(path);
   }
   function openTableEntry(entry: FsEntry) {
+    supersedeInitialHome();
     const currentOpenEntry = openEntry();
     const currentSelectEntry = selectEntry();
     const currentPaneState = paneState();

@@ -1,7 +1,10 @@
 import "../../src/theme.css";
 import { render } from "@solidjs/web";
 import { createMemo, createSignal } from "solid-js";
-import type { AvailableShellInfo, FsEntry } from "../../src/protocol/generated/rpc.ts";
+import type {
+  AvailableShellInfo,
+  FsEntry,
+} from "../../src/protocol/generated/rpc.ts";
 import { bunja, override } from "bunja";
 import { TestBunjaStoreProvider } from "./bunja-store.tsx";
 import { FilesTool } from "../../src/view/workbench/tool/files/index.tsx";
@@ -34,7 +37,11 @@ import {
 } from "../../src/protocol/wire.ts";
 const params = new URLSearchParams(location.search);
 const metrics = { home: 0, trash: 0, mutation: 0 };
-Object.assign(window, { filesFixture: metrics });
+let finishHome: (() => void) | undefined;
+Object.assign(window, {
+  filesFixture: metrics,
+  finishHome: () => finishHome?.(),
+});
 const transport = {
   async createBidirectionalStream() {
     let controller: ReadableStreamDefaultController<Uint8Array>;
@@ -81,8 +88,18 @@ const transport = {
             metrics.mutation++;
             throw new Error(`Unexpected Files RPC ${message.procId}`);
           }
-          controller.enqueue(encodeReqResMessageSequence([{ kind, payload }]));
-          if (kind === ReqResMessageKind.ResponseUnaryOk) controller.close();
+          const respond = () => {
+            controller.enqueue(
+              encodeReqResMessageSequence([{ kind, payload }]),
+            );
+            if (kind === ReqResMessageKind.ResponseUnaryOk) controller.close();
+          };
+          if (
+            message.procId === ProcId.GetDaemonEnvironment &&
+            params.has("pending")
+          )
+            finishHome = respond;
+          else respond();
         },
       }),
     };
@@ -116,7 +133,10 @@ const overrides = [
   ),
   override(filesToolBunja, () => {
     const [terminalShells] = createSignal<AvailableShellInfo[]>([]);
-    return { terminalShells, defaultShell: createMemo(() => terminalShells()[0]) };
+    return {
+      terminalShells,
+      defaultShell: createMemo(() => terminalShells()[0]),
+    };
   }),
   override(explorerBunja, () => {
     const nav = bunja.use(explorerNavigationBunja);

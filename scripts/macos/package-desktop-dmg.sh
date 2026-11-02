@@ -171,6 +171,14 @@ if [[ ! -x "$LAUNCHER_EXE" ]]; then
   echo "Missing release binary: $LAUNCHER_EXE" >&2
   exit 1
 fi
+# Verify reused binaries too: installer metadata cannot relabel an older daemon.
+for binary in "$SYSTEM_EXE" "$LAUNCHER_EXE"; do
+  reported_version="$("$binary" --version)" || { echo "Cannot query build version: $binary" >&2; exit 1; }
+  [[ "$reported_version" == "$(basename "$binary") $VERSION" ]] || {
+    echo "Build version mismatch: $binary reports '$reported_version', expected '$VERSION'. Rebuild without --skip-build." >&2
+    exit 1
+  }
+done
 if [[ ! -d "$GUI_APP" ]]; then
   echo "Missing GPUI pairing app: $GUI_APP" >&2
   exit 1
