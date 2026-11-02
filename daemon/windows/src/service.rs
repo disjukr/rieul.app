@@ -254,6 +254,7 @@ fn run_server_until_shutdown(
         let pairing_notifier = UserGuiPairingNotifier::from_config_path(&options.config_path);
         let terminal_backend =
             WindowsUserTerminalBackend::new(profile_id_for_config_path(&options.config_path));
+        let desktop_backend=crate::desktop_ipc::proxy(&options.config_path);
         tokio::select! {
             result = run_system_server(
                 options.listen,
@@ -265,6 +266,7 @@ fn run_server_until_shutdown(
                 Some(Arc::new(WindowsProcessModulesService)),
                 Some(Arc::new(pairing_notifier)),
                 Some(Arc::new(terminal_backend)),
+                Some(desktop_backend),
                 "Windows system service",
             ) => result,
             _ = shutdown => Ok(()),

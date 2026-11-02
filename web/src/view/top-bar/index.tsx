@@ -70,6 +70,7 @@ export function TopBarRegion() {
       onOpenFilesTab={(event) => workbench().openFilesTab(event)}
       onOpenProcessesTab={() => workbench().openProcessesTab()}
       onOpenTerminalTab={(event) => workbench().openTerminalTab(event)}
+      onOpenDesktopTab={() => workbench().selectTool("desktop")}
       onOpenWindowsTab={() => workbench().openWindowsTab()}
       onSelectTab={(paneId, tabId) => workbench().selectTab(paneId, tabId)}
       onConfigureMachine={configureMachine}

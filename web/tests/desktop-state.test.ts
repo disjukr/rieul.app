@@ -122,3 +122,28 @@ test("replacement and unmount discard pending capability responses without recon
   assert.equal(f.opens(), 1);
   f.close();
 });
+
+test("available capture without a browser codec stays disconnected", async () => {
+  capabilities = async () => ({
+    profile: 1,
+    capture: DesktopAvailability.Available,
+    input: DesktopAvailability.Available,
+    codecs: [{ codec: "fixture", hardware: true }],
+    composition: false,
+    relativePointer: false,
+    maxViewports: 8,
+    maxInputFrameBytes: 16384,
+    maxInputStreamBytes: 8388608,
+  });
+  const f = fixture();
+  try {
+    await flush();
+    await f.value.connect();
+    await flush();
+    assert.equal(f.value.phase(), "unsupported");
+    assert.match(f.value.message()!, /no supported video codec/);
+    assert.equal(f.value.controlling(), false);
+  } finally {
+    f.close();
+  }
+});

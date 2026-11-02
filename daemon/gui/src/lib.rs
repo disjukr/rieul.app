@@ -6,3 +6,5 @@ compile_error!(
 pub mod bundle;
 pub mod controller;
 pub mod transport;
+
+pub mod desktop_helper;

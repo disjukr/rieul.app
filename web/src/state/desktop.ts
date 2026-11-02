@@ -1,3 +1,4 @@
+import { desktopCursorPng } from "../protocol/desktop-cursor.ts";
 import { copyDocumentStyles } from "../solid/popup-styles.ts";
 import { desktopEvents } from "../protocol/desktop-session.ts";
 import { bunja } from "bunja";
@@ -8,6 +9,7 @@ import {
   createRoot,
   getOwner,
   runWithOwner,
+  untrack,
 } from "solid-js";
 import { rpcSessionBunja } from "./rpc-session.ts";
 import {
@@ -23,6 +25,7 @@ import {
   DesktopKeyboardMode,
   ProcId,
   type DesktopConfiguration,
+  type DesktopCapabilities,
   type DesktopControl,
   type DesktopDisplay,
   type DesktopEvent,
@@ -79,6 +82,11 @@ export const desktopBunja = bunja(() => {
     attachTimeout: ReturnType<typeof setTimeout> | undefined;
   let configKey = "",
     configVersion = 0;
+  let offeredCodecs: string[] = [],
+    currentCodec = "",
+    h264Fallback = false;
+  let inputFeatures: Pick<DesktopCapabilities, "physicalKeys" | "wheelUnits"> =
+    {};
   const surfaces = new Map<string, Set<HTMLCanvasElement>>();
   const popups = new Map<Window, () => void>();
   function disconnect() {
@@ -99,6 +107,9 @@ export const desktopBunja = bunja(() => {
     transport = undefined;
     events = undefined;
     configKey = "";
+    offeredCodecs = [];
+    currentCodec = "";
+    inputFeatures = {};
     for (const [popup, cleanup] of popups) {
       cleanup();
       popup.close();
@@ -119,6 +130,15 @@ export const desktopBunja = bunja(() => {
     setPhase("idle");
   }
   function failed(error: unknown) {
+    if (
+      active &&
+      !h264Fallback &&
+      currentCodec.startsWith("av01.") &&
+      offeredCodecs.some((c) => /^avc[13]\./.test(c))
+    ) {
+      void connect(true);
+      return;
+    }
     disconnect();
     if (active) {
       setPhase("error");
@@ -141,6 +161,7 @@ export const desktopBunja = bunja(() => {
     const cleanup = bindDesktopInput(canvas, viewportId, send, () => ({
       active: controlling(),
       epoch: control().inputEpoch,
+      ...inputFeatures,
     }));
     return () => {
       cleanup();
@@ -158,22 +179,29 @@ export const desktopBunja = bunja(() => {
       popup.close();
     }
     popups.clear();
+    if (next.tracks.some((t) => !offeredCodecs.includes(t.codec.codec)))
+      throw new Error("Daemon selected an unoffered desktop codec");
+    currentCodec = next.tracks[0]?.codec.codec ?? "";
     await video?.configure(next);
     if (token !== generation) return;
     setConfiguration(next);
   }
-  async function configure(ids: string[]) {
-    if (!transport || !attachId() || busy()) return;
+  async function configure(
+    ids: string[],
+    attachment = attachId(),
+    layout?: DesktopDisplay[],
+  ) {
+    if (!transport || !attachment || (busy() && !layout)) return;
     const token = generation,
       version = ++configVersion;
     setBusy(true);
     try {
-      const selected = displays()
+      const selected = (layout ?? displays())
         .filter((d) => ids.includes(d.displayId))
         .slice(0, 8);
       const totalBitrate = 20_000_000;
       const next = await configureDesktopViewports(transport, {
-        attachId: attachId()!,
+        attachId: attachment,
         layoutEpoch,
         totalBitrate,
         viewports: selected.map((d) => {
@@ -206,8 +234,9 @@ export const desktopBunja = bunja(() => {
       if (token === generation) setBusy(false);
     }
   }
-  async function connect() {
+  async function connect(h264Only = false) {
     disconnect();
+    h264Fallback = h264Only;
     if (!active) return;
     const token = generation;
     setMessage(undefined);
@@ -225,7 +254,10 @@ export const desktopBunja = bunja(() => {
         );
         return;
       }
-      const codecs = await supportedDesktopCodecs(caps.codecs);
+      const supportedCodecs = await supportedDesktopCodecs(caps.codecs);
+      const codecs = h264Only
+        ? supportedCodecs.filter((c) => /^avc[13]\./.test(c))
+        : supportedCodecs;
       if (token !== generation) return;
       if (!codecs.length) {
         setPhase("unsupported");
@@ -234,6 +266,7 @@ export const desktopBunja = bunja(() => {
         );
         return;
       }
+      offeredCodecs = codecs;
       transport = nextTransport;
       eventsAbort = new AbortController();
       const iterator = desktopEvents(
@@ -262,6 +295,11 @@ export const desktopBunja = bunja(() => {
             }
             if (event.type === "attached") {
               clearTimeout(attachTimeout);
+              inputFeatures = {
+                physicalKeys: caps.physicalKeys,
+                wheelUnits: caps.wheelUnits,
+              };
+              setMessage(caps.reason);
               setInputReady(caps.input === DesktopAvailability.Available);
               setAttachId(event.attachId);
               setControl(event.control);
@@ -300,10 +338,16 @@ export const desktopBunja = bunja(() => {
                   ) {
                     lastStats = performance.now();
                     setStats(next);
+                    if (caps.feedback)
+                      input?.send({ type: "feedback", ...next });
                   }
                 },
                 (error) => {
                   if (token === generation) failed(error);
+                },
+                (codec) => {
+                  if (token === generation && codec.startsWith("av01."))
+                    failed(new Error("AV1 decoder failed"));
                 },
               );
               setPhase("viewing");
@@ -320,6 +364,8 @@ export const desktopBunja = bunja(() => {
               );
               await configure(
                 event.displays.slice(0, 8).map((d) => d.displayId),
+                event.attachId,
+                event.displays,
               );
             } else if (event.type === "control") {
               setControl(event.control);
@@ -332,6 +378,8 @@ export const desktopBunja = bunja(() => {
               setDisplays(event.displays);
               await configure(
                 event.displays.slice(0, 8).map((d) => d.displayId),
+                attachId(),
+                event.displays,
               );
             } else if (event.type === "cursor") setCursor(event);
             else if (event.type === "closed") throw new Error(event.reason);
@@ -404,12 +452,81 @@ export const desktopBunja = bunja(() => {
       "aria-label",
       `Remote display ${track.viewport.displayId}`,
     );
-    popup.document.body.append(note, canvas);
+    const frame = popup.document.createElement("div");
+    frame.className = "rieul-desktop-frame";
+    frame.style.position = "relative";
+    const cursorImage = popup.document.createElement("img");
+    cursorImage.alt = "";
+    cursorImage.className = "rieul-desktop-cursor";
+    Object.assign(cursorImage.style, {
+      position: "absolute",
+      pointerEvents: "none",
+      display: "none",
+    });
+    frame.append(canvas, cursorImage);
+    popup.document.body.append(note, frame);
+    let cursorUrl: string | undefined;
+    const stopCursor = runWithOwner(owner, () =>
+      createRoot((dispose) => {
+        createEffect(
+          createMemo(() => ({
+            cursor: cursor(),
+            displays: displays(),
+            configuration: configuration(),
+          })),
+          (snapshot) => {
+            if (cursorUrl) {
+              URL.revokeObjectURL(cursorUrl);
+              cursorUrl = undefined;
+            }
+            const c = snapshot.cursor,
+              d = snapshot.displays.find(
+                (d) => d.displayId === track.viewport.displayId,
+              ),
+              crop = track.viewport.crop;
+            const shape = c?.shape && desktopCursorPng(c.shape);
+            if (
+              !c?.visible ||
+              !shape ||
+              !d ||
+              c.layoutEpoch !== snapshot.configuration?.layoutEpoch ||
+              (c.displayId !== undefined && c.displayId !== d.displayId)
+            ) {
+              cursorImage.style.display = "none";
+              return;
+            }
+            const x = c.x - d.bounds.x - crop.x,
+              y = c.y - d.bounds.y - crop.y;
+            if (x < 0 || y < 0 || x >= crop.width || y >= crop.height) {
+              cursorImage.style.display = "none";
+              return;
+            }
+            cursorUrl = URL.createObjectURL(
+              new Blob([new Uint8Array(c.shape!)], { type: "image/png" }),
+            );
+            cursorImage.src = cursorUrl;
+            Object.assign(cursorImage.style, {
+              display: "block",
+              left: `${(x / crop.width) * 100}%`,
+              top: `${(y / crop.height) * 100}%`,
+              width: `${(shape.width / crop.width) * 100}%`,
+              transform: `translate(-${(c.hotspotX / shape.width) * 100}%, -${(c.hotspotY / shape.height) * 100}%)`,
+            });
+          },
+        );
+        return dispose;
+      }),
+    );
     const stopStyles = copyDocumentStyles(document, popup.document);
     const releaseSurface = registerSurface(viewportId, canvas);
     const cleanup = () => {
       releaseSurface();
       stopStyles();
+      stopCursor();
+      if (cursorUrl) {
+        URL.revokeObjectURL(cursorUrl);
+        cursorUrl = undefined;
+      }
     };
     popups.set(popup, cleanup);
     popup.addEventListener(
@@ -426,7 +543,7 @@ export const desktopBunja = bunja(() => {
     const dispose = runWithOwner(owner, () =>
       createRoot((dispose) => {
         createEffect(rpc.daemonInfo, () => {
-          disconnect();
+          untrack(disconnect);
           setMessage(undefined);
         });
         return dispose;
@@ -434,7 +551,7 @@ export const desktopBunja = bunja(() => {
     );
     return () => {
       active = false;
-      disconnect();
+      untrack(disconnect);
       dispose();
     };
   });

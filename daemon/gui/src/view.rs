@@ -903,6 +903,15 @@ pub fn run() -> anyhow::Result<()> {
     };
     let (tx, rx) = mpsc::channel();
     runtime.spawn(listener.run(tx));
+    // Fixture automation never starts a real desktop helper.
+    let _desktop_helper = if std::env::var("RIEUL_PAIRING_AUTOMATION").as_deref()==Ok("1") {
+        None
+    } else {
+        match rieul_gui::desktop_helper::start(&std::env::current_exe()?, &path) {
+            Ok(helper)=>Some(helper),
+            Err(error)=>{ eprintln!("Desktop helper unavailable: {error}"); None },
+        }
+    };
     let config_text = match std::fs::read_to_string(&path) {
         Ok(text) => text,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),

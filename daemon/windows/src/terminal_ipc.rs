@@ -850,7 +850,7 @@ fn verify_user_pipe_server(pipe: &File, expected_session_id: u32) -> Result<(), 
     verify_user_pipe_server_handle(pipe.as_raw_handle(), expected_session_id)
 }
 
-fn verify_user_pipe_server_handle(
+pub(crate) fn verify_user_pipe_server_handle(
     handle: RawHandle,
     expected_session_id: u32,
 ) -> Result<(), ServiceError> {
@@ -865,7 +865,7 @@ fn verify_user_pipe_server_handle(
     Ok(())
 }
 
-fn verify_user_pipe_client(pipe: &NamedPipeServer) -> Result<()> {
+pub(crate) fn verify_user_pipe_client(pipe: &NamedPipeServer) -> Result<()> {
     let impersonation = NamedPipeClientImpersonation::start(pipe)?;
     let verification = verify_impersonated_pipe_client();
     impersonation.revert()?;

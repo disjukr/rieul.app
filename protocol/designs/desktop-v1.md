@@ -1,10 +1,10 @@
-# Desktop v1 host/transport checkpoint (native backend not enabled)
+# Desktop v1 user-session integration (native execution validation pending)
 
-This change defines IDs 66–72 and generated Rust/TypeScript codecs. The daemon
-registers the control/input RPCs, but its default runtime has no native backend:
-capabilities explicitly report Unsupported and attach cannot start. A test-only
-backend exercises the same host path over certificate-verified localhost QUIC.
-No real desktop is captured and no OS input is sent.
+Desktop RPC IDs 66–72 use the existing authenticated WebTransport session. The
+system runtime now selects a private user-session IPC proxy on macOS and Windows.
+Construction does not capture or inject input. Capabilities remain Unsupported
+when an authenticated helper, permissions or a verified encoder are unavailable.
+No user host screen/input or permission settings were accessed during development.
 
 ## Contract
 
@@ -54,10 +54,14 @@ length prefix. Limits: 4 MiB/object, 16 MiB/group, 240 objects/group. A partial 
 wrong epoch, missing keyframe or discontinuity abandons the entire group. The
 browser decoder budget defaults to three queued frames; exceeding it cancels the
 current group and resets the WebCodecs decoder. It reports local recovery status
-and resumes at the next independent group; wire feedback is not yet connected.
+and resumes at the next independent group. Negotiated feedback carries bounded
+decode/render times, queue depth and keyframe requests over the input channel;
+viewers may send feedback without acquiring control.
 The host limits each track to one producer/send operation, times out blocked media
 streams, and paces bytes against each track budget. Each new group must begin with
-an independent keyframe. Native encoder compliance is not yet verified.
+an independent keyframe. A two-object bounded producer queue allows incremental
+sending and cancellation without first collecting a complete GOP. Native track
+cleanup retains the workload guard until capture shutdown returns.
 
 Input payloads are at most 16 KiB; streams roll over at 8 MiB (below the existing
 64 MiB request limit), retaining attachment sequence across streams. The live input reader applies small buffer/total bounds after recognizing the
@@ -78,40 +82,178 @@ streams and recovery after a canceled group. Unit tests additionally cover stale
 sequence/epoch, viewport bounds, credential expiry, competing drain admission,
 release failures, input rollover limits and cross-language codec goldens.
 
-## Viewer styling handoff
+## Native adapters and viewer
 
-`web/src/view/workbench/tool/desktop/index.tsx` exports `DesktopTool`. It needs a
-workbench entry point after coordination with the styling migration. New classes
-use `rieul-desktop-*`; root state is exposed via `data-phase` and
-`data-controlling`, cursor visibility via `data-visible`, and tracks via
-`data-viewport-id`. No shared theme, UnoCSS, CVA or dependency file is changed.
-Popup documents use `rieul-desktop-window` and `rieul-desktop-canvas`; they need
-explicit stylesheet delivery because a new document does not inherit parent CSS.
+The workbench Remote desktop entry opens the Solid 2/Bunja viewer without connecting
+or requesting control. Zyzz presentation, manual multi-monitor popup windows and
+popup stylesheet/theme synchronization are integrated. PNG cursor shapes are
+bounded and rendered separately from video in both embedded and popup views.
+Display changes release held input, advance the layout epoch and invalidate tracks.
+Optional `physicalKeys` and `wheelUnits` capabilities constrain browser input;
+`feedback` must be negotiated before sending the new feedback union variant.
 
-## Integration work still required
+macOS uses ScreenCaptureKit, CGEvent and hardware-required VideoToolbox H.264.
+The adapter refuses root and checks active console ownership and existing Screen
+Recording/Accessibility authorization without prompting. Windows uses DXGI Desktop
+Duplication, SendInput and hardware-only Media Foundation H.264 transforms in an
+interactive Default desktop worker. Both adapters are connected through private authenticated IPC; installation and
+actual capture/input execution remain untested in an isolated guest. Both currently emit one independent
+keyframe per group; delta-GOP efficiency and sustained latency remain unmeasured.
 
-- Native capture/input and hardware encoder adapters on Apple Silicon macOS and
-  Windows x64, plus per-user desktop IPC and OS permission reporting. The production
-  server intentionally constructs the runtime without an adapter.
-- Dynamic display discovery/layout epochs and cursor production.
-- Product entry-point and Zyzz presentation integration for the new standalone
-  Solid 2/Bunja viewer. It negotiates WebCodecs, renders per-track canvases, supports
-  explicitly acquired physical input and manually moved popup windows. Popups
-  close when their layout/configuration changes. Viewing does not acquire control;
-  input failures stop input without replay. Synthetic tests cover browser key/drag
-  behavior, bounded channels, decoder lifetime, and daemon replacement.
-- Wire feedback handling, cursor shape decoding, and optional monitor enumeration.
-  Current cursor overlay shows position with a generic marker, and decoder metrics
-  remain local. Feedback, composition and relative pointer still return Unsupported.
-- Native testing requires a separate isolated desktop fixture. The updater VM is
-  reserved and must not be modified. A macOS arm64 guest needs an interactive user
-  session and explicitly granted Screen Recording/Accessibility permissions for
-  the fixture helper; hardware VideoToolbox availability must be measured rather
-  than assumed in a VM. Windows x64 needs a separate interactive guest and verified
-  capture/input/Media Foundation GPU encoder availability.
-- Real hardware latency/encoding quality, IME and OS-reserved shortcuts remain
-  unverified. No host capture or OS permission changes have been performed.
+The synthetic black NV12 fixture was encoded by VideoToolbox hardware, then decoded
+through the actual browser receiver in an isolated Chrome profile. Its checked-in
+bitstream is `web/tests/fixtures/desktop-black.h264` (640x480, black pixels only).
+`desktop::tests::export_synthetic_hardware_frame` regenerates it when explicitly
+run with `RIEUL_DESKTOP_SYNTHETIC_OUT`. This test never captures a display or injects
+input. Bundled headless Chromium may lack H.264 and skips this codec-specific test;
+that is an unsupported negotiated codec, not a successful decode assertion.
 
-`server.rs` now owns desktop RPC/stream wiring and uses the existing WorkGate.
-`maintenance.rs`, updater implementation and GUI/packaging sources remain unchanged.
-The only Cargo dependency addition is test-only `url`, already present in the lockfile.
+## Client codec policy
+
+Codec preference is client policy, not a wire ordering rule. AV1 is eligible only
+when the daemon reports actual hardware encoding and the client has authoritative
+hardware decoding evidence for that codec configuration; otherwise H.264 is used.
+`desktopCodecOrder` retains H.264 after eligible AV1. Ordinary browsers currently
+supply no authoritative hardware evidence, so AV1 is excluded there, even if
+`isConfigSupported` accepts `prefer-hardware`. WebCodecs explicitly allows ignoring
+that hint, and Media Capabilities `powerEfficient` is not a hardware guarantee:
+https://www.w3.org/TR/webcodecs/#hardware-acceleration
+https://www.w3.org/TR/media-capabilities/#media-capabilities-info
+
+macOS currently exposes H.264 derived from an actual hardware-produced SPS. An
+explicit VideoToolbox hardware-only AV1 session probe on the development Mac Studio
+returned unavailable; macOS AV1 packet production is not implemented or advertised.
+Windows now enumerates hardware-only AV1 MFTs as well as H.264, forces a clean-point
+synthetic encode and validates a supported 8-bit main-profile sequence before
+advertising AV1. Its conservative OBU parser rejects timing models, multiple
+operating points and unsupported bit depths. Windows AV1 API types and pure packet
+bounds are checked; real AV1 GPU encode/decode is still unverified.
+
+The server respects the client's ordered codec list rather than choosing its own
+priority. A client that supplies separately verified hardware decoding evidence can
+include AV1 through `supportedDesktopCodecs`. AV1 configure/decode/encoder failure
+reattaches once with H.264 and never restores control. Tests simulate verified
+hardware to exercise those three failures; they do not claim browser hardware
+attestation. The ordinary browser still has no authoritative evidence source, so
+its automatic selection remains H.264. A trusted native decoder/browser integration
+is needed before calling AV1 selection complete in the shipping browser viewer.
+
+## Private user-session IPC
+
+`HostUserDesktop` (private IPC ID 10) owns one input/capture lifetime. Request IDs
+are monotonic, requests are bounded to 64 KiB and replies to 17 MiB. At most 16
+calls and eight native group jobs are pending; reply queues hold two messages.
+The root proxy never replays an operation after an established channel fails.
+Loss immediately fences the old backend generation. A capability/admission check
+can reconnect to an authenticated, exclusive helper in the same OS login; the
+first private command releases the predecessor's possibly held keys/buttons.
+The host records down events before sending and removes them only after release
+acknowledgments, preserving later downs when an earlier release is acknowledged.
+A new empty helper's ordinary ReleaseAll is not accepted as cleanup evidence.
+Only successful recovery retires old attachments, increments input/layout epochs,
+and permits new attachments without restoring control. Codec epoch cutoffs reject
+old media requests; old replies cannot cross the closed channel. Uncertain native
+capture guards remain owned until authenticated predecessor retirement is proven.
+EOF, malformed messages, duplicate IDs, parent shutdown or missed heartbeats drain
+native work, release held input and stop tracks. Failed/uncertain cleanup retains
+update workload protection until successful recovery or daemon shutdown. Blocking IPC and native releases
+run outside the transport's async executor. Cancellation after attach still owns
+an attachment cleanup guard.
+
+On macOS the installed GPUI app starts the existing bundled system binary in its
+new `desktop-user` mode as the GUI user, using a stdin pipe to bind its lifetime.
+GUI exit requests cleanup by EOF, not SIGKILL. An empty helper may restart after a
+daemon update; no viewer/control state is restored. Each peer is checked using
+kernel UID/PID, peer audit token, valid running-code signatures and identical code
+hashes, plus the expected root-owned installed executable path and ancestors.
+The standard root:admin group-writable `/Applications` container is allowed only
+with this code identity check; world-writable containers and writable app contents
+are rejected. Same-code and different-program socket fixtures exercise the check
+without starting capture or injecting input.
+The user socket directory is private, symlinks are rejected, and a file lock prevents
+competing helper ownership. Console UID plus Quartz console/login state are checked;
+Screen Recording and Accessibility preflight never prompts or changes permissions.
+
+Windows starts a separate local-only desktop pipe alongside the existing user PTY
+service. It verifies the LocalSystem client, active session and installed user-process
+image path. Desktop pipe retirement does not terminate terminal sessions. Native
+operations run on the interactive Default desktop with per-monitor DPI awareness;
+display scale and line-wheel conversion use OS settings. The existing packaged user
+binary and macOS LaunchServices binary are reused; no new installer component is
+required. GUI/native startup source is compiled without launching the helper.
+
+## Remaining validation and limitations
+
+- Signed, installed macOS helper/GUI startup and permissions need a separate guest.
+  The reserved updater VM and its data were not modified. A new arm64 guest needs an
+  interactive fixture account and explicit Screen Recording/Accessibility permission
+  for the fixture app/helper only. GPU encoder support inside that guest is unknown.
+- Windows x64 native runtime and AV1 hardware MFT execution need an isolated GPU
+  environment. An ARM VM on Mac Studio cannot alone prove x64/GPU behavior. No
+  Windows image/license download or agreement was performed.
+- Ordinary browser AV1 hardware verification is unavailable; no standard API result
+  is treated as proof. Client fallback logic is implemented and tested independently.
+- Helper recovery is limited to the original OS login. Cross-login migration is
+  unsupported; failed authentication or uncertain cleanup stays fail-closed.
+  Successful recovery requires fresh attachment and explicit control acquisition.
+- Native adapters currently use one-frame GOPs. Multi-frame encoder efficiency and
+  sustained hardware latency/quality remain unmeasured. Private IPC currently carries
+  one bounded complete group; incremental multi-frame IPC is still needed before
+  enabling longer native GOPs.
+- Rotated Windows outputs and monochrome/animated cursor semantics are unsupported.
+  Windows wheel supports line units, macOS pixel/line units. IME, relative pointer
+  and reserved OS shortcuts are not claimed.
+
+## Hardware decoding evidence decision (2026-11-01)
+
+The requirement is confirmed hardware support on both ends, not merely an AV1
+codec string or a power-efficiency prediction. The shipping browser therefore
+selects H.264 when hardware evidence is unknown. This is a completed conservative
+policy decision, but does not constitute shipping automatic AV1 selection.
+
+| Environment/evidence                                                                                                                                | Decision                                                                                   |
+| --------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| Ordinary web page: WebCodecs support, including `prefer-hardware`                                                                                   | Unknown hardware; H.264                                                                    |
+| MediaCapabilities `supported`, `smooth`, `powerEfficient`                                                                                           | Prediction, not decoder identity; H.264                                                    |
+| Browser brand/version, GPU name or successful fast synthetic decode                                                                                 | Insufficient evidence of the selected decoder; H.264                                       |
+| Controlled native decoder or instrumented pinned browser, with hardware-only creation and successful actual output for the exact codec/profile/size | May supply verified evidence; AV1 only if the daemon also reports actual hardware encoding |
+| Evidence unavailable, stale after configuration/device changes, or encode/configure/decode failure                                                  | Fresh H.264 attachment; no restored control or replay                                      |
+
+[WebCodecs hardware acceleration](https://www.w3.org/TR/webcodecs/#hardware-acceleration)
+explicitly permits ignoring the preference. [Media Capabilities](https://www.w3.org/TR/media-capabilities/#media-capabilities-information)
+leaves power efficiency to the user agent, including efficient software codecs.
+Neither is a portable hardware attestation API.
+
+Chromium's current [support query implementation](https://github.com/chromium/chromium/blob/main/third_party/blink/renderer/modules/webcodecs/video_decoder.cc)
+checks GPU factories when hardware is preferred, and its [decoder broker](https://github.com/chromium/chromium/blob/main/third_party/blink/renderer/modules/webcodecs/video_decoder_broker.cc)
+excludes the default software decoder factory in that mode. This is useful evidence
+when auditing a controlled build, not a promise made by the WebCodecs standard or
+proof supplied to an arbitrary web page. Browser forks, future changes and backend
+selection must be independently validated. Do not add a user-agent allowlist or
+reinterpret `powerEfficient` as verified evidence. No controlled browser bridge is
+currently shipped; the existing evidence argument is an integration seam, not an
+implemented evidence provider. Before adding one, bind evidence to every actual
+track configuration and invalidate it on codec/layout/device changes.
+
+## Isolated execution fixture scope
+
+Read-only inspection found an existing Tart binary and an immutable cached macOS
+base image belonging to the updater environment. Tart supports copy-on-write clones.
+No clone or boot has been performed. The next proposed execution scope is:
+
+1. Create a separate clone with its own `TART_HOME` under this desktop task, disable
+   automatic pruning, and never address the updater VM or its writable disk.
+2. Boot only that clone; create a disposable interactive fixture account and install
+   the candidate package inside the guest. Test root/user peer authentication,
+   helper lifetime, login changes and installed-path permissions first.
+3. With explicit guest-only permission approval, grant Screen Recording and
+   Accessibility to the fixture app/helper and run synthetic windows/input targets.
+   Do not grant permissions to, capture, or inject input into the host desktop.
+4. Record hardware encoder availability separately. A virtual GPU may not expose
+   VideoToolbox encoding. Windows on an ARM Mac VM is not proof of Windows x64
+   hardware MFT/AV1 operation; that requires a separately available x64 GPU fixture.
+
+Guest creation/installation/permission execution remains pending; no OS image or
+license has been downloaded or accepted. There is no current auto-review denial
+for these unattempted actions. The remaining blocker is an approved, isolated
+interactive fixture with the required OS permissions and actual GPU capability.

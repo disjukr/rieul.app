@@ -75,8 +75,9 @@ const rustBaseline = {
   "socket-wire":
     "72af8be28ae16e56d51180ab97c92e6884d7f25a810570e02e7bacf8b3b61109",
   // Update RPCs 64/65 and negotiated desktop RPCs 66–72 append types; existing IDs stay unchanged.
-  rpc: "cf924896605734d6d238a44ada5bb9f116aa86ca176cf5ed0cb32b74a15596e6",
-  ipc: "02ab284ae877404a3b2650ca21c6efa402d0372d74593b21b2a4295a5c65172a",
+  rpc: "d0af487ea76a420a74cd4fe28cff3684af610e7714252ec90f0df672f5c6f814",
+  // Private recovery command7 appends to the desktop union; existing tags remain unchanged.
+  ipc: "916520911d487f916ceff77f944925b79e0fe18bea478855893b14838525ab73",
 };
 for (const [schema, hash] of Object.entries(rustBaseline))
   test(`Node Rust codegen preserves ${schema} baseline and is deterministic`, async () =>

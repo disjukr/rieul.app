@@ -3,6 +3,7 @@ import { createMemo } from "solid-js";
 
 import { useBunja } from "bunja/solid";
 import { workbenchTabBunja } from "../../../state/workbench.ts";
+import { DesktopTool } from "./desktop/index.tsx";
 import { DaemonTool } from "./daemon/index.tsx";
 import { FilesTool } from "./files/index.tsx";
 import { ProcessesTool } from "./processes/index.tsx";
@@ -24,6 +25,7 @@ export function WorkbenchToolContent() {
             </div>
           );
         }
+        if (tool() === "desktop") return <DesktopTool />;
         if (tool() === "daemon") {
           return <DaemonTool />;
         }

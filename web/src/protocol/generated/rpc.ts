@@ -771,6 +771,9 @@ export interface DesktopCapabilities {
   maxInputFrameBytes: number;
   maxInputStreamBytes: number;
   reason?: string;
+  feedback?: boolean;
+  wheelUnits?: DesktopWheelUnit[];
+  physicalKeys?: number[];
 }
 
 export interface DesktopCodec {
@@ -854,7 +857,7 @@ export type DesktopEvent =
   | { type: "layout"; layoutEpoch: number; displays: DesktopDisplay[] }
   | { type: "control"; control: DesktopControl }
   | { type: "configured"; configuration: DesktopConfiguration }
-  | { type: "cursor"; layoutEpoch: number; x: number; y: number; visible: boolean; shape?: Uint8Array; hotspotX: number; hotspotY: number }
+  | { type: "cursor"; layoutEpoch: number; x: number; y: number; visible: boolean; shape?: Uint8Array; hotspotX: number; hotspotY: number; displayId?: string }
   | { type: "closed"; reason: string }
 ;
 
@@ -6192,6 +6195,9 @@ export function encodeDesktopCapabilitiesValue(value: DesktopCapabilities): Cbor
   fields.set(8, u53(required(value.maxInputFrameBytes, "DesktopCapabilities.maxInputFrameBytes")));
   fields.set(9, u53(required(value.maxInputStreamBytes, "DesktopCapabilities.maxInputStreamBytes")));
   if (value.reason !== undefined) fields.set(10, text(value.reason));
+  if (value.feedback !== undefined) fields.set(11, bool(value.feedback));
+  if (value.wheelUnits !== undefined) fields.set(12, value.wheelUnits.map((item) => encodeDesktopWheelUnitValue(item)));
+  if (value.physicalKeys !== undefined) fields.set(13, value.physicalKeys.map((item) => u53(item)));
   return fields;
 }
 
@@ -6208,6 +6214,9 @@ export function decodeDesktopCapabilitiesValue(value: CborValue): DesktopCapabil
     maxInputFrameBytes: fieldOrDefault(fields.get(8), (value) => integer(value), () => 0),
     maxInputStreamBytes: fieldOrDefault(fields.get(9), (value) => integer(value), () => 0),
     reason: optionalField(fields.get(10), (value) => textValue(value)),
+    feedback: optionalField(fields.get(11), (value) => boolValue(value)),
+    wheelUnits: optionalField(fields.get(12), (value) => array(value).map((item) => decodeDesktopWheelUnitValue(item))),
+    physicalKeys: optionalField(fields.get(13), (value) => array(value).map((item) => integer(item))),
   };
 }
 
@@ -6459,6 +6468,7 @@ export function encodeDesktopEventValue(value: DesktopEvent): CborValue {
       if (value.shape !== undefined) fields.set(5, bytes(value.shape));
       fields.set(6, u53(required(value.hotspotX, "DesktopEvent.Cursor.hotspotX")));
       fields.set(7, u53(required(value.hotspotY, "DesktopEvent.Cursor.hotspotY")));
+      if (value.displayId !== undefined) fields.set(8, text(value.displayId));
       return [4, fields];
     }
     case "closed": {
@@ -6507,6 +6517,7 @@ export function decodeDesktopEventValue(value: CborValue): DesktopEvent {
         shape: optionalField(fields.get(5), (value) => bytesValue(value)),
         hotspotX: fieldOrDefault(fields.get(6), (value) => integer(value), () => 0),
         hotspotY: fieldOrDefault(fields.get(7), (value) => integer(value), () => 0),
+        displayId: optionalField(fields.get(8), (value) => textValue(value)),
       };
     case 5:
       return {

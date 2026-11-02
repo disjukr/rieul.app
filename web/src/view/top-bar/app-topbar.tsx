@@ -53,6 +53,7 @@ const topbarTools: {
   tool: WorkbenchTool;
 }[] = [
   { icon: Radio, label: "Daemon", tool: "daemon" },
+  { icon: Monitor, label: "Remote desktop", tool: "desktop" },
   { icon: Folder, label: "Files", tool: "files" },
   { icon: Terminal, label: "Terminal", tool: "terminal" },
   { icon: AppWindow, label: "Windows", tool: "windows" },
@@ -86,6 +87,7 @@ interface AppTopbarProps {
   terminalShells: AvailableShellInfo[];
   onAddMachine: () => void;
   onOpenDaemonTab: () => void;
+  onOpenDesktopTab: () => void;
   onOpenFilesTab: (config?: WorkbenchFilesTabConfig) => void;
   onOpenProcessesTab: () => void;
   onOpenTerminalTab: (config?: WorkbenchTerminalTabConfig) => void;
@@ -126,6 +128,7 @@ export function AppTopbar(componentProps: AppTopbarProps) {
   );
   const openToolTab = createMemo(() => ({
     daemon: componentProps.onOpenDaemonTab,
+    desktop: componentProps.onOpenDesktopTab,
     files: componentProps.onOpenFilesTab,
     processes: componentProps.onOpenProcessesTab,
     terminal: openDefaultTerminal,
@@ -875,6 +878,7 @@ function latestTabTarget(
 
 function ToolIcon(props: { size: number; tool: WorkbenchTab["tool"] }) {
   const icons = {
+    desktop: Monitor,
     terminal: Terminal,
     windows: AppWindow,
     processes: Activity,

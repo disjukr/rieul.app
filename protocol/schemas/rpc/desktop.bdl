@@ -86,6 +86,12 @@ struct DesktopCapabilities {
   maxInputStreamBytes: u53,
   @ id - 10
   reason?: string,
+  @ id - 11
+  feedback?: bool,
+  @ id - 12
+  wheelUnits?: DesktopWheelUnit[],
+  @ id - 13
+  physicalKeys?: u53[],
 }
 
 struct DesktopCodec {
@@ -251,6 +257,8 @@ union DesktopEvent {
     hotspotX: u53,
     @ id - 7
     hotspotY: u53,
+    @ id - 8
+    displayId?: string,
   ),
   @ id - 5
   Closed(

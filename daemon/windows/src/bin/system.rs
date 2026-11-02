@@ -120,6 +120,7 @@ fn run_system_server_blocking(listen: Option<SocketAddr>, config_path: PathBuf) 
     let pairing_notifier = UserGuiPairingNotifier::from_config_path(&config_path);
     let terminal_backend =
         WindowsUserTerminalBackend::new(profile_id_for_config_path(&config_path));
+    let desktop_backend=rieul_windows_daemon::desktop_ipc::proxy(&config_path);
     runtime.block_on(run_system_server(
         listen,
         config_path,
@@ -130,6 +131,7 @@ fn run_system_server_blocking(listen: Option<SocketAddr>, config_path: PathBuf) 
         Some(Arc::new(WindowsProcessModulesService)),
         Some(Arc::new(pairing_notifier)),
         Some(Arc::new(terminal_backend)),
+        Some(desktop_backend),
         "Windows system daemon",
     ))
 }

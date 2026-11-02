@@ -1,0 +1,108 @@
+# standard - rieul-ipc
+# description
+| Private desktop IPC. The transport MUST authenticate the system peer and bind
+| the active OS login session before accepting this stream. One stream owns all
+| native input and captures; EOF, timeout or malformed messages release them.
+
+import rieul.ipc.common { IpcProcError }
+import rieul.rpc.desktop {
+  DesktopCapabilities, DesktopDisplay, DesktopEvent, DesktopInputEvent,
+  DesktopViewport, DesktopTrack,
+}
+
+@ id - 10
+@ stream - bidi
+@ server - user
+@ client - system
+proc HostUserDesktop = UserDesktopRequest -> UserDesktopResponse throws IpcProcError
+
+struct UserDesktopRequest {
+  @ id - 1
+  requestId: u53,
+  @ id - 2
+  command: UserDesktopCommand,
+}
+union UserDesktopCommand {
+  @ id - 0
+  Ping(
+  ),
+  @ id - 1
+  Capabilities(
+  ),
+  @ id - 2
+  Displays(
+  ),
+  @ id - 3
+  Cursor(
+    @ id - 1
+    layoutEpoch: u53,
+  ),
+  @ id - 4
+  Input(
+    @ id - 1
+    event: DesktopInputEvent,
+    @ id - 2
+    viewport?: DesktopViewport,
+  ),
+  @ id - 5
+  Group(
+    @ id - 1
+    track: DesktopTrack,
+  ),
+  @ id - 7
+  RecoverInput(
+    @ id - 1
+    keys: u53[],
+    @ id - 2
+    buttons: u53[],
+  ),
+  @ id - 6
+  EndTrack(
+    @ id - 1
+    track: DesktopTrack,
+  ),
+}
+struct UserDesktopResponse {
+  @ id - 1
+  requestId: u53,
+  @ id - 2
+  result: UserDesktopResult,
+}
+union UserDesktopResult {
+  @ id - 0
+  Done(
+  ),
+  @ id - 1
+  Capabilities(
+    @ id - 1
+    value: DesktopCapabilities,
+  ),
+  @ id - 2
+  Displays(
+    @ id - 1
+    values: DesktopDisplay[],
+  ),
+  @ id - 3
+  Cursor(
+    @ id - 1
+    value?: DesktopEvent,
+  ),
+  @ id - 4
+  Group(
+    @ id - 1
+    frames: UserDesktopFrame[],
+  ),
+  @ id - 5
+  Failed(
+    @ id - 1
+    code: string,
+  ),
+}
+struct UserDesktopFrame {
+  @ id - 1
+  timestampMicros: u53,
+  @ id - 2
+  keyframe: bool,
+  @ id - 3
+  data: bytes,
+}

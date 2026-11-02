@@ -35,3 +35,9 @@ pub mod process_modules;
 pub mod process_resources;
 #[cfg(target_os = "macos")]
 pub mod process_sockets;
+
+#[cfg(target_os = "macos")]
+pub mod desktop;
+
+#[cfg(target_os = "macos")]
+pub mod desktop_ipc;

@@ -78,6 +78,7 @@ jobs:
         run: |
           cargo test -p rieul-macos-daemon --lib architecture --locked
           cargo test -p rieul-macos-daemon --lib root_update --locked
+          cargo test -p rieul-macos-daemon --lib desktop_ipc --locked
           cargo test -p rieul-daemon-host --lib --locked
       - name: Build installer wrapper and validate signed PKG payload without installation
         run: |
@@ -159,6 +160,24 @@ jobs:
           if ($LASTEXITCODE) { throw 'MSIX unpack failed' }
           & ./tmp/msix-unpacked/gui/rieul-windows-gui.exe --verify-bundle
           if ($LASTEXITCODE) { throw 'MSIX GUI verification failed' }
+      - name: Build explicit Windows VM diagnostic and stage candidate
+        shell: pwsh
+        run: |
+          cargo build -p rieul-windows-daemon --release --example desktop-fixture --locked
+          if ($LASTEXITCODE) { throw 'VM diagnostic build failed' }
+          New-Item -ItemType Directory -Force tmp/windows-vm-candidate | Out-Null
+          Copy-Item dist/windows/rieul-windows-desktop-0.1.0.msi tmp/windows-vm-candidate/
+          Copy-Item target/release/examples/desktop-fixture.exe tmp/windows-vm-candidate/
+          Copy-Item target/release/rieul-windows-gui tmp/windows-vm-candidate/gui -Recurse
+          '${{ github.sha }}' | Set-Content tmp/windows-vm-candidate/BUILD_COMMIT.txt
+          '${{ github.event.pull_request.head.sha || github.sha }}' | Set-Content tmp/windows-vm-candidate/HEAD_COMMIT.txt
+          Get-ChildItem tmp/windows-vm-candidate -File -Recurse | Get-FileHash -Algorithm SHA256 | Format-Table -AutoSize | Out-String -Width 4096 | Set-Content tmp/windows-vm-candidate/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-vm-candidate-${{ github.event.pull_request.head.sha || github.sha }}
+          path: tmp/windows-vm-candidate/
+          retention-days: 3
+          if-no-files-found: error
       - uses: actions/upload-artifact@v4
         if: always()
         with:

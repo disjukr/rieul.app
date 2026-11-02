@@ -36,6 +36,13 @@ pub trait Credentials {
 /// A failed release poisons the manager: a new controller cannot acquire it.
 pub trait Input {
     fn send(&mut self, event: &DesktopInputEvent) -> Result<(), Error>;
+    fn send_viewport(
+        &mut self,
+        event: &DesktopInputEvent,
+        _viewport: Option<&DesktopViewport>,
+    ) -> Result<(), Error> {
+        self.send(event)
+    }
 }
 struct Attachment {
     connection: u64,
@@ -57,6 +64,7 @@ pub struct Desktop<I> {
     keys: BTreeSet<u64>,
     buttons: BTreeSet<u64>,
     poisoned: bool,
+    backend_generation: u64,
 }
 impl<I: Input> Desktop<I> {
     pub fn new(gate: Arc<WorkGate>, input: I) -> Self {
@@ -71,6 +79,7 @@ impl<I: Input> Desktop<I> {
             keys: BTreeSet::new(),
             buttons: BTreeSet::new(),
             poisoned: false,
+            backend_generation: 0,
         }
     }
     pub fn control(&self) -> (Option<&str>, u64) {
@@ -380,7 +389,7 @@ impl<I: Input> Desktop<I> {
                 }
             }
             DesktopInputEvent::Composition { .. } | DesktopInputEvent::RelativePointer { .. } => {
-                return Err(Error::Unsupported)
+                return Err(Error::Unsupported);
             }
             DesktopInputEvent::Wheel { dx, dy, .. }
                 if !dx.is_finite()
@@ -388,7 +397,7 @@ impl<I: Input> Desktop<I> {
                     || dx.abs() > 100_000.0
                     || dy.abs() > 100_000.0 =>
             {
-                return Err(Error::Invalid)
+                return Err(Error::Invalid);
             }
             DesktopInputEvent::Feedback { .. } => return Err(Error::Unsupported),
             DesktopInputEvent::ReleaseAll => {
@@ -397,7 +406,8 @@ impl<I: Input> Desktop<I> {
             }
             _ => {}
         }
-        if self.input.send(event).is_err() {
+        let viewport = point.and_then(|(id, _, _)| a.viewports.get(id));
+        if self.input.send_viewport(event, viewport).is_err() {
             let _ = self.release();
             return Err(Error::Backend);
         }
@@ -574,9 +584,10 @@ mod tests {
             Err(Error::Busy)
         );
         drop(drain);
-        assert!(d
-            .attach(&auth, 1, "paired", DesktopKeyboardMode::Physical, 0)
-            .is_ok());
+        assert!(
+            d.attach(&auth, 1, "paired", DesktopKeyboardMode::Physical, 0)
+                .is_ok()
+        );
     }
     #[test]
     fn physical_and_text_cannot_double_inject() {
@@ -779,9 +790,51 @@ mod viewport_tests {
 /// Platform adapters return only features actually implemented and OS-authorized.
 /// The default server has no adapter; constructing a fixture never touches an OS desktop.
 pub trait Backend: Send + Sync {
+    /// Changes immediately when an established helper channel is lost.
+    fn generation(&self) -> u64 { 0 }
+    /// Called with the desktop state locked. Never replays an old operation.
+    fn recover(&self, _minimum_codec_epoch: u64) -> Result<u64, Error> { Ok(self.generation()) }
+    fn retain_uncertain_capture(&self, _track: &rieul_daemon_core::generated::rpc::DesktopTrack, work: Option<WorkGuard>) {
+        std::mem::forget(work);
+    }
+    /// A freshly authenticated helper releases the predecessor's uncertain input.
+    fn recover_input(&self, keys: &[u64], buttons: &[u64]) -> Result<(), Error> {
+        if !keys.is_empty() || !buttons.is_empty() { return Err(Error::Unsupported); }
+        self.input(&DesktopInputEvent::ReleaseAll)
+    }
+
     fn capabilities(&self) -> rieul_daemon_core::generated::rpc::DesktopCapabilities;
     fn displays(&self) -> Vec<rieul_daemon_core::generated::rpc::DesktopDisplay>;
     fn input(&self, event: &DesktopInputEvent) -> Result<(), Error>;
+    fn cursor(&self, _layout: u64) -> Option<rieul_daemon_core::generated::rpc::DesktopEvent> {
+        None
+    }
+    fn input_viewport(
+        &self,
+        event: &DesktopInputEvent,
+        _viewport: Option<&DesktopViewport>,
+    ) -> Result<(), Error> {
+        self.input(event)
+    }
+    fn keyboard_mode_supported(&self, _mode: DesktopKeyboardMode) -> bool {
+        true
+    }
+    fn end_track(
+        &self,
+        _track: &rieul_daemon_core::generated::rpc::DesktopTrack,
+    ) -> Result<(), Error> {
+        Ok(())
+    }
+    fn stream_group(
+        &self,
+        track: &rieul_daemon_core::generated::rpc::DesktopTrack,
+        emit: &mut dyn FnMut(EncodedFrame) -> Result<(), Error>,
+    ) -> Result<(), Error> {
+        for frame in self.group(track)? {
+            emit(frame)?;
+        }
+        Ok(())
+    }
     /// Produce one independent closed GOP. The caller never queues another GOP.
     fn group(
         &self,
@@ -807,6 +860,16 @@ impl EncodedFrame {
 
 pub(crate) struct BackendInput(Option<Arc<dyn Backend>>);
 impl Input for BackendInput {
+    fn send_viewport(
+        &mut self,
+        event: &DesktopInputEvent,
+        viewport: Option<&DesktopViewport>,
+    ) -> Result<(), Error> {
+        self.0
+            .as_ref()
+            .ok_or(Error::Unsupported)?
+            .input_viewport(event, viewport)
+    }
     fn send(&mut self, event: &DesktopInputEvent) -> Result<(), Error> {
         self.0.as_ref().ok_or(Error::Unsupported)?.input(event)
     }
@@ -822,6 +885,9 @@ pub struct Runtime {
         std::sync::Mutex<BTreeMap<String, rieul_daemon_core::generated::rpc::DesktopConfiguration>>,
     gate: Arc<WorkGate>,
     next_codec_epoch: std::sync::Mutex<u64>,
+    layout_displays:
+        std::sync::Mutex<Option<Vec<rieul_daemon_core::generated::rpc::DesktopDisplay>>>,
+    feedback: std::sync::Mutex<BTreeMap<(String, u64), (std::time::Instant, u64)>>,
 }
 impl Runtime {
     pub fn new(gate: Arc<WorkGate>, backend: Option<Arc<dyn Backend>>) -> Arc<Self> {
@@ -835,15 +901,43 @@ impl Runtime {
             configurations: Default::default(),
             gate,
             next_codec_epoch: std::sync::Mutex::new(0),
+            feedback: Default::default(),
+            layout_displays: Default::default(),
         })
+    }
+    pub(crate) fn reconcile_backend(&self) -> Result<(), Error> {
+        let Some(backend) = &self.backend else { return Ok(()); };
+        let _work = self.gate.enter().ok_or(Error::Busy)?;
+        let mut d = self.state.lock().map_err(|_| Error::Backend)?;
+        let minimum = self.next_codec_epoch.lock().map_err(|_| Error::Backend)?
+            .checked_add(1).ok_or(Error::Limit)?;
+        let generation = backend.recover(minimum)?;
+        if d.backend_generation != generation {
+            d.epoch = d.epoch.checked_add(1).filter(|n| *n <= MAX_SAFE).ok_or(Error::Limit)?;
+            d.layout_epoch = d.layout_epoch.checked_add(1).filter(|n| *n <= MAX_SAFE).ok_or(Error::Limit)?;
+            d.holder = None;
+            d.keys.clear(); d.buttons.clear(); d.attachments.clear();
+            d.poisoned = false;
+            d.backend_generation = generation;
+            self.streams.lock().map_err(|_| Error::Backend)?.clear();
+            self.codecs.lock().map_err(|_| Error::Backend)?.clear();
+            self.configurations.lock().map_err(|_| Error::Backend)?.clear();
+            self.feedback.lock().map_err(|_| Error::Backend)?.clear();
+            *self.layout_displays.lock().map_err(|_| Error::Backend)? = None;
+            self.changed.send_modify(|n| *n = n.wrapping_add(1));
+        }
+        Ok(())
     }
     pub fn capabilities(&self) -> rieul_daemon_core::generated::rpc::DesktopCapabilities {
         use rieul_daemon_core::generated::rpc::*;
-        self.backend
+        self.reconcile_backend().ok().and_then(|_| self.backend
             .as_ref()
-            .map(|b| b.capabilities())
+            .and_then(|b| self.gate.enter().map(|_work| b.capabilities())))
             .unwrap_or(DesktopCapabilities {
                 profile: PROFILE,
+                feedback: Some(true),
+                wheel_units: None,
+                physical_keys: None,
                 capture: DesktopAvailability::Unsupported,
                 input: DesktopAvailability::Unsupported,
                 codecs: vec![],
@@ -860,6 +954,9 @@ impl Runtime {
         run: impl FnOnce(&mut Desktop<BackendInput>) -> Result<T, Error>,
     ) -> Result<T, Error> {
         let mut d = self.state.lock().map_err(|_| Error::Backend)?;
+        if self.backend.as_ref().is_some_and(|b| b.generation() != d.backend_generation) {
+            return Err(Error::Backend);
+        }
         let result = run(&mut d);
         self.codecs
             .lock()
@@ -869,6 +966,10 @@ impl Runtime {
             .lock()
             .map_err(|_| Error::Backend)?
             .retain(|id, _| d.attachments.contains_key(id));
+        self.feedback
+            .lock()
+            .map_err(|_| Error::Backend)?
+            .retain(|(id, _), _| d.attachments.contains_key(id));
         self.changed.send_modify(|n| *n = n.wrapping_add(1));
         result
     }
@@ -881,8 +982,13 @@ impl Runtime {
         request: &rieul_daemon_core::generated::rpc::AttachDesktopReq,
     ) -> Result<rieul_daemon_core::generated::rpc::DesktopEvent, Error> {
         use rieul_daemon_core::generated::rpc::*;
+        self.refresh_layout()?;
         let caps = self.capabilities();
         if request.profile != PROFILE
+            || !self
+                .backend
+                .as_ref()
+                .is_some_and(|b| b.keyboard_mode_supported(request.keyboard_mode))
             || !request.media_uni_streams
             || caps.capture != DesktopAvailability::Available
             || !caps
@@ -896,9 +1002,10 @@ impl Runtime {
             let id = d.attach(auth, connection, client, request.keyboard_mode, now)?;
             self.codecs.lock().map_err(|_| Error::Backend)?.insert(
                 id.clone(),
-                caps.codecs
+                request
+                    .codecs
                     .iter()
-                    .find(|c| request.codecs.contains(&c.codec))
+                    .find_map(|wanted| caps.codecs.iter().find(|c| &c.codec == wanted))
                     .unwrap()
                     .clone(),
             );
@@ -932,7 +1039,7 @@ impl Runtime {
     pub(crate) fn has(&self, id: &str) -> bool {
         self.state
             .lock()
-            .map(|d| d.attachments.contains_key(id))
+            .map(|d| self.backend.as_ref().is_none_or(|b| b.generation() == d.backend_generation) && d.attachments.contains_key(id))
             .unwrap_or(false)
     }
     pub(crate) fn close(&self, connection: u64) {
@@ -965,23 +1072,154 @@ pub(crate) struct InputGuard {
     epoch: u64,
     pub complete: bool,
 }
+pub(crate) fn cleanup(work: impl FnOnce() + Send + 'static) {
+    if let Ok(handle) = tokio::runtime::Handle::try_current() {
+        handle.spawn_blocking(work);
+    } else {
+        work();
+    }
+}
 impl Drop for InputGuard {
     fn drop(&mut self) {
-        if !self.complete {
-            let _ = self.runtime.mutate(|d| {
-                if d.holder.as_deref() == Some(&self.id) && d.epoch == self.epoch {
-                    d.release()?;
-                }
-                Ok(())
-            });
+        if self.complete {
+            if let Ok(mut streams) = self.runtime.streams.lock() {
+                streams.remove(&self.id);
+            }
+            return;
         }
-        if let Ok(mut streams) = self.runtime.streams.lock() {
-            streams.remove(&self.id);
-        }
+        let runtime = self.runtime.clone();
+        let id = self.id.clone();
+        let epoch = self.epoch;
+        let complete = self.complete;
+        cleanup(move || {
+            if !complete {
+                let _ = runtime.mutate(|d| {
+                    if d.holder.as_deref() == Some(&id) && d.epoch == epoch {
+                        d.release()?;
+                    }
+                    Ok(())
+                });
+            }
+            if let Ok(mut streams) = runtime.streams.lock() {
+                streams.remove(&id);
+            }
+        });
     }
 }
 
 impl Runtime {
+    pub(crate) fn refresh_layout(&self) -> Result<(), Error> {
+        self.reconcile_backend()?;
+        let Some(backend) = &self.backend else {
+            return Ok(());
+        };
+        let displays = backend.displays();
+        if self
+            .layout_displays
+            .lock()
+            .map_err(|_| Error::Backend)?
+            .as_ref()
+            == Some(&displays)
+        {
+            return Ok(());
+        }
+        self.mutate(|d| {
+            let mut previous = self.layout_displays.lock().map_err(|_| Error::Backend)?;
+            if previous.as_ref() == Some(&displays) {
+                return Ok(());
+            }
+            if previous.is_some() {
+                d.layout_changed()?;
+                self.configurations
+                    .lock()
+                    .map_err(|_| Error::Backend)?
+                    .clear();
+            }
+            *previous = Some(displays);
+            Ok(())
+        })
+    }
+    pub(crate) fn layout_event(
+        &self,
+    ) -> Result<rieul_daemon_core::generated::rpc::DesktopEvent, Error> {
+        let d = self.state.lock().map_err(|_| Error::Backend)?;
+        let displays = self
+            .layout_displays
+            .lock()
+            .map_err(|_| Error::Backend)?
+            .clone()
+            .unwrap_or_default();
+        Ok(rieul_daemon_core::generated::rpc::DesktopEvent::Layout {
+            layout_epoch: d.layout_epoch,
+            displays,
+        })
+    }
+    pub(crate) fn accept_input(
+        &self,
+        auth: &impl Credentials,
+        connection: u64,
+        now: u64,
+        frame: DesktopInputFrame,
+    ) -> Result<(), Error> {
+        let DesktopInputEvent::Feedback {
+            track_id,
+            codec_epoch,
+            group_id,
+            decode_micros,
+            render_micros,
+            queue_depth,
+            ..
+        } = &frame.event
+        else {
+            return self.mutate(|d| d.input(auth, connection, now, frame));
+        };
+        self.mutate(|d| {
+            d.authorize(auth, connection, &frame.attach_id, now)?;
+            let configurations = self.configurations.lock().map_err(|_| Error::Backend)?;
+            let config = configurations.get(&frame.attach_id).ok_or(Error::Stale)?;
+            if frame.layout_epoch != config.layout_epoch
+                || !config
+                    .tracks
+                    .iter()
+                    .any(|t| t.track_id == *track_id && t.codec_epoch == *codec_epoch)
+            {
+                return Err(Error::Stale);
+            }
+            if *group_id == 0
+                || *decode_micros > 60_000_000
+                || *render_micros > 60_000_000
+                || *queue_depth > 256
+            {
+                return Err(Error::Limit);
+            }
+            let a = d
+                .attachments
+                .get_mut(&frame.attach_id)
+                .ok_or(Error::NotFound)?;
+            if frame.sequence != a.sequence + 1 || frame.sequence > MAX_SAFE {
+                return Err(Error::Stale);
+            }
+            a.sequence = frame.sequence;
+            self.feedback.lock().map_err(|_| Error::Backend)?.insert(
+                (frame.attach_id.clone(), *track_id),
+                (std::time::Instant::now(), *queue_depth),
+            );
+            // Native groups are independently decodable, so every next group satisfies
+            // requestKeyframe. No input privilege is granted by decoder feedback.
+            Ok(())
+        })
+    }
+    pub(crate) fn feedback_delay(&self, id: &str, track: u64) -> std::time::Duration {
+        let depth = self
+            .feedback
+            .lock()
+            .ok()
+            .and_then(|values| values.get(&(id.into(), track)).copied())
+            .filter(|(time, _)| time.elapsed() < std::time::Duration::from_secs(2))
+            .map(|(_, depth)| depth)
+            .unwrap_or(0);
+        std::time::Duration::from_millis(depth.min(6) * 16)
+    }
     pub(crate) fn configuration(
         &self,
         id: &str,
