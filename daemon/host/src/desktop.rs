@@ -25,6 +25,8 @@ pub enum Error {
     Stale,
     Invalid,
     Unsupported,
+    HelperUnavailable,
+    HelperAuthentication,
     Limit,
     Backend,
 }

@@ -63,43 +63,41 @@ fn verify_peer(stream: &UnixStream, uid: u32) -> Result<libc::pid_t, Error> {
     {
         return Err(Error::Unauthorized);
     }
-    let mut buffer = [0u8; 4096];
-    let n = unsafe { libc::proc_pidpath(pid, buffer.as_mut_ptr().cast(), buffer.len() as u32) };
-    if n <= 0 {
-        return Err(Error::Unauthorized);
-    }
-    let end = buffer
-        .iter()
-        .position(|b| *b == 0)
-        .ok_or(Error::Unauthorized)?;
-    let peer = PathBuf::from(std::ffi::OsString::from_vec(buffer[..end].to_vec()))
-        .canonicalize()
-        .map_err(|_| Error::Unauthorized)?;
-    let expected = std::env::current_exe()
-        .map_err(|_| Error::Unauthorized)?
-        .canonicalize()
-        .map_err(|_| Error::Unauthorized)?;
-    // Both roles execute the same installed, root-owned system binary. A different
-    // same-UID program cannot impersonate the packaged helper by owning the socket.
-    if peer != expected {
-        return Err(Error::Unauthorized);
-    }
-    // /Applications is normally root:admin 0775. Permit that shared container
-    // only after authenticating the actual running peer's exact signed code hash.
-    // The app, executable and all other ancestors remain root-owned/non-writable.
+    // Daemon and helper run from different installed copies. Authenticate the
+    // exact running code rather than path equality. UID 0's runtime is private:
+    // the user helper must not need to traverse it to authenticate its peer.
     if !unsafe { rd_peer_matches_self(fd) } {
         return Err(Error::Unauthorized);
     }
+    let expected = if uid == 0 {
+        std::env::current_exe().map_err(|_| Error::Unauthorized)?
+    } else {
+        let mut buffer = [0u8; 4096];
+        let n = unsafe { libc::proc_pidpath(pid, buffer.as_mut_ptr().cast(), buffer.len() as u32) };
+        if n <= 0 { return Err(Error::Unauthorized); }
+        let end = buffer.iter().position(|b| *b == 0).ok_or(Error::Unauthorized)?;
+        PathBuf::from(std::ffi::OsString::from_vec(buffer[..end].to_vec()))
+    }.canonicalize().map_err(|_| Error::Unauthorized)?;
+    // Validate the helper's protected installation in both directions.
+    verify_helper_path(&expected)?;
+    // Fail closed if peer code changed while inspecting the installation.
+    if !unsafe { rd_peer_matches_self(fd) } {
+        return Err(Error::Unauthorized);
+    }
+    Ok(pid)
+}
+fn verify_helper_path(expected: &Path) -> Result<(), Error> {
     for ancestor in expected.ancestors() {
         let metadata = fs::metadata(ancestor).map_err(|_| Error::Unauthorized)?;
-        let applications = ancestor == Path::new("/Applications")
-            && metadata.gid() == 80
-            && metadata.mode() & 0o002 == 0;
-        if metadata.uid() != 0 || (metadata.mode() & 0o022 != 0 && !applications) {
+        if !safe_helper_ancestor(ancestor, metadata.uid(), metadata.gid(), metadata.mode()) {
             return Err(Error::Unauthorized);
         }
     }
-    Ok(pid)
+    Ok(())
+}
+fn safe_helper_ancestor(path: &Path, uid: u32, gid: u32, mode: u32) -> bool {
+    let applications = path == Path::new("/Applications") && gid == 80 && mode & 0o002 == 0;
+    uid == 0 && (mode & 0o022 == 0 || applications)
 }
 pub fn proxy(config: &Path) -> Arc<dyn Backend> {
     let profile = rieul_daemon_core::config::profile_id_for_config_path(config);
@@ -245,6 +243,141 @@ mod tests {
         assert!(!unsafe { rd_peer_matches_self(stream.as_raw_fd()) });
         drop(stream);
         child.wait().await.unwrap();
+    }
+    // Child endpoint used only by the isolated copied-executable tests below.
+    #[tokio::test]
+    async fn copied_code_peer() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let Some(path) = std::env::var_os("RIEUL_TEST_CODE_PEER") else { return; };
+        let mut stream = UnixStream::connect(path).await.unwrap();
+        if std::env::var_os("RIEUL_TEST_INVALIDATE_SELF").is_some() {
+            unsafe extern "C" {
+                fn csops(pid: libc::pid_t, op: u32, address: *mut libc::c_void, size: usize) -> i32;
+            }
+            assert_eq!(unsafe { csops(libc::getpid(), 1, std::ptr::null_mut(), 0) }, 0);
+            let mut status = 0u32;
+            assert_eq!(unsafe { csops(libc::getpid(), 0, (&mut status as *mut u32).cast(), 4) }, 0);
+            assert_eq!(status & 1, 0);
+            stream.write_u8(2).await.unwrap();
+            let _ = stream.read_u8().await;
+            return;
+        }
+        let accepted = if let Ok(uid) = std::env::var("RIEUL_TEST_FULL_PEER_UID") {
+            verify_peer(&stream, uid.parse().unwrap()).is_ok()
+        } else {
+            unsafe { rd_peer_matches_self(stream.as_raw_fd()) }
+        };
+        stream.write_all(&[u8::from(accepted)]).await.unwrap();
+        let mut done = [0];
+        stream.read_exact(&mut done).await.unwrap();
+    }
+    async fn copied_code_authentication(resign: bool) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let dir = tempfile::tempdir().unwrap();
+        let executable = dir.path().join("copied-helper");
+        fs::copy(std::env::current_exe().unwrap(), &executable).unwrap();
+        if resign {
+            assert!(std::process::Command::new("/usr/bin/codesign")
+                .args(["--force", "--sign", "-", "--identifier", "invalid.rieul.test-peer"])
+                .arg(&executable).status().unwrap().success());
+        }
+        let path = dir.path().join("peer.sock");
+        let listener = UnixListener::bind(&path).unwrap();
+        let mut child = tokio::process::Command::new(&executable)
+            .args(["--exact", "desktop_ipc::tests::copied_code_peer"])
+            .env("RIEUL_TEST_CODE_PEER", &path)
+            .kill_on_drop(true).spawn().unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(10), async {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            assert_eq!(unsafe { rd_peer_matches_self(stream.as_raw_fd()) }, !resign);
+            assert_eq!(stream.read_u8().await.unwrap(), u8::from(!resign));
+            stream.write_u8(1).await.unwrap();
+            assert!(child.wait().await.unwrap().success());
+        }).await.unwrap();
+    }
+    #[tokio::test]
+    async fn same_code_at_different_path_authenticates_both_directions() {
+        copied_code_authentication(false).await;
+    }
+    #[tokio::test]
+    async fn resigned_copy_is_not_the_same_code_identity() {
+        copied_code_authentication(true).await;
+    }
+    #[tokio::test]
+    async fn invalidated_peer_signature_is_rejected() {
+        use std::os::unix::process::ExitStatusExt;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("peer.sock");
+        let listener = UnixListener::bind(&path).unwrap();
+        let mut child = tokio::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "desktop_ipc::tests::copied_code_peer"])
+            .env("RIEUL_TEST_CODE_PEER", &path)
+            .env("RIEUL_TEST_INVALIDATE_SELF", "1")
+            .kill_on_drop(true).spawn().unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(10), async {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            match stream.read_u8().await {
+                Ok(2) => {
+                    assert!(!unsafe { rd_peer_matches_self(stream.as_raw_fd()) });
+                    let _ = stream.write_u8(1).await;
+                    let status = child.wait().await.unwrap();
+                    assert!(status.success() || status.signal() == Some(libc::SIGKILL));
+                    eprintln!("peer reported CS_VALID cleared and was rejected; exit: {status}");
+                }
+                Err(_) => {
+                    let status = child.wait().await.unwrap();
+                    assert_eq!(status.signal(), Some(libc::SIGKILL));
+                    assert!(!unsafe { rd_peer_matches_self(stream.as_raw_fd()) });
+                    eprintln!("kernel terminated invalidated peer: {status}; live-invalid coverage unavailable");
+                }
+                other => panic!("unexpected invalidation result: {other:?}"),
+            }
+        }).await.unwrap();
+    }
+    /// Run only in an isolated guest: root test binary under private runtime,
+    /// identical root-owned helper copy elsewhere, invoked as an existing user.
+    #[tokio::test]
+    #[ignore = "requires isolated VM root-owned private runtime and user helper copies"]
+    async fn private_runtime_authenticates_user_helper() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        assert_eq!(unsafe { libc::geteuid() }, 0);
+        let helper = PathBuf::from(std::env::var_os("RIEUL_TEST_INSTALLED_HELPER").unwrap());
+        let uid: u32 = std::env::var("RIEUL_TEST_HELPER_UID").unwrap().parse().unwrap();
+        assert_ne!(uid, 0);
+        let socket = helper.parent().unwrap().join("test.sock");
+        let listener = UnixListener::bind(&socket).unwrap();
+        fs::set_permissions(&socket, fs::Permissions::from_mode(0o666)).unwrap();
+        let _socket = SocketPath(socket.clone());
+        let mut child = tokio::process::Command::new("/usr/bin/sudo")
+            .args(["-n", "-u", &format!("#{uid}"), "/usr/bin/env"])
+            .arg(format!("RIEUL_TEST_CODE_PEER={}", socket.display()))
+            .arg("RIEUL_TEST_FULL_PEER_UID=0")
+            .arg(&helper).args(["--exact", "desktop_ipc::tests::copied_code_peer"])
+            .kill_on_drop(true).spawn().unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(10), async {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            assert!(verify_peer(&stream, uid).is_ok());
+            assert_eq!(stream.read_u8().await.unwrap(), 1);
+            stream.write_u8(1).await.unwrap();
+            assert!(child.wait().await.unwrap().success());
+        }).await.unwrap();
+    }
+    #[test]
+    fn unsafe_helper_installations_are_rejected() {
+        let executable = Path::new("/Applications/Rieul.app/Contents/Library/LaunchServices/rieul-macos-system");
+        assert!(safe_helper_ancestor(executable, 0, 0, 0o755));
+        assert!(!safe_helper_ancestor(executable, 501, 0, 0o755));
+        assert!(!safe_helper_ancestor(executable, 0, 0, 0o775));
+        assert!(!safe_helper_ancestor(executable, 0, 0, 0o757));
+        assert!(safe_helper_ancestor(Path::new("/Applications"), 0, 80, 0o775));
+        assert!(!safe_helper_ancestor(Path::new("/Applications"), 0, 80, 0o777));
+        assert!(!safe_helper_ancestor(Path::new("/Applications"), 0, 20, 0o775));
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("helper");
+        fs::write(&file, b"untrusted").unwrap();
+        assert_eq!(verify_helper_path(&file), Err(Error::Unauthorized));
+        assert_eq!(verify_helper_path(&dir.path().join("missing")), Err(Error::Unauthorized));
     }
     #[test]
     fn profile_cannot_escape_endpoint() {

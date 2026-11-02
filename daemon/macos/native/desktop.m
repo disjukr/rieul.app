@@ -14,41 +14,26 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-// Bind identity to the kernel peer audit token (including PID generation), not
-// a pathname or a reusable PID. Both roles execute the exact same signed binary.
+// Read-only XNU queries: CS_OPS_STATUS=0, CS_OPS_CDHASH=5, CS_VALID=1.
+// Audit-token queries fence PID reuse and do not open the protected runtime.
+// See apple-oss-distributions/xnu bsd/kern/kern_proc.c:csops_internal.
+extern int csops(pid_t, unsigned int, void *, size_t);
+extern int csops_audittoken(pid_t, unsigned int, void *, size_t, audit_token_t *);
 bool rd_peer_matches_self(int fd) {
     audit_token_t token;
     socklen_t length=sizeof(token);
     if(getsockopt(fd,SOL_LOCAL,LOCAL_PEERTOKEN,&token,&length) || length!=sizeof(token)) return false;
-    @autoreleasepool {
-        NSData *audit=[NSData dataWithBytes:&token length:sizeof(token)];
-        NSDictionary *attributes=@{(__bridge NSString *)kSecGuestAttributeAudit:audit};
-        SecCodeRef own=NULL,peer=NULL;
-        SecStaticCodeRef ownStatic=NULL,peerStatic=NULL;
-        CFDictionaryRef ownInfo=NULL,peerInfo=NULL;
-        bool ok=false;
-        if(SecCodeCopySelf(kSecCSDefaultFlags,&own)!=errSecSuccess ||
-           SecCodeCopyGuestWithAttributes(NULL,(__bridge CFDictionaryRef)attributes,kSecCSDefaultFlags,&peer)!=errSecSuccess ||
-           SecCodeCheckValidity(own,kSecCSDefaultFlags,NULL)!=errSecSuccess ||
-           SecCodeCheckValidity(peer,kSecCSDefaultFlags,NULL)!=errSecSuccess ||
-           SecCodeCopyStaticCode(own,kSecCSDefaultFlags,&ownStatic)!=errSecSuccess ||
-           SecCodeCopyStaticCode(peer,kSecCSDefaultFlags,&peerStatic)!=errSecSuccess ||
-           SecCodeCopySigningInformation(ownStatic,kSecCSSigningInformation,&ownInfo)!=errSecSuccess ||
-           SecCodeCopySigningInformation(peerStatic,kSecCSSigningInformation,&peerInfo)!=errSecSuccess) goto cleanup;
-        {
-            CFTypeRef a=CFDictionaryGetValue(ownInfo,kSecCodeInfoUnique);
-            CFTypeRef b=CFDictionaryGetValue(peerInfo,kSecCodeInfoUnique);
-            ok=a && b && CFGetTypeID(a)==CFDataGetTypeID() && CFGetTypeID(b)==CFDataGetTypeID() && CFEqual(a,b);
-        }
-    cleanup:
-        if(peerInfo) CFRelease(peerInfo);
-        if(ownInfo) CFRelease(ownInfo);
-        if(peerStatic) CFRelease(peerStatic);
-        if(ownStatic) CFRelease(ownStatic);
-        if(peer) CFRelease(peer);
-        if(own) CFRelease(own);
-        return ok;
-    }
+    pid_t pid=(pid_t)token.val[5];
+    uint32_t ownStatus=0,peerStatus=0;
+    uint8_t ownHash[20],peerHash[20];
+    if(pid<=0 || csops(getpid(),0,&ownStatus,sizeof(ownStatus)) ||
+       csops_audittoken(pid,0,&peerStatus,sizeof(peerStatus),&token) ||
+       !(ownStatus&1) || !(peerStatus&1) ||
+       csops(getpid(),5,ownHash,sizeof(ownHash)) ||
+       csops_audittoken(pid,5,peerHash,sizeof(peerHash),&token) ||
+       csops_audittoken(pid,0,&peerStatus,sizeof(peerStatus),&token) || !(peerStatus&1) ||
+       csops(getpid(),0,&ownStatus,sizeof(ownStatus)) || !(ownStatus&1)) return false;
+    return memcmp(ownHash,peerHash,sizeof(ownHash))==0;
 }
 
 typedef struct { uint32_t id; double x,y,width,height,scale,dpi; } RDDisplay;

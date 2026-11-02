@@ -91,11 +91,18 @@ fn failure(proc: ProcId, e: desktop::Error, stream: bool) -> ReqResMessage {
         desktop::Error::Unsupported => "unsupported",
         desktop::Error::Limit => "limit_exceeded",
         desktop::Error::Backend => "failed",
+        desktop::Error::HelperUnavailable => "failed",
+        desktop::Error::HelperAuthentication => "permission_denied",
+    };
+    let message = match e {
+        desktop::Error::HelperUnavailable => "Screen helper is unavailable. Open the Rieul app in the daemon's logged-in user session.".to_string(),
+        desktop::Error::HelperAuthentication => "Screen helper authentication failed. The daemon and Rieul app must be the same installed version.".to_string(),
+        _ => format!("Screen: {e:?}"),
     };
     if stream {
-        stream_error_message(proc.as_u64(), code, &format!("Desktop: {e:?}"))
+        stream_error_message(proc.as_u64(), code, &message)
     } else {
-        error_message(proc.as_u64(), code, &format!("Desktop: {e:?}"))
+        error_message(proc.as_u64(), code, &message)
     }
 }
 impl HostRpcHandler {
@@ -489,6 +496,17 @@ fn finish_capture(
 mod tests {
     use super::super::tests::{test_files, test_terminals};
     use super::*;
+    #[test]
+    fn helper_failures_have_truthful_method_errors() {
+        for (cause, auth) in [(desktop::Error::HelperAuthentication, true), (desktop::Error::HelperUnavailable, false)] {
+            let ReqResMessage::ResponseUnaryError { error, .. } = failure(ProcId::GetDesktopCapabilities, cause, false) else { panic!() };
+            match DesktopError::decode(&error).unwrap() {
+                DesktopError::PermissionDenied { message } if auth => assert!(message.contains("helper authentication failed")),
+                DesktopError::Failed { message } if !auth => assert!(message.contains("helper is unavailable")),
+                other => panic!("unexpected error: {other:?}"),
+            }
+        }
+    }
     #[derive(Default)]
     struct FakeBackend {
         inputs: std::sync::Mutex<Vec<DesktopInputEvent>>,

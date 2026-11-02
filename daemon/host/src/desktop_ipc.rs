@@ -354,7 +354,9 @@ async fn proxy_worker(connector: Connector, mut calls: tokio::sync::mpsc::Receiv
             }
             match tokio::time::timeout(Duration::from_secs(1), connector()).await {
                 Ok(Ok(stream)) => break (stream, call),
-                _ => { let _ = call.reply.send(Err(Error::Unsupported)); },
+                Ok(Err(Error::Unauthorized)) => { let _ = call.reply.send(Err(Error::HelperAuthentication)); },
+                Ok(Err(error)) if error != Error::Unsupported => { let _ = call.reply.send(Err(error)); },
+                _ => { let _ = call.reply.send(Err(Error::HelperUnavailable)); },
             }
         };
     let (mut input, mut output) = tokio::io::split(stream);
@@ -522,6 +524,21 @@ mod tests {
         Mutex,
         atomic::{AtomicUsize, Ordering},
     };
+    #[test]
+    fn connector_errors_preserve_authentication_and_availability() {
+        for (cause, expected) in [
+            (Error::Unauthorized, Error::HelperAuthentication),
+            (Error::Unsupported, Error::HelperUnavailable),
+            (Error::Busy, Error::Busy),
+        ] {
+            let cause = Arc::new(Mutex::new(Some(cause)));
+            let proxy = Proxy::new(Arc::new(move || {
+                let cause = cause.lock().unwrap().take().unwrap();
+                Box::pin(async move { Err(cause) })
+            }));
+            assert_eq!(proxy.recover(1), Err(expected));
+        }
+    }
     #[derive(Default)]
     struct Fake {
         inputs: Mutex<Vec<DesktopInputEvent>>,
