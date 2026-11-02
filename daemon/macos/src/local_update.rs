@@ -221,7 +221,10 @@ async fn serve<S: AsyncRead + AsyncWrite + Unpin>(
             };
             write(&mut writer, message).await?;
             write(&mut writer, Message::ResponseStreamEnd { stream_id: 1 }).await?;
-            Ok(())
+            // LOCAL_PEER* evidence must remain available while the helper
+            // authenticates this response. It closes after receiving End;
+            // the reader branch below then retires this connection.
+            std::future::pending::<Result<()>>().await
         }
     };
     tokio::select! { result=action=>result, _=disconnected=>Ok(()) }
@@ -388,7 +391,16 @@ mod tests {
                 read(&mut client).await.unwrap(),
                 Message::ResponseStreamEnd { stream_id: 1 }
             ));
-            task.await.unwrap().unwrap();
+            assert!(
+                !task.is_finished(),
+                "peer must remain authenticatable through response consumption"
+            );
+            drop(client);
+            tokio::time::timeout(Duration::from_secs(1), task)
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap();
             assert_eq!(fixture.calls.load(Ordering::SeqCst), 1);
         }
         let fixture = Fixture::new();
