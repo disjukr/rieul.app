@@ -19,6 +19,7 @@ use tokio::{
     net::{UnixListener, UnixStream},
     sync::watch,
 };
+const RESPONSE_CONSUMPTION_TIMEOUT: Duration = Duration::from_secs(5);
 const ENDPOINT: &str = "/var/run/rieul-updater.sock";
 const LOCK: &str = "/var/run/rieul-updater.lock";
 
@@ -223,8 +224,12 @@ async fn serve<S: AsyncRead + AsyncWrite + Unpin>(
             write(&mut writer, Message::ResponseStreamEnd { stream_id: 1 }).await?;
             // LOCAL_PEER* evidence must remain available while the helper
             // authenticates this response. It closes after receiving End;
-            // the reader branch below then retires this connection.
-            std::future::pending::<Result<()>>().await
+            // the reader branch below then retires this connection immediately.
+            // A suspended authenticated helper cannot retain its slot forever.
+            // This deadline starts only after both writes, never around the
+            // accepted updater operation, and does not report operation success.
+            tokio::time::sleep(RESPONSE_CONSUMPTION_TIMEOUT).await;
+            bail!("local updater response consumption timed out")
         }
     };
     tokio::select! { result=action=>result, _=disconnected=>Ok(()) }
@@ -411,6 +416,132 @@ mod tests {
             .unwrap();
         assert!(serve(server, fixture.clone(), || Ok(())).await.is_err());
         assert_eq!(fixture.calls.load(Ordering::SeqCst), 0);
+    }
+    #[tokio::test]
+    async fn eof_returns_connection_slot_without_waiting_for_consumption_deadline() {
+        let slots = Arc::new(tokio::sync::Semaphore::new(1));
+        let permit = slots.clone().acquire_owned().await.unwrap();
+        let (mut client, server) = tokio::io::duplex(4096);
+        let fixture = Fixture::new();
+        let task = tokio::spawn(async move {
+            let _permit = permit;
+            serve(server, fixture, || Ok(())).await
+        });
+        write(&mut client, Operation::Install.request())
+            .await
+            .unwrap();
+        read(&mut client).await.unwrap();
+        read(&mut client).await.unwrap();
+        assert_eq!(slots.available_permits(), 0);
+        drop(client);
+        tokio::time::timeout(Duration::from_secs(1), task)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert_eq!(slots.available_permits(), 1);
+    }
+    #[tokio::test]
+    async fn stalled_consumers_return_all_slots_without_cancelling_accepted_work() {
+        struct Background {
+            fixture: Arc<Fixture>,
+            release: Arc<tokio::sync::Barrier>,
+            reply: Arc<tokio::sync::Barrier>,
+            done: Arc<AtomicUsize>,
+        }
+        impl UpdateService for Background {
+            fn status(&self) -> Result<rieul_daemon_core::generated::rpc::UpdateStatus> {
+                self.fixture.status()
+            }
+            fn subscribe(
+                &self,
+            ) -> Result<watch::Receiver<rieul_daemon_core::generated::rpc::UpdateStatus>>
+            {
+                self.fixture.subscribe()
+            }
+            fn request(&self, _: UpdateCommand) -> UpdateRequest<'_> {
+                Box::pin(async {
+                    self.fixture.calls.fetch_add(1, Ordering::SeqCst);
+                    let release = self.release.clone();
+                    let done = self.done.clone();
+                    tokio::spawn(async move {
+                        release.wait().await;
+                        done.fetch_add(1, Ordering::SeqCst);
+                    });
+                    self.reply.wait().await;
+                    self.status()
+                })
+            }
+        }
+        let fixture = Fixture::new();
+        let release = Arc::new(tokio::sync::Barrier::new(17));
+        let done = Arc::new(AtomicUsize::new(0));
+        let reply = Arc::new(tokio::sync::Barrier::new(17));
+        let service = Arc::new(Background {
+            fixture: fixture.clone(),
+            release: release.clone(),
+            reply: reply.clone(),
+            done: done.clone(),
+        });
+        let slots = Arc::new(tokio::sync::Semaphore::new(16));
+        let mut clients = vec![];
+        let mut tasks = vec![];
+        for _ in 0..16 {
+            let permit = slots.clone().acquire_owned().await.unwrap();
+            let (mut client, server) = tokio::io::duplex(4096);
+            let service = service.clone();
+            tasks.push(tokio::spawn(async move {
+                let _permit = permit;
+                serve(server, service, || Ok(())).await
+            }));
+            write(&mut client, Operation::Install.request())
+                .await
+                .unwrap();
+            // Keep the consumer alive but do not read the buffered response.
+            clients.push(client);
+        }
+        assert_eq!(slots.available_permits(), 0);
+        // The request may run longer than the response-consumption budget.
+        tokio::time::sleep(RESPONSE_CONSUMPTION_TIMEOUT + Duration::from_millis(100)).await;
+        assert!(tasks.iter().all(|task| !task.is_finished()));
+        assert_eq!(fixture.calls.load(Ordering::SeqCst), 16);
+        reply.wait().await;
+        tokio::time::timeout(
+            RESPONSE_CONSUMPTION_TIMEOUT + Duration::from_secs(2),
+            async {
+                for task in tasks {
+                    let error = task.await.unwrap().unwrap_err();
+                    assert!(error.to_string().contains("response consumption timed out"));
+                }
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(slots.available_permits(), 16);
+        assert_eq!(fixture.calls.load(Ordering::SeqCst), 16);
+        assert_eq!(done.load(Ordering::SeqCst), 0);
+        // Connection expiry must not abort accepted, independently owned work.
+        tokio::time::timeout(Duration::from_secs(1), release.wait())
+            .await
+            .unwrap();
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while done.load(Ordering::SeqCst) != 16 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        for mut client in clients {
+            assert!(matches!(
+                read(&mut client).await.unwrap(),
+                Message::ResponseUnaryOk { .. }
+            ));
+            assert!(matches!(
+                read(&mut client).await.unwrap(),
+                Message::ResponseStreamEnd { .. }
+            ));
+            assert!(read(&mut client).await.is_err());
+        }
     }
     #[tokio::test]
     async fn changed_identity_stops_subscription_before_next_snapshot() {
