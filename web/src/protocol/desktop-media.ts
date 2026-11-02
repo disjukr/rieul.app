@@ -48,7 +48,7 @@ export async function* readDesktopGroup(
         const next = await reader.read();
         if (next.done) {
           if (allowEof && written === 0) return undefined;
-          throw new Error("Truncated desktop group");
+          throw new Error("Truncated screen group");
         }
         chunk = next.value;
         offset = 0;
@@ -64,7 +64,7 @@ export async function* readDesktopGroup(
     for (;;) {
       const header = await read(4, true);
       if (!header) {
-        if (!count) throw new Error("Empty desktop group");
+        if (!count) throw new Error("Empty screen group");
         complete = true;
         return;
       }
@@ -76,13 +76,13 @@ export async function* readDesktopGroup(
         total > MAX_DESKTOP_GROUP ||
         count >= 240
       ) {
-        throw new Error("Desktop media limit exceeded");
+        throw new Error("Screen media limit exceeded");
       }
       const body = (await read(length))!;
       const object = decodeDesktopMediaObjectValue(decodeCbor(body));
       if (!resolved && typeof expected === "function")
         resolved = expected(object);
-      if (!resolved) throw new Error("Unknown desktop media track");
+      if (!resolved) throw new Error("Unknown screen media track");
       if (
         object.attachId !== resolved.attachId ||
         object.trackId !== resolved.trackId ||
@@ -94,7 +94,7 @@ export async function* readDesktopGroup(
         object.timestampMicros < timestamp ||
         !object.data.length
       ) {
-        throw new Error("Desktop group discontinuity");
+        throw new Error("Screen group discontinuity");
       }
       group = object.groupId;
       timestamp = object.timestampMicros;

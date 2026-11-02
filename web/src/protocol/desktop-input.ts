@@ -100,7 +100,7 @@ async function deadline<T>(promise: Promise<T>): Promise<T> {
       promise,
       new Promise<never>((_, reject) => {
         timer = setTimeout(
-          () => reject(new Error("Desktop input timed out")),
+          () => reject(new Error("Screen input timed out")),
           2000,
         );
       }),
@@ -154,7 +154,7 @@ export class DesktopInputChannel {
               if (this.closed) {
                 void stream.writable.abort().catch(() => {});
                 void stream.readable.cancel().catch(() => {});
-                throw new Error("Desktop input closed");
+                throw new Error("Screen input closed");
               }
               return stream;
             }),
@@ -240,13 +240,13 @@ export class DesktopInputChannel {
       !response.payload
     )
       throw new Error(
-        "Desktop input was rejected; reconnect before continuing.",
+        "Screen input was rejected; reconnect before continuing.",
       );
     const receipt = decodeDesktopInputReceiptValue(
       decodeCbor(response.payload),
     );
     if (receipt.lastSequence !== stream.lastSequence)
-      throw new Error("Unexpected desktop input receipt");
+      throw new Error("Unexpected screen input receipt");
     stream.writer.releaseLock();
     stream.reader.releaseLock();
     if (this.stream === stream) this.stream = undefined;

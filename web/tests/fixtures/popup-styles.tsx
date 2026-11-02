@@ -16,7 +16,7 @@ function open() {
   canvas.width = 320;
   canvas.height = 180;
   canvas.tabIndex = 0;
-  canvas.setAttribute("aria-label", "Remote display fixture");
+  canvas.setAttribute("aria-label", "Display fixture");
   popup.document.body.append(canvas);
   stop = copyDocumentStyles(document, popup.document);
   popup.addEventListener("pagehide", () => stop?.(), { once: true });

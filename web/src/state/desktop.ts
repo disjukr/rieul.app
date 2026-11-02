@@ -74,7 +74,7 @@ export const desktopBunja = bunja(() => {
       return "Daemon connection failed. Reconnect to the daemon and retry.";
     if (info.phase !== "ready") return "Select a paired daemon to connect.";
     if (!supported())
-      return "This daemon version does not offer remote desktop. Update the daemon to continue.";
+      return "This daemon version does not offer Screen. Update the daemon to continue.";
     return undefined;
   });
   const controlling = createMemo(
@@ -192,7 +192,7 @@ export const desktopBunja = bunja(() => {
     }
     popups.clear();
     if (next.tracks.some((t) => !offeredCodecs.includes(t.codec.codec)))
-      throw new Error("Daemon selected an unoffered desktop codec");
+      throw new Error("Daemon selected an unoffered screen codec");
     currentCodec = next.tracks[0]?.codec.codec ?? "";
     await video?.configure(next);
     if (token !== generation) return;
@@ -267,7 +267,7 @@ export const desktopBunja = bunja(() => {
     attachTimeout = setTimeout(() => {
       if (token === generation)
         failed(
-          new Error("Desktop connection timed out. Retry to connect again."),
+          new Error("Screen connection timed out. Retry to connect again."),
         );
     }, 10_000);
     try {
@@ -418,7 +418,7 @@ export const desktopBunja = bunja(() => {
           }
           if (token === generation)
             failed(
-              new Error("Desktop session ended. Reconnect to view again."),
+              new Error("Screen session ended. Reconnect to view again."),
             );
         } catch (error) {
           if (token === generation) failed(error);
@@ -473,7 +473,7 @@ export const desktopBunja = bunja(() => {
       setMessage("Allow this window to open, or keep using the embedded view.");
       return;
     }
-    popup.document.title = "Rieul desktop";
+    popup.document.title = "Rieul Screen";
     popup.document.body.className = "rieul-desktop-window";
     const note = popup.document.createElement("p");
     note.textContent =
@@ -485,7 +485,7 @@ export const desktopBunja = bunja(() => {
     canvas.tabIndex = 0;
     canvas.setAttribute(
       "aria-label",
-      `Remote display ${track.viewport.displayId}`,
+      `Display ${track.viewport.displayId}`,
     );
     const frame = popup.document.createElement("div");
     frame.className = "rieul-desktop-frame";

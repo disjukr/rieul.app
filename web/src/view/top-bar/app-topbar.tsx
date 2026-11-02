@@ -53,7 +53,7 @@ const topbarTools: {
   tool: WorkbenchTool;
 }[] = [
   { icon: Radio, label: "Daemon", tool: "daemon" },
-  { icon: Monitor, label: "Remote desktop", tool: "desktop" },
+  { icon: Monitor, label: "Screen", tool: "desktop" },
   { icon: Folder, label: "Files", tool: "files" },
   { icon: Terminal, label: "Terminal", tool: "terminal" },
   { icon: AppWindow, label: "Windows", tool: "windows" },

@@ -376,7 +376,7 @@ export function DaemonTool() {
                     size="sm"
                     onClick={() => workbench().selectTool("desktop")}
                   >
-                    Open remote desktop
+                    Open screen
                   </Button>
                 )}
               {daemonInfo().phase === "ready" ? (

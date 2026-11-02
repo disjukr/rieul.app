@@ -92,7 +92,7 @@ export class DesktopVideoReceiver {
   async configure(configuration: DesktopConfiguration): Promise<void> {
     const generation = ++this.generation;
     if (configuration.tracks.length > 8)
-      throw new Error("Too many desktop tracks");
+      throw new Error("Too many screen tracks");
     const configs = await Promise.all(
       configuration.tracks.map(async (track) => {
         const config: VideoDecoderConfig = {
@@ -187,7 +187,7 @@ export class DesktopVideoReceiver {
           this.streams.delete(stream),
         );
       }
-      if (!this.closed) this.failed("Desktop media connection ended");
+      if (!this.closed) this.failed("Screen media connection ended");
     } catch (error) {
       if (!this.closed)
         this.failed(error instanceof Error ? error.message : String(error));
@@ -252,9 +252,9 @@ export class DesktopVideoReceiver {
           this.tracks.get(object.trackId) !== state ||
           state.group !== groupId
         )
-          throw new Error("Desktop group replaced");
+          throw new Error("Screen group replaced");
         if (state.decoder.decodeQueueSize >= 3)
-          throw new Error("Desktop decoder backpressure");
+          throw new Error("Screen decoder backpressure");
         const started = performance.now();
         state.timings.set(object.timestampMicros, started);
         try {
@@ -277,7 +277,7 @@ export class DesktopVideoReceiver {
             state.decoder.flush(),
             new Promise<never>((_, reject) => {
               timer = setTimeout(
-                () => reject(new Error("Desktop decode timeout")),
+                () => reject(new Error("Screen decode timeout")),
                 500,
               );
             }),

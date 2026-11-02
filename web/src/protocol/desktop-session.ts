@@ -43,7 +43,7 @@ export async function* desktopEvents(
     for (;;) {
       const next = await reader.read();
       if (next.done) {
-        if (buffer.length) throw new Error("Truncated desktop events");
+        if (buffer.length) throw new Error("Truncated screen events");
         break;
       }
       for (let offset = 0; offset < next.value.length; ) {
@@ -52,7 +52,7 @@ export async function* desktopEvents(
           next.value.length - offset,
           256 * 1024 - buffer.length,
         );
-        if (length <= 0) throw new Error("Desktop event exceeds limit");
+        if (length <= 0) throw new Error("Screen event exceeds limit");
         const merged = new Uint8Array(buffer.length + length);
         merged.set(buffer);
         merged.set(next.value.subarray(offset, offset + length), buffer.length);
@@ -62,7 +62,7 @@ export async function* desktopEvents(
         buffer = buffer.slice(decoded.readBytes);
         for (const message of decoded.messages) {
           if (message.kind === ReqResMessageKind.ResponseStreamErrorEnd)
-            throw new Error("Desktop attach was rejected by the daemon");
+            throw new Error("Screen attach was rejected by the daemon");
           if (
             message.kind !==
               (!started
@@ -70,7 +70,7 @@ export async function* desktopEvents(
                 : ReqResMessageKind.ResponseStreamChunk) ||
             !message.payload
           )
-            throw new Error("Invalid desktop event stream");
+            throw new Error("Invalid screen event stream");
           started = true;
           yield decodeDesktopEventValue(decodeCbor(message.payload));
         }

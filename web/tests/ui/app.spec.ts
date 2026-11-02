@@ -255,7 +255,7 @@ test("Solid signals release replaced scope lifetimes and ignore stale writes", a
   expect(errors).toEqual([]);
 });
 
-test("remote desktop workbench entry stays passive until explicit connect", async ({
+test("Screen workbench entry stays passive until explicit connect", async ({
   page,
 }) => {
   await page.addInitScript(() => {
@@ -273,16 +273,16 @@ test("remote desktop workbench entry stays passive until explicit connect", asyn
   });
   await page.goto("/");
   await page
-    .getByRole("button", { name: "Remote desktop", exact: true })
+    .getByRole("button", { name: "Screen", exact: true })
     .first()
     .click();
   await expect(
-    page.getByRole("region", { name: "Remote desktop" }),
+    page.getByRole("region", { name: "Screen" }),
   ).toBeVisible();
   await expect(
-    page.getByRole("button", { name: "Connect", exact: true }),
+    page.getByRole("button", { name: "Open screen", exact: true }),
   ).toBeDisabled();
   await expect(
-    page.getByRole("region", { name: "Remote desktop" }).getByRole("status"),
+    page.getByRole("region", { name: "Screen" }).getByRole("status"),
   ).toContainText("Select a paired daemon to connect");
 });

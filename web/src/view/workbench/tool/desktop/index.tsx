@@ -15,10 +15,10 @@ export function DesktopTool() {
       {...styles.root({ className: "rieul-desktop" })}
       data-phase={desktop().phase()}
       data-controlling={desktop().controlling()}
-      aria-label="Remote desktop"
+      aria-label="Screen"
     >
       <header {...styles.toolbar({ className: "rieul-desktop-toolbar" })}>
-        <h2 {...styles.title()}>Remote desktop</h2>
+        <h2 {...styles.title()}>Screen</h2>
         <Button
           size="sm"
           type="button"
@@ -32,7 +32,7 @@ export function DesktopTool() {
             : desktop().phase() === "error" ||
                 desktop().phase() === "unsupported"
               ? "Retry connection"
-              : "Connect"}
+              : "Open screen"}
         </Button>
         <Button
           size="sm"
@@ -43,7 +43,7 @@ export function DesktopTool() {
           }
           onClick={() => desktop().disconnect()}
         >
-          Disconnect
+          Close screen
         </Button>
         <Button
           size="sm"
@@ -85,22 +85,22 @@ export function DesktopTool() {
         {desktop().message() ??
           desktop().availabilityMessage() ??
           (desktop().controlling()
-            ? "You control this desktop."
+            ? "You control this screen."
             : desktop().phase() === "viewing"
               ? !desktop().inputReady()
                 ? "Viewing only. Input is unavailable; check the daemon’s OS input permission."
                 : desktop().control().holderAttachId
-                  ? "Another viewer controls this desktop. Choose Take control to request an explicit handoff."
+                  ? "Another viewer controls this screen. Choose Take control to request an explicit handoff."
                   : "Viewing only. Taking control is explicit."
               : desktop().phase() === "connecting"
                 ? "Connecting…"
                 : !desktop().supported()
-                  ? "This daemon does not offer remote desktop."
-                  : "Connect to view the remote displays.")}
+                  ? "This daemon does not offer Screen."
+                  : "Connect to view the displays.")}
       </p>
       <p {...styles.help({ className: "rieul-desktop-input-help" })}>
         Keyboard input uses physical keys. IME and OS-reserved shortcuts are
-        unavailable. Ctrl+Alt+Escape leaves remote keyboard focus.
+        unavailable. Ctrl+Alt+Escape leaves screen keyboard focus.
       </p>
       <label {...styles.help()}>
         Maximum video size
@@ -179,7 +179,7 @@ export function DesktopTool() {
       {desktop().stats() && (
         <output
           {...styles.metrics({ className: "rieul-desktop-metrics" })}
-          aria-label="Desktop decoder status"
+          aria-label="Screen decoder status"
         >
           {desktop().stats()!.requestKeyframe
             ? "Recovering at the next keyframe"
@@ -278,8 +278,8 @@ function DesktopSurface(props: { track: DesktopTrack }) {
           ref={setCanvas}
           class="rieul-desktop-canvas"
           tabindex={0}
-          aria-label={`Remote display ${props.track.viewport.displayId}`}
-          aria-description="Physical keys only. Ctrl+Alt+Escape leaves remote keyboard focus."
+          aria-label={`Display ${props.track.viewport.displayId}`}
+          aria-description="Physical keys only. Ctrl+Alt+Escape leaves screen keyboard focus."
         />
         <span
           {...styles.cursor({ className: "rieul-desktop-cursor" })}

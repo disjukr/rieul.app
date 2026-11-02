@@ -38,7 +38,7 @@ test("desktop popup receives styles, theme changes and stylesheet updates withou
   const opened = page.waitForEvent("popup");
   await page.getByRole("button", { name: "Open styled popup" }).click();
   const popup = await opened;
-  const canvas = popup.getByLabel("Remote display fixture");
+  const canvas = popup.getByLabel("Display fixture");
   await expect(canvas).toHaveCSS("display", "block");
   await expect(canvas).toHaveCSS("background-color", "rgb(16, 24, 40)");
   await expect(canvas).toHaveCSS("touch-action", "none");

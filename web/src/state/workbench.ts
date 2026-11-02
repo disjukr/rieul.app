@@ -1101,7 +1101,7 @@ function createWorkbenchTab(tool: WorkbenchTool): WorkbenchTab {
 function titleForTool(tool: WorkbenchTool): string {
   switch (tool) {
     case "desktop":
-      return "Remote desktop";
+      return "Screen";
     case "daemon":
       return "Daemon";
     case "files":

@@ -7,11 +7,11 @@ test("viewer never takes control on viewing and preserves physical key identity 
   await expect(
     page.getByRole("button", { name: "Acquire control", exact: true }),
   ).toBeDisabled();
-  await page.getByRole("button", { name: "Connect", exact: true }).click();
+  await page.getByRole("button", { name: "Open screen", exact: true }).click();
   await expect(
-    page.getByRole("region", { name: "Remote desktop" }).getByRole("status"),
+    page.getByRole("region", { name: "Screen" }).getByRole("status"),
   ).toContainText("Viewing only");
-  const canvas = page.getByLabel("Remote display fixture", { exact: true });
+  const canvas = page.getByLabel("Display fixture", { exact: true });
   await canvas.focus();
   await page.keyboard.press("a");
   await expect(page.getByLabel("Recorded input")).toHaveText("[]");
@@ -54,7 +54,7 @@ test("viewer never takes control on viewing and preserves physical key identity 
       .length,
   ).toBeGreaterThanOrEqual(3);
   expect(events.at(-1)?.type).toBe("releaseAll");
-  await page.getByRole("button", { name: "Disconnect", exact: true }).click();
+  await page.getByRole("button", { name: "Close screen", exact: true }).click();
   await expect(canvas).toHaveCount(0);
 });
 
@@ -66,12 +66,12 @@ test("viewer settings remain usable at a narrow viewport without taking control"
   const size = page.getByRole("combobox", { name: "Maximum video size" });
   await size.selectOption("720");
   await expect(size).toHaveValue("720");
-  await page.getByRole("button", { name: "Connect", exact: true }).click();
+  await page.getByRole("button", { name: "Open screen", exact: true }).click();
   await page.getByRole("button", { name: "Open in another window" }).hover();
   await size.focus();
   await expect(size).toBeFocused();
   await expect(
-    page.getByRole("region", { name: "Remote desktop" }).getByRole("status"),
+    page.getByRole("region", { name: "Screen" }).getByRole("status"),
   ).toContainText("Viewing only");
   await expect(page.getByLabel("Recorded input")).toHaveText("[]");
   expect(
@@ -79,7 +79,7 @@ test("viewer settings remain usable at a narrow viewport without taking control"
       () => document.documentElement.scrollWidth <= window.innerWidth,
     ),
   ).toBe(true);
-  await page.getByRole("button", { name: "Disconnect", exact: true }).click();
+  await page.getByRole("button", { name: "Close screen", exact: true }).click();
   await expect(
     page.getByRole("button", { name: "Acquire control", exact: true }),
   ).toBeDisabled();
