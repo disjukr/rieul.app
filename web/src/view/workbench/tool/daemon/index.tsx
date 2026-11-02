@@ -28,7 +28,7 @@ import {
   subscribeClients,
   subscribeTerminalSessions,
 } from "../../../../protocol/generated/client.ts";
-import { procs, ProcId } from "../../../../protocol/generated/rpc.ts";
+import { RpcSupportSection } from "./rpc-support.tsx";
 import type { ClientInfo } from "../../../../protocol/generated/rpc.ts";
 import { machineStoreBunja } from "../../../../state/machine-store.ts";
 import { rpcSessionBunja } from "../../../../state/rpc-session.ts";
@@ -43,9 +43,6 @@ import {
   PropertyListItem,
   PropertyValue,
 } from "../../../ui/property-list.tsx";
-function procName(procId: number): string {
-  return procs[procId as keyof typeof procs]?.name ?? `Proc ${procId}`;
-}
 
 interface ClientsState {
   clients: ClientInfo[];
@@ -367,18 +364,6 @@ export function DaemonTool() {
               )}
             </div>
             <div {...styles.daemonContent()}>
-              {!clientsPageOpen() &&
-                readyDaemonInfo()?.supportedProcIds.includes(
-                  ProcId.GetDesktopCapabilities,
-                ) && (
-                  <Button
-                    type="button"
-                    size="sm"
-                    onClick={() => workbench().selectTool("desktop")}
-                  >
-                    Open screen
-                  </Button>
-                )}
               {daemonInfo().phase === "ready" ? (
                 <DaemonInfoView
                   endpoint={machine()?.baseUrl}
@@ -624,17 +609,7 @@ function DaemonInfoView(props: DaemonInfoViewProps) {
               onOpenClients={props.onOpenClients}
             />
 
-            <section {...styles.procSection()}>
-              <div {...styles.procSectionTitle()}>Supported RPC</div>
-              <div {...styles.procTable()}>
-                {props.supportedProcIds.map((procId) => (
-                  <div>
-                    <span>{procId}</span>
-                    <span>{procName(procId)}</span>
-                  </div>
-                ))}
-              </div>
-            </section>
+            <RpcSupportSection supportedProcIds={props.supportedProcIds} />
           </>
         );
       })()}
@@ -1806,40 +1781,6 @@ namespace styles {
   export const clientDetailState = style({
     padding: "1rem",
     color: "rgb(102 112 133 / 1)",
-  });
-  export const procTable = style({
-    selectors: {
-      "& span": {
-        overflowWrap: "anywhere",
-        minWidth: "0",
-        paddingLeft: "1rem",
-        paddingRight: "1rem",
-        paddingTop: "8px",
-        paddingBottom: "8px",
-        fontSize: "14px",
-      },
-      "& div": {
-        display: "grid",
-        gridTemplateColumns: "72px minmax(0,1fr)",
-        minWidth: "0",
-        borderBottomWidth: "1px",
-        borderBottomColor: "rgb(237 240 245 / 1)",
-      },
-      "& div:last-child": {
-        borderBottomWidth: "0px",
-      },
-      "& span:first-child": {
-        backgroundColor: "rgb(251 252 254 / 1)",
-        color: "rgb(102 112 133 / 1)",
-        fontWeight: 700,
-      },
-    },
-    display: "grid",
-    overflow: "hidden",
-    borderWidth: "1px",
-    borderColor: "rgb(216 221 231 / 1)",
-    borderRadius: "8px",
-    backgroundColor: "rgb(255 255 255 / 1)",
   });
   export const messageState = style({
     selectors: {
