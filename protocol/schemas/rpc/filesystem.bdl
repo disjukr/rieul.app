@@ -340,6 +340,10 @@ struct TrashItem {
 
   @ id - 5
   size?: TrashItemSize,
+
+  @ id - 6
+  @ description - This item can only be inspected; restore and purge are unavailable.
+  readOnly?: bool,
 }
 
 @ description

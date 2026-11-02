@@ -342,3 +342,24 @@ test("legacy agent tabs retain saved metadata without exposing agent commands", 
   assert.equal(entry.value.panes()[0].tabs[0].tool, "daemon");
   release();
 });
+
+test("new Files tabs start at Home while explicit Root and Trash remain selectable", (t) => {
+  const f = fixture(t);
+  const entry = f.store.get(workbenchBunja, f.read("new-machine"));
+  entry.mount();
+  const workbench = entry.value;
+  assert.equal(workbench.panes()[0].tabs[0].filesView, "home");
+  workbench.openFilesTab();
+  flush();
+  assert.equal(workbench.panes()[0].tabs.at(-1)?.filesView, "home");
+  workbench.openFilesTab({ filesView: "roots" });
+  workbench.openFilesTab({ filesView: "trash" });
+  flush();
+  assert.deepEqual(
+    workbench
+      .panes()[0]
+      .tabs.slice(-2)
+      .map((tab) => tab.filesView),
+    ["roots", "trash"],
+  );
+});

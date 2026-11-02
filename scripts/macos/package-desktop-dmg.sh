@@ -148,6 +148,8 @@ if [[ -z "$OUT_DIR" ]]; then
   OUT_DIR="$REPO_ROOT/dist/macos"
 fi
 
+export RIEUL_RELEASE_VERSION="$VERSION"
+
 if [[ "$SKIP_BUILD" != "1" ]]; then
   (cd "$REPO_ROOT" && cargo build -p rieul-macos-daemon --release --bin rieul-macos-system --bin rieul-macos-launcher --locked)
   (cd "$REPO_ROOT" && node pairing/scripts/package.mjs --replace)

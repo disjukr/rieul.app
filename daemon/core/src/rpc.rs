@@ -62,6 +62,11 @@ pub type CompletePairingRequest = CompletePairingReq;
 pub type CompletePairingResponse = CompletePairingRes;
 pub type RenewClientCredentialResponse = RenewClientCredentialRes;
 
+/// Release packagers provide this at compile time; runtime environment cannot spoof it.
+pub fn daemon_build_version() -> &'static str {
+    option_env!("RIEUL_RELEASE_VERSION").unwrap_or(concat!(env!("CARGO_PKG_VERSION"), " (development)"))
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct DaemonProcessInfo {
     version: String,
@@ -74,7 +79,7 @@ impl DaemonProcessInfo {
     fn current() -> Self {
         let started_at_ms = current_unix_ms();
         Self {
-            version: env!("CARGO_PKG_VERSION").to_string(),
+            version: daemon_build_version().to_string(),
             os: current_os_name(),
             instance_id: format!("{started_at_ms}-{}", std::process::id()),
             started_at_ms,
@@ -560,6 +565,16 @@ mod tests {
             bytes: vec![1, 2, 3],
         };
         assert_eq!(ReadFileChunk::decode(&response.encode()).unwrap(), response);
+    }
+
+    #[test]
+    fn daemon_version_reports_release_or_explicit_development_build() {
+        let version = super::DaemonInfo::current_with_supported_procs(&[]).version;
+        if let Ok(expected) = std::env::var("RIEUL_TEST_EXPECTED_BUILD_VERSION") {
+            assert_eq!(version, expected);
+        } else if option_env!("RIEUL_RELEASE_VERSION").is_none() {
+            assert!(version.ends_with(" (development)"));
+        }
     }
 
     #[test]

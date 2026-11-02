@@ -1033,7 +1033,7 @@ function insertTab(
 }
 
 function createFilesTab(config: WorkbenchFilesTabConfig = {}): WorkbenchTab {
-  const filesView = config.filesView ?? "roots";
+  const filesView = config.filesView ?? "home";
   return {
     ...createWorkbenchTab("files"),
     filesView,
@@ -1095,6 +1095,7 @@ function createWorkbenchTab(tool: WorkbenchTool): WorkbenchTab {
     id: `${tool}-${crypto.randomUUID()}`,
     title: titleForTool(tool),
     tool,
+    ...(tool === "files" ? { filesView: "home" as const } : {}),
   };
 }
 

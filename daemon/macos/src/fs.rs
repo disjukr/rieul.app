@@ -4,8 +4,8 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, UNIX_EPOCH};
 
 use rieul_daemon_core::rpc::{
-    CreateNodeOp, CreateNodeSpec, DeleteMode, FsEntry, FsEntryKind, ReadFileReq, TrashItem,
-    WriteFileChunk, WriteFileMode, WriteFileResult, WriteFileStart, MAX_U53,
+    CreateNodeOp, CreateNodeSpec, DeleteMode, FsEntry, FsEntryKind, MAX_U53, ReadFileReq,
+    TrashItem, WriteFileChunk, WriteFileMode, WriteFileResult, WriteFileStart,
 };
 use rieul_daemon_core::traits::{BoxFutureResult, FileService, ServiceError, WriteFileChunkSource};
 
@@ -13,6 +13,9 @@ use rieul_daemon_core::traits::{BoxFutureResult, FileService, ServiceError, Writ
 pub struct MacFileService;
 
 impl FileService for MacFileService {
+    fn home_directory(&self) -> BoxFutureResult<'_, String> {
+        Box::pin(async { Ok(active_user_home()?.home.to_string_lossy().into_owned()) })
+    }
     fn roots(&self) -> BoxFutureResult<'_, Vec<FsEntry>> {
         Box::pin(async move { list_directory_entries("/") })
     }
@@ -123,7 +126,14 @@ impl FileService for MacFileService {
     }
 
     fn trash_items(&self) -> BoxFutureResult<'_, Vec<TrashItem>> {
-        Box::pin(async move { Err(ServiceError::Unsupported) })
+        Box::pin(async move {
+            let user = active_user_home()?;
+            let items = list_user_trash(&user).await?;
+            if active_user_home()? != user {
+                return Err(ServiceError::PermissionDenied);
+            }
+            Ok(items)
+        })
     }
 
     fn restore_trash_item(&self, _item_id: String) -> BoxFutureResult<'_, ()> {
@@ -133,6 +143,139 @@ impl FileService for MacFileService {
     fn purge_trash_item(&self, _item_id: String) -> BoxFutureResult<'_, ()> {
         Box::pin(async move { Err(ServiceError::Unsupported) })
     }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct UserHome {
+    uid: u32,
+    home: PathBuf,
+}
+
+fn active_user_home() -> Result<UserHome, ServiceError> {
+    use std::os::unix::fs::MetadataExt;
+    let effective = unsafe { libc::geteuid() };
+    let uid = if effective == 0 {
+        fs::metadata("/dev/console").map_err(map_io_error)?.uid()
+    } else {
+        effective
+    };
+    if uid < 500 || uid == u32::MAX {
+        return Err(ServiceError::OperationFailed(
+            "No logged-in user home is available".into(),
+        ));
+    }
+    let mut record = unsafe { std::mem::zeroed::<libc::passwd>() };
+    let mut result = std::ptr::null_mut();
+    let mut buffer = vec![0u8; 128 * 1024];
+    let status = unsafe {
+        libc::getpwuid_r(
+            uid,
+            &mut record,
+            buffer.as_mut_ptr().cast(),
+            buffer.len(),
+            &mut result,
+        )
+    };
+    if status != 0 || result.is_null() || record.pw_dir.is_null() {
+        return Err(ServiceError::OperationFailed(
+            "Cannot resolve the logged-in user's home".into(),
+        ));
+    }
+    use std::os::unix::ffi::OsStringExt;
+    let home = PathBuf::from(std::ffi::OsString::from_vec(
+        unsafe { std::ffi::CStr::from_ptr(record.pw_dir) }
+            .to_bytes()
+            .to_vec(),
+    ));
+    validate_user_home(uid, home)
+}
+
+fn validate_user_home(uid: u32, home: PathBuf) -> Result<UserHome, ServiceError> {
+    use std::os::unix::fs::MetadataExt;
+    if uid < 500 || !home.is_absolute() || home == Path::new("/") || home == Path::new("/var/root")
+    {
+        return Err(ServiceError::PermissionDenied);
+    }
+    let metadata = fs::symlink_metadata(&home).map_err(map_io_error)?;
+    if !metadata.is_dir() || metadata.uid() != uid {
+        return Err(ServiceError::PermissionDenied);
+    }
+    Ok(UserHome { uid, home })
+}
+
+async fn list_user_trash(user: &UserHome) -> Result<Vec<TrashItem>, ServiceError> {
+    use std::os::unix::fs::MetadataExt;
+    use tokio::io::AsyncReadExt;
+    let path = user.home.join(".Trash");
+    match fs::symlink_metadata(&path) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(vec![]),
+        Err(error) => return Err(map_io_error(error)),
+        Ok(metadata) if !metadata.is_dir() || metadata.uid() != user.uid => {
+            return Err(ServiceError::PermissionDenied);
+        }
+        Ok(_) => (),
+    }
+    // Enumerate with the user's credentials, never root's filesystem access.
+    // No shell, no permission prompts, no symlink traversal, and bounded output.
+    let mut command = if unsafe { libc::geteuid() } == 0 {
+        let mut command = tokio::process::Command::new("/usr/bin/sudo");
+        command.args(["-n", "-H", "-u", &format!("#{}", user.uid), "/usr/bin/find"]);
+        command
+    } else {
+        if unsafe { libc::geteuid() } != user.uid {
+            return Err(ServiceError::PermissionDenied);
+        }
+        tokio::process::Command::new("/usr/bin/find")
+    };
+    let mut child = command
+        .arg("-P")
+        .arg(&path)
+        .args(["-mindepth", "1", "-maxdepth", "1", "-print0"])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .kill_on_drop(true)
+        .spawn()
+        .map_err(map_io_error)?;
+    let result = tokio::time::timeout(Duration::from_secs(5), async {
+        let mut output = Vec::new();
+        child.stdout.take().unwrap().take(1024 * 1024 + 1).read_to_end(&mut output).await.map_err(map_io_error)?;
+        if output.len() > 1024 * 1024 { return Err(ServiceError::OperationFailed("Trash listing exceeds limit".into())); }
+        if !child.wait().await.map_err(map_io_error)?.success() {
+            return Err(ServiceError::OperationFailed("macOS denied access to the logged-in user's Trash. OS privacy permission may be required.".into()));
+        }
+        trash_rows(&path, &output)
+    }).await.map_err(|_| ServiceError::OperationFailed("Trash listing timed out".into()))?;
+    result
+}
+
+fn trash_rows(path: &Path, output: &[u8]) -> Result<Vec<TrashItem>, ServiceError> {
+    use std::os::unix::ffi::OsStrExt;
+    let mut rows = Vec::new();
+    for bytes in output.split(|b| *b == 0).filter(|b| !b.is_empty()) {
+        let entry = Path::new(std::ffi::OsStr::from_bytes(bytes));
+        if entry.parent() != Some(path) {
+            return Err(ServiceError::InvalidPath);
+        }
+        let name = entry
+            .file_name()
+            .ok_or(ServiceError::InvalidPath)?
+            .to_string_lossy()
+            .into_owned();
+        if name == ".DS_Store" {
+            continue;
+        }
+        rows.push(TrashItem {
+            id: entry.to_string_lossy().into_owned(),
+            name,
+            original_parent: String::new(),
+            deleted_at_ms: None,
+            size: None,
+            read_only: Some(true),
+        });
+    }
+    rows.sort_by(|a, b| a.name.cmp(&b.name));
+    Ok(rows)
 }
 
 async fn write_file_chunks(
@@ -368,5 +511,41 @@ fn map_io_error(err: std::io::Error) -> ServiceError {
         std::io::ErrorKind::NotADirectory => ServiceError::NotDirectory,
         std::io::ErrorKind::IsADirectory => ServiceError::NotFile,
         _ => ServiceError::OperationFailed(err.to_string()),
+    }
+}
+
+#[cfg(test)]
+mod user_locations_tests {
+    use super::*;
+    #[tokio::test]
+    async fn user_home_and_read_only_trash_never_fall_back_to_root() {
+        let dir = tempfile::tempdir().unwrap();
+        let uid = unsafe { libc::geteuid() };
+        let user = validate_user_home(uid, dir.path().to_path_buf()).unwrap();
+        assert!(validate_user_home(0, dir.path().to_path_buf()).is_err());
+        assert!(validate_user_home(uid.wrapping_add(1), dir.path().to_path_buf()).is_err());
+        assert!(validate_user_home(uid, PathBuf::from("/var/root")).is_err());
+        assert!(list_user_trash(&user).await.unwrap().is_empty());
+        fs::create_dir(dir.path().join(".Trash")).unwrap();
+        fs::write(dir.path().join(".Trash/example 한글.txt"), b"fixture").unwrap();
+        let rows = list_user_trash(&user).await.unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].name, "example 한글.txt");
+        assert_eq!(rows[0].read_only, Some(true));
+        assert!(rows[0].original_parent.is_empty());
+        assert!(dir.path().join(".Trash/example 한글.txt").exists());
+    }
+    #[tokio::test]
+    async fn trash_symlink_cannot_select_another_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        let other = tempfile::tempdir().unwrap();
+        std::os::unix::fs::symlink(other.path(), dir.path().join(".Trash")).unwrap();
+        let user =
+            validate_user_home(unsafe { libc::geteuid() }, dir.path().to_path_buf()).unwrap();
+        assert!(matches!(
+            list_user_trash(&user).await,
+            Err(ServiceError::PermissionDenied)
+        ));
+        assert!(trash_rows(&dir.path().join(".Trash"), b"/var/root/private\0").is_err());
     }
 }

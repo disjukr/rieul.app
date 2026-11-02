@@ -606,6 +606,7 @@ export interface TrashItem {
   originalParent: string;
   deletedAtMs?: number;
   size?: TrashItemSize;
+  readOnly?: boolean;
 }
 
 export type TrashItemSize =
@@ -5449,6 +5450,7 @@ export function encodeTrashItemValue(value: TrashItem): CborValue {
   fields.set(3, text(required(value.originalParent, "TrashItem.originalParent")));
   if (value.deletedAtMs !== undefined) fields.set(4, u53(value.deletedAtMs));
   if (value.size !== undefined) fields.set(5, encodeTrashItemSizeValue(value.size));
+  if (value.readOnly !== undefined) fields.set(6, bool(value.readOnly));
   return fields;
 }
 
@@ -5460,6 +5462,7 @@ export function decodeTrashItemValue(value: CborValue): TrashItem {
     originalParent: fieldOrDefault(fields.get(3), (value) => textValue(value), () => ""),
     deletedAtMs: optionalField(fields.get(4), (value) => integer(value)),
     size: optionalField(fields.get(5), (value) => decodeTrashItemSizeValue(value)),
+    readOnly: optionalField(fields.get(6), (value) => boolValue(value)),
   };
 }
 

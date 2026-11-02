@@ -74,8 +74,8 @@ const rustBaseline = {
   wire: "ef71c3825e1750fea98e7734423be01aec84aa0642765c7fe05d9388c1befd1a",
   "socket-wire":
     "72af8be28ae16e56d51180ab97c92e6884d7f25a810570e02e7bacf8b3b61109",
-  // Update RPCs 64/65 and negotiated desktop RPCs 66–72 append types; existing IDs stay unchanged.
-  rpc: "d0af487ea76a420a74cd4fe28cff3684af610e7714252ec90f0df672f5c6f814",
+  // Includes optional TrashItem.readOnly field 6; existing IDs and variants stay unchanged.
+  rpc: "47888023c85b7d610af4233ba539116c990d957eb0eda27b1087e086ec0b9648",
   // Private recovery command7 appends to the desktop union; existing tags remain unchanged.
   ipc: "916520911d487f916ceff77f944925b79e0fe18bea478855893b14838525ab73",
 };

@@ -4210,7 +4210,10 @@ impl HostRpcHandler {
     }
 
     async fn get_daemon_environment(&mut self, _: ()) -> Result<UnaryRpcOutcome> {
-        Ok(RpcResponse::GetDaemonEnvironment(DaemonEnvironment::current()).into())
+        match self.files.home_directory().await {
+            Ok(home_directory) => Ok(RpcResponse::GetDaemonEnvironment(DaemonEnvironment { home_directory }).into()),
+            Err(error) => Ok(UnaryRpcOutcome::Message(error_message(ProcId::GetDaemonEnvironment.as_u64(), service_error_code(&error), &error.to_string()))),
+        }
     }
 
     async fn start_pairing(&mut self, request: StartPairingRequest) -> Result<UnaryRpcOutcome> {
@@ -5962,7 +5965,7 @@ mod tests {
         let environment = DaemonEnvironment::decode(payload(&responses[0])).unwrap();
         assert_eq!(
             environment.home_directory,
-            DaemonEnvironment::current().home_directory
+            "/fixture/logged-in-user"
         );
     }
 
@@ -7006,6 +7009,9 @@ mod tests {
     struct TestFileService;
 
     impl FileService for TestFileService {
+        fn home_directory(&self) -> rieul_daemon_core::traits::BoxFutureResult<'_, String> {
+            Box::pin(async { Ok("/fixture/logged-in-user".into()) })
+        }
         fn roots(&self) -> rieul_daemon_core::traits::BoxFutureResult<'_, Vec<FsEntry>> {
             Box::pin(async { Err(ServiceError::Unsupported) })
         }

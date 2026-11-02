@@ -267,6 +267,8 @@ $UserExe = Join-Path $ReleaseDir "rieul-windows-user.exe"
 if (-not $GuiBundle) { $GuiBundle = Join-Path $ReleaseDir "rieul-windows-gui" }
 
 if (-not $SkipBuild) {
+  $PreviousReleaseVersion = $env:RIEUL_RELEASE_VERSION
+  $env:RIEUL_RELEASE_VERSION = $Version
   Push-Location $RepoRoot
   try {
     cargo build -p rieul-windows-daemon --release --bin rieul-windows-system --bin rieul-windows-user --locked
@@ -274,6 +276,7 @@ if (-not $SkipBuild) {
     & (Get-Command node.exe -ErrorAction Stop).Source pairing/scripts/package.mjs --replace
     if ($LASTEXITCODE) { throw 'Native pairing bundle build failed' }
   } finally {
+    $env:RIEUL_RELEASE_VERSION = $PreviousReleaseVersion
     Pop-Location
   }
 }

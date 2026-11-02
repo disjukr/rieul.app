@@ -113,6 +113,9 @@ export function FilesTool() {
   );
   const explorer = useBunja(explorerBunja);
   const initialFilesLocationAppliedRef = { current: false };
+  const [homeError, setHomeError] = createSignal<string>();
+  const [homePending, setHomePending] = createSignal(false);
+  const [homeAttempt, setHomeAttempt] = createSignal(0);
   const goBack = createMemo(() => explorer().goBack);
   const goUp = createMemo(() => explorer().goUp);
   const navigate = createMemo(() => explorer().navigate);
@@ -136,6 +139,7 @@ export function FilesTool() {
   createEffect(
     () => ({
       tab: initialLocation(),
+      attempt: homeAttempt(),
       explorer: explorer(),
       machine: machine(),
       isPaired: isPaired(),
@@ -161,17 +165,22 @@ export function FilesTool() {
       }
       if (!currentMachine || !currentIsPaired) return;
       let cancelled = false;
+      setHomePending(true);
+      setHomeError(undefined);
       void (async () => {
         try {
           const transport = await currentRpcSession.webTransport();
           const environment = await getDaemonEnvironment(transport);
-          if (cancelled || !environment.homeDirectory) return;
+          if (cancelled) return;
+          if (!environment.homeDirectory)
+            throw new Error("No logged-in user home is available.");
           initialFilesLocationAppliedRef.current = true;
           currentExplorer.replaceWithPath(environment.homeDirectory);
-        } catch {
+        } catch (error) {
           if (cancelled) return;
-          initialFilesLocationAppliedRef.current = true;
-          // Keep the roots view when the daemon cannot provide a home directory.
+          setHomeError(error instanceof Error ? error.message : String(error));
+        } finally {
+          if (!cancelled) setHomePending(false);
         }
       })();
       return () => {
@@ -557,7 +566,20 @@ export function FilesTool() {
                 <FilesRenameContext value={() => renameState()}>
                   <FilesNavbar />
 
-                  <FilesContent view={filesView()} />
+                  {homePending() ? (
+                    <div role="status">Opening home…</div>
+                  ) : homeError() ? (
+                    <div role="alert">
+                      <p>{homeError()}</p>
+                      <Button
+                        onClick={() => setHomeAttempt((attempt) => attempt + 1)}
+                      >
+                        Retry home
+                      </Button>
+                    </div>
+                  ) : (
+                    <FilesContent view={filesView()} />
+                  )}
                 </FilesRenameContext>
               </FilesCreateFileContext>
             </FilesActionsContext>

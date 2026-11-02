@@ -14,6 +14,12 @@ use rieul_daemon_core::traits::{BoxFutureResult, FileService, ServiceError, Writ
 pub struct WindowsFileService;
 
 impl FileService for WindowsFileService {
+    fn home_directory(&self) -> BoxFutureResult<'_, String> {
+        Box::pin(async {
+            require_interactive_file_user()?;
+            Ok(rieul_daemon_core::rpc::DaemonEnvironment::current().home_directory)
+        })
+    }
     fn roots(&self) -> BoxFutureResult<'_, Vec<FsEntry>> {
         Box::pin(async move {
             let mut roots = Vec::new();
@@ -155,6 +161,7 @@ impl FileService for WindowsFileService {
 
     fn trash_items(&self) -> BoxFutureResult<'_, Vec<RpcTrashItem>> {
         Box::pin(async move {
+            require_interactive_file_user()?;
             let mut rows = trash::os_limited::list()
                 .map_err(|err| ServiceError::OperationFailed(err.to_string()))?
                 .iter()
@@ -187,7 +194,20 @@ impl FileService for WindowsFileService {
     }
 }
 
+fn require_interactive_file_user() -> Result<(), ServiceError> {
+    let session = crate::terminal_ipc::current_process_session_id()
+        .map_err(|error| ServiceError::OperationFailed(error.to_string()))?;
+    check_file_user_session(session)
+}
+fn check_file_user_session(session: u32) -> Result<(), ServiceError> {
+    if session == 0 {
+        return Err(ServiceError::OperationFailed("Home and Trash require an interactive user session; the system service profile is not a user home. Windows user-session file routing is not available yet.".into()));
+    }
+    Ok(())
+}
+
 fn find_trash_item(item_id: &str) -> Result<trash::TrashItem, ServiceError> {
+    require_interactive_file_user()?;
     trash::os_limited::list()
         .map_err(|err| ServiceError::OperationFailed(err.to_string()))?
         .into_iter()
@@ -197,6 +217,7 @@ fn find_trash_item(item_id: &str) -> Result<trash::TrashItem, ServiceError> {
 
 fn to_rpc_trash_item(item: &trash::TrashItem) -> RpcTrashItem {
     RpcTrashItem {
+        read_only: None,
         id: item.id.to_string_lossy().to_string(),
         name: item.name.to_string_lossy().to_string(),
         original_parent: item.original_parent.to_string_lossy().to_string(),
@@ -485,6 +506,12 @@ mod tests {
         fn next_chunk(&mut self) -> BoxFutureResult<'_, Option<WriteFileChunk>> {
             Box::pin(async move { Ok(self.chunks.next()) })
         }
+    }
+
+    #[test]
+    fn system_session_cannot_expose_service_home_or_recycle_bin() {
+        assert!(check_file_user_session(0).is_err());
+        assert!(check_file_user_session(1).is_ok());
     }
 
     #[tokio::test]

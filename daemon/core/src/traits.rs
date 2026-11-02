@@ -35,6 +35,9 @@ pub enum ServiceError {
 }
 
 pub trait FileService: Send + Sync {
+    fn home_directory(&self) -> BoxFutureResult<'_, String> {
+        Box::pin(async { Ok(crate::rpc::DaemonEnvironment::current().home_directory) })
+    }
     fn roots(&self) -> BoxFutureResult<'_, Vec<FsEntry>>;
     fn list_directory(&self, path: String) -> BoxFutureResult<'_, Vec<FsEntry>>;
     fn read_file(&self, request: ReadFileReq) -> BoxFutureResult<'_, Vec<u8>>;

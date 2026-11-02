@@ -109,6 +109,7 @@ export function TrashContent() {
   function openItemMenu(item: TrashItem, event: MouseEvent) {
     event.preventDefault();
     event.stopPropagation();
+    if (item.readOnly) return;
     setSelectedItemId(item.id);
     setItemMenu({
       item,
@@ -185,7 +186,7 @@ export function TrashContent() {
                 <span
                   class={`${styles.trashCell().class} ${styles.metadata().class} `}
                 >
-                  {item.originalParent}
+                  {item.originalParent || "Unavailable"}
                 </span>
                 <span
                   class={`${styles.trashCell().class} ${styles.metadata().class} `}
@@ -203,7 +204,12 @@ export function TrashContent() {
         )}
       </div>
       <footer {...styles.trashFooter()}>
-        <span>{sortedItems().length} items</span>
+        <span>
+          {sortedItems().length} items
+          {sortedItems().some((item) => item.readOnly)
+            ? " · Read only; restore is unavailable"
+            : ""}
+        </span>
       </footer>
 
       {itemMenu() ? (
