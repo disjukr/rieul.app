@@ -13,6 +13,9 @@ pub trait UpdateService: Send + Sync {
     fn status(&self) -> Result<UpdateStatus>;
     fn subscribe(&self) -> Result<watch::Receiver<UpdateStatus>>;
     fn request(&self, request: UpdateCommand) -> UpdateRequest<'_>;
+    fn restart(&self) -> UpdateRequest<'_> {
+        Box::pin(async { anyhow::bail!("Local daemon restart is unsupported") })
+    }
     fn tick(&self, _work: &crate::maintenance::Workload) {}
 }
 

@@ -7,8 +7,8 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 #[cfg(target_os = "macos")]
 use rieul_daemon_core::config::{
-    client_credentials_path, load_or_generated_default, macos_system_config_path, save,
-    SystemConfig,
+    SystemConfig, client_credentials_path, load_or_generated_default, macos_system_config_path,
+    save,
 };
 #[cfg(target_os = "macos")]
 use rieul_daemon_host::server::run_system_server_with_readiness;
@@ -41,7 +41,16 @@ enum Command {
     InternalUpdateWorker,
     #[cfg(target_os = "macos")]
     #[command(hide = true)]
-    DesktopUser { #[arg(long)] config: Option<PathBuf> },
+    LocalUpdate {
+        #[arg(value_enum)]
+        action: LocalUpdateAction,
+    },
+    #[cfg(target_os = "macos")]
+    #[command(hide = true)]
+    DesktopUser {
+        #[arg(long)]
+        config: Option<PathBuf>,
+    },
     #[cfg(target_os = "macos")]
     #[command(hide = true)]
     MigrateUpdater,
@@ -68,6 +77,14 @@ enum Command {
     },
 }
 
+#[derive(Clone, Debug, clap::ValueEnum)]
+enum LocalUpdateAction {
+    Subscribe,
+    Check,
+    Install,
+    Restart,
+}
+
 #[derive(Debug, Subcommand)]
 enum ServiceCommand {
     Install,
@@ -80,11 +97,25 @@ enum ServiceCommand {
 #[cfg(target_os = "macos")]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
+        .with_writer(std::io::stderr)
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .init();
 
     match Args::parse().command {
-        Command::DesktopUser { config } => rieul_macos_daemon::desktop_ipc::run(&config.unwrap_or_else(macos_system_config_path)).await,
+        Command::LocalUpdate { action } => {
+            use rieul_daemon_core::local_update::Operation;
+            let operation = match action {
+                LocalUpdateAction::Subscribe => Operation::Subscribe,
+                LocalUpdateAction::Check => Operation::Check,
+                LocalUpdateAction::Install => Operation::Install,
+                LocalUpdateAction::Restart => Operation::Restart,
+            };
+            rieul_macos_daemon::local_update::helper(operation).await
+        }
+        Command::DesktopUser { config } => {
+            rieul_macos_daemon::desktop_ipc::run(&config.unwrap_or_else(macos_system_config_path))
+                .await
+        }
         Command::MigrateUpdater => rieul_macos_daemon::root_update::prepare_migration(),
         Command::InternalUpdateWorker => rieul_macos_daemon::root_update::run_worker(),
         Command::Run { listen, config } => {
@@ -102,6 +133,13 @@ async fn main() -> Result<()> {
                 None
             };
             let desktop_backend = rieul_macos_daemon::desktop_ipc::proxy(&config_path);
+            let updates = rieul_macos_daemon::root_update::update_service()?;
+            let _local_updates = match &updates {
+                Some(updater) => {
+                    Some(rieul_macos_daemon::local_update::start(updater.clone()).await?)
+                }
+                None => None,
+            };
             run_system_server_with_readiness(
                 listen,
                 config_path,
@@ -116,7 +154,7 @@ async fn main() -> Result<()> {
                 "macOS system daemon",
                 ready,
                 rieul_macos_daemon::root_update::maintenance_hooks()?,
-                rieul_macos_daemon::root_update::update_service()?,
+                updates,
             )
             .await
         }

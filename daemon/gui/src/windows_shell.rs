@@ -73,6 +73,11 @@ pub struct Shell {
     instance: HINSTANCE,
 }
 impl Shell {
+    pub fn updates(&self, _model: &rieul_gui::updates::Updates) {}
+    pub fn confirm_update(&self, _restart: bool) -> bool {
+        false
+    }
+
     pub fn new(icon: &str) -> Result<Self> {
         unsafe {
             let mut search = Search {
@@ -198,6 +203,12 @@ impl Shell {
                 let menu = CreatePopupMenu();
                 if !menu.is_null() {
                     AppendMenuW(menu, MF_STRING, 1, wide("Daemon info").as_ptr());
+                    AppendMenuW(
+                        menu,
+                        MF_STRING | MF_GRAYED,
+                        0,
+                        wide("Local updates and restart unsupported").as_ptr(),
+                    );
                     AppendMenuW(menu, MF_SEPARATOR, 0, null());
                     AppendMenuW(menu, MF_STRING, 2, wide("Quit").as_ptr());
                     let mut point: POINT = std::mem::zeroed();

@@ -77,7 +77,7 @@ pub fn start(executable: &Path, config: &Path) -> anyhow::Result<Helper> {
     }
 }
 #[cfg(any(target_os = "macos", test))]
-fn helper_path(executable: &Path) -> anyhow::Result<PathBuf> {
+pub(crate) fn helper_path(executable: &Path) -> anyhow::Result<PathBuf> {
     let macos = executable
         .parent()
         .ok_or_else(|| anyhow::anyhow!("GUI executable path missing"))?;

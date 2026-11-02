@@ -11,6 +11,14 @@ mod macos {
         fn rieul_macos_notify(title: *const std::ffi::c_char, body: *const std::ffi::c_char)
         -> u32;
         fn rieul_macos_notification_result(token: u32) -> i32;
+        fn rieul_macos_updates(
+            label: *const std::ffi::c_char,
+            detail: *const std::ffi::c_char,
+            check: i32,
+            install: i32,
+            restart: i32,
+        );
+        fn rieul_macos_confirm_update(restart: i32) -> i32;
         fn rieul_macos_destroy() -> i32;
     }
     pub struct Shell;
@@ -35,6 +43,22 @@ mod macos {
             unsafe {
                 rieul_macos_close();
             }
+        }
+        pub fn updates(&self, model: &rieul_gui::updates::Updates) {
+            let label = CString::new(model.label()).unwrap();
+            let detail = CString::new(model.detail().unwrap_or("").replace('\0', "")).unwrap();
+            unsafe {
+                rieul_macos_updates(
+                    label.as_ptr(),
+                    detail.as_ptr(),
+                    model.can_check().into(),
+                    model.can_install().into(),
+                    model.can_restart().into(),
+                );
+            }
+        }
+        pub fn confirm_update(&self, restart: bool) -> bool {
+            unsafe { rieul_macos_confirm_update(restart.into()) != 0 }
         }
         pub fn events(&self) -> u32 {
             unsafe { rieul_macos_take_events() }

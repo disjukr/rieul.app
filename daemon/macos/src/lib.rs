@@ -41,3 +41,6 @@ pub mod desktop;
 
 #[cfg(target_os = "macos")]
 pub mod desktop_ipc;
+
+#[cfg(target_os = "macos")]
+pub mod local_update;

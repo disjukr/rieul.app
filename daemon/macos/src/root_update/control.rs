@@ -153,6 +153,34 @@ impl Controller {
         inner.status.reason = Some("Installation requested; active terminal, command, transfer or agent work must finish first".into());
         Ok(self.publish(&inner))
     }
+    fn restart_service(self) -> Result<()> {
+        use super::launchd::{Control, Job};
+        let state = Dir::open(Path::new(STATE), 0, true)?;
+        state.require_private()?;
+        let _lock = state.lock()?;
+        if let Some(journal) = state.load::<Journal>("journal.json")? {
+            ensure!(
+                journal.phase == Phase::Prepared,
+                "an update transaction must finish first"
+            );
+        }
+        let mut manager = super::launchd::Native { state: &state };
+        ensure!(
+            manager.inspect(Job::System)?.and_then(|job| job.pid) == Some(std::process::id()),
+            "service manager does not identify this daemon"
+        );
+        // request_exit uses the existing admission/scheduler drain and fixed
+        // system job. launchd KeepAlive restarts us after the acknowledged exit.
+        // This is not kickstart -k, bootout, or an arbitrary service operation.
+        let mut random = [0u8; 32];
+        std::io::Read::read_exact(&mut std::fs::File::open("/dev/urandom")?, &mut random)?;
+        let nonce: String = random.iter().map(|b| format!("{b:02x}")).collect();
+        let result = super::drain::request_exit(&state, &mut manager, &nonce, true);
+        if result.is_err() {
+            state.remove("drain-request.json")?;
+        }
+        result
+    }
     // A newly ready daemon may race its worker's durable finalization. Defer
     // discovery only for lock contention; never turn integrity/IO failures into
     // a retry and never wait while the worker needs this server's readiness.
@@ -315,6 +343,10 @@ impl UpdateService for Controller {
         if !enabled(&state)? {
             return Ok(self.feed.publish(rieul_daemon_host::updates::unavailable()));
         }
+        if self.running.load(Ordering::SeqCst) && status.phase == UpdatePhase::Restarting {
+            status.can_install = false;
+            return Ok(self.feed.publish(status));
+        }
         if let Some(j) = state.load::<Journal>("journal.json")? {
             status.current_version = Some(j.old.version.text());
             status.target_version = Some(j.new.version.text());
@@ -382,6 +414,41 @@ impl UpdateService for Controller {
                 }
             }
             self.status()
+        })
+    }
+    fn restart(&self) -> rieul_daemon_host::updates::UpdateRequest<'_> {
+        Box::pin(async move {
+            let _command = self.command.lock().unwrap();
+            {
+                let inner = self.inner.lock().unwrap();
+                if self.running.load(Ordering::SeqCst)
+                    && inner.status.phase == UpdatePhase::Restarting
+                {
+                    return Ok(self.feed.subscribe().borrow().clone());
+                }
+                ensure!(
+                    !inner.pending_manual,
+                    "an installation request is already pending"
+                );
+            }
+            ensure!(
+                self.launch_locked(UpdatePhase::Restarting, |controller| {
+                    if let Err(error) = controller.clone().restart_service() {
+                        let phase = if error.downcast_ref::<super::drain::Deferred>().is_some() {
+                            UpdatePhase::Deferred
+                        } else {
+                            UpdatePhase::Failed
+                        };
+                        controller.set(
+                            phase,
+                            Some(format!("Daemon restart did not complete: {error}")),
+                        );
+                    }
+                    Ok(())
+                }),
+                "an updater operation is already running"
+            );
+            Ok(self.feed.subscribe().borrow().clone())
         })
     }
     fn tick(&self, work: &Workload) {
@@ -511,6 +578,9 @@ impl UpdateService for WatchedController {
     fn request(&self, request: UpdateCommand) -> rieul_daemon_host::updates::UpdateRequest<'_> {
         self.controller.request(request)
     }
+    fn restart(&self) -> rieul_daemon_host::updates::UpdateRequest<'_> {
+        self.controller.restart()
+    }
     fn tick(&self, work: &Workload) {
         self.controller.tick(work);
     }
@@ -579,6 +649,30 @@ mod result_tests {
             feed: Arc::default(),
             command: Arc::default(),
         }
+    }
+    #[tokio::test]
+    async fn restart_deduplicates_and_refuses_competing_update_operations() {
+        use rieul_daemon_host::updates::UpdateService;
+        let c = fixture();
+        c.running.store(true, Ordering::SeqCst);
+        c.set(UpdatePhase::Restarting, None);
+        let first = c.restart().await.unwrap();
+        assert_eq!(c.restart().await.unwrap(), first);
+        c.set(UpdatePhase::Checking, None);
+        assert!(c.restart().await.is_err());
+        c.running.store(false, Ordering::SeqCst);
+        c.inner.lock().unwrap().pending_manual = true;
+        assert!(c.restart().await.is_err());
+    }
+    #[test]
+    fn initial_check_is_due_once_then_uses_existing_period() {
+        let c = fixture();
+        let now = Instant::now();
+        let mut inner = c.inner.lock().unwrap();
+        assert!(check_due(&inner, now));
+        inner.last_check = Some(now);
+        assert!(!check_due(&inner, now + Duration::from_secs(1)));
+        assert!(check_due(&inner, now + Duration::from_secs(6 * 60 * 60)));
     }
     #[test]
     fn duplicate_install_during_dispatch_does_not_queue_an_unrequested_retry() {

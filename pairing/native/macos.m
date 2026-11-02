@@ -10,6 +10,7 @@ static atomic_uint events;
 static NSWindow *window;
 static NSStatusItem *status;
 static NSMenu *menu;
+static NSMenuItem *updateStatus, *updateDetail, *updateCheck, *updateInstall, *daemonRestart;
 static NSApplicationActivationPolicy previousPolicy;
 static BOOL changedPolicy;
 static atomic_int notificationAuthorization;
@@ -87,6 +88,9 @@ static RieulApplicationDelegate *applicationDelegate;
 }
 - (void)info:(id)sender { atomic_fetch_or(&events, RieulInfo); }
 - (void)quit:(id)sender { atomic_fetch_or(&events, RieulQuit); }
+- (void)checkUpdates:(id)sender { atomic_fetch_or(&events, 64); }
+- (void)installUpdate:(id)sender { atomic_fetch_or(&events, 128); }
+- (void)restartDaemon:(id)sender { atomic_fetch_or(&events, 256); }
 @end
 static RieulStatusTarget *target;
 
@@ -120,6 +124,17 @@ int32_t rieul_macos_init(const char *iconPath) {
     status.button.action = @selector(activate:);
     [status.button sendActionOn:NSEventMaskLeftMouseUp | NSEventMaskRightMouseUp];
     menu = [[NSMenu alloc] initWithTitle:@"Rieul"];
+    menu.autoenablesItems = NO;
+    updateStatus = [[NSMenuItem alloc] initWithTitle:@"Updates unavailable" action:nil keyEquivalent:@""];
+    updateDetail = [[NSMenuItem alloc] initWithTitle:@"" action:nil keyEquivalent:@""];
+    updateCheck = [[NSMenuItem alloc] initWithTitle:@"Check for Updates" action:@selector(checkUpdates:) keyEquivalent:@""];
+    updateInstall = [[NSMenuItem alloc] initWithTitle:@"Install Update…" action:@selector(installUpdate:) keyEquivalent:@""];
+    daemonRestart = [[NSMenuItem alloc] initWithTitle:@"Restart Daemon…" action:@selector(restartDaemon:) keyEquivalent:@""];
+    for (NSMenuItem *item in @[updateStatus, updateDetail, updateCheck, updateInstall, daemonRestart]) {
+      item.target = target; item.enabled = NO; [menu addItem:item];
+    }
+    updateDetail.hidden = YES;
+    [menu addItem:NSMenuItem.separatorItem];
     NSMenuItem *info = [[NSMenuItem alloc] initWithTitle:@"Daemon info" action:@selector(info:) keyEquivalent:@""];
     info.target = target; [menu addItem:info];
     [menu addItem:NSMenuItem.separatorItem];
@@ -200,4 +215,19 @@ int32_t rieul_macos_destroy(void) {
     changedPolicy = NO; atomic_store(&events, 0);
     return 1;
   }
+}
+
+void rieul_macos_updates(const char *label, const char *detail, int check, int install, int restart) {
+  updateStatus.title = [NSString stringWithUTF8String:label];
+  updateDetail.title = [NSString stringWithUTF8String:detail];
+  updateDetail.hidden = updateDetail.title.length == 0;
+  updateCheck.enabled = check != 0; updateInstall.enabled = install != 0; daemonRestart.enabled = restart != 0;
+}
+int32_t rieul_macos_confirm_update(int restart) {
+  NSAlert *alert = [NSAlert new];
+  alert.messageText = restart ? @"Restart daemon?" : @"Install prepared update?";
+  alert.informativeText = @"Connected clients will disconnect. Active terminals, commands, transfers, agents and Screen sessions must finish first; they will not be forcibly stopped.";
+  [alert addButtonWithTitle:@"Cancel"];
+  [alert addButtonWithTitle:restart ? @"Restart" : @"Install"];
+  return [alert runModal] == NSAlertSecondButtonReturn;
 }

@@ -1,0 +1,31 @@
+# standard - rieul-ipc
+# description
+| Local installed-code/active-login authenticated updater control. No public
+| WebTransport credential or caller-selected path/source/service is accepted.
+| One request per connection; bounded length-prefixed socket-wire frames.
+import rieul.ipc.common { IpcProcError }
+import rieul.rpc.update { UpdateStatus }
+
+@ id - 11
+@ stream - server
+@ server - system
+@ client - gui,user
+proc SubscribeLocalUpdateStatus = void -> UpdateStatus throws IpcProcError
+
+@ id - 12
+@ stream - unary
+@ server - system
+@ client - gui,user
+proc CheckLocalUpdates = void -> UpdateStatus throws IpcProcError
+
+@ id - 13
+@ stream - unary
+@ server - system
+@ client - gui,user
+proc InstallLocalUpdateConfirmed = void -> UpdateStatus throws IpcProcError
+
+@ id - 14
+@ stream - unary
+@ server - system
+@ client - gui,user
+proc RestartLocalDaemonConfirmed = void -> UpdateStatus throws IpcProcError

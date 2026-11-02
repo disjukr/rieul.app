@@ -134,6 +134,38 @@ export type SubscribeWindowDetailError =
   | { type: "permissionDenied"; message: string }
 ;
 
+export enum UpdatePhase {
+  Unavailable = 0,
+  Idle = 1,
+  Checking = 2,
+  Downloading = 3,
+  Verifying = 4,
+  Ready = 5,
+  Deferred = 6,
+  Installing = 7,
+  Restarting = 8,
+  Failed = 9,
+}
+
+export interface UpdateStatus {
+  phase: UpdatePhase;
+  currentVersion?: string;
+  targetVersion?: string;
+  reason?: string;
+  canInstall: boolean;
+  ordering: UpdateStatusOrdering;
+}
+
+export interface UpdateStatusOrdering {
+  epoch: string;
+  revision: number;
+}
+
+export type UpdateError =
+  | { type: "failed"; message: string }
+  | { type: "permissionDenied"; message: string }
+;
+
 export interface CreateTerminalSessionReq {
   cols: number;
   rows: number;
@@ -959,38 +991,6 @@ export type SubscribeClientsError =
 export type RemoveClientError =
   | { type: "failed"; message: string }
   | { type: "notFound"; message: string }
-  | { type: "permissionDenied"; message: string }
-;
-
-export enum UpdatePhase {
-  Unavailable = 0,
-  Idle = 1,
-  Checking = 2,
-  Downloading = 3,
-  Verifying = 4,
-  Ready = 5,
-  Deferred = 6,
-  Installing = 7,
-  Restarting = 8,
-  Failed = 9,
-}
-
-export interface UpdateStatus {
-  phase: UpdatePhase;
-  currentVersion?: string;
-  targetVersion?: string;
-  reason?: string;
-  canInstall: boolean;
-  ordering: UpdateStatusOrdering;
-}
-
-export interface UpdateStatusOrdering {
-  epoch: string;
-  revision: number;
-}
-
-export type UpdateError =
-  | { type: "failed"; message: string }
   | { type: "permissionDenied"; message: string }
 ;
 
@@ -3161,6 +3161,86 @@ export function decodeSubscribeWindowDetailErrorValue(value: CborValue): Subscri
       };
   }
   throw new Error(`unknown SubscribeWindowDetailError variant ${variantId}`);
+}
+
+export function encodeUpdatePhaseValue(value: UpdatePhase): CborValue {
+  return integer(value);
+}
+
+export function decodeUpdatePhaseValue(value: CborValue): UpdatePhase {
+  const id = integer(value);
+  if (![0, 1, 2, 3, 4, 5, 6, 7, 8, 9].includes(id)) throw new Error(`unknown UpdatePhase variant ${id}`);
+  return id as UpdatePhase;
+}
+
+export function encodeUpdateStatusValue(value: UpdateStatus): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, encodeUpdatePhaseValue(required(value.phase, "UpdateStatus.phase")));
+  if (value.currentVersion !== undefined) fields.set(2, text(value.currentVersion));
+  if (value.targetVersion !== undefined) fields.set(3, text(value.targetVersion));
+  if (value.reason !== undefined) fields.set(4, text(value.reason));
+  fields.set(5, bool(required(value.canInstall, "UpdateStatus.canInstall")));
+  fields.set(6, encodeUpdateStatusOrderingValue(required(value.ordering, "UpdateStatus.ordering")));
+  return fields;
+}
+
+export function decodeUpdateStatusValue(value: CborValue): UpdateStatus {
+  const fields = expectMap(value);
+  return {
+    phase: fieldOrDefault(fields.get(1), (value) => decodeUpdatePhaseValue(value), () => UpdatePhase.Unavailable),
+    currentVersion: optionalField(fields.get(2), (value) => textValue(value)),
+    targetVersion: optionalField(fields.get(3), (value) => textValue(value)),
+    reason: optionalField(fields.get(4), (value) => textValue(value)),
+    canInstall: fieldOrDefault(fields.get(5), (value) => boolValue(value), () => false),
+    ordering: fieldOrDefault(fields.get(6), (value) => decodeUpdateStatusOrderingValue(value), () => defaultUpdateStatusOrdering()),
+  };
+}
+
+export function encodeUpdateStatusOrderingValue(value: UpdateStatusOrdering): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, text(required(value.epoch, "UpdateStatusOrdering.epoch")));
+  fields.set(2, u53(required(value.revision, "UpdateStatusOrdering.revision")));
+  return fields;
+}
+
+export function decodeUpdateStatusOrderingValue(value: CborValue): UpdateStatusOrdering {
+  const fields = expectMap(value);
+  return {
+    epoch: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+    revision: fieldOrDefault(fields.get(2), (value) => integer(value), () => 0),
+  };
+}
+
+export function encodeUpdateErrorValue(value: UpdateError): CborValue {
+  switch (value.type) {
+    case "failed": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.message, "UpdateError.Failed.message")));
+      return [0, fields];
+    }
+    case "permissionDenied": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.message, "UpdateError.PermissionDenied.message")));
+      return [1, fields];
+    }
+  }
+}
+
+export function decodeUpdateErrorValue(value: CborValue): UpdateError {
+  const [variantId, fields] = expectUnion(value);
+  switch (variantId) {
+    case 0:
+      return {
+        type: "failed",
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+    case 1:
+      return {
+        type: "permissionDenied",
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+  }
+  throw new Error(`unknown UpdateError variant ${variantId}`);
 }
 
 export function encodeCreateTerminalSessionReqValue(value: CreateTerminalSessionReq): CborValue {
@@ -7070,86 +7150,6 @@ export function decodeRemoveClientErrorValue(value: CborValue): RemoveClientErro
       };
   }
   throw new Error(`unknown RemoveClientError variant ${variantId}`);
-}
-
-export function encodeUpdatePhaseValue(value: UpdatePhase): CborValue {
-  return integer(value);
-}
-
-export function decodeUpdatePhaseValue(value: CborValue): UpdatePhase {
-  const id = integer(value);
-  if (![0, 1, 2, 3, 4, 5, 6, 7, 8, 9].includes(id)) throw new Error(`unknown UpdatePhase variant ${id}`);
-  return id as UpdatePhase;
-}
-
-export function encodeUpdateStatusValue(value: UpdateStatus): CborValue {
-  const fields = new Map<number, CborValue>();
-  fields.set(1, encodeUpdatePhaseValue(required(value.phase, "UpdateStatus.phase")));
-  if (value.currentVersion !== undefined) fields.set(2, text(value.currentVersion));
-  if (value.targetVersion !== undefined) fields.set(3, text(value.targetVersion));
-  if (value.reason !== undefined) fields.set(4, text(value.reason));
-  fields.set(5, bool(required(value.canInstall, "UpdateStatus.canInstall")));
-  fields.set(6, encodeUpdateStatusOrderingValue(required(value.ordering, "UpdateStatus.ordering")));
-  return fields;
-}
-
-export function decodeUpdateStatusValue(value: CborValue): UpdateStatus {
-  const fields = expectMap(value);
-  return {
-    phase: fieldOrDefault(fields.get(1), (value) => decodeUpdatePhaseValue(value), () => UpdatePhase.Unavailable),
-    currentVersion: optionalField(fields.get(2), (value) => textValue(value)),
-    targetVersion: optionalField(fields.get(3), (value) => textValue(value)),
-    reason: optionalField(fields.get(4), (value) => textValue(value)),
-    canInstall: fieldOrDefault(fields.get(5), (value) => boolValue(value), () => false),
-    ordering: fieldOrDefault(fields.get(6), (value) => decodeUpdateStatusOrderingValue(value), () => defaultUpdateStatusOrdering()),
-  };
-}
-
-export function encodeUpdateStatusOrderingValue(value: UpdateStatusOrdering): CborValue {
-  const fields = new Map<number, CborValue>();
-  fields.set(1, text(required(value.epoch, "UpdateStatusOrdering.epoch")));
-  fields.set(2, u53(required(value.revision, "UpdateStatusOrdering.revision")));
-  return fields;
-}
-
-export function decodeUpdateStatusOrderingValue(value: CborValue): UpdateStatusOrdering {
-  const fields = expectMap(value);
-  return {
-    epoch: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
-    revision: fieldOrDefault(fields.get(2), (value) => integer(value), () => 0),
-  };
-}
-
-export function encodeUpdateErrorValue(value: UpdateError): CborValue {
-  switch (value.type) {
-    case "failed": {
-      const fields = new Map<number, CborValue>();
-      fields.set(1, text(required(value.message, "UpdateError.Failed.message")));
-      return [0, fields];
-    }
-    case "permissionDenied": {
-      const fields = new Map<number, CborValue>();
-      fields.set(1, text(required(value.message, "UpdateError.PermissionDenied.message")));
-      return [1, fields];
-    }
-  }
-}
-
-export function decodeUpdateErrorValue(value: CborValue): UpdateError {
-  const [variantId, fields] = expectUnion(value);
-  switch (variantId) {
-    case 0:
-      return {
-        type: "failed",
-        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
-      };
-    case 1:
-      return {
-        type: "permissionDenied",
-        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
-      };
-  }
-  throw new Error(`unknown UpdateError variant ${variantId}`);
 }
 
 export function encodeCommandLaunchSpecValue(value: CommandLaunchSpec): CborValue {
@@ -11081,6 +11081,28 @@ function defaultSubscribeWindowDetailError(): SubscribeWindowDetailError {
   };
 }
 
+function defaultUpdateStatus(): UpdateStatus {
+  return {
+    phase: UpdatePhase.Unavailable,
+    canInstall: false,
+    ordering: defaultUpdateStatusOrdering(),
+  };
+}
+
+function defaultUpdateStatusOrdering(): UpdateStatusOrdering {
+  return {
+    epoch: "",
+    revision: 0,
+  };
+}
+
+function defaultUpdateError(): UpdateError {
+  return {
+    type: "failed",
+    message: "",
+  };
+}
+
 function defaultCreateTerminalSessionReq(): CreateTerminalSessionReq {
   return {
     cols: 0,
@@ -11959,28 +11981,6 @@ function defaultSubscribeClientsError(): SubscribeClientsError {
 }
 
 function defaultRemoveClientError(): RemoveClientError {
-  return {
-    type: "failed",
-    message: "",
-  };
-}
-
-function defaultUpdateStatus(): UpdateStatus {
-  return {
-    phase: UpdatePhase.Unavailable,
-    canInstall: false,
-    ordering: defaultUpdateStatusOrdering(),
-  };
-}
-
-function defaultUpdateStatusOrdering(): UpdateStatusOrdering {
-  return {
-    epoch: "",
-    revision: 0,
-  };
-}
-
-function defaultUpdateError(): UpdateError {
   return {
     type: "failed",
     message: "",

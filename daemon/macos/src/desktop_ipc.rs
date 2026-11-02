@@ -16,7 +16,7 @@ use std::{
     sync::Arc,
 };
 use tokio::net::{UnixListener, UnixStream};
-fn console_uid() -> Result<u32, Error> {
+pub(crate) fn console_uid() -> Result<u32, Error> {
     let uid = fs::metadata("/dev/console")
         .map_err(|_| Error::Unauthorized)?
         .uid();
@@ -42,7 +42,7 @@ fn valid_profile(profile: &str) -> bool {
 unsafe extern "C" {
     fn rd_peer_matches_self(fd: libc::c_int) -> bool;
 }
-fn verify_peer(stream: &UnixStream, uid: u32) -> Result<libc::pid_t, Error> {
+pub(crate) fn verify_peer(stream: &UnixStream, uid: u32) -> Result<libc::pid_t, Error> {
     let fd = stream.as_raw_fd();
     let (mut peer_uid, mut gid) = (0, 0);
     if unsafe { libc::getpeereid(fd, &mut peer_uid, &mut gid) } != 0 || peer_uid != uid {
@@ -396,7 +396,7 @@ mod tests {
     }
 }
 
-async fn parent_closed() {
+pub(crate) async fn parent_closed() {
     use std::os::fd::{FromRawFd, OwnedFd};
     // The GUI supplies a pipe. AsyncFd avoids uncancelable blocking stdin reads
     // keeping a retired helper/runtime alive after native cleanup completes.

@@ -8,3 +8,7 @@ pub mod controller;
 pub mod transport;
 
 pub mod desktop_helper;
+
+pub mod updates;
+
+pub mod update_transport;

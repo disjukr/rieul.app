@@ -21,6 +21,8 @@ struct View {
     controller: Controller,
     events: mpsc::Receiver<Event>,
     shell: Shell,
+    updates: rieul_gui::updates::Updates,
+    update_bridge: rieul_gui::update_transport::Bridge,
     generation: u64,
     changed: Instant,
     displayed_second: u64,
@@ -53,8 +55,26 @@ impl View {
             }
         }
     }
-    fn tick(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    fn update_events(&mut self) -> bool {
         let mut dirty = false;
+        while let Ok(event) = self.update_bridge.events.try_recv() {
+            use rieul_gui::update_transport::Event as U;
+            dirty = true;
+            match event {
+                U::Connecting => {
+                    self.updates.reconnect();
+                }
+                U::Snapshot(status) => {
+                    self.updates.snapshot(self.updates.connection(), status);
+                }
+                U::Disconnected(reason) => self.updates.unavailable(reason),
+                U::Complete(request, result) => self.updates.complete(request, result),
+            }
+        }
+        dirty
+    }
+    fn tick(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let mut dirty = self.update_events();
         while let Ok(event) = self.events.try_recv() {
             dirty = true;
             let effects = match event {
@@ -74,6 +94,27 @@ impl View {
         self.qa_tick(window, cx);
         let events = self.shell.events();
         dirty |= events != 0;
+        for (flag, action) in [
+            (64, rieul_gui::updates::Action::Check),
+            (128, rieul_gui::updates::Action::Install),
+            (256, rieul_gui::updates::Action::Restart),
+        ] {
+            if events & flag != 0 {
+                let stamp = self.updates.confirmation();
+                let confirmed = action == rieul_gui::updates::Action::Check
+                    || self
+                        .shell
+                        .confirm_update(action == rieul_gui::updates::Action::Restart);
+                dirty |= self.update_events();
+                if confirmed && stamp.is_some() && stamp == self.updates.confirmation() {
+                    if let Some(request) = self.updates.request(action) {
+                        if let Err(error) = self.update_bridge.request(request) {
+                            self.updates.complete(request, Err(error));
+                        }
+                    }
+                }
+            }
+        }
         if events & 1 != 0 {
             let effects = self.controller.close();
             self.effects(effects, window);
@@ -124,6 +165,7 @@ impl View {
             dirty = true;
         }
         if dirty {
+            self.shell.updates(&self.updates);
             cx.notify();
         }
     }
@@ -904,12 +946,15 @@ pub fn run() -> anyhow::Result<()> {
     let (tx, rx) = mpsc::channel();
     runtime.spawn(listener.run(tx));
     // Fixture automation never starts a real desktop helper.
-    let _desktop_helper = if std::env::var("RIEUL_PAIRING_AUTOMATION").as_deref()==Ok("1") {
+    let _desktop_helper = if std::env::var("RIEUL_PAIRING_AUTOMATION").as_deref() == Ok("1") {
         None
     } else {
         match rieul_gui::desktop_helper::start(&std::env::current_exe()?, &path) {
-            Ok(helper)=>Some(helper),
-            Err(error)=>{ eprintln!("Desktop helper unavailable: {error}"); None },
+            Ok(helper) => Some(helper),
+            Err(error) => {
+                eprintln!("Desktop helper unavailable: {error}");
+                None
+            }
         }
     };
     let config_text = match std::fs::read_to_string(&path) {
@@ -952,6 +997,7 @@ pub fn run() -> anyhow::Result<()> {
         },
         daemon_url,
     };
+    let update_bridge = rieul_gui::update_transport::Bridge::start(runtime.handle());
     application().with_assets(Icons).run(move |cx| {
         let bounds = Bounds::centered(None, size(px(640.), px(360.)), cx);
         cx.open_window(
@@ -1041,6 +1087,8 @@ pub fn run() -> anyhow::Result<()> {
                         controller: Controller::new(info),
                         events: rx,
                         shell,
+                        updates: Default::default(),
+                        update_bridge,
                         generation: 0,
                         changed: Instant::now(),
                         displayed_second: 0,
