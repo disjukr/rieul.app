@@ -9,6 +9,8 @@ use std::{
 };
 const RELEASE: &str = "https://api.github.com/repos/disjukr/rieul.app/releases/latest";
 const PREFIX: &str = "desktop-";
+// Metadata must not inherit the large archive download budget.
+const METADATA_TIMEOUT: Duration = Duration::from_secs(30);
 #[derive(Deserialize)]
 struct Release {
     tag_name: String,
@@ -69,6 +71,7 @@ pub(super) fn latest() -> Result<Version> {
     let mut bytes = Vec::new();
     client()?
         .get(RELEASE)
+        .timeout(METADATA_TIMEOUT)
         .send()?
         .error_for_status()?
         .take(65537)

@@ -59,7 +59,11 @@ impl Controller {
             inner.status.reason = reason;
         }
     }
-    fn launch(&self, task: impl FnOnce(Controller) -> Result<()> + Send + 'static) -> bool {
+    fn launch(
+        &self,
+        phase: UpdatePhase,
+        task: impl FnOnce(Controller) -> Result<()> + Send + 'static,
+    ) -> bool {
         if self
             .running
             .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
@@ -67,6 +71,8 @@ impl Controller {
         {
             return false;
         }
+        // Publish acceptance before the RPC returns, not when the OS schedules the worker.
+        self.set(phase, None);
         let controller = self.clone();
         std::thread::spawn(move || {
             if let Err(error) = task(controller.clone()) {
@@ -104,13 +110,17 @@ impl Controller {
         self.check_candidate(false)
     }
     fn check_candidate(self, confirmed_retry: bool) -> Result<()> {
-        self.set(UpdatePhase::Checking, None);
+        self.set(
+            UpdatePhase::Checking,
+            Some("Verifying the installed app and protected runtime".into()),
+        );
         {
             let mut inner = self.inner.lock().unwrap();
             inner.last_check = Some(Instant::now());
             inner.check_retry_at = None;
         }
         let state = Dir::open(Path::new(STATE), 0, true)?;
+        let started = Instant::now();
         let old = {
             let _lock = if confirmed_retry {
                 // An explicit install must not continue to dispatch after a
@@ -154,11 +164,26 @@ impl Controller {
             state.discard_child("current-app")?;
             old
         };
+        tracing::info!(
+            elapsed_ms = started.elapsed().as_millis() as u64,
+            "updater installed-app verification complete"
+        );
         self.inner.lock().unwrap().status.current_version = Some(old.version.text());
         struct Progress(Controller);
         impl Source for Progress {
             fn latest(&mut self) -> Result<Version> {
-                super::source::latest()
+                self.0.set(
+                    UpdatePhase::Checking,
+                    Some("Checking the official GitHub release".into()),
+                );
+                let started = Instant::now();
+                let result = super::source::latest();
+                tracing::info!(
+                    elapsed_ms = started.elapsed().as_millis() as u64,
+                    success = result.is_ok(),
+                    "updater release lookup finished"
+                );
+                result
             }
             fn download(&mut self, version: Version, stage: &Dir) -> Result<()> {
                 self.0.set(UpdatePhase::Downloading, None);
@@ -249,7 +274,7 @@ impl UpdateService for Controller {
         match request.action {
             UpdateAction::Check => {
                 ensure!(
-                    self.launch(|controller| controller.check()),
+                    self.launch(UpdatePhase::Checking, |controller| controller.check()),
                     "an updater operation is already running"
                 );
             }
@@ -296,7 +321,9 @@ impl UpdateService for Controller {
         }
         if dispatch_allowed(&status, manual, can_dispatch, blocked) {
             self.inner.lock().unwrap().last_dispatch = Some(Instant::now());
-            if self.launch(move |controller| controller.dispatch(manual)) {
+            if self.launch(UpdatePhase::Installing, move |controller| {
+                controller.dispatch(manual)
+            }) {
                 self.inner.lock().unwrap().pending_manual = false;
             }
         } else if due
@@ -306,7 +333,7 @@ impl UpdateService for Controller {
                 UpdatePhase::Installing | UpdatePhase::Restarting
             )
         {
-            let _ = self.launch(|controller| controller.check());
+            let _ = self.launch(UpdatePhase::Checking, |controller| controller.check());
         }
     }
 }
@@ -352,6 +379,43 @@ fn apply_worker_result(status: &mut UpdateStatus, nonce: &str, result: &runtime:
 #[cfg(test)]
 mod result_tests {
     use super::*;
+    #[test]
+    fn accepted_check_is_visible_before_worker_progress_and_duplicate_cannot_overwrite_it() {
+        let c = Controller {
+            inner: Arc::new(Mutex::new(Inner {
+                status: UpdateStatus {
+                    phase: UpdatePhase::Idle,
+                    current_version: None,
+                    target_version: None,
+                    reason: None,
+                    can_install: false,
+                },
+                last_check: None,
+                check_retry_at: None,
+                pending_manual: false,
+                last_dispatch: None,
+            })),
+            running: Arc::new(AtomicBool::new(false)),
+        };
+        let (release, wait) = std::sync::mpsc::channel();
+        let (finished, done) = std::sync::mpsc::channel();
+        assert!(c.launch(UpdatePhase::Checking, move |controller| {
+            wait.recv_timeout(Duration::from_secs(5))?;
+            controller.set(UpdatePhase::Downloading, None);
+            finished.send(())?;
+            Ok(())
+        }));
+        assert_eq!(c.inner.lock().unwrap().status.phase, UpdatePhase::Checking);
+        assert!(!c.launch(UpdatePhase::Installing, |_| panic!("duplicate task ran")));
+        assert_eq!(c.inner.lock().unwrap().status.phase, UpdatePhase::Checking);
+        release.send(()).unwrap();
+        done.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert_eq!(
+            c.inner.lock().unwrap().status.phase,
+            UpdatePhase::Downloading
+        );
+    }
+
     #[test]
     fn repeated_idle_ticks_do_not_dispatch_failed_candidate_without_manual_confirmation() {
         let status = UpdateStatus {
