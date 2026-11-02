@@ -1,20 +1,35 @@
 #!/bin/bash
 set -euo pipefail
-
-if [ "$(/usr/sbin/sysctl -n hw.optional.arm64 2>/dev/null || true)" != "1" ]; then
-  echo "Unsupported platform: Rieul macOS requires Apple Silicon (arm64); Intel Macs are not supported." >&2
+if [[ "${3:-/}" != "/" || "$EUID" != 0 ]]; then
+  echo 'Rieul installation requires the startup volume and Installer administrator context.' >&2
   exit 1
 fi
-
-if [[ "${3:-/}" != "/" ]]; then
-  echo "Rieul Desktop can only be installed on the startup volume." >&2
+# Installer executes these signed-package Scripts from its protected sandbox.
+# The executable is packaged alongside this script, never fetched via /Applications.
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+bootstrap="$script_dir/rieul-installer-bootstrap"
+/usr/bin/codesign --verify --strict -R '=anchor apple generic and identifier "rieul-macos-system" and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = "D379GLRLPV"' "$bootstrap"
+# GUI launchd output is written as the logged-in user, never by this installer.
+# The fixed parent is root protected; do not follow or chmod an existing entry.
+logs='/Library/Logs/rieul'
+if [[ ! -e "$logs" && ! -L "$logs" ]]; then
+  /bin/mkdir -m 1777 "$logs"
+fi
+if [[ -L "$logs" || ! -d "$logs" || "$(/usr/bin/stat -f %u "$logs")" != 0 ]]; then
+  echo 'Unsafe Rieul GUI log directory.' >&2
   exit 1
 fi
-
-INSTALL_COMMAND="/Applications/Rieul.app/Contents/MacOS/install"
-if [[ ! -x "$INSTALL_COMMAND" ]]; then
-  echo "Missing Rieul Desktop install command: $INSTALL_COMMAND" >&2
-  exit 1
-fi
-
-exec /bin/bash "$INSTALL_COMMAND"
+# Native code creates/validates private state, snapshots the public app without
+# following entry substitutions, verifies it and matches this bootstrap's digest.
+"$bootstrap" migrate-updater
+state='/Library/Application Support/rieul/updates'
+for ((attempt=0; attempt<180; attempt++)); do
+  if [[ ! -e "$state/migration.json" && -f "$state/migration-result.json" && -f "$state/policy.json" ]] &&
+     [[ "$(/usr/bin/plutil -extract enabled raw -o - "$state/policy.json" 2>/dev/null)" == true ]]; then
+    echo 'Protected runtime and GUI migration completed.'
+    exit 0
+  fi
+  /bin/sleep 1
+done
+echo 'Migration is pending. Preserve its state and resume with the protected /Library/Application Support/rieul/service/rieul-macos-system migrate-updater command; do not rerun a public app installer.' >&2
+exit 1

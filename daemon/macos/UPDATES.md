@@ -14,15 +14,40 @@ The release workflow notarizes/staples the app itself, creates the fixed
 `rieul-macos-update.tar` plus SHA256, and wraps that same app in the independently
 signed/notarized PKG. Existing Developer ID/notary credentials are reused.
 
-The installer refuses registered legacy/system jobs before PKG payload replacement
-and repeats that guard in the bundled installer. Old releases lack a trustworthy
-idle/drain barrier: an explicitly arranged maintenance window is required. The
-installer does not kill legacy server work. Existing protected updater state also
-blocks installer overwrite; use normal update RPC or recover the existing migration.
-The bundled installer starts only the protected-runtime migration, waits for its
-completion and enabled policy, and never bootstraps root execution from the app.
-An interrupted first migration recovers forward via the signed migrate-updater
-command. It must not be repaired by restarting the old public-bundle root job.
+The installer refuses registered legacy/system jobs before PKG payload replacement.
+Old releases lack a trustworthy idle/drain barrier: an explicitly arranged
+maintenance window is required. It does not kill legacy work. Existing protected
+state blocks payload overwrite; resume a migration through the protected runtime.
+The public app's `install` entry is inert and never elevates or executes code.
+
+PKG postinstall executes a duplicate signed daemon from Installer's protected
+Scripts directory, after fixed Team/daemon identity verification. That bootstrap
+snapshots the public app through held directory descriptors into private root
+storage, verifies its sealed signature/manifest and requires its daemon digest to
+match the bootstrap before publishing or executing the runtime. Public app paths
+are never a source of privileged scripts or executed daemon code.
+
+Initial runtime publication uses a private temporary directory, verifies and
+syncs the complete executable, then atomically publishes without replacing an
+established runtime. Incomplete pre-journal staging is discarded on retry; an
+existing runtime with a different digest fails closed.
+
+Migration retains its verified app snapshot and journal through GUI finalization.
+It installs the GUI plist from that snapshot, durably records target UIDs before
+stopping any GUI, attempts every target, and retains failed targets for retry.
+Only completed GUI finalization allows policy activation and journal retirement.
+An Installer timeout does not remove recovery state. Resume with the fixed
+`/Library/Application Support/rieul/service/rieul-macos-system migrate-updater`
+command under administrator context; it accepts pending or already completed
+migration. Never restart the old public-bundle root job. If failure occurred
+before a complete runtime was published, recovery requires the verified protected
+PKG bootstrap, not a public bundle command or bypassing the payload preflight.
+
+Review-fix validation: synthetic installer checks exercise protected bootstrap
+selection/signature refusal; updater regressions exercise partial runtime copy,
+atomic publication/reuse, per-UID GUI failure/retry and policy ordering. These do
+not replace the pending exact-source signed PKG fresh/legacy/reboot VM tests.
+
 
 First-install administrator changes are limited to the signed app installation,
 fixed LaunchDaemon/LaunchAgent registrations, protected service executable,

@@ -152,6 +152,9 @@ rm -rf "$PKG_STAGING_DIR"
 mkdir -p "$PKG_ROOT/Applications" "$PKG_SCRIPTS"
 cp "$SCRIPT_DIR/pkg-scripts/"* "$PKG_SCRIPTS/"
 cat "$SCRIPT_DIR/installer-preflight.sh" >> "$PKG_SCRIPTS/preinstall"
+# Trusted bootstrap travels in signed PKG Scripts, not the public app entry.
+install -m 0755 "$APP_PATH/Contents/Library/LaunchServices/rieul-macos-system" "$PKG_SCRIPTS/rieul-installer-bootstrap"
+codesign --verify --strict "$PKG_SCRIPTS/rieul-installer-bootstrap"
 /usr/bin/ditto "$APP_PATH" "$PKG_ROOT/Applications/$APP_NAME.app"
 
 for script in preinstall postinstall; do

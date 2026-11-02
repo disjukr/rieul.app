@@ -232,106 +232,13 @@ if new_icns_from_svg \
   <string>rieul</string>"
 fi
 
-INSTALL_PREFLIGHT="$(cat "$SCRIPT_DIR/installer-preflight.sh")"
-cat >"$APP_PATH/Contents/Resources/install" <<EOF
-#!/usr/bin/env bash
+# Privileged installation is exclusively implemented by signed PKG Scripts.
+# Never sudo a script or daemon through the replaceable /Applications entry.
+cat >"$APP_PATH/Contents/Resources/install" <<'EOF'
+#!/bin/bash
 set -euo pipefail
-
-if [ "\$(/usr/sbin/sysctl -n hw.optional.arm64 2>/dev/null || true)" != "1" ]; then
-  echo "Unsupported platform: Rieul macOS requires Apple Silicon (arm64); Intel Macs are not supported." >&2
-  exit 1
-fi
-
-if [[ "\${EUID:-\$(/usr/bin/id -u)}" -ne 0 ]]; then
-  exec /usr/bin/sudo /bin/bash "\$0" "\$@"
-fi
-
-SOURCE_APP="\$(cd "\$(dirname "\$0")/../.." && pwd)"
-DEST_APP="$APP_DEST"
-SYSTEM_LABEL="$SYSTEM_LABEL"
-LEGACY_SYSTEM_LABEL="$LEGACY_SYSTEM_LABEL"
-GUI_LABEL="$GUI_LABEL"
-APP_SUPPORT_DIR="$APP_SUPPORT_DIR"
-BIN_DIR="$BIN_DIR"
-LEGACY_SYSTEM_DAEMON_EXE="$LEGACY_SYSTEM_DAEMON_EXE"
-LOG_DIR="$LOG_DIR"
-SYSTEM_PLIST="$SYSTEM_PLIST"
-LEGACY_SYSTEM_PLIST="$LEGACY_SYSTEM_PLIST"
-GUI_PLIST="$GUI_PLIST"
-LEGACY_LAUNCH_AGENT_PLIST="$LEGACY_LAUNCH_AGENT_PLIST"
-SYSTEM_DAEMON_EXE="$SYSTEM_DAEMON_EXE"
-
-if [[ ! -d "\$SOURCE_APP" ]]; then
-  echo "Missing source app: \$SOURCE_APP" >&2
-  exit 1
-fi
-
-
-$INSTALL_PREFLIGHT
-
-echo "Installing \$DEST_APP"
-/bin/mkdir -p "\$APP_SUPPORT_DIR" "\$LOG_DIR"
-/usr/sbin/chown root:wheel "\$APP_SUPPORT_DIR"
-/bin/chmod 0755 "\$APP_SUPPORT_DIR"
-/usr/sbin/chown root:wheel "\$LOG_DIR"
-/bin/chmod 1777 "\$LOG_DIR"
-
-console_user="\$(/usr/bin/stat -f %Su /dev/console 2>/dev/null || true)"
-console_uid=""
-if [[ -n "\$console_user" && "\$console_user" != "root" ]]; then
-  console_uid="\$(/usr/bin/id -u "\$console_user" 2>/dev/null || true)"
-  if [[ -n "\$console_uid" ]]; then
-    /bin/launchctl asuser "\$console_uid" /bin/launchctl bootout "gui/\$console_uid" "\$GUI_PLIST" >/dev/null 2>&1 || true
-    /bin/launchctl asuser "\$console_uid" /bin/launchctl bootout "gui/\$console_uid" "\$LEGACY_LAUNCH_AGENT_PLIST" >/dev/null 2>&1 || true
-  fi
-fi
-
-if [[ "\$SOURCE_APP" != "\$DEST_APP" ]]; then
-  /bin/rm -rf "\$DEST_APP"
-  /usr/bin/ditto "\$SOURCE_APP" "\$DEST_APP"
-fi
-/usr/sbin/chown -R root:wheel "\$DEST_APP"
-
-/bin/rm -f "\$LEGACY_SYSTEM_DAEMON_EXE"
-/bin/rmdir "\$BIN_DIR" >/dev/null 2>&1 || true
-
-/bin/cp "\$DEST_APP/Contents/Resources/\$SYSTEM_LABEL.plist" "\$SYSTEM_PLIST"
-/usr/sbin/chown root:wheel "\$SYSTEM_PLIST"
-/bin/chmod 0644 "\$SYSTEM_PLIST"
-# The root daemon is never started from the public app entry. The migration
-# validates the signed candidate, installs a protected runtime and enables policy
-# only after bound readiness. It returns after worker submission, not completion.
-"\$SYSTEM_DAEMON_EXE" migrate-updater
-migration_state="\$APP_SUPPORT_DIR/updates"
-completed=0
-for ((attempt=0; attempt<180; attempt++)); do
-  if [[ ! -e "\$migration_state/migration.json" && -f "\$migration_state/migration-result.json" && -f "\$migration_state/policy.json" ]] &&
-     [[ "\$(/usr/bin/plutil -extract enabled raw -o - "\$migration_state/policy.json" 2>/dev/null)" == true ]]; then
-    completed=1
-    break
-  fi
-  /bin/sleep 1
-done
-if [[ "\$completed" != 1 ]]; then
-  echo "Migration is not complete. Preserve updater state and retry the signed migrate-updater command; do not restart the legacy service." >&2
-  exit 1
-fi
-
-/bin/rm -f "\$LEGACY_LAUNCH_AGENT_PLIST"
-/bin/cp "\$DEST_APP/Contents/Resources/\$GUI_LABEL.plist" "\$GUI_PLIST"
-/usr/sbin/chown root:wheel "\$GUI_PLIST"
-/bin/chmod 0644 "\$GUI_PLIST"
-
-if [[ -n "\$console_uid" ]]; then
-  /bin/launchctl asuser "\$console_uid" /bin/launchctl bootstrap "gui/\$console_uid" "\$GUI_PLIST" >/dev/null 2>&1 || true
-  /bin/launchctl asuser "\$console_uid" /bin/launchctl enable "gui/\$console_uid/\$GUI_LABEL" >/dev/null 2>&1 || true
-  /bin/launchctl asuser "\$console_uid" /bin/launchctl kickstart -k "gui/\$console_uid/\$GUI_LABEL" >/dev/null 2>&1 || true
-fi
-
-echo "Installed Rieul Desktop."
-echo "Config: $APP_SUPPORT_DIR/rieul.yaml"
-echo "System daemon: $SYSTEM_DAEMON_EXE"
-echo "Logs: $LOG_DIR"
+echo 'Install the official signed Rieul PKG. This app-bundle entry never runs privileged installation code.' >&2
+exit 1
 EOF
 
 cat >"$APP_PATH/Contents/Resources/uninstall" <<EOF

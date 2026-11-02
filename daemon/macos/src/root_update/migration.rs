@@ -4,7 +4,6 @@
 use super::{
     Policy, SERVICE, Version,
     destination::AppDestination,
-    gate,
     launchd::{self, Control, Job},
     receipt::{self, Request},
     runtime,
@@ -96,6 +95,7 @@ trait Steps {
     fn install_registration(&mut self) -> Result<()>;
     fn start(&mut self, m: &Migration) -> Result<()>;
     fn health(&mut self, m: &Migration) -> Result<()>;
+    fn finalize_guis(&mut self) -> Result<()>;
     fn enable(&mut self) -> Result<()>;
 }
 fn phase(state: &Dir, m: &mut Migration, next: Phase) -> Result<()> {
@@ -127,6 +127,7 @@ fn resume(state: &Dir, steps: &mut impl Steps) -> Result<()> {
         steps.health(&m)?;
         phase(state, &mut m, Phase::Complete)?;
     }
+    steps.finalize_guis()?;
     steps.enable()?;
     state.save("migration-result.json", &m)?;
     state.remove("migration.json")?;
@@ -155,7 +156,8 @@ pub fn prepare() -> Result<()> {
         unsafe { libc::geteuid() } == 0,
         "initial updater migration requires administrator installation"
     );
-    let data = Dir::open(Path::new(gate::DATA), 0, true)?;
+    let parent = Dir::open(Path::new("/Library/Application Support"), 0, true)?;
+    let data = parent.create_dir("rieul", 0o755)?;
     let state = data.create_dir("updates", 0o700)?;
     state.require_private()?;
     {
@@ -164,12 +166,22 @@ pub fn prepare() -> Result<()> {
             !state.exists("journal.json")?,
             "update transaction in progress"
         );
-        ensure!(
-            !state
-                .load::<Policy>("policy.json")?
-                .is_some_and(|p| p.allows()),
-            "updater already enabled"
-        );
+        if state
+            .load::<Policy>("policy.json")?
+            .is_some_and(|p| p.allows())
+            && !state.exists("migration.json")?
+        {
+            ensure!(
+                state
+                    .load::<Migration>("migration-result.json")?
+                    .is_some_and(|m| m.phase == Phase::Complete)
+                    && state
+                        .load::<GuiFinalization>("migration-guis.json")?
+                        .is_some_and(|g| g.pending.is_empty()),
+                "enabled updater has no completed GUI migration evidence"
+            );
+            return Ok(());
+        }
         if !state.exists("migration.json")? {
             state.discard_child("migration-app")?;
             let stage = state.create_dir("migration-app", 0o700)?;
@@ -189,21 +201,23 @@ pub fn prepare() -> Result<()> {
             )?;
             identity.app_dev = original.0;
             identity.app_ino = original.1;
-            let service = data.create_dir("service", 0o755)?;
-            if !service.exists("rieul-macos-system")? {
+            // Only the PKG-protected bootstrap or the same protected runtime
+            // may authorize this payload. Never execute code read from the app.
+            let own = verify::digest(std::fs::File::open(std::env::current_exe()?)?)?;
+            ensure!(
+                identity.daemon_sha256 == own,
+                "payload does not match trusted installer bootstrap"
+            );
+            publish_initial_runtime(&data, &identity.daemon_sha256, |to| {
                 stage
                     .child("Rieul.app")?
                     .child("Contents")?
                     .child("Library")?
                     .child("LaunchServices")?
-                    .copy_file("rieul-macos-system", &service, "rieul-macos-system", 0o755)?;
-            }
-            ensure!(
-                verify::digest(service.read_file("rieul-macos-system")?)? == identity.daemon_sha256,
-                "existing protected service differs from migration"
-            );
+                    .copy_file("rieul-macos-system", to, "rieul-macos-system", 0o755)
+            })?;
             let plists = Dir::open(Path::new("/Library/LaunchDaemons"), 0, true)?;
-            if !state.exists("legacy-system.plist")? {
+            if !state.exists("legacy-system.plist")? && plists.exists("app.rieul.daemon.plist")? {
                 plists.copy_file(
                     "app.rieul.daemon.plist",
                     &state,
@@ -237,6 +251,79 @@ pub fn prepare() -> Result<()> {
     }
     runtime::ensure_worker(&state, &mut launchd::Native { state: &state })
 }
+// Publish a complete runtime directory once. A pre-journal crash only leaves
+// private disposable staging; an established runtime is never overwritten.
+fn publish_initial_runtime(
+    data: &Dir,
+    digest: &str,
+    copy: impl FnOnce(&Dir) -> Result<()>,
+) -> Result<()> {
+    if data.exists("service")? {
+        ensure!(
+            verify::digest(data.child("service")?.read_file("rieul-macos-system")?)? == digest,
+            "existing protected service differs from migration"
+        );
+        return Ok(());
+    }
+    data.discard_child("service-migration-tmp")?;
+    let stage = data.create_dir("service-migration-tmp", 0o700)?;
+    copy(&stage)?;
+    ensure!(
+        verify::digest(stage.read_file("rieul-macos-system")?)? == digest,
+        "incomplete migration runtime"
+    );
+    stage.read_file("rieul-macos-system")?.sync_all()?;
+    stage.sync()?;
+    data.publish_dir("service-migration-tmp", "service")
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct GuiFinalization {
+    pending: Vec<u32>,
+}
+fn finish_gui_sessions(
+    state: &Dir,
+    control: &mut impl Control,
+    initial: impl FnOnce(&mut dyn Control) -> Result<Vec<u32>>,
+) -> Result<()> {
+    let mut saved = match state.load::<GuiFinalization>("migration-guis.json")? {
+        Some(saved) => saved,
+        None => {
+            let pending = initial(control)?;
+            ensure!(
+                pending.len() <= 256 && pending.iter().all(|uid| *uid > 0),
+                "invalid migration GUI sessions"
+            );
+            let saved = GuiFinalization { pending };
+            state.save("migration-guis.json", &saved)?;
+            saved
+        }
+    };
+    let mut errors = Vec::new();
+    for uid in saved.pending.clone() {
+        let result = (|| -> Result<()> {
+            if control.gui_domain(uid)? {
+                control.stop(Job::Gui(uid))?;
+                control.start(Job::Gui(uid))?;
+            }
+            Ok(())
+        })();
+        if let Err(error) = result {
+            errors.push(format!("UID {uid}: {error:#}"));
+        } else {
+            saved.pending.retain(|pending| *pending != uid);
+            state.save("migration-guis.json", &saved)?;
+        }
+    }
+    ensure!(
+        errors.is_empty(),
+        "migration GUI finalization pending: {}",
+        errors.join("; ")
+    );
+    Ok(())
+}
+
 /// Used by both Native::start and Native::health. A current parked process
 /// cannot satisfy readiness, even if reboot reused a prior receipt's PID.
 fn ready_pid(state: &Dir, expected: &Request, job: &launchd::JobState) -> Result<Option<u32>> {
@@ -359,6 +446,39 @@ impl Steps for Native<'_> {
             std::thread::sleep(Duration::from_millis(100));
         }
     }
+    fn finalize_guis(&mut self) -> Result<()> {
+        // Verified at resume entry. Never source a privileged script or plist
+        // through the replaceable public application entry.
+        let resources = self
+            .state
+            .child("migration-app")?
+            .child("Rieul.app")?
+            .child("Contents")?
+            .child("Resources")?;
+        let agents = Dir::open(Path::new("/Library/LaunchAgents"), 0, true)?;
+        agents.remove("app.rieul.gui.plist.new")?;
+        resources.copy_file(
+            "app.rieul.gui.plist",
+            &agents,
+            "app.rieul.gui.plist.new",
+            0o644,
+        )?;
+        agents.rename_file("app.rieul.gui.plist.new", "app.rieul.gui.plist")?;
+        finish_gui_sessions(self.state, &mut self.control, |control| {
+            use std::os::unix::fs::MetadataExt;
+            let mut uids = Vec::new();
+            for uid in control.sessions()? {
+                if control.discover_gui(uid)?.is_some() {
+                    uids.push(uid);
+                }
+            }
+            let console = std::fs::metadata("/dev/console")?.uid();
+            if console != 0 && !uids.contains(&console) {
+                uids.push(console);
+            }
+            Ok(uids)
+        })
+    }
     fn enable(&mut self) -> Result<()> {
         self.state.save(
             "policy.json",
@@ -406,6 +526,139 @@ mod tests {
         db.pragma_update(None, "user_version", 3).unwrap();
         drop(db);
         assert_eq!(initial_database_schema(&dir).unwrap(), 3); // candidate validator must reject incompatible schema
+    }
+    fn fixture_dir() -> (tempfile::TempDir, Dir) {
+        use std::os::unix::fs::PermissionsExt;
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::set_permissions(tmp.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+        let dir = Dir::open(
+            &tmp.path().canonicalize().unwrap(),
+            unsafe { libc::geteuid() },
+            false,
+        )
+        .unwrap();
+        (tmp, dir)
+    }
+    #[test]
+    fn interrupted_initial_runtime_is_disposable_until_atomic_publish() {
+        let (_tmp, data) = fixture_dir();
+        data.create("expected", 0o600)
+            .unwrap()
+            .write_all(b"complete")
+            .unwrap();
+        let digest = verify::digest(data.read_file("expected").unwrap()).unwrap();
+        let write = |to: &Dir, bytes: &[u8]| -> Result<()> {
+            to.create("rieul-macos-system", 0o755)?.write_all(bytes)?;
+            Ok(())
+        };
+        assert!(
+            publish_initial_runtime(&data, &digest, |to| {
+                write(to, b"partial")?;
+                anyhow::bail!("disk full before journal")
+            })
+            .is_err()
+        );
+        assert!(!data.exists("service").unwrap());
+        // A crash after copy but before publication also leaves only staging.
+        data.discard_child("service-migration-tmp").unwrap();
+        write(
+            &data.create_dir("service-migration-tmp", 0o700).unwrap(),
+            b"complete",
+        )
+        .unwrap();
+        publish_initial_runtime(&data, &digest, |to| write(to, b"complete")).unwrap();
+        assert!(!data.exists("service-migration-tmp").unwrap());
+        // Publication completed before a pre-journal crash: reuse, never overwrite.
+        publish_initial_runtime(&data, &digest, |_| panic!("must reuse complete runtime")).unwrap();
+        let other = "0".repeat(64);
+        assert!(
+            publish_initial_runtime(&data, &other, |_| panic!(
+                "must not replace established runtime"
+            ))
+            .is_err()
+        );
+        assert_eq!(
+            verify::digest(
+                data.child("service")
+                    .unwrap()
+                    .read_file("rieul-macos-system")
+                    .unwrap()
+            )
+            .unwrap(),
+            digest
+        );
+    }
+    struct GuiControl {
+        fail: Option<u32>,
+        logout: Option<u32>,
+        started: Vec<u32>,
+    }
+    impl Control for GuiControl {
+        fn sessions(&mut self) -> Result<Vec<u32>> {
+            unreachable!()
+        }
+        fn gui_domain(&mut self, uid: u32) -> Result<bool> {
+            Ok(self.logout != Some(uid))
+        }
+        fn inspect(&mut self, _: Job) -> Result<Option<launchd::JobState>> {
+            unreachable!()
+        }
+        fn stop(&mut self, _: Job) -> Result<()> {
+            Ok(())
+        }
+        fn start(&mut self, job: Job) -> Result<()> {
+            let Job::Gui(uid) = job else { unreachable!() };
+            self.started.push(uid);
+            ensure!(
+                self.fail != Some(uid),
+                "injected GUI bootstrap/kickstart failure"
+            );
+            Ok(())
+        }
+        fn submit_worker(&mut self) -> Result<()> {
+            unreachable!()
+        }
+    }
+    #[test]
+    fn gui_finalization_retries_saved_failures_without_losing_other_sessions() {
+        for order in [vec![501, 502], vec![502, 501]] {
+            let (_tmp, state) = fixture_dir();
+            let mut control = GuiControl {
+                fail: Some(501),
+                logout: None,
+                started: vec![],
+            };
+            assert!(finish_gui_sessions(&state, &mut control, |_| Ok(order.clone())).is_err());
+            assert_eq!(control.started, order);
+            assert_eq!(
+                state
+                    .load::<GuiFinalization>("migration-guis.json")
+                    .unwrap()
+                    .unwrap()
+                    .pending,
+                [501]
+            );
+            control.fail = None;
+            control.started.clear();
+            finish_gui_sessions(&state, &mut control, |_| {
+                panic!("must recover saved targets")
+            })
+            .unwrap();
+            assert_eq!(control.started, [501]);
+            finish_gui_sessions(&state, &mut control, |_| {
+                panic!("completed finalization is idempotent")
+            })
+            .unwrap();
+            assert_eq!(control.started, [501]);
+        }
+        let (_tmp, state) = fixture_dir();
+        let mut control = GuiControl {
+            fail: None,
+            logout: Some(501),
+            started: vec![],
+        };
+        finish_gui_sessions(&state, &mut control, |_| Ok(vec![501, 502])).unwrap();
+        assert_eq!(control.started, [502]);
     }
     struct LiveWorker;
     impl Control for LiveWorker {
@@ -641,6 +894,9 @@ mod tests {
             );
             Ok(())
         }
+        fn finalize_guis(&mut self) -> Result<()> {
+            Ok(())
+        }
         fn enable(&mut self) -> Result<()> {
             ensure!(
                 self.events.last() == Some(&"health"),
@@ -757,6 +1013,9 @@ mod tests {
         fn health(&mut self, _: &Migration) -> Result<()> {
             self.effect("health")
         }
+        fn finalize_guis(&mut self) -> Result<()> {
+            self.effect("gui")
+        }
         fn enable(&mut self) -> Result<()> {
             self.effect("enable")
         }
@@ -764,7 +1023,7 @@ mod tests {
     #[test]
     fn migration_recovers_forward_without_legacy_restart() {
         use std::os::unix::fs::PermissionsExt;
-        for point in ["stop", "register", "start", "health", "enable"] {
+        for point in ["stop", "register", "start", "health", "gui", "enable"] {
             let tmp = tempfile::tempdir().unwrap();
             std::fs::set_permissions(tmp.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
             let state = Dir::open(
@@ -794,6 +1053,18 @@ mod tests {
                 fail: Some(point),
             };
             assert!(resume(&state, &mut steps).is_err());
+            assert!(state.exists("migration.json").unwrap());
+            if point == "gui" {
+                assert!(!steps.events.contains(&"enable"));
+                assert_eq!(
+                    state
+                        .load::<Migration>("migration.json")
+                        .unwrap()
+                        .unwrap()
+                        .phase,
+                    Phase::Complete
+                );
+            }
             resume(&state, &mut steps).unwrap();
             assert!(!state.exists("migration.json").unwrap());
             assert_eq!(steps.events.last(), Some(&"enable"));
