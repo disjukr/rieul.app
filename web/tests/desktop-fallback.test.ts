@@ -18,6 +18,7 @@ let mode = "configure",
   controlCalls = 0;
 let offers: string[][] = [];
 let selected = h264;
+let rejectControl = false;
 let configurations: ConfigureDesktopViewportsReq[] = [];
 const display = {
   displayId: "d",
@@ -70,6 +71,7 @@ mock.module("../src/protocol/generated/client.ts", {
     },
     setDesktopControl: async () => {
       controlCalls++;
+      if (rejectControl) throw new Error("Control is held by another viewer");
       return { inputEpoch: 1 };
     },
     detachDesktop: async () => {},
@@ -206,6 +208,12 @@ for (const failure of ["configure", "decode", "encoder"]) {
       assert.equal(controlCalls, 0);
       await entry.value.resize(999);
       assert.equal(entry.value.outputHeight(), 720);
+      rejectControl = true;
+      await entry.value.acquire();
+      assert.match(entry.value.message()!, /held by another viewer/);
+      rejectControl = false;
+      await entry.value.takeover();
+      assert.equal(entry.value.message(), undefined);
     } finally {
       stop();
       store.dispose();

@@ -448,7 +448,10 @@ export const desktopBunja = bunja(() => {
         attachId: attachId()!,
         action,
       });
-      if (token === generation) setControl(next);
+      if (token === generation) {
+        setControl(next);
+        setMessage(undefined);
+      }
     } catch (error) {
       if (token === generation)
         setMessage(error instanceof Error ? error.message : String(error));
