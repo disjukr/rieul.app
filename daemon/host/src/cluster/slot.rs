@@ -214,6 +214,73 @@ mod tests {
         }
     }
     #[test]
+    fn same_operation_cannot_change_cluster_or_incarnation() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = Store::open(&dir.path().join("isolated.sqlite")).unwrap();
+        let original = request(1);
+        store.reserve(&original).unwrap();
+        let before = store.snapshot().unwrap();
+        for field in 0..2 {
+            let mut altered = original.clone();
+            if field == 0 {
+                altered.cluster = ClusterId([9; 32]);
+            } else {
+                altered.incarnation = Incarnation([9; 32]);
+            }
+            assert!(matches!(store.reserve(&altered), Err(Error::Conflict)));
+            assert!(matches!(
+                store.activate_after_validation(&altered),
+                Err(Error::Conflict)
+            ));
+            assert!(matches!(store.retire(&altered), Err(Error::Conflict)));
+            assert_eq!(store.snapshot().unwrap(), before);
+            assert_eq!(store.reserve(&original).unwrap(), Outcome::Reserved);
+        }
+    }
+    #[test]
+    fn activation_and_retirement_overflow_preserve_all_durable_state() {
+        for active in [false, true] {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("isolated.sqlite");
+            let mut store = Store::open(&path).unwrap();
+            let a = request(1);
+            store.reserve(&a).unwrap();
+            if active {
+                store.activate_after_validation(&a).unwrap();
+            }
+            store
+                .0
+                .execute("UPDATE slot SET generation=?1", [i64::MAX])
+                .unwrap();
+            if !active {
+                assert!(matches!(
+                    store.activate_after_validation(&a),
+                    Err(Error::Exhausted)
+                ));
+            }
+            assert!(matches!(store.retire(&a), Err(Error::Exhausted)));
+            drop(store);
+            let mut store = Store::open(&path).unwrap();
+            assert_eq!(
+                store.snapshot().unwrap(),
+                (i64::MAX, Some(a.operation.0.to_vec()))
+            );
+            assert_eq!(
+                store.reserve(&a).unwrap(),
+                if active {
+                    Outcome::Active
+                } else {
+                    Outcome::Reserved
+                }
+            );
+            let retired: i64 = store
+                .0
+                .query_row("SELECT COUNT(*) FROM retired", [], |r| r.get(0))
+                .unwrap();
+            assert_eq!(retired, 0);
+        }
+    }
+    #[test]
     fn restart_retry_conflict_and_retirement_are_durable() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("isolated.sqlite");

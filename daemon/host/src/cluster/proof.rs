@@ -241,6 +241,39 @@ mod tests {
         }
     }
     #[test]
+    fn canonical_transcript_matches_fixed_golden_vector() {
+        let challenge = Challenge {
+            context: Context {
+                cluster: ClusterId([1; 32]),
+                origin: "https://fixture.invalid".into(),
+                server: NodePublicKey([2; 32]),
+                incarnation: Incarnation([3; 32]),
+                subject: Subject::Client(ClientPublicKey([4; 32])),
+                connection: ConnectionId([5; 32]),
+                request_hash: [6; 32],
+            },
+            nonce: Nonce([7; 32]),
+        };
+        // Independently specified CBOR bytes, not a decode/reencode roundtrip.
+        let expected = concat!(
+            "8b76726965756c2e636c75737465722e70726f6f662e76310258200101010101",
+            "0101010101010101010101010101010101010101010101010101015820020202",
+            "0202020202020202020202020202020202020202020202020202020202582003",
+            "0303030303030303030303030303030303030303030303030303030303030301",
+            "5820040404040404040404040404040404040404040404040404040404040404",
+            "0404582005050505050505050505050505050505050505050505050505050505",
+            "0505050558200707070707070707070707070707070707070707070707070707",
+            "0707070707075820060606060606060606060606060606060606060606060606",
+            "06060606060606067768747470733a2f2f666978747572652e696e76616c6964",
+        );
+        let actual: String = challenge
+            .canonical(Purpose::ClientPossession)
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect();
+        assert_eq!(actual, expected);
+    }
+    #[test]
     fn signatures_bind_every_field_role_purpose_and_exact_encoding() {
         let challenge = Challenge {
             context: context(),

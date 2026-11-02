@@ -33,8 +33,9 @@ accepted from a claimant. Verification compares the complete expected encoding
 before verifying its signature; alternate encodings and unknown/trailing fields
 are rejected without decoding untrusted CBOR lengths. The origin is compared
 exactly, not normalized. The request hash must bind all operation-specific
-fields, including a joining node's requested incarnation. That request format
-and browser cryptographic interoperability remain undecided. This transcript is
+fields, including a joining node's requested incarnation. The request hash is supplied by the caller; the actual request → hash →
+admission → activation integration is unimplemented. That request format and
+browser cryptographic interoperability remain undecided. This transcript is
 not yet a public wire contract.
 
 A bounded cache holds at most 256 challenges with monotonic deadlines of at most
