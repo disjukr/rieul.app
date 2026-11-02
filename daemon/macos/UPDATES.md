@@ -15,6 +15,12 @@ The release workflow notarizes/staples the app itself, creates the fixed
 signed/notarized PKG. Existing Developer ID/notary credentials are reused.
 
 The installer refuses registered legacy/system jobs before PKG payload replacement.
+It also rejects a retained `/Library/LaunchAgents/app.rieul.user.plist`
+(including dangling links) or any observed `gui/<uid>/app.rieul.user` job.
+Migration repeats that legacy-agent check before GUI finalization/policy activation,
+including on recovery. Only explicit service/domain absence is accepted; ambiguous
+inspection (including status 125) fails closed. An administrator must explicitly
+retire the old agent in the maintenance window; no unknown job is terminated.
 Old releases lack a trustworthy idle/drain barrier: an explicitly arranged
 maintenance window is required. It does not kill legacy work. Existing protected
 state blocks payload overwrite; resume a migration through the protected runtime.

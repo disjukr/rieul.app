@@ -9,9 +9,13 @@ root = Path(__file__).resolve().parents[2]
 source = (root / 'scripts/macos/installer-preflight.sh').read_text()
 with tempfile.TemporaryDirectory() as name:
     tmp = Path(name).resolve()
+    ps = tmp / 'ps'
+    ps.write_text('#!/bin/bash\necho 501\n')
+    ps.chmod(0o755)
     fake = tmp / 'launchctl'
     fake.write_text('''#!/bin/bash
 printf '%s\\n' "$*" >> "$CALLS"
+if [[ "$SCENARIO" == legacyjob && "$2" == gui/501/app.rieul.user ]]; then echo registered; exit 0; fi
 case "$SCENARIO" in
  running) echo 'state = running'; exit 0;;
  ambiguous) echo 'Operation not permitted'; exit 1;;
@@ -21,19 +25,27 @@ esac
 ''')
     fake.chmod(0o755)
     script = tmp / 'guard'
-    script.write_text(source.replace('/bin/launchctl', str(fake)).replace('/Library/Application Support/rieul', str(tmp / 'data')).replace('/Library/LaunchDaemons', str(tmp / 'launchdaemons')))
-    for scenario, expected in [('running', 1), ('ambiguous', 1), ('wrong113', 1), ('absent', 0)]:
+    script.write_text(source.replace('/bin/ps', str(ps)).replace('/Library/LaunchAgents', str(tmp / 'agents')).replace('/bin/launchctl', str(fake)).replace('/Library/Application Support/rieul', str(tmp / 'data')).replace('/Library/LaunchDaemons', str(tmp / 'launchdaemons')))
+    for scenario, expected in [('running', 1), ('ambiguous', 1), ('wrong113', 1), ('absent', 0), ('legacyjob', 1)]:
         calls = tmp / 'calls'
         calls.write_text('')
         result = subprocess.run(['/bin/bash', str(script)], env={**os.environ, 'SCENARIO': scenario, 'CALLS': str(calls)}, capture_output=True, text=True)
         assert result.returncode == expected, (scenario, result.stderr)
-        assert all(line.startswith('print system/app.rieul.') for line in calls.read_text().splitlines())
+        assert all(line.startswith(('print system/app.rieul.', 'print gui/501/app.rieul.user')) for line in calls.read_text().splitlines())
     (tmp / 'launchdaemons').mkdir()
     legacy = tmp / 'launchdaemons/app.rieul.daemon.plist'
     legacy.write_text('stopped legacy registration')
     result = subprocess.run(['/bin/bash', str(script)], env={**os.environ, 'SCENARIO': 'absent', 'CALLS': str(calls)}, capture_output=True)
     assert result.returncode == 1
     legacy.unlink()
+    (tmp / 'agents').mkdir()
+    legacy = tmp / 'agents/app.rieul.user.plist'
+    for dangling in [False, True]:
+        if dangling: legacy.symlink_to(tmp / 'missing')
+        else: legacy.write_text('old user agent')
+        result = subprocess.run(['/bin/bash', str(script)], env={**os.environ, 'SCENARIO': 'absent', 'CALLS': str(calls)}, capture_output=True)
+        assert result.returncode == 1
+        legacy.unlink()
     (tmp / 'data').mkdir()
     for entry in ['updates', 'service']:
         path = tmp / 'data' / entry

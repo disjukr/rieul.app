@@ -324,6 +324,34 @@ fn finish_gui_sessions(
     Ok(())
 }
 
+// Repeat before policy activation, including resumed migrations. A plist/job
+// introduced after installer preflight cannot silently survive migration.
+fn require_legacy_agent_absent(
+    plist_exists: bool,
+    uids: Vec<u32>,
+    mut inspect: impl FnMut(&str) -> Result<(i32, String)>,
+) -> Result<()> {
+    ensure!(
+        !plist_exists,
+        "explicit maintenance retirement required for app.rieul.user.plist"
+    );
+    ensure!(uids.len() <= 256, "too many legacy user domains");
+    for uid in uids {
+        ensure!(uid > 0, "invalid legacy user domain");
+        let target = format!("gui/{uid}/app.rieul.user");
+        let (code, text) = inspect(&target)?;
+        let absent = (code == 113 && text.contains("Could not find service"))
+            || ((code == 112 || code == 113)
+                && text.trim()
+                    == format!("Bad request.\nCould not find domain for user gui: {uid}"));
+        ensure!(
+            absent,
+            "explicit maintenance retirement/absence verification required for {target} ({code})"
+        );
+    }
+    Ok(())
+}
+
 /// Used by both Native::start and Native::health. A current parked process
 /// cannot satisfy readiness, even if reboot reused a prior receipt's PID.
 fn ready_pid(state: &Dir, expected: &Request, job: &launchd::JobState) -> Result<Option<u32>> {
@@ -456,6 +484,11 @@ impl Steps for Native<'_> {
             .child("Contents")?
             .child("Resources")?;
         let agents = Dir::open(Path::new("/Library/LaunchAgents"), 0, true)?;
+        require_legacy_agent_absent(
+            agents.exists("app.rieul.user.plist")?,
+            self.control.sessions()?,
+            |target| launchd::run(self.state, "/bin/launchctl", &["print", target]),
+        )?;
         agents.remove("app.rieul.gui.plist.new")?;
         resources.copy_file(
             "app.rieul.gui.plist",
@@ -659,6 +692,35 @@ mod tests {
         };
         finish_gui_sessions(&state, &mut control, |_| Ok(vec![501, 502])).unwrap();
         assert_eq!(control.started, [502]);
+    }
+    #[test]
+    fn retained_legacy_user_agent_blocks_finalization_without_terminating_it() {
+        assert!(
+            require_legacy_agent_absent(true, vec![501], |_| panic!("plist already blocks"))
+                .is_err()
+        );
+        for code in [0, 1, 125] {
+            let mut calls = vec![];
+            assert!(
+                require_legacy_agent_absent(false, vec![501], |target| {
+                    calls.push(target.to_owned());
+                    Ok((code, "registered or ambiguous".into()))
+                })
+                .is_err()
+            );
+            assert_eq!(calls, ["gui/501/app.rieul.user"]);
+        }
+        require_legacy_agent_absent(false, vec![501, 502], |target| {
+            if target.contains("501") {
+                Ok((113, "Could not find service".into()))
+            } else {
+                Ok((
+                    112,
+                    "Bad request.\nCould not find domain for user gui: 502".into(),
+                ))
+            }
+        })
+        .unwrap();
     }
     struct LiveWorker;
     impl Control for LiveWorker {
