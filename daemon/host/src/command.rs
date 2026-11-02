@@ -2308,7 +2308,11 @@ mod tests {
     async fn create_schedule_seeds_checkpoint_before_current_second() {
         let manager = CommandManager::open(DaemonStateDb::open_in_memory_for_tests().unwrap())
             .expect("open command manager");
-        let start_at_ms = current_unix_ms();
+        let before_create_ms = current_unix_ms();
+        // A request can cross a second boundary before save_schedule seeds its
+        // checkpoint. Use a prior-second start to exercise that case without
+        // sleeping or assuming request time is the checkpoint's clock sample.
+        let start_at_ms = before_create_ms.saturating_sub(1000);
         let schedule = manager
             .create_schedule(CreateScheduleReq {
                 title: "current second".to_string(),
@@ -2327,7 +2331,16 @@ mod tests {
             .get(&schedule.schedule_id)
             .expect("schedule record");
 
-        assert!(record.last_checked_ms < schedule.start_at_ms);
+        let after_create_ms = current_unix_ms();
+        assert!(
+            record.last_checked_ms
+                >= normalize_schedule_start_ms(before_create_ms).saturating_sub(1)
+        );
+        assert!(
+            record.last_checked_ms
+                <= normalize_schedule_start_ms(after_create_ms).saturating_sub(1)
+        );
+        assert_eq!(record.last_checked_ms % 1000, 999);
     }
 
     #[tokio::test]
