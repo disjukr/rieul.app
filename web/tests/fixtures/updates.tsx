@@ -3,6 +3,8 @@ import { override } from "bunja";
 import { createSignal, createMemo } from "solid-js";
 import { render } from "@solidjs/web";
 
+import { rpcSessionBunja } from "../../src/state/rpc-session";
+import { rpcSessionStub } from "../helpers/rpc-session";
 import { daemonUpdatesBunja } from "../../src/state/daemon-updates";
 import {
   UpdatePhase,
@@ -48,7 +50,10 @@ function Fixture() {
       <button onClick={() => setToken("replacement")}>Replace daemon</button>
       <output aria-label="Install calls">{calls()}</output>
       <TestBunjaStoreProvider
-        overrides={[override(daemonUpdatesBunja, () => model)]}
+        overrides={[
+          override(daemonUpdatesBunja, () => model),
+          override(rpcSessionBunja, () => rpcSessionStub({})),
+        ]}
       >
         <DaemonUpdateSection />
       </TestBunjaStoreProvider>

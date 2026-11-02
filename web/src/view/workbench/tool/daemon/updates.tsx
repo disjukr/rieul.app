@@ -7,8 +7,112 @@ import {
 } from "../../../../state/daemon-updates.ts";
 import { UpdatePhase } from "../../../../protocol/generated/rpc.ts";
 import { Button } from "../../../ui/button.tsx";
+import { legacyDaemonUpgradeBunja } from "../../../../state/legacy-daemon-upgrade.ts";
 
 export function DaemonUpdateSection() {
+  const legacy = useBunja(legacyDaemonUpgradeBunja);
+  return (
+    <>
+      {legacy().supported() ? (
+        <LegacyUpgradeSection />
+      ) : (
+        <StreamingUpdateSection />
+      )}
+    </>
+  );
+}
+
+export function LegacyUpgradeSection() {
+  const upgrade = useBunja(legacyDaemonUpgradeBunja);
+  const status = () => upgrade().status();
+  const [confirmation, setConfirmation] = createSignal<string>();
+  const confirming = () =>
+    confirmation() !== undefined &&
+    confirmation() === upgrade().confirmationToken();
+  return (
+    <section {...styles.section()} aria-label="Legacy daemon upgrade">
+      <div {...styles.div()}>Upgrade older daemon</div>
+      <div {...styles.div2()}>
+        <p>
+          This connected daemon uses the older update protocol. Read its
+          installed version before upgrading. Status refreshes only when you
+          click.
+        </p>
+        <div role="status" aria-live="polite">
+          {status()
+            ? updatePhaseLabel(status()!.phase)
+            : "Read update status to confirm the installed version."}
+        </div>
+        {status()?.currentVersion ? (
+          <div>Installed: {status()!.currentVersion}</div>
+        ) : null}
+        {status()?.targetVersion ? (
+          <div>Available: {status()!.targetVersion}</div>
+        ) : null}
+        {status()?.reason ? <p {...styles.p()}>{status()!.reason}</p> : null}
+        {upgrade().message() ? <p role="alert">{upgrade().message()}</p> : null}
+        <div {...styles.div3()}>
+          <Button
+            disabled={upgrade().busy()}
+            onClick={() => void upgrade().readStatus()}
+          >
+            Read update status
+          </Button>
+          <Button
+            disabled={upgrade().busy() || !upgrade().verified()}
+            onClick={() => void upgrade().check()}
+          >
+            Check for updates
+          </Button>
+          <Button
+            disabled={
+              upgrade().busy() ||
+              !upgrade().verified() ||
+              !status()?.canInstall ||
+              !status()?.targetVersion
+            }
+            onClick={() => setConfirmation(upgrade().confirmationToken())}
+          >
+            Install update…
+          </Button>
+          <Button onClick={() => upgrade().reconnect()}>Reconnect</Button>
+        </div>
+        {confirming() && upgrade().supported() ? (
+          <div
+            role="alertdialog"
+            aria-label="Confirm older daemon upgrade"
+            {...styles.div4()}
+          >
+            <p>
+              Installing restarts the server and disconnects all clients. Active
+              work will postpone installation and will not be forcibly
+              terminated.
+            </p>
+            <div {...styles.div5()}>
+              <Button onClick={() => setConfirmation(undefined)}>Cancel</Button>
+              <Button
+                disabled={
+                  upgrade().busy() ||
+                  !upgrade().verified() ||
+                  !status()?.canInstall
+                }
+                onClick={() => {
+                  const token = confirmation()!;
+                  setConfirmation(undefined);
+                  void upgrade().installConfirmed(token);
+                }}
+              >
+                Confirm and install
+              </Button>
+            </div>
+          </div>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
+function StreamingUpdateSection() {
   const updates = useBunja(daemonUpdatesBunja);
   const status = () => updates().status();
   const message = () => updates().message();
