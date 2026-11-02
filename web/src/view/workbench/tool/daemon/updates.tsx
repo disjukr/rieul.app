@@ -47,7 +47,7 @@ export function LegacyUpgradeSection() {
           <div>Installed: {status()!.currentVersion}</div>
         ) : null}
         {status()?.targetVersion ? (
-          <div>Available: {status()!.targetVersion}</div>
+          <div>Update target: {status()!.targetVersion}</div>
         ) : null}
         {status()?.reason ? <p {...styles.p()}>{status()!.reason}</p> : null}
         {upgrade().message() ? <p role="alert">{upgrade().message()}</p> : null}
@@ -146,7 +146,7 @@ function StreamingUpdateSection() {
           <div>Installed: {status()!.currentVersion}</div>
         ) : null}
         {status()?.targetVersion ? (
-          <div>Available: {status()!.targetVersion}</div>
+          <div>Update target: {status()!.targetVersion}</div>
         ) : null}
         {status()?.reason ? <p {...styles.p()}>{status()!.reason}</p> : null}
         {message() ? <p role="alert">{message()}</p> : null}

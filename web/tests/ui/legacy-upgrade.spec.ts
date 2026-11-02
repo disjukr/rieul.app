@@ -22,6 +22,7 @@ test("legacy upgrade requires version read and explicit install; new connection 
   await read.hover();
   await read.click();
   await expect(page.getByText("Installed: 0.6.16")).toBeVisible();
+  await expect(page.getByText("Update target: 0.6.20")).toBeVisible();
   await page
     .getByRole("button", { name: "Check for updates", exact: true })
     .click();
@@ -37,6 +38,7 @@ test("legacy upgrade requires version read and explicit install; new connection 
     .getByRole("button", { name: "Confirm and install", exact: true })
     .click();
   await expect(page.getByLabel("Legacy install calls")).toHaveText("1");
+  await expect(page.getByText("Update target: 0.6.20")).toBeVisible();
   await expect(
     page.getByText("Active work postpones installation."),
   ).toBeVisible();

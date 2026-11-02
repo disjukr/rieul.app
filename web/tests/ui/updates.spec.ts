@@ -31,6 +31,7 @@ test("daemon update menu displays deferral and requires explicit confirmation", 
     page.getByRole("region", { name: "Daemon updates" }).getByRole("status"),
   ).toHaveText("Installing");
   await expect(page.getByLabel("Install calls")).toHaveText("1");
+  await expect(page.getByText(/^Update target:/)).toBeVisible();
 });
 test("replacement daemon invalidates the displayed installation confirmation", async ({
   page,
