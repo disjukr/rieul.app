@@ -16,6 +16,7 @@ function Fixture() {
   const [configuration, setConfiguration] =
     createSignal<DesktopConfiguration>();
   const [events, setEvents] = createSignal<DesktopInputEvent[]>([]);
+  const [outputHeight, setOutputHeight] = createSignal(1080);
   const [epoch, setEpoch] = createSignal(1);
   const display = {
     displayId: "fixture",
@@ -25,6 +26,12 @@ function Fixture() {
   };
   const [inputReady, setInputReady] = createSignal(false);
   const model = {
+    availabilityMessage: createMemo(() => undefined),
+    outputHeight,
+    maxViewports: createSignal(8)[0],
+    resize: async (height: number) => {
+      setOutputHeight(height);
+    },
     phase,
     controlling,
     configuration,

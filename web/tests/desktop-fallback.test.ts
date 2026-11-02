@@ -8,6 +8,7 @@ import {
   ProcId,
   type DesktopConfiguration,
   type AttachDesktopReq,
+  type ConfigureDesktopViewportsReq,
 } from "../src/protocol/generated/rpc.ts";
 import { rpcSessionStub } from "./helpers/rpc-session.ts";
 const av1 = "av01.0.13M.08",
@@ -17,9 +18,10 @@ let mode = "configure",
   controlCalls = 0;
 let offers: string[][] = [];
 let selected = h264;
+let configurations: ConfigureDesktopViewportsReq[] = [];
 const display = {
   displayId: "d",
-  bounds: { x: 0, y: 0, width: 64, height: 64 },
+  bounds: { x: 0, y: 0, width: 1921, height: 1081 },
   scale: 1,
   dpi: 96,
 };
@@ -40,26 +42,32 @@ mock.module("../src/protocol/generated/client.ts", {
       maxInputFrameBytes: 16384,
       maxInputStreamBytes: 8388608,
     }),
-    configureDesktopViewports: async () => ({
-      layoutEpoch: 1,
-      totalBitrate: 1000,
-      tracks: [
-        {
-          trackId: 1,
-          codecEpoch: 1,
-          codec: { codec: selected, hardware: true },
-          viewport: {
-            viewportId: "d",
-            displayId: "d",
-            crop: { x: 0, y: 0, width: 64, height: 64 },
-            width: 64,
-            height: 64,
-            fps: 60,
-            bitrate: 1000,
+    configureDesktopViewports: async (
+      _transport: unknown,
+      request: ConfigureDesktopViewportsReq,
+    ) => {
+      configurations.push(request);
+      return {
+        layoutEpoch: 1,
+        totalBitrate: 1000,
+        tracks: [
+          {
+            trackId: 1,
+            codecEpoch: 1,
+            codec: { codec: selected, hardware: true },
+            viewport: {
+              viewportId: "d",
+              displayId: "d",
+              crop: { x: 0, y: 0, width: 64, height: 64 },
+              width: 64,
+              height: 64,
+              fps: 60,
+              bitrate: 1000,
+            },
           },
-        },
-      ],
-    }),
+        ],
+      };
+    },
     setDesktopControl: async () => {
       controlCalls++;
       return { inputEpoch: 1 };
@@ -137,6 +145,7 @@ for (const failure of ["configure", "decode", "encoder"]) {
   test(`AV1 ${failure} failure reattaches with H264 once and never restores control`, async () => {
     mode = failure;
     offers = [];
+    configurations = [];
     controlCalls = 0;
     const store = createBunjaStore({
       wrapInstance: (init) => createRoot(init),
@@ -187,6 +196,16 @@ for (const failure of ["configure", "decode", "encoder"]) {
       assert.equal(entry.value.configuration()?.tracks[0].codec.codec, h264);
       assert.equal(entry.value.controlling(), false);
       assert.equal(controlCalls, 0);
+      const configured = configurations.at(-1)!;
+      assert.equal(configured.viewports[0].width % 2, 0);
+      assert.equal(configured.viewports[0].height % 2, 0);
+      await entry.value.resize(720);
+      assert.equal(entry.value.outputHeight(), 720);
+      assert.ok(configurations.at(-1)!.viewports[0].height <= 720);
+      assert.equal(configurations.at(-1)!.viewports[0].displayId, "d");
+      assert.equal(controlCalls, 0);
+      await entry.value.resize(999);
+      assert.equal(entry.value.outputHeight(), 720);
     } finally {
       stop();
       store.dispose();
