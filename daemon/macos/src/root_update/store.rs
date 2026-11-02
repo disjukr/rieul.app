@@ -330,6 +330,37 @@ impl Dir {
         );
         self.sync()
     }
+    /// One-time migration only: publish the private staged runtime into the
+    /// protected but public-readable data parent. Cleanup stays private.
+    pub fn publish_initial_service(&self, data: &Dir) -> Result<()> {
+        self.require_private()?;
+        ensure!(
+            self.uid == data.uid && data.child("updates")?.identity()? == self.identity()?,
+            "initial service staging must be data/updates"
+        );
+        ensure!(
+            self.identity()?.0 == data.identity()?.0,
+            "cross-volume initial service publish"
+        );
+        let stage = self.child("service-migration-tmp")?;
+        stage.require_private()?;
+        stage.sync()?;
+        ensure!(
+            unsafe {
+                libc::renameatx_np(
+                    self.file.as_raw_fd(),
+                    c"service-migration-tmp".as_ptr(),
+                    data.file.as_raw_fd(),
+                    c"service".as_ptr(),
+                    libc::RENAME_EXCL,
+                )
+            } == 0,
+            "initial service publish failed: {}",
+            std::io::Error::last_os_error()
+        );
+        self.sync()?;
+        data.sync()
+    }
     pub fn rename_file(&self, from: &str, to: &str) -> Result<()> {
         self.read_file(from)?;
         ensure!(

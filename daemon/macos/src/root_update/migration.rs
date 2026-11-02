@@ -265,8 +265,10 @@ fn publish_initial_runtime(
         );
         return Ok(());
     }
-    data.discard_child("service-migration-tmp")?;
-    let stage = data.create_dir("service-migration-tmp", 0o700)?;
+    let private = data.child("updates")?;
+    private.require_private()?;
+    private.discard_child("service-migration-tmp")?;
+    let stage = private.create_dir("service-migration-tmp", 0o700)?;
     copy(&stage)?;
     ensure!(
         verify::digest(stage.read_file("rieul-macos-system")?)? == digest,
@@ -274,7 +276,7 @@ fn publish_initial_runtime(
     );
     stage.read_file("rieul-macos-system")?.sync_all()?;
     stage.sync()?;
-    data.publish_dir("service-migration-tmp", "service")
+    private.publish_initial_service(data)
 }
 
 #[derive(Serialize, Deserialize)]
@@ -612,6 +614,11 @@ mod tests {
     #[test]
     fn interrupted_initial_runtime_is_disposable_until_atomic_publish() {
         let (_tmp, data) = fixture_dir();
+        use std::os::unix::fs::PermissionsExt;
+        // Production data is public-readable; only updates/staging is private.
+        std::fs::set_permissions(&data.path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let private = data.create_dir("updates", 0o700).unwrap();
+        assert!(data.discard_child("service-migration-tmp").is_err());
         data.create("expected", 0o600)
             .unwrap()
             .write_all(b"complete")
@@ -630,14 +637,30 @@ mod tests {
         );
         assert!(!data.exists("service").unwrap());
         // A crash after copy but before publication also leaves only staging.
-        data.discard_child("service-migration-tmp").unwrap();
+        private.discard_child("service-migration-tmp").unwrap();
         write(
-            &data.create_dir("service-migration-tmp", 0o700).unwrap(),
+            &private.create_dir("service-migration-tmp", 0o700).unwrap(),
             b"complete",
         )
         .unwrap();
         publish_initial_runtime(&data, &digest, |to| write(to, b"complete")).unwrap();
-        assert!(!data.exists("service-migration-tmp").unwrap());
+        assert!(!private.exists("service-migration-tmp").unwrap());
+        // Destination collisions never overwrite an established runtime, even
+        // if a caller races the earlier existence check.
+        write(
+            &private.create_dir("service-migration-tmp", 0o700).unwrap(),
+            b"different",
+        )
+        .unwrap();
+        assert!(private.publish_initial_service(&data).is_err());
+        assert!(private.exists("service-migration-tmp").unwrap());
+        assert!(data.publish_initial_service(&data).is_err());
+        assert!(
+            data.create_dir("unrelated-private", 0o700)
+                .unwrap()
+                .publish_initial_service(&data)
+                .is_err()
+        );
         // Publication completed before a pre-journal crash: reuse, never overwrite.
         publish_initial_runtime(&data, &digest, |_| panic!("must reuse complete runtime")).unwrap();
         let other = "0".repeat(64);

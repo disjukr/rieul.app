@@ -39,10 +39,15 @@ storage, verifies its sealed signature/manifest and requires its daemon digest t
 match the bootstrap before publishing or executing the runtime. Public app paths
 are never a source of privileged scripts or executed daemon code.
 
-Initial runtime publication uses a private temporary directory, verifies and
+Initial runtime publication uses `updates/service-migration-tmp` (0700), verifies and
 syncs the complete executable, then atomically publishes without replacing an
 established runtime. Incomplete pre-journal staging is discarded on retry; an
 existing runtime with a different digest fails closed.
+Publication uses fixed names and descriptor-relative RENAME_EXCL from the private
+updates directory into its verified parent. The data directory remains 0755;
+recursive staging cleanup still refuses public-readable parents. Actual signed
+Installer testing of source 17bb316 exposed this parent-mode mismatch before
+runtime publication; the regression now models the real 0755/0700 split.
 
 Migration retains its verified app snapshot and journal through GUI finalization.
 It installs the GUI plist from that snapshot, durably records target UIDs before
