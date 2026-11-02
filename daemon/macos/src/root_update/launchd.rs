@@ -247,6 +247,23 @@ fn start_gui(
     }
 }
 
+// ps prints the built-in nobody uid_t as signed -2 on macOS.
+// Keep the domain in inspection instead of silently discarding the account.
+fn process_uid(text: &str) -> Result<u32> {
+    if text == "-2" { return Ok(u32::MAX - 1); }
+    ensure!(!text.is_empty() && text.bytes().all(|b| b.is_ascii_digit()), "invalid process UID");
+    Ok(text.parse()?)
+}
+#[test]
+fn process_uid_preserves_nobody_and_rejects_unknown_representations() {
+    assert_eq!(process_uid("-2").unwrap(), 4294967294);
+    assert_eq!(process_uid("4294967294").unwrap(), 4294967294);
+    assert_eq!(process_uid("501").unwrap(), 501);
+    for bad in ["-1", "-3", "+501", "", "nobody", "4294967296"] {
+        assert!(process_uid(bad).is_err(), "{bad}");
+    }
+}
+
 pub(super) struct Native<'a> {
     pub state: &'a Dir,
 }
@@ -264,7 +281,7 @@ impl Control for Native<'_> {
         let text = checked(self.state, "/bin/ps", &["-axo", "uid="])?;
         let mut ids = BTreeSet::new();
         for line in text.lines() {
-            let uid: u32 = line.trim().parse()?;
+            let uid = process_uid(line.trim())?;
             if uid != 0 {
                 ids.insert(uid);
             }

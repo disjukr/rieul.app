@@ -45,6 +45,9 @@ background_without_gui() {
 }
 uids="$(/bin/ps -axo uid=)"
 for uid in $(printf '%s\n' "$uids" | /usr/bin/sort -un); do
+  # macOS ps renders the built-in nobody uid_t (UINT32_MAX-1) as -2.
+  # Normalize that known representation; still inspect its domain, never skip it.
+  [[ "$uid" != -2 ]] || uid=4294967294
   [[ "$uid" =~ ^[0-9]+$ ]] || exit 1
   [[ "$uid" != 0 ]] || continue
   target="gui/$uid/app.rieul.user"

@@ -15,6 +15,7 @@ with tempfile.TemporaryDirectory() as name:
     fake = tmp / 'launchctl'
     fake.write_text('''#!/bin/bash
 printf '%s\\n' "$*" >> "$CALLS"
+if [[ "$SCENARIO" == nobodyjob && "$2" == gui/4294967294/app.rieul.user ]]; then echo registered; exit 0; fi
 if [[ "$SCENARIO" == legacyjob && "$2" == gui/501/app.rieul.user ]]; then echo registered; exit 0; fi
 if [[ "$SCENARIO" == background* ]]; then
   case "$2" in
@@ -39,6 +40,18 @@ esac
         result = subprocess.run(['/bin/bash', str(script)], env={**os.environ, 'SCENARIO': scenario, 'CALLS': str(calls)}, capture_output=True, text=True)
         assert result.returncode == expected, (scenario, result.stderr)
         assert all(line.startswith(('print system/app.rieul.', 'print gui/501/app.rieul.user', 'print user/501')) for line in calls.read_text().splitlines())
+    # Real macOS nobody representation is normalized, not ignored.
+    for uid, expected in [('-2', 0), ('4294967294', 0), ('-3', 1), ('oops', 1)]:
+        ps.write_text('#!/bin/bash\nprintf "%s\\n" "' + uid + '"\n')
+        calls.write_text('')
+        result = subprocess.run(['/bin/bash', str(script)], env={**os.environ, 'SCENARIO': 'absent', 'CALLS': str(calls)}, capture_output=True, text=True)
+        assert result.returncode == expected, (uid, result.stderr)
+        if expected == 0:
+            assert 'print gui/4294967294/app.rieul.user' in calls.read_text()
+    ps.write_text('#!/bin/bash\nprintf "%s\\n" "-2"\n')
+    result = subprocess.run(['/bin/bash', str(script)], env={**os.environ, 'SCENARIO': 'nobodyjob', 'CALLS': str(calls)}, capture_output=True, text=True)
+    assert result.returncode == 1 and 'explicitly retire registered gui/4294967294/app.rieul.user' in result.stderr
+    ps.write_text('#!/bin/bash\necho 501\n')
     (tmp / 'launchdaemons').mkdir()
     legacy = tmp / 'launchdaemons/app.rieul.daemon.plist'
     legacy.write_text('stopped legacy registration')
