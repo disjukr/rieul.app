@@ -28,7 +28,7 @@ import {
   subscribeClients,
   subscribeTerminalSessions,
 } from "../../../../protocol/generated/client.ts";
-import { procs } from "../../../../protocol/generated/rpc.ts";
+import { procs, ProcId } from "../../../../protocol/generated/rpc.ts";
 import type { ClientInfo } from "../../../../protocol/generated/rpc.ts";
 import { machineStoreBunja } from "../../../../state/machine-store.ts";
 import { rpcSessionBunja } from "../../../../state/rpc-session.ts";
@@ -367,6 +367,18 @@ export function DaemonTool() {
               )}
             </div>
             <div {...styles.daemonContent()}>
+              {!clientsPageOpen() &&
+                readyDaemonInfo()?.supportedProcIds.includes(
+                  ProcId.GetDesktopCapabilities,
+                ) && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={() => workbench().selectTool("desktop")}
+                  >
+                    Open remote desktop
+                  </Button>
+                )}
               {daemonInfo().phase === "ready" ? (
                 <DaemonInfoView
                   endpoint={machine()?.baseUrl}

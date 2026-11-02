@@ -57,3 +57,30 @@ test("viewer never takes control on viewing and preserves physical key identity 
   await page.getByRole("button", { name: "Disconnect", exact: true }).click();
   await expect(canvas).toHaveCount(0);
 });
+
+test("viewer settings remain usable at a narrow viewport without taking control", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/tests/fixtures/desktop.html");
+  const size = page.getByRole("combobox", { name: "Maximum video size" });
+  await size.selectOption("720");
+  await expect(size).toHaveValue("720");
+  await page.getByRole("button", { name: "Connect", exact: true }).click();
+  await page.getByRole("button", { name: "Open in another window" }).hover();
+  await size.focus();
+  await expect(size).toBeFocused();
+  await expect(
+    page.getByRole("region", { name: "Remote desktop" }).getByRole("status"),
+  ).toContainText("Viewing only");
+  await expect(page.getByLabel("Recorded input")).toHaveText("[]");
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).toBe(true);
+  await page.getByRole("button", { name: "Disconnect", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "Acquire control", exact: true }),
+  ).toBeDisabled();
+});

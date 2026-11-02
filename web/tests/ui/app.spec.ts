@@ -284,5 +284,5 @@ test("remote desktop workbench entry stays passive until explicit connect", asyn
   ).toBeDisabled();
   await expect(
     page.getByRole("region", { name: "Remote desktop" }).getByRole("status"),
-  ).toContainText("does not offer remote desktop");
+  ).toContainText("Select a paired daemon to connect");
 });

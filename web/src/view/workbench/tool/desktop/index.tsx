@@ -27,12 +27,20 @@ export function DesktopTool() {
           }
           onClick={() => void desktop().connect()}
         >
-          {desktop().phase() === "viewing" ? "Reconnect" : "Connect"}
+          {desktop().phase() === "viewing"
+            ? "Reconnect"
+            : desktop().phase() === "error" ||
+                desktop().phase() === "unsupported"
+              ? "Retry connection"
+              : "Connect"}
         </Button>
         <Button
           size="sm"
           type="button"
-          disabled={desktop().phase() !== "viewing"}
+          disabled={
+            desktop().phase() !== "viewing" &&
+            desktop().phase() !== "connecting"
+          }
           onClick={() => desktop().disconnect()}
         >
           Disconnect
@@ -75,10 +83,15 @@ export function DesktopTool() {
         role="status"
       >
         {desktop().message() ??
+          desktop().availabilityMessage() ??
           (desktop().controlling()
             ? "You control this desktop."
             : desktop().phase() === "viewing"
-              ? "Viewing only. Taking control is explicit."
+              ? !desktop().inputReady()
+                ? "Viewing only. Input is unavailable; check the daemon’s OS input permission."
+                : desktop().control().holderAttachId
+                  ? "Another viewer controls this desktop. Choose Take control to request an explicit handoff."
+                  : "Viewing only. Taking control is explicit."
               : desktop().phase() === "connecting"
                 ? "Connecting…"
                 : !desktop().supported()
@@ -89,17 +102,43 @@ export function DesktopTool() {
         Keyboard input uses physical keys. IME and OS-reserved shortcuts are
         unavailable. Ctrl+Alt+Escape leaves remote keyboard focus.
       </p>
+      <label {...styles.help()}>
+        Maximum video size
+        <select
+          {...styles.select()}
+          aria-label="Maximum video size"
+          value={desktop().outputHeight()}
+          disabled={desktop().busy() || desktop().phase() === "connecting"}
+          onChange={(event) =>
+            void desktop().resize(Number(event.currentTarget.value))
+          }
+        >
+          <option value="720">1280 × 720</option>
+          <option value="1080">1920 × 1080</option>
+          <option value="2160">3840 × 2160</option>
+        </select>{" "}
+        Shared across selected displays; changing size releases held inputs.
+      </label>
       <fieldset
         {...styles.displays({ className: "rieul-desktop-displays" })}
         disabled={desktop().busy() || desktop().phase() !== "viewing"}
       >
-        <legend>Displays</legend>
+        <legend>Displays (up to {desktop().maxViewports()})</legend>
         {desktop()
           .displays()
           .map((display) => (
             <label {...styles.displayOption()}>
               <input
                 type="checkbox"
+                disabled={
+                  !desktop()
+                    .configuration()
+                    ?.tracks.some(
+                      (t) => t.viewport.displayId === display.displayId,
+                    ) &&
+                  (desktop().configuration()?.tracks.length ?? 0) >=
+                    desktop().maxViewports()
+                }
                 checked={
                   desktop()
                     .configuration()
@@ -124,6 +163,12 @@ export function DesktopTool() {
             </label>
           ))}
       </fieldset>
+      {desktop().phase() === "viewing" &&
+        !desktop().configuration()?.tracks.length && (
+          <p {...styles.help()}>
+            No display selected. Select a display above to show its screen.
+          </p>
+        )}
       <div {...styles.viewports({ className: "rieul-desktop-viewports" })}>
         {desktop()
           .configuration()
@@ -264,6 +309,22 @@ function DesktopSurface(props: { track: DesktopTrack }) {
 }
 
 namespace styles {
+  export const select = style({
+    margin: "0 6px",
+    padding: "4px 8px",
+    border: "1px solid",
+    borderColor: theme.borderLight,
+    borderRadius: theme.radiusMd,
+    backgroundColor: theme.bgPrimary,
+    color: theme.textPrimary,
+    selectors: {
+      "&:disabled": { opacity: 0.6 },
+      "&:focus-visible": {
+        outline: "2px solid currentColor",
+        outlineOffset: "2px",
+      },
+    },
+  });
   export const cursorImage = style({ width: "100%", display: "block" });
   export const root = style({
     display: "flex",

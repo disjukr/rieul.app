@@ -147,3 +147,36 @@ test("available capture without a browser codec stays disconnected", async () =>
     f.close();
   }
 });
+
+test("disconnect cancels capability negotiation and permits a fresh explicit retry", async () => {
+  const pending = Promise.withResolvers<DesktopCapabilities>();
+  capabilities = () => pending.promise;
+  const f = fixture();
+  try {
+    await flush();
+    const connecting = f.value.connect();
+    await flush();
+    assert.equal(f.value.phase(), "connecting");
+    f.value.disconnect();
+    pending.resolve({
+      capture: DesktopAvailability.Unsupported,
+      reason: "stale",
+    } as DesktopCapabilities);
+    await connecting;
+    assert.equal(f.value.phase(), "idle");
+    assert.equal(f.value.message(), undefined);
+    capabilities = async () =>
+      ({
+        capture: DesktopAvailability.PermissionRequired,
+        reason: "Allow screen recording in OS settings",
+        maxViewports: 1,
+      }) as DesktopCapabilities;
+    await f.value.connect();
+    assert.equal(f.value.phase(), "unsupported");
+    assert.match(f.value.message()!, /screen recording/);
+    assert.equal(f.value.maxViewports(), 1);
+    assert.equal(f.value.controlling(), false);
+  } finally {
+    f.close();
+  }
+});

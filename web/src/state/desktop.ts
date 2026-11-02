@@ -55,6 +55,8 @@ export const desktopBunja = bunja(() => {
   const [attachId, setAttachId] = createSignal<string>();
   const [stats, setStats] = createSignal<DesktopVideoStats>();
   const [busy, setBusy] = createSignal(false);
+  const [outputHeight, setOutputHeight] = createSignal(1080);
+  const [maxViewports, setMaxViewports] = createSignal(8);
   const [inputReady, setInputReady] = createSignal(false);
   const [cursor, setCursor] =
     createSignal<Extract<DesktopEvent, { type: "cursor" }>>();
@@ -64,6 +66,16 @@ export const desktopBunja = bunja(() => {
       info.phase === "ready" &&
       info.daemonInfo.supportedProcIds.includes(ProcId.GetDesktopCapabilities)
     );
+  });
+  const availabilityMessage = createMemo(() => {
+    const info = rpc.daemonInfo();
+    if (info.phase === "loading") return "Checking daemon support…";
+    if (info.phase === "error")
+      return "Daemon connection failed. Reconnect to the daemon and retry.";
+    if (info.phase !== "ready") return "Select a paired daemon to connect.";
+    if (!supported())
+      return "This daemon version does not offer remote desktop. Update the daemon to continue.";
+    return undefined;
   });
   const controlling = createMemo(
     () =>
@@ -196,9 +208,12 @@ export const desktopBunja = bunja(() => {
       version = ++configVersion;
     setBusy(true);
     try {
+      send({ type: "releaseAll" });
+      await input?.flush();
+      if (token !== generation) return;
       const selected = (layout ?? displays())
         .filter((d) => ids.includes(d.displayId))
-        .slice(0, 8);
+        .slice(0, maxViewports());
       const totalBitrate = 20_000_000;
       const next = await configureDesktopViewports(transport, {
         attachId: attachment,
@@ -207,8 +222,8 @@ export const desktopBunja = bunja(() => {
         viewports: selected.map((d) => {
           const scale = Math.min(
             1,
-            1920 / d.bounds.width,
-            1080 / d.bounds.height,
+            (outputHeight() * 16) / 9 / d.bounds.width,
+            outputHeight() / d.bounds.height,
           );
           return {
             viewportId: d.displayId,
@@ -219,8 +234,8 @@ export const desktopBunja = bunja(() => {
               width: d.bounds.width,
               height: d.bounds.height,
             },
-            width: Math.max(1, Math.floor(d.bounds.width * scale)),
-            height: Math.max(1, Math.floor(d.bounds.height * scale)),
+            width: Math.max(2, Math.floor((d.bounds.width * scale) / 2) * 2),
+            height: Math.max(2, Math.floor((d.bounds.height * scale) / 2) * 2),
             fps: 60,
             bitrate: Math.floor(totalBitrate / Math.max(1, selected.length)),
           };
@@ -234,19 +249,35 @@ export const desktopBunja = bunja(() => {
       if (token === generation) setBusy(false);
     }
   }
+  async function resize(height: number) {
+    if (![720, 1080, 2160].includes(height) || busy()) return;
+    setOutputHeight(height);
+    if (phase() === "viewing")
+      await configure(
+        configuration()?.tracks.map((t) => t.viewport.displayId) ?? [],
+      );
+  }
   async function connect(h264Only = false) {
     disconnect();
     h264Fallback = h264Only;
-    if (!active) return;
+    if (!active || !supported()) return;
     const token = generation;
     setMessage(undefined);
     setPhase("connecting");
+    attachTimeout = setTimeout(() => {
+      if (token === generation)
+        failed(
+          new Error("Desktop connection timed out. Retry to connect again."),
+        );
+    }, 10_000);
     try {
       const nextTransport = await rpc.webTransport();
       if (token !== generation) return;
       const caps = await getDesktopCapabilities(nextTransport);
       if (token !== generation) return;
+      setMaxViewports(Math.max(1, Math.min(8, caps.maxViewports)));
       if (caps.capture !== DesktopAvailability.Available) {
+        clearTimeout(attachTimeout);
         setPhase("unsupported");
         setMessage(
           caps.reason ??
@@ -260,6 +291,7 @@ export const desktopBunja = bunja(() => {
         : supportedCodecs;
       if (token !== generation) return;
       if (!codecs.length) {
+        clearTimeout(attachTimeout);
         setPhase("unsupported");
         setMessage(
           "This browser and daemon have no supported video codec in common.",
@@ -279,9 +311,6 @@ export const desktopBunja = bunja(() => {
         },
         eventsAbort.signal,
       );
-      attachTimeout = setTimeout(() => {
-        if (token === generation) failed(new Error("Desktop attach timed out"));
-      }, 10_000);
       events = iterator;
       void (async () => {
         try {
@@ -363,7 +392,7 @@ export const desktopBunja = bunja(() => {
                 Math.max(1000, Math.min(5000, event.leaseMs / 3)),
               );
               await configure(
-                event.displays.slice(0, 8).map((d) => d.displayId),
+                event.displays.slice(0, maxViewports()).map((d) => d.displayId),
                 event.attachId,
                 event.displays,
               );
@@ -377,7 +406,10 @@ export const desktopBunja = bunja(() => {
               layoutEpoch = event.layoutEpoch;
               setDisplays(event.displays);
               await configure(
-                event.displays.slice(0, 8).map((d) => d.displayId),
+                configuration()?.tracks.map((t) => t.viewport.displayId) ??
+                  event.displays
+                    .slice(0, maxViewports())
+                    .map((d) => d.displayId),
                 attachId(),
                 event.displays,
               );
@@ -565,6 +597,10 @@ export const desktopBunja = bunja(() => {
     stats,
     busy,
     supported,
+    availabilityMessage,
+    outputHeight,
+    maxViewports,
+    resize,
     controlling,
     inputReady,
     cursor,
