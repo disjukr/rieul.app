@@ -135,6 +135,24 @@ impl Controller {
             .unwrap()
             .subscribe())
     }
+    // Caller holds `command`, which also serializes worker admission.
+    fn queue_install(&self, status: UpdateStatus) -> Result<UpdateStatus> {
+        let mut inner = self.inner.lock().unwrap();
+        if inner.pending_manual
+            || (self.running.load(Ordering::SeqCst) && inner.completion.is_none())
+        {
+            return Ok(self.publish(&inner));
+        }
+        ensure!(
+            status.can_install,
+            "no verified update ready for installation"
+        );
+        inner.pending_manual = true;
+        inner.status = status;
+        inner.status.phase = UpdatePhase::Deferred;
+        inner.status.reason = Some("Installation requested; active terminal, command, transfer or agent work must finish first".into());
+        Ok(self.publish(&inner))
+    }
     // A newly ready daemon may race its worker's durable finalization. Defer
     // discovery only for lock contention; never turn integrity/IO failures into
     // a retry and never wait while the worker needs this server's readiness.
@@ -349,14 +367,9 @@ impl UpdateService for Controller {
                     ),
                     UpdateCommand::InstallConfirmed => {
                         let _command = self.command.lock().unwrap();
-                        ensure!(
-                            self.status()?.can_install,
-                            "no verified update ready for installation"
-                        );
-                        self.inner.lock().unwrap().pending_manual = true;
                         // Return this accepted transition, even if a previous
                         // worker failure is concurrently observed by the watcher.
-                        return Ok(self.set(UpdatePhase::Deferred,Some("Installation requested; active terminal, command, transfer or agent work must finish first".into())));
+                        return self.queue_install(self.status()?);
                     }
                 }
             };
@@ -566,6 +579,32 @@ mod result_tests {
             feed: Arc::default(),
             command: Arc::default(),
         }
+    }
+    #[test]
+    fn duplicate_install_during_dispatch_does_not_queue_an_unrequested_retry() {
+        let c = fixture();
+        let mut staged = rieul_daemon_host::updates::unavailable();
+        staged.phase = UpdatePhase::Ready;
+        staged.can_install = true;
+        staged.target_version = Some("1.2.3".into());
+        assert_eq!(
+            c.queue_install(staged.clone()).unwrap().phase,
+            UpdatePhase::Deferred
+        );
+        assert_eq!(
+            c.inner.lock().unwrap().status.target_version.as_deref(),
+            Some("1.2.3")
+        );
+        // Model admission consuming the request before the external worker has
+        // advanced its journal from Prepared. A duplicate must not re-arm it.
+        c.inner.lock().unwrap().pending_manual = false;
+        c.running.store(true, Ordering::SeqCst);
+        c.set(UpdatePhase::Installing, None);
+        assert_eq!(
+            c.queue_install(staged).unwrap().phase,
+            UpdatePhase::Installing
+        );
+        assert!(!c.inner.lock().unwrap().pending_manual);
     }
     #[test]
     fn concurrent_checks_join_and_cancel_does_not_cancel_discovery_or_download() {
