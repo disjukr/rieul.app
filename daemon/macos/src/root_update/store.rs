@@ -295,20 +295,39 @@ impl Dir {
         })
     }
     pub fn read_file(&self, name: &str) -> Result<File> {
-        let f = file(unsafe {
-            libc::openat(
-                self.file.as_raw_fd(),
-                component(name)?.as_ptr(),
-                libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK,
-            )
-        })?;
-        let m = f.metadata()?;
-        ensure!(
-            m.is_file() && m.uid() == self.uid && m.nlink() == 1 && m.mode() & 0o022 == 0,
-            "unsafe regular file"
-        );
-        no_acl(f.as_raw_fd())?;
-        Ok(f)
+        self.read_file_after_open(name, |_| Ok(()))
+    }
+    fn read_file_after_open(
+        &self,
+        name: &str,
+        mut after_open: impl FnMut(&File) -> Result<()>,
+    ) -> Result<File> {
+        let name = component(name)?;
+        // A concurrent atomic save can unlink the inode after openat but before
+        // fstat. Never return that retired inode: reopen the descriptor-relative
+        // path and validate every replacement. Bound churn, not integrity checks.
+        for _ in 0..3 {
+            let f = file(unsafe {
+                libc::openat(
+                    self.file.as_raw_fd(),
+                    name.as_ptr(),
+                    libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK,
+                )
+            })?;
+            after_open(&f)?;
+            let m = f.metadata()?;
+            ensure!(
+                m.is_file() && m.uid() == self.uid && m.mode() & 0o022 == 0,
+                "unsafe regular file"
+            );
+            no_acl(f.as_raw_fd())?;
+            if m.nlink() == 0 {
+                continue;
+            }
+            ensure!(m.nlink() == 1, "unsafe regular file");
+            return Ok(f);
+        }
+        bail!("regular file repeatedly replaced during open")
     }
     pub fn sync(&self) -> Result<()> {
         self.file.sync_all().context("sync directory")
@@ -618,5 +637,148 @@ mod tests {
         let next = dir.lock().unwrap();
         drop(inherited);
         drop(next);
+    }
+}
+
+#[cfg(test)]
+mod read_race_tests {
+    use super::*;
+    use std::os::unix::fs::{symlink, PermissionsExt};
+
+    fn fixture() -> (tempfile::TempDir, Dir) {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = Dir::open(
+            &tmp.path().canonicalize().unwrap(),
+            unsafe { libc::geteuid() },
+            false,
+        )
+        .unwrap();
+        dir.save("record", &1u64).unwrap();
+        (tmp, dir)
+    }
+
+    #[test]
+    fn atomic_replacement_reopens_current_inode() {
+        let (_tmp, dir) = fixture();
+        let mut opens = 0;
+        let mut f = dir
+            .read_file_after_open("record", |_| {
+                opens += 1;
+                if opens == 1 {
+                    dir.save("record", &2u64)?;
+                }
+                Ok(())
+            })
+            .unwrap();
+        let mut value = String::new();
+        f.read_to_string(&mut value).unwrap();
+        assert_eq!(value, "2");
+        assert_eq!(opens, 2);
+        assert_eq!(f.metadata().unwrap().nlink(), 1);
+    }
+
+    #[test]
+    fn repeated_replacement_is_bounded_and_deletion_fails() {
+        let (_tmp, dir) = fixture();
+        let mut opens = 0;
+        let err = dir
+            .read_file_after_open("record", |_| {
+                opens += 1;
+                dir.save("record", &opens)
+            })
+            .unwrap_err();
+        assert_eq!(opens, 3);
+        assert!(err.to_string().contains("repeatedly replaced"));
+        let err = dir
+            .read_file_after_open("record", |_| dir.remove("record"))
+            .unwrap_err();
+        assert_eq!(
+            err.downcast_ref::<std::io::Error>().unwrap().kind(),
+            std::io::ErrorKind::NotFound
+        );
+    }
+
+    #[test]
+    fn replacement_cannot_bypass_file_defenses() {
+        for kind in ["symlink", "hardlink", "writable", "directory", "fifo"] {
+            let (_tmp, dir) = fixture();
+            dir.save("other", &2u64).unwrap();
+            let mut opens = 0;
+            let result = dir.read_file_after_open("record", |_| {
+                opens += 1;
+                if opens == 1 {
+                    dir.remove("record")?;
+                    let path = dir.path.join("record");
+                    match kind {
+                        "symlink" => symlink(dir.path.join("other"), path)?,
+                        "hardlink" => std::fs::hard_link(dir.path.join("other"), path)?,
+                        "writable" => {
+                            dir.save("record", &3u64)?;
+                            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o620))?;
+                        }
+                        "directory" => std::fs::create_dir(path)?,
+                        "fifo" => {
+                            ensure!(
+                                unsafe { libc::mkfifo(c(path.as_os_str())?.as_ptr(), 0o600) } == 0,
+                                "mkfifo"
+                            );
+                        }
+                        _ => unreachable!(),
+                    }
+                }
+                Ok(())
+            });
+            assert!(result.is_err(), "accepted {kind}");
+            assert!(opens <= 2);
+        }
+    }
+
+    #[test]
+    fn retired_inode_must_still_have_safe_owner_and_permissions() {
+        let (_tmp, mut dir) = fixture();
+        dir.uid = dir.uid.wrapping_add(1);
+        let mut opens = 0;
+        assert!(dir
+            .read_file_after_open("record", |_| {
+                opens += 1;
+                dir.save("record", &2u64)
+            })
+            .is_err());
+        assert_eq!(opens, 1);
+        let (_tmp, dir) = fixture();
+        std::fs::set_permissions(
+            dir.path.join("record"),
+            std::fs::Permissions::from_mode(0o620),
+        )
+        .unwrap();
+        let mut opens = 0;
+        assert!(dir
+            .read_file_after_open("record", |_| {
+                opens += 1;
+                dir.save("record", &2u64)
+            })
+            .is_err());
+        assert_eq!(opens, 1);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn replacement_acl_is_rejected() {
+        let (_tmp, dir) = fixture();
+        let mut opens = 0;
+        let result = dir.read_file_after_open("record", |_| {
+            opens += 1;
+            if opens == 1 {
+                dir.save("record", &2u64)?;
+                let status = std::process::Command::new("/bin/chmod")
+                    .args(["+a", "everyone allow read"])
+                    .arg(dir.path.join("record"))
+                    .status()?;
+                ensure!(status.success(), "test ACL setup failed");
+            }
+            Ok(())
+        });
+        assert!(result.unwrap_err().to_string().contains("ACL"));
+        assert_eq!(opens, 2);
     }
 }
