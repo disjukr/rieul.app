@@ -73,6 +73,14 @@ assert '"$bootstrap" migrate-updater' in post
 assert post.index('/usr/bin/codesign --verify') < post.index('"$bootstrap" migrate-updater')
 assert '/Applications/Rieul.app' not in post
 assert 'bootstrap="$script_dir/rieul-installer-bootstrap"' in post
+# Reject before touching privileged bootstrap/log paths.
+post_path = root / 'scripts/macos/pkg-scripts/postinstall'
+r = subprocess.run(['/bin/bash', str(post_path), 'pkg', 'location', '/Volumes/not-startup'], capture_output=True, text=True)
+assert r.returncode == 1 and 'startup volume' in r.stderr
+if os.geteuid() != 0:
+    r = subprocess.run(['/bin/bash', str(post_path)], capture_output=True, text=True)
+    assert r.returncode == 1 and 'administrator context' in r.stderr
+
 # Execute the real postinstall control flow with only OS boundaries redirected.
 # A substituted public executable is never invoked; rejected bootstrap signatures
 # fail before invoking even the protected candidate. No real launchctl/root calls.

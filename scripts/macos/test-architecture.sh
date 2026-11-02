@@ -39,11 +39,14 @@ for header,accepted in [('cffaedfe0c000001',True),('cffaedfe07000001',False),('c
     except ValueError:
         assert not accepted
 
-for source,name in [('web/public/install.sh','download-install'),('scripts/macos/pkg-scripts/preinstall','preinstall'),('scripts/macos/pkg-scripts/postinstall','postinstall')]:
+for source,name in [('web/public/install.sh','download-install'),('scripts/macos/pkg-scripts/preinstall','preinstall')]:
     text=(repo/source).read_text().replace('/usr/sbin/sysctl',shlex.quote(str(fixture/'sysctl')))
     (fixture/name).write_text(text)
 PY
-for script in download-install preinstall postinstall; do
+# Platform rejection belongs to the downloader and preinstall, before payload
+# writes. Protected postinstall checks startup-volume/admin/signature context;
+# test-installer-preflight.py covers that bootstrap boundary.
+for script in download-install preinstall; do
   if PATH="$fixture" ARCH_TEST_OS=Darwin ARCH_TEST_MACHINE=x86_64 /bin/bash "$fixture/$script" > "$fixture/error" 2>&1; then
     echo 'Intel installer host was accepted' >&2; exit 1
   fi
