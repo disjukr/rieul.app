@@ -71,3 +71,32 @@ test("legacy failed request invalidates confirmation and leaves status retry ava
   ).toBeEnabled();
   await expect(page.getByLabel("Legacy install calls")).toHaveText("0");
 });
+
+test("real legacy model renders macOS display name on desktop and mobile without RPC fallback", async ({
+  page,
+}, testInfo) => {
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto("/tests/fixtures/legacy-upgrade.html?real-capability");
+    await expect(
+      page.getByRole("region", { name: "Legacy daemon upgrade" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Read update status", exact: true }),
+    ).toBeEnabled();
+    await expect(
+      page.getByRole("button", { name: "Check for updates", exact: true }),
+    ).toBeDisabled();
+    await expect(
+      page.getByRole("button", { name: "Install update…", exact: true }),
+    ).toBeDisabled();
+    await page.screenshot({
+      path: testInfo.outputPath(`legacy-upgrade-${width}.png`),
+      fullPage: true,
+    });
+    await page.getByRole("button", { name: "Fail daemon info" }).click();
+    await expect(
+      page.getByRole("region", { name: "Legacy daemon upgrade" }),
+    ).toHaveCount(0);
+  }
+});

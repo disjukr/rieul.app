@@ -20,7 +20,9 @@ export interface LegacyUpdateStatus {
 export function offersLegacyUpgrade(info: DaemonInfo): boolean {
   // 0.6.16 incorrectly reported its Cargo version in GetDaemonInfo.
   return (
-    info.os === "macos" &&
+    // DaemonInfo.os is a display label, not a platform enum. The macOS
+    // daemon reports e.g. "macOS Tahoe 26.6.2 64bit" (or "macOS 64bit").
+    /^macos(?:\s|$)/i.test(info.os) &&
     ["0.1.0", "0.6.16", "0.6.17", "0.6.18"].includes(info.version) &&
     [64, 65].every((id) => info.supportedProcIds.includes(id)) &&
     ![73, 74, 75].some((id) => info.supportedProcIds.includes(id))

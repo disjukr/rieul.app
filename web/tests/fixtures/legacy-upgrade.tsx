@@ -1,3 +1,5 @@
+import { rpcSessionBunja } from "../../src/state/rpc-session";
+import { rpcSessionStub } from "../helpers/rpc-session";
 import { render } from "@solidjs/web";
 import { createSignal, createMemo } from "solid-js";
 import { override } from "bunja";
@@ -89,4 +91,60 @@ function Fixture() {
     </>
   );
 }
-render(() => <Fixture />, document.getElementById("root")!);
+function RealCapabilityFixture() {
+  const [daemonInfo, setInfo] = createSignal<
+    ReturnType<typeof rpcSessionStub>["daemonInfo"] extends () => infer V
+      ? V
+      : never
+  >({
+    phase: "ready",
+    receivedAtMs: 0,
+    daemonInfo: {
+      instanceId: "legacy",
+      version: "0.1.0",
+      os: "macOS Tahoe 26.6.2 64bit",
+      startedAtMs: 0,
+      serverTimeMs: 0,
+      supportedProcIds: [64, 65],
+    },
+  });
+  return (
+    <>
+      <button
+        onClick={() =>
+          setInfo({ phase: "error", message: "Information unavailable" })
+        }
+      >
+        Fail daemon info
+      </button>
+      <TestBunjaStoreProvider
+        overrides={[
+          override(rpcSessionBunja, () => rpcSessionStub({ daemonInfo })),
+          // This fixture exercises the real legacy capability model. Modern
+          // subscription behavior has its own tests and must not make RPCs here.
+          override(daemonUpdatesBunja, () => ({
+            supported: createMemo(() => false),
+            status: createSignal<undefined>()[0],
+            busy: createSignal(false)[0],
+            message: createSignal<string>()[0],
+            confirmationToken: createMemo(() => ""),
+            refresh: async () => {},
+            check: async () => {},
+            installConfirmed: async () => {},
+          })),
+        ]}
+      >
+        <DaemonUpdateSection />
+      </TestBunjaStoreProvider>
+    </>
+  );
+}
+render(
+  () =>
+    location.search === "?real-capability" ? (
+      <RealCapabilityFixture />
+    ) : (
+      <Fixture />
+    ),
+  document.getElementById("root")!,
+);

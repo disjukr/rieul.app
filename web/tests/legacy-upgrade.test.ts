@@ -19,7 +19,7 @@ import {
 } from "../src/protocol/wire.ts";
 const info: DaemonInfo = {
   instanceId: "old",
-  os: "macos",
+  os: "macOS Tahoe 26.6.2 64bit",
   version: "0.1.0",
   startedAtMs: 0,
   serverTimeMs: 0,
@@ -33,11 +33,21 @@ const value = new Map([
 ] as [number, number | string | boolean][]);
 test("legacy capability gate is explicit; new/unknown/partial protocols do not fall back", () => {
   assert.ok(offersLegacyUpgrade(info));
+  for (const os of [
+    "macos",
+    "macOS 64bit",
+    "macOS 26.6.2 64bit",
+    "macOS Tahoe 26.6.2 64bit",
+  ])
+    assert.ok(offersLegacyUpgrade({ ...info, os }));
   for (const version of ["0.6.16", "0.6.17", "0.6.18"])
     assert.ok(offersLegacyUpgrade({ ...info, version }));
   for (const change of [
     { version: "0.6.20" },
     { os: "windows" },
+    { os: "Windows 11 Pro 64bit" },
+    { os: "not macOS" },
+    { os: "macOS-malformed" },
     { supportedProcIds: [64] },
     { supportedProcIds: [64, 65, 73] },
     { supportedProcIds: [64, 65, 74] },

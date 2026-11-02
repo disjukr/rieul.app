@@ -22,7 +22,7 @@ const info = (version = "0.1.0", ids = [64, 65]) => ({
   daemonInfo: {
     instanceId: version,
     version,
-    os: "macos",
+    os: "macOS Tahoe 26.6.2 64bit",
     startedAtMs: 0,
     serverTimeMs: 0,
     supportedProcIds: ids,
