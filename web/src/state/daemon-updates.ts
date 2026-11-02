@@ -11,9 +11,9 @@ import { rpcSessionBunja } from "./rpc-session.ts";
 import {
   checkForUpdates,
   installUpdateConfirmed,
-} from "../protocol/generated/client.ts";
-import {
   subscribeUpdateStatusProc,
+} from "../protocol/updates.ts";
+import {
   ProcId,
   UpdatePhase,
   type UpdateStatus,
@@ -36,7 +36,9 @@ export const daemonUpdatesBunja = bunja(() => {
         }
       : storedStatus(),
   );
-  const [message, setMessage] = createSignal<string>();
+  const [commandMessage, setCommandMessage] = createSignal<string>();
+  const [subscriptionMessage, setSubscriptionMessage] = createSignal<string>();
+  const message = createMemo(() => subscriptionMessage() ?? commandMessage());
   const [busy, setBusy] = createSignal(false);
   const [sessionEpoch, setSessionEpoch] = createSignal(0);
   const confirmationToken = createMemo(
@@ -54,16 +56,17 @@ export const daemonUpdatesBunja = bunja(() => {
   let subscription: AbortController | undefined;
   let retry: ReturnType<typeof setTimeout> | undefined;
   const retiredEpochs = new Set<string>();
-  function accept(
-    next: UpdateStatus,
-    source: "subscription" | "command" | "query",
-  ) {
+  function accept(next: UpdateStatus, source: "subscription" | "command") {
     const current = storedStatus()?.ordering;
     const order = next.ordering;
     if (current) {
       if (!order || retiredEpochs.has(order.epoch)) return;
       if (current.epoch === order.epoch) {
-        if (order.revision <= current.revision) return;
+        if (order.revision < current.revision) return;
+        if (order.revision === current.revision) {
+          if (source === "subscription") setSubscriptionMessage(undefined);
+          return;
+        }
       } else {
         if (source !== "subscription") return;
         retiredEpochs.add(current.epoch);
@@ -71,7 +74,7 @@ export const daemonUpdatesBunja = bunja(() => {
     }
     setStatus(next);
     setChecking(false);
-    setMessage(undefined);
+    if (source === "subscription") setSubscriptionMessage(undefined);
   }
   async function subscribe(token: number) {
     subscription?.abort();
@@ -94,7 +97,7 @@ export const daemonUpdatesBunja = bunja(() => {
         throw new Error("Update subscription ended");
     } catch {
       if (active && token === generation && !controller.signal.aborted) {
-        setMessage("Update status disconnected. Reconnecting…");
+        setSubscriptionMessage("Update status disconnected. Reconnecting…");
         retry = setTimeout(() => void subscribe(token), 1000);
       }
     }
@@ -115,7 +118,7 @@ export const daemonUpdatesBunja = bunja(() => {
     setBusy(true);
     if (action === "check") {
       setChecking(true);
-      setMessage(undefined);
+      setCommandMessage(undefined);
     }
     try {
       const transport = await rpc.webTransport();
@@ -125,10 +128,11 @@ export const daemonUpdatesBunja = bunja(() => {
         : installUpdateConfirmed(transport));
       if (active && token === generation) {
         accept(next, "command");
+        setCommandMessage(undefined);
       }
     } catch {
       if (active && token === generation)
-        setMessage(
+        setCommandMessage(
           action === "install"
             ? "Installation request could not be confirmed. Reconnect and check status before retrying."
             : "Update check failed. Try again.",
@@ -155,10 +159,11 @@ export const daemonUpdatesBunja = bunja(() => {
           setStatus(undefined);
           setChecking(false);
           setBusy(false);
-          setMessage(undefined);
+          setCommandMessage(undefined);
+          setSubscriptionMessage(undefined);
           if (supported()) void subscribe(generation);
           else if (rpc.daemonInfo().phase === "ready")
-            setMessage(
+            setCommandMessage(
               "Update management requires a newer daemon. Upgrade the daemon to use this client.",
             );
         });

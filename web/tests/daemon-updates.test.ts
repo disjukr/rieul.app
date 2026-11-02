@@ -2,7 +2,7 @@ import { test, mock } from "node:test";
 import assert from "node:assert/strict";
 import { createBunjaStore, createReadScopeFn, override } from "bunja";
 import { createRoot, createSignal, flush as flushSolid } from "solid-js";
-import * as client from "../src/protocol/generated/client.ts";
+import * as client from "../src/protocol/updates.ts";
 import {
   ProcId,
   UpdatePhase,
@@ -25,7 +25,7 @@ mock.module("../src/protocol/client.ts", {
 });
 let check: typeof client.checkForUpdates;
 let install: typeof client.installUpdateConfirmed;
-mock.module("../src/protocol/generated/client.ts", {
+mock.module("../src/protocol/updates.ts", {
   namedExports: {
     ...client,
     checkForUpdates: (...args: Parameters<typeof check>) => check(...args),
@@ -101,6 +101,10 @@ function eventQueue() {
     push(value: UpdateStatus) {
       assert.ok(waiting.length);
       waiting.shift()!(value);
+    },
+    end() {
+      assert.ok(waiting.length);
+      waiting.shift()!(undefined);
     },
     get cancelled() {
       return cancelled;
@@ -281,3 +285,36 @@ test("unmount while waiting for transport never opens subscription or sends comm
   await flush();
   assert.equal(calls, 0);
 });
+
+for (const commandError of [false, true]) {
+  test(`same-revision subscription recovery clears only its connection warning (command error=${commandError})`, async () => {
+    const queues = [eventQueue(), eventQueue()];
+    let count = 0;
+    subscribe = (signal) => queues[count++].stream(signal);
+    check = async () => {
+      throw new Error("fixture command failure");
+    };
+    const f = fixture();
+    try {
+      await flush();
+      queues[0].push(ordered(UpdatePhase.Idle, 7));
+      await flush();
+      if (commandError) {
+        await f.value.check();
+        await flush();
+      }
+      queues[0].end();
+      await flush();
+      assert.match(f.value.message()!, /disconnected/);
+      void f.value.refresh();
+      await flush();
+      queues[1].push(ordered(UpdatePhase.Idle, 7));
+      await flush();
+      assert.equal(f.value.status()?.ordering?.revision, 7);
+      if (commandError) assert.match(f.value.message()!, /check failed/);
+      else assert.equal(f.value.message(), undefined);
+    } finally {
+      f.close();
+    }
+  });
+}

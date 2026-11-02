@@ -80,3 +80,43 @@ test("already aborted subscription never opens a transport stream", async () => 
   await assert.rejects(subscription.next());
   assert.equal(opened, 0);
 });
+
+test("updater profile rejects missing or invalid ordering instead of accepting generated defaults", async () => {
+  const { decodeOrderedUpdateStatus } = await import(
+    "../src/protocol/updates.ts"
+  );
+  const base = new Map<number, import("../src/protocol/cbor.ts").CborValue>([
+    [1, 1],
+    [5, false],
+  ]);
+  assert.throws(() => decodeOrderedUpdateStatus(base), /explicit/);
+  for (const order of [new Map([[2, 0]]), new Map([[1, "epoch"]])]) {
+    base.set(6, order);
+    assert.throws(() => decodeOrderedUpdateStatus(base), /explicit/);
+  }
+  for (const [epoch, revision] of [
+    ["", 0],
+    ["epoch", -1],
+    ["epoch", Number.MAX_SAFE_INTEGER + 1],
+  ] as const) {
+    base.set(
+      6,
+      new Map<number, import("../src/protocol/cbor.ts").CborValue>([
+        [1, epoch],
+        [2, revision],
+      ]),
+    );
+    assert.throws(() => decodeOrderedUpdateStatus(base), /ordering|integer/);
+  }
+  base.set(
+    6,
+    new Map<number, import("../src/protocol/cbor.ts").CborValue>([
+      [1, "new-epoch"],
+      [2, 0],
+    ]),
+  );
+  assert.deepEqual(decodeOrderedUpdateStatus(base).ordering, {
+    epoch: "new-epoch",
+    revision: 0,
+  });
+});
