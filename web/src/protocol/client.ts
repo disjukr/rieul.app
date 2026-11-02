@@ -35,19 +35,36 @@ export function isInvalidCredentialsError(err: unknown): boolean {
 export async function openWebTransport(
   machine: Machine,
   path = "/rieul/rpc",
+  signal?: AbortSignal,
 ): Promise<WebTransport> {
+  signal?.throwIfAborted();
   const transport = new WebTransport(
     `${normalizeMachineUrl(machine.baseUrl)}${path}`,
   );
+  // Observe closure even before ready settles; failed openings must not leave an
+  // unhandled closed rejection or wait for the full connection deadline.
+  const ended = transport.closed.then(() => {
+    throw new Error("WebTransport closed before becoming ready");
+  });
+  let onAbort: () => void;
+  const aborted = new Promise<never>((_, reject) => {
+    onAbort = () => {
+      reject(signal?.reason ?? new Error("WebTransport connection aborted"));
+    };
+    if (signal?.aborted) onAbort();
+    else signal?.addEventListener("abort", onAbort, { once: true });
+  });
   try {
     await withTimeout(
-      transport.ready,
+      Promise.race([transport.ready, ended, aborted]),
       CONNECT_TIMEOUT_MS,
       "WebTransport connection",
     );
   } catch (err) {
     transport.close();
     throw err;
+  } finally {
+    signal?.removeEventListener("abort", onAbort!);
   }
   return transport;
 }

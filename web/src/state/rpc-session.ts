@@ -13,6 +13,7 @@ import {
   authenticateWebTransport,
   closeWebTransport as closeProtocolWebTransport,
   openWebTransport,
+  isInvalidCredentialsError,
 } from "../protocol/client.ts";
 import {
   completePairing,
@@ -41,6 +42,7 @@ interface DatagramRuntime {
   pendingPing?: DatagramPing;
   pingInterval: ReturnType<typeof setInterval>;
   writer: WritableStreamDefaultWriter<Uint8Array>;
+  reader?: ReadableStreamDefaultReader<Uint8Array>;
 }
 interface DatagramPing {
   pingId: number;
@@ -53,6 +55,7 @@ interface ManagedRpcSession {
   authenticatedClientId?: string;
   datagrams: DatagramRuntime;
   credentialRenewalStarted: boolean;
+  renewalTimer?: ReturnType<typeof setInterval>;
   transport: WebTransport;
 }
 interface IdleDaemonInfoState {
@@ -249,6 +252,57 @@ function createRpcSessionController(
   let closed = false;
   let sessionGeneration = 0;
   let pairingStarted = false;
+  let paused = false;
+  let retryCount = 0;
+  let retryTimer: ReturnType<typeof setTimeout> | undefined;
+  let attempt: AbortController | undefined;
+  let managed: ManagedRpcSession | undefined;
+  let lastResume = -Infinity;
+  const browserWindow = typeof window === "undefined" ? undefined : window;
+  const browserDocument =
+    typeof document === "undefined" ? undefined : document;
+  browserWindow?.addEventListener("online", resume);
+  browserWindow?.addEventListener("pageshow", resume);
+  browserDocument?.addEventListener("visibilitychange", resume);
+  function resume() {
+    if (closed || paused || browserDocument?.visibilityState === "hidden")
+      return;
+    // pageshow/online/visibilitychange commonly arrive together on mobile.
+    if (Date.now() - lastResume < 250) return;
+    lastResume = Date.now();
+    if (
+      managed &&
+      !managed.closed &&
+      state().connection.phase === "reachable"
+    ) {
+      // Give a suspended tab a fresh probe deadline, not a stale timer failure.
+      clearPendingDatagramPing(managed.datagrams);
+      sendDatagramPing(managed.datagrams);
+    } else {
+      reconnect();
+    }
+  }
+  function cancelRetry() {
+    clearTimeout(retryTimer);
+    retryTimer = undefined;
+  }
+  function scheduleRetry() {
+    if (closed || paused || retryTimer !== undefined) return;
+    const ceiling = Math.min(10_000, 500 * 2 ** Math.min(retryCount++, 5));
+    retryTimer = setTimeout(
+      () => {
+        retryTimer = undefined;
+        void openInitialSession();
+      },
+      ceiling * (0.5 + Math.random() * 0.5),
+    );
+  }
+  function loseSession(generation: number, error?: unknown) {
+    if (closed || generation !== sessionGeneration) return;
+    invalidateSession();
+    if (isInvalidCredentialsError(error)) paused = true;
+    scheduleRetry();
+  }
   let rpcSession: Promise<ManagedRpcSession> | undefined;
   const [state, setState] = createSignal<RpcSessionState>(
     initialRpcSessionState(),
@@ -265,10 +319,16 @@ function createRpcSessionController(
   function close() {
     if (closed) return;
     closed = true;
+    browserWindow?.removeEventListener("online", resume);
+    browserWindow?.removeEventListener("pageshow", resume);
+    browserDocument?.removeEventListener("visibilitychange", resume);
     closeRpcSession();
   }
   function reconnect() {
-    closeRpcSession();
+    if (closed) return;
+    invalidateSession();
+    paused = false;
+    retryCount = 0;
     void openInitialSession();
   }
   async function openInitialSession(): Promise<void> {
@@ -290,16 +350,35 @@ function createRpcSessionController(
     return (await authenticatedRpcSession()).transport;
   }
   function getRpcSession(): Promise<ManagedRpcSession> {
+    if (closed || paused)
+      return Promise.reject(new Error("RPC session is disconnected"));
     if (rpcSession) return rpcSession;
+    cancelRetry();
     const machine = currentMachine();
     if (!machine) throw new Error("missing machine");
-    const session = openRpcSession(machine, sessionGeneration);
+    const generation = sessionGeneration;
+    const controller = new AbortController();
+    attempt = controller;
+    // Bound the entire opening/authentication/renewal attempt, not only QUIC ready.
+    const deadline = setTimeout(
+      () => controller.abort(new Error("RPC connection timed out")),
+      10_000,
+    );
+    let onAbort: () => void;
+    const aborted = new Promise<never>((_, reject) => {
+      onAbort = () => reject(controller.signal.reason);
+      controller.signal.addEventListener("abort", onAbort, { once: true });
+    });
+    const session = Promise.race([
+      openRpcSession(machine, generation, controller.signal),
+      aborted,
+    ]).finally(() => {
+      clearTimeout(deadline);
+      controller.signal.removeEventListener("abort", onAbort);
+    });
     rpcSession = session;
-    session.catch(() => {
-      if (rpcSession === session) {
-        rpcSession = undefined;
-        if (!closed) setConnectionOffline();
-      }
+    session.catch((error) => {
+      if (rpcSession === session) loseSession(generation, error);
     });
     return session;
   }
@@ -313,25 +392,23 @@ function createRpcSessionController(
   async function openRpcSession(
     machine: Machine,
     generation: number,
+    signal: AbortSignal,
   ): Promise<ManagedRpcSession> {
     const session = manageRpcSession(
-      await openWebTransport(machine),
+      await openWebTransport(machine, undefined, signal),
       generation,
       (rttMs) => {
         if (!closed && generation === sessionGeneration) setDatagramRtt(rttMs);
       },
       () => {
-        if (closed || generation !== sessionGeneration) return;
-        rpcSession = undefined;
-        pairingStarted = false;
-        sessionGeneration++;
-        setConnectionOffline();
+        loseSession(generation);
       },
     );
     if (closed || generation !== sessionGeneration) {
       closeManagedRpcSession(session);
       throw new Error("RPC session was closed");
     }
+    managed = session;
     if (machine.clientId && machine.clientSecret) {
       try {
         await authenticateManagedSession(session, machine);
@@ -349,6 +426,7 @@ function createRpcSessionController(
         throw new Error("RPC session was closed");
       }
     }
+    retryCount = 0;
     setState((state) => ({
       ...state,
       connection: { phase: "reachable" },
@@ -390,12 +468,19 @@ function createRpcSessionController(
       () => void renewCredential(session),
       CLIENT_CREDENTIAL_RENEWAL_INTERVAL_MS,
     );
-    session.transport.closed
-      .catch(() => {})
-      .finally(() => clearInterval(timer));
+    session.renewalTimer = timer;
   }
   function closeRpcSession() {
+    paused = true;
+    invalidateSession();
+  }
+  function invalidateSession() {
+    cancelRetry();
     sessionGeneration++;
+    attempt?.abort(new Error("RPC session was closed"));
+    attempt = undefined;
+    if (managed) closeManagedRpcSession(managed);
+    managed = undefined;
     pairingStarted = false;
     const session = rpcSession;
     rpcSession = undefined;
@@ -471,8 +556,12 @@ function createRpcSessionController(
     clientId: string,
     clientSecret: string,
   ): Promise<void> {
+    if (closed || session.closed || session.generation !== sessionGeneration)
+      throw new Error("RPC session was closed");
     if (session.authenticatedClientId === clientId) return;
     await authenticateWebTransport(session.transport, clientId, clientSecret);
+    if (closed || session.closed || session.generation !== sessionGeneration)
+      throw new Error("RPC session was closed");
     session.authenticatedClientId = clientId;
     startCredentialRenewalLoop(session);
   }
@@ -557,6 +646,7 @@ function manageRpcSession(
 function closeManagedRpcSession(session: ManagedRpcSession): void {
   if (session.closed) return;
   session.closed = true;
+  clearInterval(session.renewalTimer);
   closeDatagramRuntime(session.datagrams);
   closeProtocolWebTransport(session.transport);
 }
@@ -585,6 +675,7 @@ async function readDatagrams(
   runtime: DatagramRuntime,
 ): Promise<void> {
   const reader = transport.datagrams.readable.getReader();
+  runtime.reader = reader;
   try {
     while (!runtime.closed) {
       const { done, value } = await reader.read();
@@ -682,6 +773,7 @@ function closeDatagramRuntime(runtime: DatagramRuntime): void {
   if (runtime.closed) return;
   runtime.closed = true;
   clearInterval(runtime.pingInterval);
+  void runtime.reader?.cancel().catch(() => {});
   clearPendingDatagramPing(runtime);
   try {
     runtime.writer.releaseLock();

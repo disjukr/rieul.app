@@ -22,10 +22,12 @@ import { rpcSessionStub } from "./helpers/rpc-session.ts";
 let open: typeof protocol.openWebTransport;
 let getInfo: typeof client.getDaemonInfo;
 let renew: typeof client.renewClientCredential;
+let authenticate: typeof protocol.authenticateWebTransport = async () => {};
 mock.module("../src/protocol/client.ts", {
   namedExports: {
     ...protocol,
-    authenticateWebTransport: async () => {},
+    authenticateWebTransport: (...args: Parameters<typeof authenticate>) =>
+      authenticate(...args),
     openWebTransport: (...args: Parameters<typeof open>) => open(...args),
   },
 });
@@ -93,6 +95,10 @@ function transport() {
       readable: new ReadableStream<Uint8Array>({
         start(c) {
           reader = c;
+        },
+        cancel() {
+          ended = true;
+          closed.resolve();
         },
       }),
       writable: new WritableStream<Uint8Array>(),
@@ -364,6 +370,9 @@ function observableTransport(closeNotification = true) {
         start(value) {
           reader = value;
         },
+        cancel() {
+          readableEnded = true;
+        },
       }),
       writable: new WritableStream<Uint8Array>({
         write(bytes) {
@@ -462,6 +471,7 @@ for (const failure of [
     assert.equal(entry.value.daemonInstanceId(), undefined);
     if (!failure.startsWith("closed")) assert.equal(remote.closeCount(), 1);
     const sent = remote.pings.length;
+    open = () => new Promise(() => {});
     t.mock.timers.tick(20000);
     await flush();
     assert.equal(
@@ -605,4 +615,245 @@ test("a replaced transport's delayed close rejection cannot disconnect its succe
   await flush();
   assert.equal(entry.value.connection().phase, "reachable");
   assert.equal(entry.value.daemonInstanceId(), "fresh");
+});
+
+for (const loss of ["close", "error", "half-open"] as const) {
+  test(`RPC automatically reconnects after ${loss} without replaying an RPC`, async (t) => {
+    t.mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
+    t.mock.method(Math, "random", () => 0);
+    const old = observableTransport(),
+      fresh = observableTransport();
+    let opens = 0;
+    open = async () => (++opens === 1 ? old.remote : fresh.remote);
+    getInfo = async () => info(`instance-${opens}`);
+    const f = fixture(),
+      entry = f.store.get(rpcSessionBunja, f.read),
+      stop = entry.mount();
+    t.after(() => {
+      stop();
+      f.store.dispose();
+    });
+    await flush();
+    if (loss === "close") old.closed.resolve();
+    else if (loss === "error") old.closed.reject(new Error("restart"));
+    else t.mock.timers.tick(5000);
+    await flush();
+    assert.equal(entry.value.connection().phase, "offline");
+    t.mock.timers.tick(249);
+    await flush();
+    assert.equal(opens, 1);
+    t.mock.timers.tick(1);
+    await flush();
+    assert.equal(opens, 2);
+    assert.equal(entry.value.daemonInstanceId(), "instance-2");
+    assert.equal(entry.value.connection().phase, "reachable");
+    assert.equal(old.closeCount(), 1);
+  });
+}
+
+test("failed opening retries with capped jittered backoff; manual disconnect cancels retry", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
+  t.mock.method(Math, "random", () => 0);
+  let opens = 0;
+  open = async () => {
+    opens++;
+    throw new Error("offline");
+  };
+  const f = fixture(),
+    entry = f.store.get(rpcSessionBunja, f.read),
+    stop = entry.mount();
+  t.after(() => {
+    stop();
+    f.store.dispose();
+  });
+  await flush();
+  for (const delay of [250, 500, 1000, 2000, 4000, 5000, 5000]) {
+    const before = opens;
+    t.mock.timers.tick(delay - 1);
+    await flush();
+    assert.equal(opens, before);
+    t.mock.timers.tick(1);
+    await flush();
+    assert.equal(opens, before + 1);
+  }
+  entry.value.closeRpcSession();
+  t.mock.timers.tick(60000);
+  await flush();
+  assert.equal(opens, 8);
+  entry.value.reconnect();
+  await flush();
+  assert.equal(opens, 9);
+});
+
+test("hung renewal with healthy datagrams has a bounded attempt and cannot leak a late session", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
+  t.mock.method(Math, "random", () => 0);
+  const old = observableTransport(),
+    fresh = observableTransport();
+  const pending = Promise.withResolvers<{
+    clientCredentialExpiresAtUnix: number;
+  }>();
+  let opens = 0;
+  open = async () => (++opens === 1 ? old.remote : fresh.remote);
+  renew = () =>
+    opens === 1
+      ? pending.promise
+      : Promise.resolve({ clientCredentialExpiresAtUnix: 200 });
+  getInfo = async () => info("fresh");
+  const f = fixture();
+  f.store.get(machineStoreBunja, f.read).value.setMachineCredentials("a", {
+    clientId: "id",
+    clientSecret: "fixture",
+    clientCredentialExpiresAtUnix: 0,
+  });
+  await flush();
+  const entry = f.store.get(rpcSessionBunja, f.read),
+    stop = entry.mount();
+  t.after(() => {
+    stop();
+    f.store.dispose();
+  });
+  await flush();
+  old.pong(old.pings.at(-1)!);
+  await flush();
+  t.mock.timers.tick(5000);
+  await flush();
+  old.pong(old.pings.at(-1)!);
+  await flush();
+  t.mock.timers.tick(5000);
+  await flush();
+  assert.equal(old.closeCount(), 1);
+  t.mock.timers.tick(250);
+  await flush();
+  assert.equal(entry.value.daemonInstanceId(), "fresh");
+  pending.resolve({ clientCredentialExpiresAtUnix: 100 });
+  await flush();
+  assert.equal(entry.value.daemonInstanceId(), "fresh");
+});
+
+test("invalid credentials do not create an automatic authentication loop", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
+  let opens = 0;
+  open = async () => {
+    opens++;
+    return observableTransport().remote;
+  };
+  authenticate = async () => {
+    throw new protocol.RpcError("invalidCredentials", "revoked");
+  };
+  const f = fixture();
+  f.store.get(machineStoreBunja, f.read).value.setMachineCredentials("a", {
+    clientId: "id",
+    clientSecret: "fixture",
+    clientCredentialExpiresAtUnix: 0,
+  });
+  await flush();
+  const entry = f.store.get(rpcSessionBunja, f.read),
+    stop = entry.mount();
+  t.after(() => {
+    authenticate = async () => {};
+    stop();
+    f.store.dispose();
+  });
+  await flush();
+  t.mock.timers.tick(60000);
+  await flush();
+  assert.equal(opens, 1);
+  assert.equal(entry.value.connection().phase, "offline");
+});
+
+test("online/pageshow/visible resume coalesce, probe live sessions and respect explicit disconnect/disposal", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout", "setInterval", "Date"] });
+  const win = new EventTarget(),
+    doc = Object.assign(new EventTarget(), { visibilityState: "visible" });
+  const globals = globalThis as unknown as {
+    window?: EventTarget;
+    document?: EventTarget;
+  };
+  const previous = { window: globals.window, document: globals.document };
+  globals.window = win;
+  globals.document = doc;
+  let opens = 0;
+  const fresh = observableTransport();
+  open = async () => {
+    if (++opens === 1) throw new Error("offline");
+    return fresh.remote;
+  };
+  getInfo = async () => info("resumed");
+  const f = fixture(),
+    entry = f.store.get(rpcSessionBunja, f.read),
+    stop = entry.mount();
+  t.after(() => {
+    stop();
+    f.store.dispose();
+    Object.assign(globals, previous);
+  });
+  await flush();
+  win.dispatchEvent(new Event("online"));
+  win.dispatchEvent(new Event("pageshow"));
+  doc.dispatchEvent(new Event("visibilitychange"));
+  await flush();
+  assert.equal(opens, 2);
+  assert.equal(entry.value.daemonInstanceId(), "resumed");
+  const pings = fresh.pings.length;
+  t.mock.timers.tick(300);
+  doc.dispatchEvent(new Event("visibilitychange"));
+  await flush();
+  assert.equal(opens, 2);
+  assert.equal(fresh.pings.length, pings + 1);
+  entry.value.closeRpcSession();
+  t.mock.timers.tick(60000);
+  win.dispatchEvent(new Event("online"));
+  await flush();
+  assert.equal(opens, 2);
+  stop();
+  f.store.dispose();
+  win.dispatchEvent(new Event("pageshow"));
+  await flush();
+  assert.equal(opens, 2);
+});
+
+test("disconnect aborts an opening attempt and late authentication cannot renew or publish", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
+  const pending = Promise.withResolvers<void>();
+  let signal: AbortSignal | undefined,
+    renewals = 0;
+  const remote = observableTransport();
+  open = async (_machine, _path, abort) => {
+    signal = abort;
+    return remote.remote;
+  };
+  authenticate = () => pending.promise;
+  renew = async () => {
+    renewals++;
+    return { clientCredentialExpiresAtUnix: 200 };
+  };
+  getInfo = async () => info("must not publish");
+  const f = fixture();
+  f.store
+    .get(machineStoreBunja, f.read)
+    .value.setMachineCredentials("a", {
+      clientId: "id",
+      clientSecret: "fixture",
+      clientCredentialExpiresAtUnix: 0,
+    });
+  await flush();
+  const entry = f.store.get(rpcSessionBunja, f.read),
+    stop = entry.mount();
+  t.after(() => {
+    authenticate = async () => {};
+    stop();
+    f.store.dispose();
+  });
+  await flush();
+  entry.value.closeRpcSession();
+  await flush();
+  assert.equal(signal?.aborted, true);
+  assert.equal(remote.closeCount(), 1);
+  pending.resolve();
+  await flush();
+  t.mock.timers.tick(24 * 60 * 60 * 1000);
+  await flush();
+  assert.equal(renewals, 0);
+  assert.equal(entry.value.daemonInstanceId(), undefined);
 });
