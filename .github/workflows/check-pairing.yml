@@ -43,6 +43,7 @@ jobs:
         run: cargo test --manifest-path daemon/gui/Cargo.toml --lib --locked
       - name: Verify development process ownership without starting services
         run: |
+          python3 scripts/macos/test-stapler-retry.py
           bash scripts/macos/test-architecture.sh
           bash scripts/macos/test-dev-process-scope.sh
           bash scripts/macos/test-dmg-lifecycle.sh

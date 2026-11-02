@@ -242,8 +242,8 @@ jobs:
           codesign --verify --strict -R '=anchor apple generic and identifier "rieul-macos-system" and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = "D379GLRLPV"' "$app_path/Contents/Library/LaunchServices/rieul-macos-system"
           ditto -c -k --keepParent "$app_path" "$RUNNER_TEMP/rieul-update-notarize.zip"
           xcrun notarytool submit "$RUNNER_TEMP/rieul-update-notarize.zip" --key "$RUNNER_TEMP/notary-api-key.p8" --key-id "$APPLE_API_KEY_ID" --issuer "$APPLE_API_ISSUER_ID" --wait
-          xcrun stapler staple "$app_path"
-          xcrun stapler validate "$app_path"
+          python3 scripts/macos/stapler-retry.py staple "$app_path"
+          python3 scripts/macos/stapler-retry.py validate "$app_path"
           codesign --verify --deep --strict "$app_path"
           spctl --assess --type execute --verbose=2 "$app_path"
           python3 scripts/macos/update-artifact.py archive "$app_path" --output dist/macos/rieul-macos-update.tar
@@ -258,7 +258,7 @@ jobs:
           pkgutil --check-signature "dist/macos/rieul-macos-desktop-$MACOS_RELEASE_VERSION.pkg"
           # Verify the installed payload retains its own app notarization ticket.
           payload="$PWD/dist/macos/rieul-macos-desktop-$MACOS_RELEASE_VERSION-pkg/verified-expanded/Payload/Applications/Rieul.app"
-          xcrun stapler validate "$payload"
+          python3 scripts/macos/stapler-retry.py validate "$payload"
           codesign --verify --deep --strict "$payload"
 
       - name: Notarize macOS installer
@@ -279,7 +279,7 @@ jobs:
             --key-id "$APPLE_API_KEY_ID" \
             --issuer "$APPLE_API_ISSUER_ID" \
             --wait
-          xcrun stapler staple "$pkg_path"
+          python3 scripts/macos/stapler-retry.py staple "$pkg_path"
 
       - name: Validate notarized macOS installers
         shell: bash
@@ -288,7 +288,7 @@ jobs:
           package_base_name="rieul-macos-desktop-$MACOS_RELEASE_VERSION"
           pkg_path="dist/macos/$package_base_name.pkg"
 
-          xcrun stapler validate "$pkg_path"
+          python3 scripts/macos/stapler-retry.py validate "$pkg_path"
           spctl --assess --type install --verbose=2 "$pkg_path"
 
       - name: Prepare macOS release assets

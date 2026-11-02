@@ -117,8 +117,8 @@ jobs:
             zip="$RUNNER_TEMP/notarize-$version.zip"
             ditto -c -k --keepParent "$app" "$zip"
             xcrun notarytool submit "$zip" --key "$RUNNER_TEMP/notary-api-key.p8" --key-id "$APPLE_API_KEY_ID" --issuer "$APPLE_API_ISSUER_ID" --wait
-            xcrun stapler staple "$app"
-            xcrun stapler validate "$app"
+            python3 scripts/macos/stapler-retry.py staple "$app"
+            python3 scripts/macos/stapler-retry.py validate "$app"
             codesign --verify --deep --strict "$app"
             spctl --assess --type execute "$app"
             # Match production's Developer ID chain, fixed Team, and identifiers.
@@ -136,8 +136,8 @@ jobs:
               pkgutil --check-signature "$pkg" | tee "$RUNNER_TEMP/vm-pkg-signature.txt"
               grep -F '(D379GLRLPV)' "$RUNNER_TEMP/vm-pkg-signature.txt"
               xcrun notarytool submit "$pkg" --key "$RUNNER_TEMP/notary-api-key.p8" --key-id "$APPLE_API_KEY_ID" --issuer "$APPLE_API_ISSUER_ID" --wait
-              xcrun stapler staple "$pkg"
-              xcrun stapler validate "$pkg"
+              python3 scripts/macos/stapler-retry.py staple "$pkg"
+              python3 scripts/macos/stapler-retry.py validate "$pkg"
               spctl --assess --type install "$pkg"
               cp "$pkg" "vm-delivery/$version/rieul-macos-desktop.pkg"
               shasum -a 256 "vm-delivery/$version/rieul-macos-desktop.pkg" >> vm-delivery/SHA256SUMS
