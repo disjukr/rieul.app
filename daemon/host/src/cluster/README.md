@@ -69,14 +69,16 @@ same operation, not a fresh admission side effect. Tests model interruption by
 rolling back open transactions and reopening the database; they do not claim
 power-loss or filesystem durability validation.
 
-## Deferred policy
+## Primary-managed membership direction
 
-No authority field, single-signer acceptance rule, admission RPC or automatic
-connection is introduced. Single authority versus quorum membership remains a
-user/design decision: authority limits availability when absent, while quorum
-requires enough members online. Neither signatures nor timestamps prove that an
-issuer was authorized when it signed. A distributed design must define removal
-of entire incarnations (including grants), concurrent admission/removal rules,
-permanent grant revocations, snapshot merge and offline-node catch-up. Revocation
-freshness cannot be guaranteed across a partition. Client discovery, cluster-wide
-pairing and daemon-to-daemon file transfer remain unimplemented.
+The selected direction is a designated primary for ordered membership management,
+with no automatic promotion. Data-plane services remain independent peers. See
+[PRIMARY.md](PRIMARY.md) for the reviewed direction, internal fixture checkpoint,
+normal handoff seal algorithm and outstanding authentication/grant boundaries.
+The separate unpublished union experiment is not included on this branch.
+
+`primary.rs` is also test-only. No admission RPC, authentication integration,
+automatic connection or live cluster state is introduced. Client grant policy,
+issuer-removal behavior and existing pairing expansion remain undecided. Partition
+revocation freshness and old-backup split-brain recovery are not solved by a local
+seal or management epoch.

@@ -1,0 +1,276 @@
+# standard - rieul-rpc
+# description
+| REVIEW ONLY. IDs provisional; no registration or production integration.
+
+@ id - 76
+@ stream - unary
+proc GetClusterState = void -> ClusterState throws ClusterError
+
+@ id - 77
+@ stream - server
+proc SubscribeClusterState = void -> ClusterState throws ClusterError
+
+@ id - 78
+@ stream - unary
+proc CreateCluster = CreateClusterReq -> ClusterState throws ClusterError
+
+@ id - 79
+@ stream - unary
+proc PrepareClusterJoin = PrepareClusterJoinReq -> SignedJoinConsent throws ClusterError
+
+@ id - 80
+@ stream - unary
+proc AdmitClusterMember = AdmitClusterMemberReq -> SignedClusterEntry throws ClusterError
+
+@ id - 81
+@ stream - unary
+proc FinishClusterJoin = FinishClusterJoinReq -> ClusterState throws ClusterError
+
+@ id - 82
+@ stream - unary
+proc RemoveClusterMember = RemoveClusterMemberReq -> SignedClusterEntry throws ClusterError
+
+@ id - 83
+@ stream - unary
+proc TransferClusterPrimary = TransferClusterPrimaryReq -> SignedClusterEntry throws ClusterError
+
+@ id - 84
+@ stream - unary
+proc ReadClusterLog = ReadClusterLogReq -> ClusterLogPage throws ClusterError
+
+struct ClusterMemberRef {
+  @ id - 1
+  nodePublicKey: bytes,
+  @ id - 2
+  admissionId: bytes,
+}
+
+struct ClusterHead {
+  @ id - 1
+  clusterId: bytes,
+  @ id - 2
+  managementEpoch: i53,
+  @ id - 3
+  sequence: i53,
+  @ id - 4
+  entryHash: bytes,
+  @ id - 5
+  primary: ClusterMemberRef,
+}
+
+struct ClusterMember {
+  @ id - 1
+  member: ClusterMemberRef,
+  @ id - 2
+  label: string,
+  @ id - 3
+  endpoints: string[],
+}
+
+struct ClusterOperation {
+  @ id - 1
+  operationId: bytes,
+  @ id - 2
+  expectedManagementEpoch: i53,
+}
+
+struct CreateClusterReq {
+  @ id - 1
+  operationId: bytes,
+  @ id - 2
+  label: string,
+}
+
+struct PrepareClusterJoinReq {
+  @ id - 1
+  operationId: bytes,
+  @ id - 2
+  expectedHead: ClusterHead,
+  @ id - 3
+  targetLabel: string,
+  @ id - 4
+  confirmedAccessExpansion: bool,
+}
+
+struct SignedJoinConsent {
+  @ id - 1
+  canonicalBody: bytes,
+  @ id - 2
+  targetSignature: bytes,
+}
+
+struct AdmitClusterMemberReq {
+  @ id - 1
+  operation: ClusterOperation,
+  @ id - 2
+  consent: SignedJoinConsent,
+}
+
+struct FinishClusterJoinReq {
+  @ id - 1
+  operationId: bytes,
+  @ id - 2
+  admission: SignedClusterEntry,
+}
+
+struct RemoveClusterMemberReq {
+  @ id - 1
+  operation: ClusterOperation,
+  @ id - 2
+  target: ClusterMemberRef,
+}
+
+struct TransferClusterPrimaryReq {
+  @ id - 1
+  operation: ClusterOperation,
+  @ id - 2
+  target: ClusterMemberRef,
+}
+
+struct SignedClusterEntry {
+  @ id - 1
+  canonicalBody: bytes,
+  @ id - 2
+  primarySignature: bytes,
+}
+
+struct ReadClusterLogReq {
+  @ id - 1
+  clusterId: bytes,
+  @ id - 2
+  afterSequence: i53,
+  @ id - 3
+  afterHash: bytes,
+  @ id - 4
+  limit: i53,
+}
+
+struct ClusterLogPage {
+  @ id - 1
+  entries: SignedClusterEntry[],
+  @ id - 2
+  head: ClusterHead,
+  @ id - 3
+  hasMore: bool,
+}
+
+union ClusterState {
+  @ id - 3
+  Leaving(
+    @ id - 1
+    clusterId: bytes,
+    @ id - 2
+    admissionId: bytes,
+  ),
+  @ id - 4
+  RemovalPending(
+    @ id - 1
+    clusterId: bytes,
+    @ id - 2
+    admissionId: bytes,
+  ),
+  @ id - 0
+  Unaffiliated,
+  @ id - 1
+  Joining(
+    @ id - 1
+    clusterId: bytes,
+    @ id - 2
+    admissionId: bytes,
+  ),
+  @ id - 2
+  Member(
+    @ id - 1
+    head: ClusterHead,
+    @ id - 2
+    members: ClusterMember[],
+    @ id - 3
+    primaryReachable: bool,
+    @ id - 4
+    primaryTransition: PrimaryTransition,
+  ),
+}
+union PrimaryTransition {
+  @ id - 0
+  Serving,
+  @ id - 1
+  Preparing,
+  @ id - 2
+  Sealed,
+  @ id - 3
+  AwaitingActivation,
+}
+@ id - 85
+@ stream - unary
+proc CancelClusterJoin = CancelClusterJoinReq -> ClusterState throws ClusterError
+@ id - 86
+@ stream - unary
+proc LeaveCluster = ClusterOperation -> ClusterState throws ClusterError
+@ id - 87
+@ stream - unary
+proc PreparePrimaryTransfer = TransferClusterPrimaryReq -> PrimaryTransferPreparation throws ClusterError
+@ id - 88
+@ stream - unary
+proc AcceptPrimaryTransfer = PrimaryTransferPreparation -> SignedTransferAcceptance throws ClusterError
+struct CancelClusterJoinReq {
+  @ id - 1
+  operation: ClusterOperation,
+  @ id - 2
+  admissionId: bytes,
+}
+struct PrimaryTransferPreparation {
+  @ id - 1
+  operation: ClusterOperation,
+  @ id - 2
+  expectedHead: ClusterHead,
+  @ id - 3
+  target: ClusterMemberRef,
+}
+struct SignedTransferAcceptance {
+  @ id - 1
+  canonicalBody: bytes,
+  @ id - 2
+  targetSignature: bytes,
+}
+union ClusterError {
+  @ id - 0
+  PrimaryUnavailable(
+    @ id - 1
+    message: string,
+  ),
+  @ id - 1
+  StaleManagementEpoch(
+    @ id - 1
+    message: string,
+  ),
+  @ id - 2
+  OperationConflict(
+    @ id - 1
+    message: string,
+  ),
+  @ id - 3
+  AlreadyAffiliated(
+    @ id - 1
+    message: string,
+  ),
+  @ id - 4
+  InvalidProof(
+    @ id - 1
+    message: string,
+  ),
+  @ id - 5
+  TransferInProgress(
+    @ id - 1
+    message: string,
+  ),
+  @ id - 6
+  RecoveryUnsupported(
+    @ id - 1
+    message: string,
+  ),
+  @ id - 7
+  Failed(
+    @ id - 1
+    message: string,
+  ),
+}
