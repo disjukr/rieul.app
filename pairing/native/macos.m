@@ -81,7 +81,7 @@ static RieulApplicationDelegate *applicationDelegate;
   NSEventType type = NSApp.currentEvent.type;
   if (type == NSEventTypeRightMouseUp) {
     // Normal AppKit popup; target actions enqueue events for the native GUI event loop.
-    [menu popUpMenuPositioningItem:nil atLocation:NSMakePoint(0, 0) inView:status.button];
+    [menu popUpMenuPositioningItem:menu.itemArray.firstObject atLocation:NSMakePoint(0, 0) inView:status.button];
   } else {
     atomic_fetch_or(&events, RieulOpen);
   }
@@ -217,17 +217,18 @@ int32_t rieul_macos_destroy(void) {
   }
 }
 
-void rieul_macos_updates(const char *label, const char *detail, int check, int install, int restart) {
+void rieul_macos_updates(const char *label, const char *detail, int check, int install, int restart, const char *restartLabel) {
   updateStatus.title = [NSString stringWithUTF8String:label];
   updateDetail.title = [NSString stringWithUTF8String:detail];
   updateDetail.hidden = updateDetail.title.length == 0;
+  daemonRestart.title = [NSString stringWithUTF8String:restartLabel];
   updateCheck.enabled = check != 0; updateInstall.enabled = install != 0; daemonRestart.enabled = restart != 0;
 }
-int32_t rieul_macos_confirm_update(int restart) {
+int32_t rieul_macos_confirm_update(const char *title) {
   NSAlert *alert = [NSAlert new];
-  alert.messageText = restart ? @"Restart daemon?" : @"Install prepared update?";
+  alert.messageText = [NSString stringWithUTF8String:title];
   alert.informativeText = @"Connected clients will disconnect. Active terminals, commands, transfers, agents and Screen sessions must finish first; they will not be forcibly stopped.";
   [alert addButtonWithTitle:@"Cancel"];
-  [alert addButtonWithTitle:restart ? @"Restart" : @"Install"];
+  [alert addButtonWithTitle:@"Continue"];
   return [alert runModal] == NSAlertSecondButtonReturn;
 }

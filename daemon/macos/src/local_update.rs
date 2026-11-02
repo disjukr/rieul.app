@@ -39,7 +39,10 @@ impl Drop for Server {
         }
     }
 }
-pub async fn start(updater: Arc<dyn UpdateService>) -> Result<Server> {
+pub async fn start(
+    updater: Arc<dyn UpdateService>,
+    ready: Arc<std::sync::atomic::AtomicBool>,
+) -> Result<Server> {
     ensure!(
         unsafe { libc::geteuid() } == 0,
         "local updater requires system daemon"
@@ -91,12 +94,13 @@ pub async fn start(updater: Arc<dyn UpdateService>) -> Result<Server> {
                 continue;
             };
             let updater = updater.clone();
+            let ready = ready.clone();
             let mut stop = receiver.clone();
             tokio::spawn(async move {
                 let _slot = slot;
                 tokio::select! {
                     _=stop.changed()=>{},
-                    result=authenticated(stream,updater)=>if let Err(error)=result { tracing::debug!(?error,"local updater connection ended"); },
+                    result=authenticated(stream,updater,ready)=>if let Err(error)=result { tracing::debug!(?error,"local updater connection ended"); },
                 }
             });
         }
@@ -128,7 +132,15 @@ async fn monitor(stream: &UnixStream, uid: u32) -> Result<()> {
         tokio::time::sleep(Duration::from_secs(1)).await;
     }
 }
-async fn authenticated(stream: UnixStream, updater: Arc<dyn UpdateService>) -> Result<()> {
+async fn authenticated(
+    stream: UnixStream,
+    updater: Arc<dyn UpdateService>,
+    ready: Arc<std::sync::atomic::AtomicBool>,
+) -> Result<()> {
+    ensure!(
+        ready.load(std::sync::atomic::Ordering::Acquire),
+        "daemon not ready"
+    );
     let uid = crate::desktop_ipc::console_uid().map_err(|_| anyhow::anyhow!("no active user"))?;
     authenticate(&stream, uid)?;
     let standard = stream.into_std()?;
@@ -296,6 +308,20 @@ mod tests {
         fn restart(&self) -> UpdateRequest<'_> {
             self.request(UpdateCommand::Check)
         }
+    }
+    #[tokio::test]
+    async fn not_ready_rejects_before_any_updater_operation() {
+        let (_client, server) = UnixStream::pair().unwrap();
+        let fixture = Fixture::new();
+        let error = authenticated(
+            server,
+            fixture.clone(),
+            Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        )
+        .await
+        .unwrap_err();
+        assert!(error.to_string().contains("not ready"));
+        assert_eq!(fixture.calls.load(Ordering::SeqCst), 0);
     }
     #[tokio::test]
     async fn failed_auth_never_invokes_any_privileged_operation() {

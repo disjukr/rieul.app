@@ -74,7 +74,7 @@ pub struct Shell {
 }
 impl Shell {
     pub fn updates(&self, _model: &rieul_gui::updates::Updates) {}
-    pub fn confirm_update(&self, _restart: bool) -> bool {
+    pub fn confirm_update(&self, _title: &str) -> bool {
         false
     }
 

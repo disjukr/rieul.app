@@ -134,12 +134,22 @@ async fn main() -> Result<()> {
             };
             let desktop_backend = rieul_macos_daemon::desktop_ipc::proxy(&config_path);
             let updates = rieul_macos_daemon::root_update::update_service()?;
+            let local_ready = Arc::new(std::sync::atomic::AtomicBool::new(false));
             let _local_updates = match &updates {
-                Some(updater) => {
-                    Some(rieul_macos_daemon::local_update::start(updater.clone()).await?)
-                }
+                Some(updater) => Some(
+                    rieul_macos_daemon::local_update::start(updater.clone(), local_ready.clone())
+                        .await?,
+                ),
                 None => None,
             };
+            let ready: Option<Arc<dyn Fn() -> Result<()> + Send + Sync>> =
+                Some(Arc::new(move || {
+                    if let Some(callback) = &ready {
+                        callback()?;
+                    }
+                    local_ready.store(true, std::sync::atomic::Ordering::Release);
+                    Ok(())
+                }));
             run_system_server_with_readiness(
                 listen,
                 config_path,

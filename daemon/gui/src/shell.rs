@@ -17,8 +17,9 @@ mod macos {
             check: i32,
             install: i32,
             restart: i32,
+            restart_label: *const std::ffi::c_char,
         );
-        fn rieul_macos_confirm_update(restart: i32) -> i32;
+        fn rieul_macos_confirm_update(title: *const std::ffi::c_char) -> i32;
         fn rieul_macos_destroy() -> i32;
     }
     pub struct Shell;
@@ -47,6 +48,7 @@ mod macos {
         pub fn updates(&self, model: &rieul_gui::updates::Updates) {
             let label = CString::new(model.label()).unwrap();
             let detail = CString::new(model.detail().unwrap_or("").replace('\0', "")).unwrap();
+            let restart_label = CString::new(model.restart_label().replace('\0', "")).unwrap();
             unsafe {
                 rieul_macos_updates(
                     label.as_ptr(),
@@ -54,11 +56,13 @@ mod macos {
                     model.can_check().into(),
                     model.can_install().into(),
                     model.can_restart().into(),
+                    restart_label.as_ptr(),
                 );
             }
         }
-        pub fn confirm_update(&self, restart: bool) -> bool {
-            unsafe { rieul_macos_confirm_update(restart.into()) != 0 }
+        pub fn confirm_update(&self, title: &str) -> bool {
+            let title = CString::new(title.replace('\0', "")).unwrap();
+            unsafe { rieul_macos_confirm_update(title.as_ptr()) != 0 }
         }
         pub fn events(&self) -> u32 {
             unsafe { rieul_macos_take_events() }

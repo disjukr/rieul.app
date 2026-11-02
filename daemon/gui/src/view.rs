@@ -102,9 +102,11 @@ impl View {
             if events & flag != 0 {
                 let stamp = self.updates.confirmation();
                 let confirmed = action == rieul_gui::updates::Action::Check
-                    || self
-                        .shell
-                        .confirm_update(action == rieul_gui::updates::Action::Restart);
+                    || self.shell.confirm_update(
+                        &self
+                            .updates
+                            .confirmation_title(action == rieul_gui::updates::Action::Restart),
+                    );
                 dirty |= self.update_events();
                 if confirmed && stamp.is_some() && stamp == self.updates.confirmation() {
                     if let Some(request) = self.updates.request(action) {

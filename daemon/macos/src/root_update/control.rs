@@ -153,17 +153,22 @@ impl Controller {
         inner.status.reason = Some("Installation requested; active terminal, command, transfer or agent work must finish first".into());
         Ok(self.publish(&inner))
     }
+    fn queue_restart_candidate(&self, status: UpdateStatus) -> Result<Option<UpdateStatus>> {
+        if status.can_install {
+            self.queue_install(status).map(Some)
+        } else {
+            Ok(None)
+        }
+    }
     fn restart_service(self) -> Result<()> {
         use super::launchd::{Control, Job};
         let state = Dir::open(Path::new(STATE), 0, true)?;
         state.require_private()?;
         let _lock = state.lock()?;
-        if let Some(journal) = state.load::<Journal>("journal.json")? {
-            ensure!(
-                journal.phase == Phase::Prepared,
-                "an update transaction must finish first"
-            );
-        }
+        ensure!(
+            state.load::<Journal>("journal.json")?.is_none(),
+            "an update transaction must use the guarded installation path"
+        );
         let mut manager = super::launchd::Native { state: &state };
         ensure!(
             manager.inspect(Job::System)?.and_then(|job| job.pid) == Some(std::process::id()),
@@ -432,6 +437,15 @@ impl UpdateService for Controller {
                 );
             }
             ensure!(
+                !self.running.load(Ordering::SeqCst),
+                "an updater operation is already running"
+            );
+            // A prepared candidate must use the same workload-aware dispatch as
+            // InstallConfirmed, never startup journal recovery after a plain exit.
+            if let Some(queued) = self.queue_restart_candidate(self.status()?)? {
+                return Ok(queued);
+            }
+            ensure!(
                 self.launch_locked(UpdatePhase::Restarting, |controller| {
                     if let Err(error) = controller.clone().restart_service() {
                         let phase = if error.downcast_ref::<super::drain::Deferred>().is_some() {
@@ -663,6 +677,21 @@ mod result_tests {
         c.running.store(false, Ordering::SeqCst);
         c.inner.lock().unwrap().pending_manual = true;
         assert!(c.restart().await.is_err());
+    }
+    #[test]
+    fn prepared_restart_queues_guarded_install_without_launching_recovery() {
+        let c = fixture();
+        let mut status = rieul_daemon_host::updates::unavailable();
+        status.phase = UpdatePhase::Ready;
+        status.can_install = true;
+        status.target_version = Some("1.2.3".into());
+        let queued = c.queue_restart_candidate(status.clone()).unwrap().unwrap();
+        assert_eq!(queued.phase, UpdatePhase::Deferred);
+        assert!(c.inner.lock().unwrap().pending_manual);
+        assert!(!c.running.load(Ordering::SeqCst));
+        assert_eq!(c.queue_restart_candidate(status).unwrap().unwrap(), queued);
+        assert!(!dispatch_allowed(&queued, true, true, true));
+        assert!(dispatch_allowed(&queued, true, true, false));
     }
     #[test]
     fn initial_check_is_due_once_then_uses_existing_period() {

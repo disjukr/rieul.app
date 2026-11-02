@@ -76,6 +76,30 @@ impl Updates {
                     )
             })
     }
+    pub fn restart_label(&self) -> String {
+        match self
+            .status
+            .as_ref()
+            .filter(|s| s.can_install)
+            .and_then(|s| s.target_version.as_deref())
+        {
+            Some(version) => format!("Restart and Update to {version}…"),
+            None => "Restart Daemon…".into(),
+        }
+    }
+    pub fn confirmation_title(&self, restart: bool) -> String {
+        if restart {
+            self.restart_label()
+        } else {
+            format!(
+                "Install update {}?",
+                self.status
+                    .as_ref()
+                    .and_then(|s| s.target_version.as_deref())
+                    .unwrap_or("")
+            )
+        }
+    }
     pub fn can_restart(&self) -> bool {
         self.connected
             && self.pending.is_none()
@@ -191,6 +215,19 @@ mod tests {
                 revision,
             },
         }
+    }
+    #[test]
+    fn prepared_restart_names_the_update_and_version() {
+        let mut m = Updates::default();
+        let c = m.reconnect();
+        let mut ready = state(UpdatePhase::Ready, 1);
+        m.snapshot(c, ready.clone());
+        assert_eq!(m.restart_label(), "Restart and Update to 1.2.3…");
+        assert_eq!(m.confirmation_title(true), m.restart_label());
+        ready.can_install = false;
+        ready.ordering.revision = 2;
+        m.snapshot(c, ready);
+        assert_eq!(m.restart_label(), "Restart Daemon…");
     }
     #[test]
     fn restart_is_explicit_and_confirmation_expires_on_state_or_connection_change() {
