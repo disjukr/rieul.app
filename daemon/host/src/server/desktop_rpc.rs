@@ -493,6 +493,12 @@ mod tests {
     struct FakeBackend {
         inputs: std::sync::Mutex<Vec<DesktopInputEvent>>,
         changed: tokio::sync::Notify,
+        display_pause: std::sync::Mutex<
+            Option<(
+                tokio::sync::oneshot::Sender<()>,
+                std::sync::mpsc::Receiver<()>,
+            )>,
+        >,
         layout_offset: std::sync::atomic::AtomicI64,
         streaming_group: std::sync::atomic::AtomicBool,
         shutdown_fails: std::sync::atomic::AtomicBool,
@@ -544,6 +550,12 @@ mod tests {
             }
         }
         fn displays(&self) -> Vec<DesktopDisplay> {
+            let pause = self.display_pause.lock().unwrap().take();
+            if let Some((started, release)) = pause {
+                let _ = started.send(());
+                // Dropping the sender also unblocks this worker on test failure.
+                let _ = release.recv();
+            }
             vec![DesktopDisplay {
                 display_id: "fixture".into(),
                 bounds: DesktopRect {
@@ -1327,6 +1339,15 @@ mod tests {
     }
     #[tokio::test]
     async fn actual_webtransport_disconnect_releases_held_input() {
+        disconnect_releases_held_input(false).await;
+    }
+
+    #[tokio::test]
+    async fn actual_webtransport_disconnect_protects_inflight_layout_work() {
+        disconnect_releases_held_input(true).await;
+    }
+
+    async fn disconnect_releases_held_input(pause_layout: bool) {
         tokio::time::timeout(Duration::from_secs(20), async {
             let f = Fixture::new().await;
             f.authenticate().await;
@@ -1353,6 +1374,15 @@ mod tests {
             let response = f.request(message).await;
             assert!(matches!(response, ReqResMessage::ResponseUnaryOk { .. }));
             f.wait_input(&key).await;
+            let release = if pause_layout {
+                let (started, waiting) = tokio::sync::oneshot::channel();
+                let (release, blocked) = std::sync::mpsc::channel();
+                *f.backend.display_pause.lock().unwrap() = Some((started, blocked));
+                waiting.await.unwrap();
+                Some(release)
+            } else {
+                None
+            };
             f.session.close(0, b"disconnect fixture");
             while f.runtime.has(&id) {
                 tokio::task::yield_now().await;
@@ -1362,7 +1392,19 @@ mod tests {
                 f.backend.inputs.lock().unwrap().last(),
                 Some(&DesktopInputEvent::ReleaseAll)
             );
-            assert!(f.gate.begin_drain().is_some());
+            if pause_layout {
+                assert!(f.gate.begin_drain().is_none());
+            }
+            drop(release);
+            // Attachment removal proves input cleanup, not completion of detached
+            // RPC/native work. Acquire the actual admission barrier before draining.
+            let _drain = loop {
+                if let Some(drain) = f.gate.begin_drain() {
+                    break drain;
+                }
+                tokio::task::yield_now().await;
+            };
+            assert!(f.runtime.capture_work().is_none());
         })
         .await
         .unwrap();

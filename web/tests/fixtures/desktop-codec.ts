@@ -30,6 +30,9 @@ let receiver: DesktopVideoReceiver | undefined;
       const context = canvas.getContext("2d")!;
       context.drawImage(frame, 0, 0);
       count++;
+      // Await rendering before advancing: a newer group may cancel an older
+      // decode under load, which is valid receiver behavior.
+      if (count === 1) queueMicrotask(() => group(2));
       result.textContent = JSON.stringify({
         count,
         width: frame.displayWidth,
@@ -89,6 +92,5 @@ let receiver: DesktopVideoReceiver | undefined;
     );
   }
   group(1);
-  setTimeout(() => group(2), 100);
 })().catch((error) => (result.textContent = String(error)));
 window.addEventListener("pagehide", () => receiver?.close());
