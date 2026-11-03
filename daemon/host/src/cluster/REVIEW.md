@@ -282,3 +282,21 @@ Windows enrollment remains disabled; no real host or pairing was changed.
 Join-sync validation: host 162 passed / 3 ignored; web/codegen 112 passed;
 TypeScript check and web build passed. Browser cluster flow and Windows execution
 remain unverified. No main push, release or actual environment changes.
+
+## Admit expiry under writer contention
+
+New admission now acquires BEGIN IMMEDIATE before checking whether the operation
+is an exact existing receipt or a fresh append. Caller authorization and local
+identity are rechecked first. An exact request digest may replay its committed
+receipt after consent expiry; changed content conflicts, and a fresh expired
+consent is rejected without writing. The prior pre-transaction-only expiry check
+was removed. Other RPCs and browser code are unchanged in this follow-up.
+
+The regression holds a write transaction on another SQLite connection, signals
+successful signature/unexpired preflight, proves the operation is still waiting,
+lets the consent expire, releases the writer, and verifies Retired with an empty
+journal. A separate test waits for the original deadline to pass and confirms
+only the exact receipt replays; changed content is rejected.
+
+Validation: full host suite 164 passed / 3 ignored; diff whitespace check passed.
+No browser changes, main push, release or environment mutation in this checkpoint.

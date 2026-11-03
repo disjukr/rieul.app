@@ -727,6 +727,32 @@ fn commit_authorized(
     tx.commit()?;
     Ok(e)
 }
+fn commit_admission(
+    store: &mut Store,
+    n: &Node,
+    auth: &Authorized,
+    epoch: u64,
+    operation: Id,
+    mutation: Mutation,
+    expires: i64,
+) -> Result<Entry, RuntimeError> {
+    let tx = store
+        .db
+        .transaction_with_behavior(TransactionBehavior::Immediate)?;
+    authorize_transaction(&tx, n, auth)?;
+    check_identity(&tx, &n.g, key(&n.pair))?;
+    let entries = load(&tx, n.g.cluster())?;
+    if let Some(receipt) = entries.iter().find(|entry| entry.operation == operation) {
+        if receipt.request != request_hash(n.g.cluster(), epoch, operation, &mutation) {
+            return Err(RuntimeError::Conflict);
+        }
+    } else if expires <= now() {
+        return Err(RuntimeError::Retired);
+    }
+    let entry = append(&tx, &n.g, key(&n.pair), &n.pair, epoch, operation, mutation)?;
+    tx.commit()?;
+    Ok(entry)
+}
 pub(crate) fn reconcile_pairing_revocations(
     path: &Path,
     active: &[String],
@@ -858,13 +884,7 @@ pub(crate) fn execute(
                 ),
                 &c.signature,
             )?;
-            let operation = id(&r.operation_id)?;
-            if c.expires_at_unix <= now()
-                && !store.entries()?.iter().any(|e| e.operation == operation)
-            {
-                return Err(RuntimeError::Retired);
-            }
-            let e = commit_authorized(
+            let e = commit_admission(
                 &mut store,
                 &n,
                 auth,
@@ -889,6 +909,7 @@ pub(crate) fn execute(
                         .encode(),
                     ),
                 },
+                c.expires_at_unix,
             )?;
             RpcResponse::AdmitClusterMember(wire_entry(&e))
         }
@@ -1075,6 +1096,116 @@ mod auth_regression_tests {
             client_id: "fixture".into(),
             peer: None,
         }
+    }
+    #[test]
+    fn admission_expiring_while_waiting_for_writer_lock_is_not_committed() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("cluster.sqlite");
+        initialize(&path, [1; 32], None, "https://primary/rieul/rpc").unwrap();
+        let (n, mut store) = opened(&path).unwrap();
+        let target = Ed25519KeyPair::from_seed_unchecked(&[9; 32]).unwrap();
+        let mut writer = Connection::open(&path).unwrap();
+        let held = writer
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .unwrap();
+        let (preflight_tx, preflight_rx) = std::sync::mpsc::channel();
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        std::thread::scope(|scope| {
+            scope.spawn(move || {
+                let expires = now() + 2;
+                let body = consent_body(
+                    &n.g,
+                    [2; 32],
+                    [3; 32],
+                    key(&target),
+                    "https://target/rieul/rpc",
+                    expires,
+                );
+                let proof = target.sign(&body);
+                let mutation = Mutation::Admit {
+                    id: [3; 32],
+                    key: key(&target),
+                    consent: hash(&Value::Array(vec![b(&body), b(proof.as_ref())]).encode()),
+                    endpoint: "https://target/rieul/rpc".into(),
+                };
+                verify(key(&target), &body, proof.as_ref()).unwrap();
+                assert!(expires > now());
+                preflight_tx.send(expires).unwrap();
+                done_tx
+                    .send(commit_admission(
+                        &mut store,
+                        &n,
+                        &auth(),
+                        1,
+                        [4; 32],
+                        mutation,
+                        expires,
+                    ))
+                    .unwrap();
+            });
+            let expires = preflight_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+            assert!(matches!(
+                done_rx.recv_timeout(Duration::from_millis(100)),
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+            ));
+            while now() < expires {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            held.rollback().unwrap();
+            assert!(matches!(
+                done_rx.recv_timeout(Duration::from_secs(2)).unwrap(),
+                Err(RuntimeError::Retired)
+            ));
+        });
+        assert!(opened(&path).unwrap().1.entries().unwrap().is_empty());
+    }
+    #[test]
+    fn expired_admission_only_replays_its_exact_existing_receipt() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("cluster.sqlite");
+        initialize(&path, [1; 32], None, "https://primary/rieul/rpc").unwrap();
+        let (n, mut store) = opened(&path).unwrap();
+        let pair = Ed25519KeyPair::from_seed_unchecked(&[9; 32]).unwrap();
+        let mutation = Mutation::Admit {
+            id: [2; 32],
+            key: key(&pair),
+            consent: [3; 32],
+            endpoint: "https://target/rieul/rpc".into(),
+        };
+        let expires = now() + 1;
+        let first = commit_admission(
+            &mut store,
+            &n,
+            &auth(),
+            1,
+            [4; 32],
+            mutation.clone(),
+            expires,
+        )
+        .unwrap();
+        while now() < expires {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let replayed = commit_admission(
+            &mut store,
+            &n,
+            &auth(),
+            1,
+            [4; 32],
+            mutation.clone(),
+            expires,
+        )
+        .unwrap();
+        assert_eq!(first, replayed);
+        let mut altered = mutation;
+        if let Mutation::Admit { endpoint, .. } = &mut altered {
+            *endpoint = "https://different/rieul/rpc".into();
+        }
+        assert!(matches!(
+            commit_admission(&mut store, &n, &auth(), 1, [4; 32], altered, expires),
+            Err(RuntimeError::Conflict)
+        ));
+        assert_eq!(store.entries().unwrap().len(), 1);
     }
     #[test]
     fn removed_peer_cannot_prepare_or_import_even_with_previously_authenticated_identity() {
