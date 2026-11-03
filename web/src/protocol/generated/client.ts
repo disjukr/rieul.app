@@ -99,6 +99,7 @@ import {
   revokeClusterClientGrantProc,
   getClusterPeerChallengeProc,
   executeClusterPeerRequestProc,
+  getClusterRemovalProofProc,
 } from "./rpc.ts";
 import type {
   ActivateClusterPrimaryReq,
@@ -602,4 +603,8 @@ export function getClusterPeerChallenge(transport: WebTransport): Promise<Cluste
 
 export function executeClusterPeerRequest(transport: WebTransport, request: ClusterPeerRequest): Promise<ClusterPeerResponse> {
   return callUnary(transport, executeClusterPeerRequestProc, request);
+}
+
+export function getClusterRemovalProof(transport: WebTransport, request: ReadClusterHistoryReq): Promise<ClusterHistory> {
+  return callUnary(transport, getClusterRemovalProofProc, request);
 }

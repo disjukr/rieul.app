@@ -7,7 +7,8 @@ pub(super) fn is_cluster_proc(proc: u64) -> bool {
     matches!(
         ProcId::from_u64(proc),
         Some(
-            ProcId::GetClusterPeerChallenge
+            ProcId::GetClusterRemovalProof
+                | ProcId::GetClusterPeerChallenge
                 | ProcId::ExecuteClusterPeerRequest
                 | ProcId::GetClusterState
                 | ProcId::CreateCluster
@@ -188,6 +189,11 @@ macro_rules! handler {
         }
     };
 }
+handler!(
+    get_cluster_removal_proof_rpc,
+    GetClusterRemovalProof,
+    ReadClusterHistoryReq
+);
 handler!(get_cluster_state_rpc, GetClusterState, ());
 handler!(create_cluster_rpc, CreateCluster, CreateClusterReq);
 handler!(
@@ -241,7 +247,7 @@ handler!(
     ApplyClusterHistoryReq
 );
 
-#[cfg(test)]
+#[cfg(all(test, not(windows)))]
 mod tests {
     use super::super::desktop_rpc::tests::Fixture;
     use super::*;
@@ -501,6 +507,21 @@ mod tests {
                 .await,
             )
             .unwrap();
+            // A durable acceptance cannot be discarded by Cancel, either
+            // before sealing or after activation.
+            assert!(matches!(
+                b.unary(
+                    ProcId::CancelClusterJoin,
+                    Some(
+                        CancelClusterJoinReq {
+                            operation_id: vec![12; 32],
+                        }
+                        .encode()
+                    )
+                )
+                .await,
+                ReqResMessage::ResponseUnaryError { .. }
+            ));
             let seal = SealPrimaryTransferReq { acceptance };
             let first = ok(&a, ProcId::SealPrimaryTransfer, Some(seal.encode())).await;
             assert_eq!(
@@ -824,6 +845,68 @@ mod tests {
             let before = member(get(&a).await).1.sequence;
             runtime::worker::tick(&path, &a._client).await.unwrap();
             assert_eq!(member(get(&a).await).1.sequence, before);
+            let (_, head, bid) = member(get(&b).await);
+            ok(
+                &a,
+                ProcId::RemoveClusterMember,
+                Some(
+                    RemoveClusterMemberReq {
+                        operation_id: vec![110; 32],
+                        expected_management_epoch: 1,
+                        admission_id: bid,
+                    }
+                    .encode(),
+                ),
+            )
+            .await;
+            // An unrelated later record must not be exposed to the removed node.
+            ok(
+                &a,
+                ProcId::RevokeClusterClientGrant,
+                Some(
+                    RevokeClusterClientGrantReq {
+                        operation_id: vec![111; 32],
+                        expected_management_epoch: 1,
+                        grant_id: vec![112; 32],
+                    }
+                    .encode(),
+                ),
+            )
+            .await;
+            let endpoint = member(get(&a).await).0.root_endpoint;
+            assert!(runtime::worker::call(
+                &a._client,
+                &path,
+                root_public,
+                &endpoint,
+                ProcId::ReadClusterHistory,
+                ReadClusterHistoryReq {
+                    cluster_id: head.cluster_id.clone()
+                }
+                .encode(),
+                "node:fixture".into()
+            )
+            .await
+            .is_err());
+            let proof = runtime::worker::call(
+                &a._client,
+                &path,
+                root_public,
+                &endpoint,
+                ProcId::GetClusterRemovalProof,
+                ReadClusterHistoryReq {
+                    cluster_id: head.cluster_id,
+                }
+                .encode(),
+                "node:fixture".into(),
+            )
+            .await
+            .unwrap();
+            let proof = ClusterHistory::decode(&proof).unwrap();
+            assert_eq!(proof.head.sequence, before + 1);
+            assert_eq!(member(get(&a).await).1.sequence, before + 2);
+            runtime::worker::tick(&path, &a._client).await.unwrap();
+            assert!(matches!(get(&b).await, ClusterState::Removed { .. }));
         })
         .await
         .unwrap();

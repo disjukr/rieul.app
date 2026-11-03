@@ -6,8 +6,9 @@ credentials, service or OS permissions were changed by this work.
 
 ## Activation and authentication
 
-There is no build flag hiding these RPCs: compiled handlers advertise them in
-supportedProcIds. Enrollment is opt-in: authenticated CreateCluster or
+There is no experimental build flag hiding these RPCs: supported storage
+platforms advertise them in supportedProcIds. Windows is explicitly excluded
+until private DACL creation and validation exist. Enrollment is opt-in: authenticated CreateCluster or
 PrepareClusterJoin must carry confirmed=true. Startup and GetClusterState do
 not create a node key or database. The background worker starts with the server,
 but only works on an existing enrolled database. Existing pairing and ordinary
@@ -93,3 +94,61 @@ checks probe budgets, uniqueness and eventual candidate coverage. This does not
 solve permanent authority loss, old-backup rollback, restricted join sync or
 normal Leave. Foreground forwarding still uses its cached route; background
 replication must refresh it before a subsequent forwarded request can succeed.
+
+## Auth review fixes following 8313eddf
+
+- CancelClusterJoin now rejects Member phase. It rechecks local identity, role,
+  current phase and prepared obligations in its immediate transaction. A durable
+  target acceptance cannot be cancelled before seal or concurrently with final
+  activation. Normal member departure remains a separate, unfinished Leave flow.
+- External history import and PreparePrimaryTransfer now recheck peer membership
+  and expiry inside their write transaction. Internal worker import is an explicit
+  separate call with no external principal; it still verifies genesis, signatures,
+  prefix continuity and target preparation.
+- Adoption queue capacity (128) excludes completed owner receipts; receipts have
+  a separate bound (512, matching maximum journal entries) and expire with their
+  grants. Eligible pending items are selected before the eight-item work limit.
+  Expired queue entries are removed. No unbounded archive was introduced.
+- The worker refreshes local credentials and holds the shared credential lock
+  through adoption dispatch. Revoked/expired owners cannot initiate new retries.
+  Unresolved requests receive durable cancellation markers; a deterministic
+  primary Revoke operation resolves uncertain in-flight delivery. Both adoption
+  then revoke and revoke then adoption leave no usable grant. An already observed
+  accepted cluster grant has its separate explicit cluster revocation policy.
+  During partition or uncertain delivery this is eventual cancellation, not an
+  instantaneous cross-node revocation guarantee; no new signing/dispatch occurs
+  for a cancellation-marked local request.
+- RPC 95 GetClusterRemovalProof is peer-only and binds the exact historical
+  admission AND key. Removed peers remain forbidden from ordinary history and
+  all management mutations. This RPC returns only the genesis-verified signed
+  prefix ending at their own Remove entry, never subsequent entries or another
+  node's proof. The existing nonce/request/target signature binding applies.
+  The worker uses it only after a peer RPC rejection and becomes Removed after
+  verifying/importing the proof. Discovery may make up to one additional bounded
+  proof exchange per rejected peer (at most eight exchanges total, each 8 s);
+  network failure alone does not trigger the extra exchange.
+- Windows enrollment is fail-closed before database/key creation. Cluster RPCs
+  are absent from discovery and the worker returns without starting. Private DACL
+  implementation and Windows runtime validation remain future work. Mac fixture
+  tests are explicitly platform-gated; a Windows-specific no-key-creation test
+  and a cross-platform RPC discovery gate test were added.
+- Transfer preparations are bounded to 16 per current prefix and 512 retained
+  receipts per local incarnation. Current obligations never expire by wall
+  clock; signed log advancement makes an old prefix unsealable. Old receipts
+  remain for idempotency until explicit new local incarnation initialization.
+  Exhaustion returns Limit; there is no automatic destructive eviction.
+
+Regression evidence includes concurrent activation/cancel; stale authenticated
+peer after removal rejected by prepare/import; expired/full queue reclamation;
+eight completed entries before pending work; two cancellation/adoption log
+orders; exact own-removal prefix excluding later entries; acceptance capacity
+and idempotent retry; platform-dependent discovery. These are isolated fixtures,
+not real host enrollment or a completed browser cluster session. Windows-only
+execution and private DACL correctness are not claimed.
+
+Validation after the auth fixes: host 156 passed / 3 ignored; web/codegen unit
+112 passed; cargo check, TypeScript check, generated codecs and web build passed.
+The added Windows-specific test has not run on Windows in this local checkpoint;
+no Windows private-key-storage support is advertised. The existing Playwright
+executable absence and browser cluster-flow gap remain. No main push, CI run,
+release, host enrollment or actual pairing mutation was performed.

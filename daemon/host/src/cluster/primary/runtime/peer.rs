@@ -61,7 +61,10 @@ pub(crate) fn authenticate(
     let sender = id(&r.sender_admission_id)?;
     let public = id(&r.sender_public_key)?;
     if store.state()?.members.get(&sender) != Some(&public) {
-        return Err(RuntimeError::Unauthorized);
+        if r.procedure_id != ProcId::GetClusterRemovalProof.as_u64() as i64 {
+            return Err(RuntimeError::Unauthorized);
+        }
+        removal_proof(&store, sender, public)?;
     }
     verify(public, &request_body(r, key(&n.pair))?, &r.signature)?;
     Ok(Authorized {
@@ -114,6 +117,7 @@ pub(crate) fn permitted(proc: ProcId) -> bool {
     matches!(
         proc,
         ProcId::ReadClusterHistory
+            | ProcId::GetClusterRemovalProof
             | ProcId::AdoptClusterClient
             | ProcId::RemoveClusterMember
             | ProcId::AdmitClusterMember

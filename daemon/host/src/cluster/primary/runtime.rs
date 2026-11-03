@@ -10,6 +10,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
+pub const ENROLLMENT_SUPPORTED: bool = !cfg!(windows);
 pub const MAX_RPC_BYTES: usize = 512 * 1024;
 const MAX_MUTATION_BYTES: usize = 2145;
 /// Constructed only after server credential refresh/revocation validation.
@@ -273,6 +274,9 @@ fn initialize(
     target: Option<Genesis>,
     endpoint: &str,
 ) -> Result<(), RuntimeError> {
+    if !ENROLLMENT_SUPPORTED {
+        return Err(RuntimeError::InvalidState);
+    }
     validate_endpoint(endpoint)?;
     let mut db = database(path, true)?;
     let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -435,6 +439,41 @@ fn history(store: &Store) -> Result<ClusterHistory, RuntimeError> {
         head: head(&store.state()?),
     })
 }
+// This is an operation-scoped historical entitlement, never live membership.
+// Return only the signed prefix ending at this exact admission's removal.
+fn removal_proof(store: &Store, admission: Id, public: Id) -> Result<ClusterHistory, RuntimeError> {
+    let entries = store.entries()?;
+    let end = entries
+        .iter()
+        .position(|e| matches!(e.mutation,Mutation::Remove{id} if id==admission))
+        .ok_or(RuntimeError::Unauthorized)?;
+    let before = replay(&store.genesis, &entries[..end])?;
+    if before.members.get(&admission) != Some(&public) {
+        return Err(RuntimeError::Unauthorized);
+    }
+    let prefix = &entries[..=end];
+    Ok(ClusterHistory {
+        genesis: wire_genesis(&store.genesis),
+        entries: prefix.iter().map(wire_entry).collect(),
+        head: head(&replay(&store.genesis, prefix)?),
+    })
+}
+fn apply_removal_proof(path: &Path, proof: &ClusterHistory) -> Result<(), RuntimeError> {
+    let (n, _) = opened(path)?;
+    let entries = decoded_history(proof, &n.g)?;
+    let Some(last) = entries.last() else {
+        return Err(RuntimeError::InvalidProof);
+    };
+    if !matches!(last.mutation,Mutation::Remove{id} if id==n.admission) {
+        return Err(RuntimeError::InvalidProof);
+    }
+    let before = replay(&n.g, &entries[..entries.len() - 1])?;
+    if before.members.get(&n.admission) != Some(&key(&n.pair)) {
+        return Err(RuntimeError::InvalidProof);
+    }
+    import(path, proof, None, None, None)?;
+    Ok(())
+}
 fn decoded_history(h: &ClusterHistory, g: &Genesis) -> Result<Vec<Entry>, RuntimeError> {
     if h.entries.len() > MAX_HISTORY {
         return Err(RuntimeError::Limit);
@@ -460,6 +499,7 @@ fn import(
     h: &ClusterHistory,
     finish: Option<Id>,
     activation: Option<Id>,
+    external: Option<&Authorized>,
 ) -> Result<ClusterState, RuntimeError> {
     let (n, mut store) = opened(path)?;
     if (n.phase == 3 || n.phase == 4) && (finish.is_some() || activation.is_some()) {
@@ -501,6 +541,9 @@ fn import(
     if (current.phase == 3 || current.phase == 4) && (finish.is_some() || activation.is_some()) {
         return Err(RuntimeError::Retired);
     }
+    if let Some(auth) = external {
+        authorize_transaction(&tx, &n, auth)?;
+    }
     install(&tx, &n.g, key(&n.pair), &entries)?;
     let phase = if current.phase == 3 || current.phase == 4 {
         if next.seen.contains(&n.admission) && !next.members.contains_key(&n.admission) {
@@ -517,6 +560,22 @@ fn import(
     tx.commit()?;
     state(path)
 }
+fn authorize_transaction(
+    tx: &Transaction<'_>,
+    n: &Node,
+    auth: &Authorized,
+) -> Result<(), RuntimeError> {
+    if auth.expires_at_unix <= now() {
+        return Err(RuntimeError::Unauthorized);
+    }
+    if let Some((admission, public)) = auth.peer {
+        let s = replay(&n.g, &load(tx, n.g.cluster())?)?;
+        if s.members.get(&admission) != Some(&public) {
+            return Err(RuntimeError::Unauthorized);
+        }
+    }
+    Ok(())
+}
 fn commit_authorized(
     store: &mut Store,
     n: &Node,
@@ -528,15 +587,7 @@ fn commit_authorized(
     let tx = store
         .db
         .transaction_with_behavior(TransactionBehavior::Immediate)?;
-    if auth.expires_at_unix <= now() {
-        return Err(RuntimeError::Unauthorized);
-    }
-    if let Some((admission, public)) = auth.peer {
-        let s = replay(&n.g, &load(&tx, n.g.cluster())?)?;
-        if s.members.get(&admission) != Some(&public) {
-            return Err(RuntimeError::Unauthorized);
-        }
-    }
+    authorize_transaction(&tx, n, auth)?;
     let e = append(&tx, &n.g, key(&n.pair), &n.pair, epoch, operation, mutation)?;
     tx.commit()?;
     Ok(e)
@@ -547,6 +598,9 @@ pub(crate) fn execute(
     request: RpcRequest,
     endpoint: &str,
 ) -> Result<RpcResponse, RuntimeError> {
+    if !ENROLLMENT_SUPPORTED {
+        return Err(RuntimeError::InvalidState);
+    }
     // Must precede all database access, including durable receipt lookup.
     if auth.expires_at_unix <= now() {
         return Err(RuntimeError::Unauthorized);
@@ -674,19 +728,21 @@ pub(crate) fn execute(
             &r.history,
             Some(id(&r.operation_id)?),
             None,
+            Some(auth),
         )?),
         RpcRequest::ApplyClusterHistory(r) => {
-            RpcResponse::ApplyClusterHistory(import(path, &r.history, None, None)?)
+            RpcResponse::ApplyClusterHistory(import(path, &r.history, None, None, Some(auth))?)
         }
         RpcRequest::ActivateClusterPrimary(r) => RpcResponse::ActivateClusterPrimary(import(
             path,
             &r.history,
             None,
             Some(id(&r.operation_id)?),
+            Some(auth),
         )?),
         RpcRequest::CancelClusterJoin(r) => {
             let (n, mut store) = opened(path)?;
-            if id(&r.operation_id)? != n.operation || store.state()?.primary == n.admission {
+            if id(&r.operation_id)? != n.operation {
                 return Err(RuntimeError::InvalidState);
             }
             let tx = store
@@ -699,11 +755,23 @@ pub(crate) fn execute(
             {
                 return Err(RuntimeError::Conflict);
             }
+            authorize_transaction(&tx, &current, auth)?;
+            let latest = replay(&current.g, &load(&tx, current.g.cluster())?)?;
+            let prepared: bool = tx.query_row(
+                "SELECT EXISTS(SELECT 1 FROM prepared WHERE epoch>=?1)",
+                [latest.epoch],
+                |r| r.get(0),
+            )?;
+            // Cancel only abandons a joining reservation. An admitted member
+            // must use Leave; it cannot discard a durable transfer obligation.
+            if current.phase == 2 || latest.primary == current.admission || prepared {
+                return Err(RuntimeError::InvalidState);
+            }
             tx.execute(
                 "INSERT OR IGNORE INTO retired_local VALUES(?1,?2,?3)",
                 params![n.operation, n.g.cluster(), n.admission],
             )?;
-            tx.execute("UPDATE node SET phase=3 WHERE id=1 AND phase IN(1,2)", [])?;
+            tx.execute("UPDATE node SET phase=3 WHERE id=1 AND phase=1", [])?;
             tx.commit()?;
             RpcResponse::CancelClusterJoin(state(path)?)
         }
@@ -722,6 +790,14 @@ pub(crate) fn execute(
             )?;
             RpcResponse::RemoveClusterMember(wire_entry(&e))
         }
+        RpcRequest::GetClusterRemovalProof(r) => {
+            let (n, store) = opened(path)?;
+            if id(&r.cluster_id)? != n.g.cluster() {
+                return Err(RuntimeError::Unauthorized);
+            }
+            let (admission, public) = auth.peer.ok_or(RuntimeError::Unauthorized)?;
+            RpcResponse::GetClusterRemovalProof(removal_proof(&store, admission, public)?)
+        }
         RpcRequest::ReadClusterHistory(r) => {
             let (n, store) = opened(path)?;
             require_member(&n)?;
@@ -738,6 +814,7 @@ pub(crate) fn execute(
                 .transaction_with_behavior(TransactionBehavior::Immediate)?;
             let current = load_node(&tx)?.ok_or(RuntimeError::InvalidState)?;
             require_member(&current)?;
+            authorize_transaction(&tx, &current, auth)?;
             let old:Option<(u64,Vec<u8>,Vec<u8>,u64,Vec<u8>)>=tx.query_row("SELECT epoch,target,acceptance,prefix_sequence,prefix_hash FROM prepared WHERE operation=?1",params![op],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?))).optional()?;
             let response = if let Some((epoch, target, signature, sequence, prefix)) = old {
                 let entries = load(&tx, n.g.cluster())?;
@@ -815,4 +892,163 @@ pub(crate) fn execute(
         }
         _ => return Err(RuntimeError::InvalidState),
     })
+}
+
+#[cfg(all(test, not(windows)))]
+mod auth_regression_tests {
+    use super::*;
+    fn auth() -> Authorized {
+        Authorized {
+            expires_at_unix: now() + 3600,
+            client_id: "fixture".into(),
+            peer: None,
+        }
+    }
+    #[test]
+    fn removed_peer_cannot_prepare_or_import_even_with_previously_authenticated_identity() {
+        let d = tempfile::tempdir().unwrap();
+        let path = d.path().join("cluster.sqlite");
+        initialize(&path, [1; 32], None, "https://fixture/rieul/rpc").unwrap();
+        let (n, mut store) = opened(&path).unwrap();
+        let peer_pair = Ed25519KeyPair::from_seed_unchecked(&[9; 32]).unwrap();
+        let member = [2; 32];
+        store
+            .commit(
+                &n.pair,
+                1,
+                [3; 32],
+                Mutation::Admit {
+                    id: member,
+                    key: key(&peer_pair),
+                    consent: [0; 32],
+                    endpoint: "https://peer/rieul/rpc".into(),
+                },
+            )
+            .unwrap();
+        let stale = Authorized {
+            peer: Some((member, key(&peer_pair))),
+            ..auth()
+        };
+        store
+            .commit(&n.pair, 1, [4; 32], Mutation::Remove { id: member })
+            .unwrap();
+        let h = history(&store).unwrap();
+        assert!(removal_proof(&store, member, [0; 32]).is_err());
+        assert!(removal_proof(&store, [99; 32], key(&peer_pair)).is_err());
+        assert_eq!(
+            removal_proof(&store, member, key(&peer_pair)).unwrap().head,
+            h.head
+        );
+        assert!(matches!(
+            execute(
+                &path,
+                &stale,
+                RpcRequest::PreparePrimaryTransfer(PreparePrimaryTransferReq {
+                    operation_id: vec![5; 32],
+                    expected_head: h.head.clone()
+                }),
+                "https://fixture/rieul/rpc"
+            ),
+            Err(RuntimeError::Unauthorized)
+        ));
+        assert!(matches!(
+            import(&path, &h, None, None, Some(&stale)),
+            Err(RuntimeError::Unauthorized)
+        ));
+        assert_eq!(history(&opened(&path).unwrap().1).unwrap().head, h.head);
+    }
+    #[test]
+    fn admitted_member_cancel_cannot_retire_a_transfer_target() {
+        let d = tempfile::tempdir().unwrap();
+        let a = d.path().join("a");
+        let bpath = d.path().join("b");
+        initialize(&a, [1; 32], None, "https://a/rieul/rpc").unwrap();
+        let (an, mut ast) = opened(&a).unwrap();
+        initialize(&bpath, [2; 32], Some(an.g.clone()), "https://b/rieul/rpc").unwrap();
+        let (bn, _) = opened(&bpath).unwrap();
+        ast.commit(
+            &an.pair,
+            1,
+            [3; 32],
+            Mutation::Admit {
+                id: bn.admission,
+                key: key(&bn.pair),
+                consent: [0; 32],
+                endpoint: bn.endpoint.clone(),
+            },
+        )
+        .unwrap();
+        import(
+            &bpath,
+            &history(&ast).unwrap(),
+            Some([2; 32]),
+            None,
+            Some(&auth()),
+        )
+        .unwrap();
+        let (_, mut bst) = opened(&bpath).unwrap();
+        let transfer = bst.prepare_transfer(&bn.pair, [4; 32]).unwrap();
+        assert!(matches!(
+            execute(
+                &bpath,
+                &auth(),
+                RpcRequest::CancelClusterJoin(CancelClusterJoinReq {
+                    operation_id: vec![2; 32]
+                }),
+                &bn.endpoint
+            ),
+            Err(RuntimeError::InvalidState)
+        ));
+        ast.commit(&an.pair, 1, [4; 32], transfer).unwrap();
+        let transferred = history(&ast).unwrap();
+        let barrier = std::sync::Barrier::new(2);
+        let (activation, cancel) = std::thread::scope(|scope| {
+            let a = scope.spawn(|| {
+                barrier.wait();
+                import(&bpath, &transferred, None, Some([4; 32]), Some(&auth()))
+            });
+            let b = scope.spawn(|| {
+                barrier.wait();
+                execute(
+                    &bpath,
+                    &auth(),
+                    RpcRequest::CancelClusterJoin(CancelClusterJoinReq {
+                        operation_id: vec![2; 32],
+                    }),
+                    &bn.endpoint,
+                )
+            });
+            (a.join().unwrap(), b.join().unwrap())
+        });
+        activation.unwrap();
+        assert!(matches!(cancel, Err(RuntimeError::InvalidState)));
+        assert!(matches!(
+            execute(
+                &bpath,
+                &auth(),
+                RpcRequest::CancelClusterJoin(CancelClusterJoinReq {
+                    operation_id: vec![2; 32]
+                }),
+                &bn.endpoint
+            ),
+            Err(RuntimeError::InvalidState)
+        ));
+        assert_eq!(opened(&bpath).unwrap().0.phase, 2);
+    }
+}
+
+#[cfg(all(test, windows))]
+mod windows_enrollment_tests {
+    use super::*;
+    #[test]
+    fn enrollment_is_disabled_before_creating_key_database() {
+        assert!(!ENROLLMENT_SUPPORTED);
+        let d = tempfile::tempdir().unwrap();
+        let path = d.path().join("cluster.sqlite");
+        assert!(matches!(
+            initialize(&path, [1; 32], None, "https://fixture/rieul/rpc"),
+            Err(RuntimeError::InvalidState)
+        ));
+        assert!(!path.exists());
+    }
 }

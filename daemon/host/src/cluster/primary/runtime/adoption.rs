@@ -8,10 +8,112 @@ struct Pending {
 }
 fn schema(db: &Connection) -> Result<(), RuntimeError> {
     db.execute_batch("CREATE TABLE IF NOT EXISTS adoption_outbox(grant_id BLOB PRIMARY KEY,owner TEXT NOT NULL,cluster BLOB NOT NULL,issuer BLOB NOT NULL,client BLOB NOT NULL,expires INTEGER NOT NULL,client_proof BLOB,issuer_proof BLOB,attempt_epoch INTEGER);")?;
+    db.execute_batch("CREATE TABLE IF NOT EXISTS adoption_cancelled(grant_id BLOB PRIMARY KEY); CREATE TABLE IF NOT EXISTS adoption_receipts AS SELECT * FROM adoption_outbox WHERE 0; CREATE UNIQUE INDEX IF NOT EXISTS adoption_receipt_id ON adoption_receipts(grant_id);")?;
     Ok(())
 }
+// Queue capacity covers unresolved work only. Completed owner bindings live in
+// a separate receipt cache, bounded by the journal's maximum accepted grants.
+fn maintain(tx: &Transaction<'_>, n: &Node, state: &State) -> Result<(), RuntimeError> {
+    tx.execute(
+        "DELETE FROM adoption_outbox WHERE expires<=?1 OR cluster!=?2 OR issuer!=?3",
+        params![now(), n.g.cluster(), n.admission],
+    )?;
+    tx.execute(
+        "DELETE FROM adoption_receipts WHERE expires<=?1 OR cluster!=?2",
+        params![now(), n.g.cluster()],
+    )?;
+    let rows: Vec<Vec<u8>> = tx
+        .prepare("SELECT grant_id FROM adoption_outbox")?
+        .query_map([], |r| r.get(0))?
+        .collect::<Result<_, _>>()?;
+    for raw in rows {
+        let grant = id(&raw)?;
+        if state.revoked.contains(&grant)
+            || state.grants.contains_key(&grant) && !cancelled(tx, grant)?
+        {
+            tx.execute("INSERT OR IGNORE INTO adoption_receipts SELECT * FROM adoption_outbox WHERE grant_id=?1",params![grant])?;
+            tx.execute(
+                "DELETE FROM adoption_outbox WHERE grant_id=?1",
+                params![grant],
+            )?;
+            tx.execute(
+                "DELETE FROM adoption_cancelled WHERE grant_id=?1",
+                params![grant],
+            )?;
+        }
+    }
+    tx.execute("DELETE FROM adoption_cancelled WHERE grant_id NOT IN(SELECT grant_id FROM adoption_outbox)",[])?;
+    let receipts: i64 = tx.query_row("SELECT COUNT(*) FROM adoption_receipts", [], |r| r.get(0))?;
+    if receipts as usize > MAX_HISTORY {
+        return Err(RuntimeError::Limit);
+    }
+    Ok(())
+}
+fn cancelled(db: &Connection, grant: Id) -> Result<bool, RuntimeError> {
+    Ok(db.query_row(
+        "SELECT EXISTS(SELECT 1 FROM adoption_cancelled WHERE grant_id=?1)",
+        params![grant],
+        |r| r.get(0),
+    )?)
+}
+pub(super) fn cancel_inactive(path: &Path, active: &[String]) -> Result<(), RuntimeError> {
+    let (n, mut store) = opened(path)?;
+    schema(&store.db)?;
+    let tx = store
+        .db
+        .transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let state = replay(&n.g, &load(&tx, n.g.cluster())?)?;
+    // Already observed acceptance is a cluster grant with its own revocation
+    // policy. Unresolved requests are cancelled, including uncertain delivery.
+    maintain(&tx, &n, &state)?;
+    let rows: Vec<(Vec<u8>, String)> = tx
+        .prepare("SELECT grant_id,owner FROM adoption_outbox")?
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+        .collect::<Result<_, _>>()?;
+    for (grant, owner) in rows {
+        if !active.contains(&owner) {
+            tx.execute(
+                "INSERT OR IGNORE INTO adoption_cancelled VALUES(?1)",
+                params![grant],
+            )?;
+        }
+    }
+    tx.commit()?;
+    Ok(())
+}
+pub(super) fn cancel_owner(path: &Path, owner: &str) -> Result<(), RuntimeError> {
+    let (n, mut store) = opened(path)?;
+    schema(&store.db)?;
+    let tx = store
+        .db
+        .transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let state = replay(&n.g, &load(&tx, n.g.cluster())?)?;
+    maintain(&tx, &n, &state)?;
+    tx.execute("INSERT OR IGNORE INTO adoption_cancelled SELECT grant_id FROM adoption_outbox WHERE owner=?1",[owner])?;
+    tx.commit()?;
+    Ok(())
+}
+pub(super) fn cancellations(path: &Path) -> Result<Vec<Id>, RuntimeError> {
+    let (_, store) = opened(path)?;
+    schema(&store.db)?;
+    let rows: Vec<Vec<u8>> = store
+        .db
+        .prepare("SELECT grant_id FROM adoption_cancelled ORDER BY rowid LIMIT 8")?
+        .query_map([], |r| r.get(0))?
+        .collect::<Result<_, _>>()?;
+    rows.iter().map(|raw| id(raw)).collect()
+}
+pub(super) fn cancel_operation(grant: Id) -> Id {
+    hash(
+        &Value::Array(vec![
+            Value::Text("rieul.cluster.cancel-adoption.v1".into()),
+            b(grant),
+        ])
+        .encode(),
+    )
+}
 fn pending(db: &Connection, owner: &str, grant: Id) -> Result<Pending, RuntimeError> {
-    let row:Option<(Vec<u8>,Vec<u8>,Vec<u8>,i64,Option<Vec<u8>>,Option<Vec<u8>>)>=db.query_row("SELECT cluster,issuer,client,expires,client_proof,issuer_proof FROM adoption_outbox WHERE grant_id=?1 AND owner=?2",params![grant,owner],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?))).optional()?;
+    let row:Option<(Vec<u8>,Vec<u8>,Vec<u8>,i64,Option<Vec<u8>>,Option<Vec<u8>>)>=db.query_row("SELECT cluster,issuer,client,expires,client_proof,issuer_proof FROM (SELECT * FROM adoption_outbox UNION ALL SELECT * FROM adoption_receipts) WHERE grant_id=?1 AND owner=?2",params![grant,owner],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?))).optional()?;
     let (cluster, issuer, client, expires, client_proof, issuer_proof) =
         row.ok_or(RuntimeError::Unauthorized)?;
     Ok(Pending {
@@ -61,9 +163,13 @@ pub(super) fn begin(
     if current.g != n.g || current.admission != n.admission {
         return Err(RuntimeError::Conflict);
     }
-    let existing:Option<Vec<u8>>=tx.query_row("SELECT grant_id FROM adoption_outbox WHERE owner=?1 AND client=?2 AND cluster=?3 AND issuer=?4 AND expires>?5 ORDER BY rowid DESC LIMIT 1",params![auth.client_id,public,n.g.cluster(),n.admission,now()],|r|r.get(0)).optional()?;
+    let state = replay(&n.g, &load(&tx, n.g.cluster())?)?;
+    maintain(&tx, &n, &state)?;
+    let existing:Option<Vec<u8>>=tx.query_row("SELECT grant_id FROM (SELECT * FROM adoption_outbox UNION ALL SELECT * FROM adoption_receipts) WHERE owner=?1 AND client=?2 AND cluster=?3 AND issuer=?4 AND expires>?5 ORDER BY expires DESC LIMIT 1",params![auth.client_id,public,n.g.cluster(),n.admission,now()],|r|r.get(0)).optional()?;
     if let Some(grant) = existing {
-        return Ok(pending(&tx, &auth.client_id, id(&grant)?)?.challenge);
+        let challenge = pending(&tx, &auth.client_id, id(&grant)?)?.challenge;
+        tx.commit()?;
+        return Ok(challenge);
     }
     let count: i64 = tx.query_row("SELECT COUNT(*) FROM adoption_outbox", [], |r| r.get(0))?;
     if count as usize >= MAX_OUTBOX {
@@ -101,6 +207,9 @@ pub(super) fn complete(
     require_member(&current)?;
     let p = pending(&tx, &auth.client_id, grant)?;
     let c = &p.challenge;
+    if cancelled(&tx, grant)? {
+        return Err(RuntimeError::Retired);
+    }
     if id(&c.cluster_id)? != current.g.cluster()
         || id(&c.issuer_admission_id)? != current.admission
         || current.admission != n.admission
@@ -154,6 +263,9 @@ pub(super) fn get(
     schema(&store.db)?;
     let p = pending(&store.db, &auth.client_id, grant)?;
     let c = &p.challenge;
+    if cancelled(&store.db, grant)? {
+        return Ok(ClusterClientAdoptionState::Rejected);
+    }
     if id(&c.cluster_id)? != n.g.cluster() || c.expires_at_unix <= now() {
         return Ok(ClusterClientAdoptionState::Rejected);
     }
@@ -213,11 +325,16 @@ pub(super) fn get(
 pub(super) fn pending_intents(
     path: &Path,
 ) -> Result<Vec<(String, ClusterPairingIntent)>, RuntimeError> {
-    let (n, store) = opened(path)?;
+    let (n, mut store) = opened(path)?;
     require_member(&n)?;
     schema(&store.db)?;
-    let state = store.state()?;
-    let mut statement=store.db.prepare("SELECT owner,grant_id FROM adoption_outbox WHERE client_proof IS NOT NULL AND expires>?1 ORDER BY rowid LIMIT 8")?;
+    let tx = store
+        .db
+        .transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let state = replay(&n.g, &load(&tx, n.g.cluster())?)?;
+    maintain(&tx, &n, &state)?;
+    tx.commit()?;
+    let mut statement=store.db.prepare("SELECT owner,grant_id FROM adoption_outbox WHERE client_proof IS NOT NULL AND expires>?1 AND grant_id NOT IN(SELECT grant_id FROM adoption_cancelled) ORDER BY rowid LIMIT 128")?;
     let rows = statement.query_map([now()], |r| {
         Ok((r.get::<_, String>(0)?, r.get::<_, Vec<u8>>(1)?))
     })?;
@@ -242,7 +359,188 @@ pub(super) fn pending_intents(
                     issuer_proof,
                 },
             ));
+            if result.len() == 8 {
+                break;
+            }
         }
     }
     Ok(result)
+}
+
+#[cfg(all(test, not(windows)))]
+mod tests {
+    use super::*;
+    #[test]
+    fn cancelled_owner_cannot_retry_and_inflight_adoption_is_revoked_in_either_log_order() {
+        for adopt_first in [false, true] {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("cluster.sqlite");
+            initialize(&path, [1; 32], None, "https://fixture/rieul/rpc").unwrap();
+            let auth = Authorized {
+                expires_at_unix: now() + 3600,
+                client_id: "client".into(),
+                peer: None,
+            };
+            let client = Ed25519KeyPair::from_seed_unchecked(&[22; 32]).unwrap();
+            let challenge = begin(&path, &auth, &key(&client)).unwrap();
+            let grant = id(&challenge.grant_id).unwrap();
+            let (n, mut store) = opened(&path).unwrap();
+            let proof: [u8; 64] = client
+                .sign(&client_adoption_body(
+                    n.g.cluster(),
+                    grant,
+                    n.admission,
+                    key(&client),
+                    challenge.expires_at_unix as u64,
+                ))
+                .as_ref()
+                .try_into()
+                .unwrap();
+            let issuer = n.pair.sign(&issuer_adoption_body(
+                n.g.cluster(),
+                grant,
+                n.admission,
+                key(&client),
+                challenge.expires_at_unix as u64,
+                &proof,
+            ));
+            store
+                .db
+                .execute(
+                    "UPDATE adoption_outbox SET client_proof=?1,issuer_proof=?2 WHERE grant_id=?3",
+                    params![proof, issuer.as_ref(), grant],
+                )
+                .unwrap();
+            let intent = ClusterPairingIntent {
+                challenge,
+                client_proof: proof.to_vec(),
+                issuer_proof: issuer.as_ref().to_vec(),
+            };
+            cancel_inactive(&path, &[]).unwrap();
+            assert!(pending_intents(&path).unwrap().is_empty());
+            assert_eq!(cancellations(&path).unwrap(), vec![grant]);
+            assert!(matches!(
+                get(&path, &auth, grant).unwrap(),
+                ClusterClientAdoptionState::Rejected
+            ));
+            assert!(matches!(
+                complete(
+                    &path,
+                    &auth,
+                    &CompleteClusterClientAdoptionReq {
+                        grant_id: grant.to_vec(),
+                        client_proof: proof.to_vec()
+                    }
+                ),
+                Err(RuntimeError::Retired)
+            ));
+            if adopt_first {
+                store
+                    .commit(&n.pair, 1, grant, mutation(&intent).unwrap())
+                    .unwrap();
+            }
+            store
+                .commit(
+                    &n.pair,
+                    1,
+                    cancel_operation(grant),
+                    Mutation::Revoke { grant },
+                )
+                .unwrap();
+            if !adopt_first {
+                assert!(store
+                    .commit(&n.pair, 1, grant, mutation(&intent).unwrap())
+                    .is_err());
+            }
+            let state = opened(&path).unwrap().1.state().unwrap();
+            assert!(state.revoked.contains(&grant));
+            assert!(!state.grants.contains_key(&grant));
+            assert!(pending_intents(&path).unwrap().is_empty());
+            assert!(cancellations(&path).unwrap().is_empty());
+        }
+    }
+    #[test]
+    fn completed_front_rows_do_not_starve_pending_and_expired_rows_free_capacity() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("cluster.sqlite");
+        initialize(&path, [1; 32], None, "https://fixture/rieul/rpc").unwrap();
+        let auth = Authorized {
+            expires_at_unix: now() + 3600,
+            client_id: "client".into(),
+            peer: None,
+        };
+        let (n, store) = opened(&path).unwrap();
+        schema(&store.db).unwrap();
+        for i in 0..128u8 {
+            store
+                .db
+                .execute(
+                    "INSERT INTO adoption_outbox VALUES(?1,'client',?2,?3,?4,?5,?6,?6,NULL)",
+                    params![
+                        [i; 32],
+                        n.g.cluster(),
+                        n.admission,
+                        [9u8; 32],
+                        now() - 1,
+                        [0u8; 64]
+                    ],
+                )
+                .unwrap();
+        }
+        // Expired queue entries do not permanently exhaust the 128-item limit.
+        let fresh = begin(&path, &auth, &[99; 32]).unwrap();
+        assert_eq!(
+            store
+                .db
+                .query_row("SELECT COUNT(*) FROM adoption_outbox", [], |r| r
+                    .get::<_, i64>(0))
+                .unwrap(),
+            1
+        );
+        store.db.execute("DELETE FROM adoption_outbox", []).unwrap();
+        let mut state = store.state().unwrap();
+        for i in 0..10u8 {
+            store
+                .db
+                .execute(
+                    "INSERT INTO adoption_outbox VALUES(?1,'client',?2,?3,?4,?5,?6,?6,NULL)",
+                    params![
+                        [i; 32],
+                        n.g.cluster(),
+                        n.admission,
+                        [9u8; 32],
+                        now() + 3600,
+                        [0u8; 64]
+                    ],
+                )
+                .unwrap();
+            if i < 8 {
+                state.grants.insert(
+                    [i; 32],
+                    Grant {
+                        client: [9; 32],
+                        expires: (now() + 3600) as u64,
+                    },
+                );
+            }
+        }
+        let (_, mut st) = opened(&path).unwrap();
+        let tx = st
+            .db
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .unwrap();
+        maintain(&tx, &n, &state).unwrap();
+        tx.commit().unwrap();
+        assert_eq!(
+            st.db
+                .query_row("SELECT COUNT(*) FROM adoption_receipts", [], |r| r
+                    .get::<_, i64>(0))
+                .unwrap(),
+            8
+        );
+        let pending = pending_intents(&path).unwrap();
+        assert_eq!(pending.len(), 2);
+        assert_eq!(pending[0].1.challenge.grant_id, vec![8; 32]);
+        assert_ne!(fresh.grant_id, pending[0].1.challenge.grant_id);
+    }
 }

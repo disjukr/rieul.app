@@ -421,3 +421,7 @@ struct ClusterPeerResponse {
   @ id - 1
   payload: bytes,
 }
+
+@ id - 95
+@ stream - unary
+proc GetClusterRemovalProof = ReadClusterHistoryReq -> ClusterHistory throws ClusterError

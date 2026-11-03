@@ -95,6 +95,7 @@ export enum ProcId {
   RevokeClusterClientGrant = 92,
   GetClusterPeerChallenge = 93,
   ExecuteClusterPeerRequest = 94,
+  GetClusterRemovalProof = 95,
 }
 
 export interface SubscribeWindowDetailReq {
@@ -3263,6 +3264,18 @@ export const executeClusterPeerRequestProc: ProcCodec<ClusterPeerRequest, Cluste
   decodeError: decodeClusterErrorValue,
 };
 
+export const getClusterRemovalProofProc: ProcCodec<ReadClusterHistoryReq, ClusterHistory, ClusterError> = {
+  id: ProcId.GetClusterRemovalProof,
+  name: "GetClusterRemovalProof",
+  stream: "unary",
+  requestType: "ReadClusterHistoryReq",
+  responseType: "ClusterHistory",
+  errorType: "ClusterError",
+  encodeRequest: encodeReadClusterHistoryReqValue,
+  decodeResponse: decodeClusterHistoryValue,
+  decodeError: decodeClusterErrorValue,
+};
+
 export const procs = {
   [ProcId.GetDaemonInfo]: getDaemonInfoProc,
   [ProcId.StartPairing]: startPairingProc,
@@ -3356,6 +3369,7 @@ export const procs = {
   [ProcId.RevokeClusterClientGrant]: revokeClusterClientGrantProc,
   [ProcId.GetClusterPeerChallenge]: getClusterPeerChallengeProc,
   [ProcId.ExecuteClusterPeerRequest]: executeClusterPeerRequestProc,
+  [ProcId.GetClusterRemovalProof]: getClusterRemovalProofProc,
 } as const;
 
 export function encodeSubscribeWindowDetailReqValue(value: SubscribeWindowDetailReq): CborValue {

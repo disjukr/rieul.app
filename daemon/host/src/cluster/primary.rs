@@ -633,6 +633,14 @@ fn prepare(
             return Err(Error::Conflict);
         }
     } else {
+        // A current-prefix acceptance is an obligation until the signed log
+        // advances. Never expire it by wall clock. Retain obsolete receipts
+        // for idempotency, with a separate total bound per local incarnation.
+        let total: u64 = tx.query_row("SELECT COUNT(*) FROM prepared", [], |r| r.get(0))?;
+        let active: u64=tx.query_row("SELECT COUNT(*) FROM prepared WHERE epoch=?1 AND prefix_sequence=?2 AND prefix_hash=?3",params![state.epoch,state.sequence,state.head],|r|r.get(0))?;
+        if active >= 16 || total >= MAX_HISTORY as u64 {
+            return Err(Error::Limit);
+        }
         tx.execute(
             "INSERT INTO prepared VALUES(?1,?2,?3,?4,?5,?6)",
             params![
@@ -840,6 +848,30 @@ mod tests {
         a.commit(&pair(1), 1, [11; 32], admit(2)).unwrap();
         b.install_history(&a.entries().unwrap()).unwrap();
         (dir, a, b)
+    }
+    #[test]
+    fn transfer_preparation_capacity_preserves_existing_obligations() {
+        let (_dir, mut source, mut target) = setup();
+        let first = target.prepare_transfer(&pair(2), [100; 32]).unwrap();
+        for n in 101..116u8 {
+            target.prepare_transfer(&pair(2), [n; 32]).unwrap();
+        }
+        assert!(matches!(
+            target.prepare_transfer(&pair(2), [116; 32]),
+            Err(Error::Limit)
+        ));
+        assert_eq!(target.prepare_transfer(&pair(2), [100; 32]).unwrap(), first);
+        assert_eq!(
+            target
+                .db
+                .query_row("SELECT COUNT(*) FROM prepared", [], |r| r.get::<_, i64>(0))
+                .unwrap(),
+            16
+        );
+        source.commit(&pair(1), 1, [117; 32], admit(3)).unwrap();
+        target.install_history(&source.entries().unwrap()).unwrap();
+        // Old-prefix receipts stay retryable but cannot starve a new prefix.
+        target.prepare_transfer(&pair(2), [116; 32]).unwrap();
     }
     #[test]
     fn durable_receipts_survive_seal_restart_and_transfer_to_new_primary() {

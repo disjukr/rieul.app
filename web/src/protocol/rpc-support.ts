@@ -90,6 +90,7 @@ export const rpcCategoryById: Record<ProcId, CategoryId> = {
   [ProcId.CheckForUpdates]: "updates",
   [ProcId.InstallUpdateConfirmed]: "updates",
   [ProcId.GetClusterState]: "daemon",
+  [ProcId.GetClusterRemovalProof]: "daemon",
   [ProcId.CreateCluster]: "daemon",
   [ProcId.PrepareClusterJoin]: "daemon",
   [ProcId.AdmitClusterMember]: "daemon",

@@ -365,6 +365,8 @@ async fn run_system_server_once(
     let _cluster_worker = AbortTaskOnDrop(tokio::spawn(crate::cluster::runtime::worker::run(
         config_path.with_extension("cluster.sqlite"),
         admission.clone(),
+        credentials_path.clone(),
+        client_credentials.clone(),
     )));
     let desktop = crate::desktop::Runtime::new(admission.clone(), desktop_backend);
     let (disconnect_tx, _) = watch::channel(0u64);
@@ -1209,25 +1211,6 @@ fn build_rpc_handlers(
 ) -> HostRpcHandlers {
     let mut handlers = RpcHandlers::new()
         .get_daemon_info(HostRpcHandler::get_daemon_info_rpc)
-        .get_cluster_peer_challenge(HostRpcHandler::get_cluster_peer_challenge_rpc)
-        .execute_cluster_peer_request(HostRpcHandler::execute_cluster_peer_request_rpc)
-        .get_cluster_state(HostRpcHandler::get_cluster_state_rpc)
-        .begin_cluster_client_adoption(HostRpcHandler::begin_cluster_client_adoption_rpc)
-        .complete_cluster_client_adoption(HostRpcHandler::complete_cluster_client_adoption_rpc)
-        .get_cluster_client_adoption(HostRpcHandler::get_cluster_client_adoption_rpc)
-        .adopt_cluster_client(HostRpcHandler::adopt_cluster_client_rpc)
-        .revoke_cluster_client_grant(HostRpcHandler::revoke_cluster_client_grant_rpc)
-        .create_cluster(HostRpcHandler::create_cluster_rpc)
-        .prepare_cluster_join(HostRpcHandler::prepare_cluster_join_rpc)
-        .admit_cluster_member(HostRpcHandler::admit_cluster_member_rpc)
-        .finish_cluster_join(HostRpcHandler::finish_cluster_join_rpc)
-        .cancel_cluster_join(HostRpcHandler::cancel_cluster_join_rpc)
-        .remove_cluster_member(HostRpcHandler::remove_cluster_member_rpc)
-        .read_cluster_history(HostRpcHandler::read_cluster_history_rpc)
-        .prepare_primary_transfer(HostRpcHandler::prepare_primary_transfer_rpc)
-        .seal_primary_transfer(HostRpcHandler::seal_primary_transfer_rpc)
-        .activate_cluster_primary(HostRpcHandler::activate_cluster_primary_rpc)
-        .apply_cluster_history(HostRpcHandler::apply_cluster_history_rpc)
         .get_desktop_capabilities(HostRpcHandler::get_desktop_capabilities_rpc)
         .attach_desktop(HostRpcHandler::attach_desktop_rpc)
         .configure_desktop_viewports(HostRpcHandler::configure_desktop_viewports_rpc)
@@ -1288,6 +1271,30 @@ fn build_rpc_handlers(
         .set_agent_session_config(HostRpcHandler::set_agent_session_config_rpc)
         .update_agent_session(HostRpcHandler::update_agent_session_rpc)
         .remove_agent_project(HostRpcHandler::remove_agent_project_rpc);
+
+    if crate::cluster::runtime::ENROLLMENT_SUPPORTED {
+        handlers = handlers
+            .get_cluster_removal_proof(HostRpcHandler::get_cluster_removal_proof_rpc)
+            .get_cluster_peer_challenge(HostRpcHandler::get_cluster_peer_challenge_rpc)
+            .execute_cluster_peer_request(HostRpcHandler::execute_cluster_peer_request_rpc)
+            .get_cluster_state(HostRpcHandler::get_cluster_state_rpc)
+            .begin_cluster_client_adoption(HostRpcHandler::begin_cluster_client_adoption_rpc)
+            .complete_cluster_client_adoption(HostRpcHandler::complete_cluster_client_adoption_rpc)
+            .get_cluster_client_adoption(HostRpcHandler::get_cluster_client_adoption_rpc)
+            .adopt_cluster_client(HostRpcHandler::adopt_cluster_client_rpc)
+            .revoke_cluster_client_grant(HostRpcHandler::revoke_cluster_client_grant_rpc)
+            .create_cluster(HostRpcHandler::create_cluster_rpc)
+            .prepare_cluster_join(HostRpcHandler::prepare_cluster_join_rpc)
+            .admit_cluster_member(HostRpcHandler::admit_cluster_member_rpc)
+            .finish_cluster_join(HostRpcHandler::finish_cluster_join_rpc)
+            .cancel_cluster_join(HostRpcHandler::cancel_cluster_join_rpc)
+            .remove_cluster_member(HostRpcHandler::remove_cluster_member_rpc)
+            .read_cluster_history(HostRpcHandler::read_cluster_history_rpc)
+            .prepare_primary_transfer(HostRpcHandler::prepare_primary_transfer_rpc)
+            .seal_primary_transfer(HostRpcHandler::seal_primary_transfer_rpc)
+            .activate_cluster_primary(HostRpcHandler::activate_cluster_primary_rpc)
+            .apply_cluster_history(HostRpcHandler::apply_cluster_history_rpc);
+    }
 
     if process_resources_in_use.is_some() {
         handlers = handlers.subscribe_process_resources_in_use(
@@ -5843,6 +5850,17 @@ mod tests {
         );
     }
 
+    #[test]
+    fn cluster_rpc_discovery_requires_supported_private_key_storage() {
+        let handlers = build_rpc_handlers(None, None, None, None);
+        let advertised = handlers.supported_procs();
+        for id in 76..=95 {
+            assert_eq!(
+                advertised.iter().any(|proc| proc.as_u64() == id),
+                crate::cluster::runtime::ENROLLMENT_SUPPORTED
+            );
+        }
+    }
     #[tokio::test]
     async fn get_daemon_info_reports_registered_supported_procs() {
         let dir = tempfile::tempdir().unwrap();

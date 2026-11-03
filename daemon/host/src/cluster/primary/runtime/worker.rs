@@ -4,6 +4,28 @@ use crate::maintenance::WorkGate;
 use rieul_daemon_core::wire::ReqResMessage;
 use std::{path::PathBuf, sync::Arc};
 
+type SharedCredentials = Arc<tokio::sync::Mutex<rieul_daemon_core::config::ClientCredentials>>;
+async fn dispatch_guard(
+    path: &Path,
+    shared: &SharedCredentials,
+    owner: &str,
+) -> Result<
+    Option<tokio::sync::OwnedMutexGuard<rieul_daemon_core::config::ClientCredentials>>,
+    RuntimeError,
+> {
+    let mut records = shared.clone().lock_owned().await;
+    *records = rieul_daemon_core::config::load_client_credentials_or_default(path)
+        .map_err(|_| RuntimeError::Storage)?;
+    if records
+        .clients
+        .iter()
+        .any(|r| r.client_id == owner && r.expires_at_unix > now())
+    {
+        Ok(Some(records))
+    } else {
+        Ok(None)
+    }
+}
 struct Session(web_transport_quinn::Session);
 impl Drop for Session {
     fn drop(&mut self) {
@@ -42,6 +64,7 @@ async fn unary(
         ReqResMessage::ResponseUnaryOk {
             payload: Some(bytes),
         } => Ok(bytes),
+        ReqResMessage::ResponseUnaryError { .. } => Err(RuntimeError::Unauthorized),
         _ => Err(RuntimeError::PrimaryUnavailable),
     }
 }
@@ -143,7 +166,7 @@ fn apply_sync(path: &Path, h: ClusterHistory) -> Result<(), RuntimeError> {
     } else {
         None
     };
-    import(path, &h, None, activation)?;
+    import(path, &h, None, activation, None)?;
     Ok(())
 }
 // Try the cached primary first, then at most three distinct cached peers.
@@ -228,7 +251,39 @@ async fn synchronize(
         let bytes = match received {
             Ok(bytes) => bytes,
             Err(e) => {
+                let rejected = matches!(e, RuntimeError::Unauthorized);
                 error = e;
+                if !rejected {
+                    continue;
+                }
+                // A removed member cannot read new history. It may retrieve
+                // only its own signed historical removal prefix, with the
+                // same key/nonce/target binding as ordinary peer requests.
+                if let Ok(bytes) = call(
+                    client,
+                    path,
+                    server,
+                    &url,
+                    ProcId::GetClusterRemovalProof,
+                    ReadClusterHistoryReq {
+                        cluster_id: cluster.to_vec(),
+                    }
+                    .encode(),
+                    format!("node:{local:?}"),
+                )
+                .await
+                {
+                    if let Ok(proof) = ClusterHistory::decode(&bytes) {
+                        let p = path.to_owned();
+                        if tokio::task::spawn_blocking(move || apply_removal_proof(&p, &proof))
+                            .await
+                            .map_err(|_| RuntimeError::Storage)?
+                            .is_ok()
+                        {
+                            return Ok(());
+                        }
+                    }
+                }
                 continue;
             }
         };
@@ -259,12 +314,13 @@ pub(crate) async fn tick(
     path: &Path,
     client: &web_transport_quinn::Client,
 ) -> Result<(), RuntimeError> {
-    tick_with_cursor(path, client, &mut 0).await
+    tick_with_cursor(path, client, &mut 0, None).await
 }
 async fn tick_with_cursor(
     path: &Path,
     client: &web_transport_quinn::Client,
     cursor: &mut usize,
+    credentials: Option<(&Path, &SharedCredentials)>,
 ) -> Result<(), RuntimeError> {
     let path = path.to_owned();
     let p = path.clone();
@@ -280,12 +336,78 @@ async fn tick_with_cursor(
     .map_err(|_| RuntimeError::Storage)??;
     if !local_primary {
         synchronize(&path, client, cursor).await?;
+        let p = path.clone();
+        if tokio::task::spawn_blocking(move || opened(&p).map(|(n, _)| n.phase == 4))
+            .await
+            .map_err(|_| RuntimeError::Storage)??
+        {
+            return Ok(());
+        }
+    }
+    let p = path.clone();
+    let cancellations = tokio::task::spawn_blocking(move || adoption::cancellations(&p))
+        .await
+        .map_err(|_| RuntimeError::Storage)??;
+    for grant in cancellations {
+        let p = path.clone();
+        let (server, url, _, epoch, _) = tokio::task::spawn_blocking(move || route(&p))
+            .await
+            .map_err(|_| RuntimeError::Storage)??;
+        let request = RevokeClusterClientGrantReq {
+            operation_id: adoption::cancel_operation(grant).to_vec(),
+            expected_management_epoch: epoch,
+            grant_id: grant.to_vec(),
+        };
+        if local_primary {
+            let p = path.clone();
+            tokio::task::spawn_blocking(move || {
+                execute(
+                    &p,
+                    &Authorized {
+                        expires_at_unix: now() + 10,
+                        client_id: "cancel-pending-adoption".into(),
+                        peer: None,
+                    },
+                    RpcRequest::RevokeClusterClientGrant(request),
+                    "",
+                )
+            })
+            .await
+            .map_err(|_| RuntimeError::Storage)??;
+        } else {
+            call(
+                client,
+                &path,
+                server,
+                &url,
+                ProcId::RevokeClusterClientGrant,
+                request.encode(),
+                "node:cancel-pending-adoption".into(),
+            )
+            .await?;
+            synchronize(&path, client, cursor).await?;
+        }
     }
     let p = path.clone();
     let intents = tokio::task::spawn_blocking(move || adoption::pending_intents(&p))
         .await
         .map_err(|_| RuntimeError::Storage)??;
     for (owner, intent) in intents {
+        let guard = if let Some((credentials_path, shared)) = credentials {
+            match dispatch_guard(credentials_path, shared, &owner).await? {
+                Some(guard) => Some(guard),
+                None => {
+                    let p = path.clone();
+                    let owner = owner.clone();
+                    tokio::task::spawn_blocking(move || adoption::cancel_owner(&p, &owner))
+                        .await
+                        .map_err(|_| RuntimeError::Storage)??;
+                    continue;
+                }
+            }
+        } else {
+            None
+        };
         let p = path.clone();
         let (server, url, _, epoch, _) = tokio::task::spawn_blocking(move || route(&p))
             .await
@@ -328,6 +450,7 @@ async fn tick_with_cursor(
                 format!("paired:{owner}"),
             )
             .await?;
+            drop(guard);
             let bytes = call(
                 client,
                 &path,
@@ -350,7 +473,15 @@ async fn tick_with_cursor(
     }
     Ok(())
 }
-pub(crate) async fn run(path: PathBuf, gate: Arc<WorkGate>) {
+pub(crate) async fn run(
+    path: PathBuf,
+    gate: Arc<WorkGate>,
+    credentials_path: PathBuf,
+    credentials: Arc<tokio::sync::Mutex<rieul_daemon_core::config::ClientCredentials>>,
+) {
+    if !ENROLLMENT_SUPPORTED {
+        return;
+    }
     let mut client = None;
     let mut discovery_cursor = 0;
     let mut delay = Duration::from_secs(2);
@@ -369,7 +500,43 @@ pub(crate) async fn run(path: PathBuf, gate: Arc<WorkGate>) {
             delay = Duration::from_secs(30);
             continue;
         };
-        match tick_with_cursor(&path, client, &mut discovery_cursor).await {
+        // Cancel known revoked owners before synchronization can turn uncertain
+        // delivery into an observed accepted receipt. Revalidate separately at
+        // each dispatch; discovery never holds the credential removal lock.
+        let mut records = credentials.lock().await;
+        let fresh = match rieul_daemon_core::config::load_client_credentials_or_default(
+            &credentials_path,
+        ) {
+            Ok(records) => records,
+            Err(_) => {
+                delay = Duration::from_secs(30);
+                continue;
+            }
+        };
+        *records = fresh;
+        let active: Vec<_> = records
+            .clients
+            .iter()
+            .filter(|r| r.expires_at_unix > now())
+            .map(|r| r.client_id.clone())
+            .collect();
+        let p = path.clone();
+        if !matches!(
+            tokio::task::spawn_blocking(move || adoption::cancel_inactive(&p, &active)).await,
+            Ok(Ok(()))
+        ) {
+            delay = Duration::from_secs(30);
+            continue;
+        }
+        drop(records);
+        match tick_with_cursor(
+            &path,
+            client,
+            &mut discovery_cursor,
+            Some((&credentials_path, &credentials)),
+        )
+        .await
+        {
             Ok(()) => delay = Duration::from_secs(2),
             Err(_) => delay = (delay * 2).min(Duration::from_secs(30)),
         }
@@ -379,6 +546,53 @@ pub(crate) async fn run(path: PathBuf, gate: Arc<WorkGate>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn adoption_dispatch_reloads_owner_and_serializes_with_local_revocation() {
+        use rieul_daemon_core::config::{
+            save_client_credentials, ClientCredentialRecord, ClientCredentials,
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("clients.json");
+        let records = ClientCredentials {
+            clients: vec![ClientCredentialRecord {
+                client_id: "fixture-owner".into(),
+                label: "fixture".into(),
+                secret_sha256_base64url: "fixture-not-a-secret".into(),
+                created_at_unix: now(),
+                expires_at_unix: now() + 60,
+            }],
+        };
+        save_client_credentials(&path, &records).unwrap();
+        let shared = Arc::new(tokio::sync::Mutex::new(records.clone()));
+        let guard = dispatch_guard(&path, &shared, "fixture-owner")
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(shared.try_lock().is_err());
+        drop(guard);
+        {
+            let mut locked = shared.lock().await;
+            *locked = ClientCredentials::default();
+            save_client_credentials(&path, &locked).unwrap();
+        }
+        assert!(dispatch_guard(&path, &shared, "fixture-owner")
+            .await
+            .unwrap()
+            .is_none());
+        // Persisted expiry wins over any older in-memory cache as well.
+        let mut expired = records.clone();
+        expired.clients[0].expires_at_unix = now() - 1;
+        save_client_credentials(&path, &expired).unwrap();
+        *shared.lock().await = records;
+        assert!(dispatch_guard(&path, &shared, "fixture-owner")
+            .await
+            .unwrap()
+            .is_none());
+        std::fs::write(&path, "malformed credential fixture").unwrap();
+        assert!(dispatch_guard(&path, &shared, "fixture-owner")
+            .await
+            .is_err());
+    }
     #[test]
     fn fallback_probe_budget_rotates_without_duplicates_or_starvation() {
         for count in 0..16 {
