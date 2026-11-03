@@ -109,14 +109,32 @@ pub(crate) fn authenticate(
         },
     ))
 }
+// Live authorization must not take a writer lock just to initialize an already
+// enrolled store. Read identity, node and signed log in one consistent snapshot.
+fn authorization_snapshot(path: &Path) -> Result<(Node, State), RuntimeError> {
+    safe_file(path, false)?;
+    let mut db = Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    db.busy_timeout(Duration::from_secs(5))?;
+    let tx = db.transaction_with_behavior(TransactionBehavior::Deferred)?;
+    let node = load_node(&tx)?.ok_or(RuntimeError::InvalidState)?;
+    let identity: (Vec<u8>, Vec<u8>) =
+        tx.query_row("SELECT cluster,local FROM identity WHERE id=1", [], |r| {
+            Ok((r.get(0)?, r.get(1)?))
+        })?;
+    if identity.0 != node.g.cluster() || identity.1 != key(&node.pair) {
+        return Err(RuntimeError::InvalidProof);
+    }
+    let state = replay(&node.g, &load(&tx, node.g.cluster())?)?;
+    tx.commit()?;
+    Ok((node, state))
+}
 pub(crate) fn validate(path: &Path, principal: &Principal) -> Result<i64, RuntimeError> {
-    let (n, store) = opened(path)?;
-    principal.check(&n, &store.state()?)
+    let (n, state) = authorization_snapshot(path)?;
+    principal.check(&n, &state)
 }
 /// Current subjects for Screen's global attachment expiry, never persisted credentials.
 pub(crate) fn subjects(path: &Path) -> Result<Vec<String>, RuntimeError> {
-    let (n, store) = opened(path)?;
-    let state = store.state()?;
+    let (n, state) = authorization_snapshot(path)?;
     Ok(state
         .grants
         .keys()
@@ -208,6 +226,25 @@ mod tests {
         };
         r.signature = client.sign(&proof_body(&r).unwrap()).as_ref().to_vec();
         (dir, path, r, client)
+    }
+    #[test]
+    fn live_authorization_reads_committed_snapshot_without_waiting_for_writer() {
+        let (_d, path, request, _) = fixture();
+        let (principal, _) = authenticate(&path, &request).unwrap();
+        let mut writer = Connection::open(&path).unwrap();
+        let held = writer
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .unwrap();
+        // Same-thread held writer would make a hidden INSERT time out. A reader
+        // sees the committed grant; write authorization still rechecks on commit.
+        assert!(validate(&path, &principal).is_ok());
+        assert_eq!(subjects(&path).unwrap(), vec![principal.subject()]);
+        held.rollback().unwrap();
+        writer
+            .execute("UPDATE identity SET local=?1", params![[8u8; 32]])
+            .unwrap();
+        assert!(validate(&path, &principal).is_err());
+        assert!(subjects(&path).is_err());
     }
     #[test]
     fn client_proof_binds_cluster_node_grant_key_head_and_connection() {

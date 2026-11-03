@@ -462,3 +462,22 @@ No backend or protocol mutation, actual host access, publication or deployment.
 Primary transfer/grant management UI work is preserved separately in stash
 `primary transfer and grant management UI in progress`; it is not part of this
 review fix. Actual synthetic node process restart E2E remains outstanding.
+
+### Management UI integration: focused authorization corrections
+
+Real UI testing found authenticatedRpcSession still rejected cluster-only machines
+before reaching the existing grant authenticator. It now permits either the local
+pairing or cluster binding path; proof, target and current-grant verification are
+unchanged. The synthetic browser exercises this through a primary's approval
+revocation button, not just a directly opened transport.
+
+Full host regression also reproduced periodic authorization validation waiting
+behind an unrelated SQLite writer: opened() called Store::open(), whose identity
+INSERT OR IGNORE required a write lock. Live client validation and Screen subjects
+now use a read-only deferred transaction containing node, stored identity and
+signature-verified log. They fail closed on missing/mismatched identity and retain
+all principal checks. Write authorization still rechecks in the mutation's write
+transaction. A same-thread held BEGIN IMMEDIATE regression verifies committed
+snapshot reads do not secretly request a writer lock, then corrupts identity and
+verifies rejection. Full host suite: 170 passed / 5 ignored.
+These changes require focused review before deployment; no runtime host modified.

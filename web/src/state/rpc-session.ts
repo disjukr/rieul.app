@@ -362,7 +362,10 @@ function createRpcSessionController(
   }
   function authenticatedRpcSession(): Promise<ManagedRpcSession> {
     const machine = currentMachine();
-    if (!machine?.clientId || !machine.clientSecret) {
+    if (
+      !machine ||
+      (!machine.cluster && (!machine.clientId || !machine.clientSecret))
+    ) {
       throw new Error("missing paired client credentials");
     }
     return getAuthenticatedRpcSession(machine);
