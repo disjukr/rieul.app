@@ -100,6 +100,7 @@ import {
   getClusterPeerChallengeProc,
   executeClusterPeerRequestProc,
   getClusterRemovalProofProc,
+  leaveClusterProc,
   getClusterRevocationIssuesProc,
 } from "./rpc.ts";
 import type {
@@ -177,6 +178,7 @@ import type {
   JobsTableEvent,
   KillJobReq,
   KillProcessReq,
+  LeaveClusterReq,
   ListAgentSessionsReq,
   ListAgentSessionsRes,
   ListAgentSessionTurnsReq,
@@ -609,6 +611,10 @@ export function executeClusterPeerRequest(transport: WebTransport, request: Clus
 
 export function getClusterRemovalProof(transport: WebTransport, request: ReadClusterHistoryReq): Promise<ClusterHistory> {
   return callUnary(transport, getClusterRemovalProofProc, request);
+}
+
+export function leaveCluster(transport: WebTransport, request: LeaveClusterReq): Promise<ClusterState> {
+  return callUnary(transport, leaveClusterProc, request);
 }
 
 export function getClusterRevocationIssues(transport: WebTransport): Promise<ClusterRevocationIssues> {

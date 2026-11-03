@@ -192,3 +192,39 @@ without claiming Leave support. Browser UI for these states is not implemented.
 P2 validation: host 158 passed / 3 ignored; web/codegen 112 passed; TypeScript
 check and web build passed. Windows runtime and browser cluster E2E remain
 unverified. No main push, release or actual host/pairing changes were made.
+
+## Normal Leave follow-up
+
+RPC 96 LeaveCluster is a local paired-client action. It durably records one
+operation for the current cluster/admission and returns Leaving, not a claim
+that remote membership was already removed. The worker first synchronizes with
+the primary, requests Remove for its own admission, and confirms detachment by
+its signed self-removal prefix. No generic history or management permission is
+restored after removal. A lost Remove response is recovered by that same proof
+path; identical Leave retries return the current durable state.
+
+The primary cannot leave before transferring authority. A target with an
+acceptance still sealable at its current prefix cannot leave. These checks share
+the local transaction with transfer preparation; new transfer preparation and
+new adoption begin/complete are refused after Leaving is recorded. Existing
+ordinary local pairing is unchanged. Primary unavailability leaves the request
+pending instead of silently detaching or force-removing remotely.
+
+Leave receipts bind operation ID to cluster/admission across rejoin. Replaying
+an old operation cannot leave a new incarnation. There is at most one operation
+per admission and a 512-receipt local bound; exhaustion returns Limit. Known
+operation conflicts are rejected before recording Leave. This initial path has
+no force-local-detach or cancel-Leave command.
+
+The stash restoration conflicted only in shared RPC dispatch/registration,
+state handlers and schema additions. Both reviewed adoption APIs and the fresh
+credential-protected import boundary were preserved. The original stash and
+local patch remain recovery copies, not unmerged production changes.
+
+Actual localhost WebTransport tests cover normal Leave, unavailable primary,
+duplicate requests, an acknowledged primary Remove deliberately not applied at
+the leaving node (response-loss model), own-removal proof recovery and stale
+Leave after a new cluster is created. This is not a process-kill/power-loss test.
+The durable transfer-target rejection also has regression coverage. Host tests
+passed 159 / 3 ignored; browser cluster UI and restricted join sync remain
+unfinished. Windows enrollment stays disabled. No main push or deployment.

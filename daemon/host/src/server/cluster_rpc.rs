@@ -8,6 +8,7 @@ pub(super) fn is_cluster_proc(proc: u64) -> bool {
         ProcId::from_u64(proc),
         Some(
             ProcId::GetClusterRevocationIssues
+                | ProcId::LeaveCluster
                 | ProcId::GetClusterRemovalProof
                 | ProcId::GetClusterPeerChallenge
                 | ProcId::ExecuteClusterPeerRequest
@@ -207,6 +208,7 @@ handler!(
     GetClusterRevocationIssues,
     ()
 );
+handler!(leave_cluster_rpc, LeaveCluster, LeaveClusterReq);
 handler!(get_cluster_state_rpc, GetClusterState, ());
 handler!(create_cluster_rpc, CreateCluster, CreateClusterReq);
 handler!(
@@ -301,6 +303,151 @@ mod tests {
             } => (genesis, head, local_admission_id),
             other => panic!("{other:?}"),
         }
+    }
+    #[tokio::test]
+    async fn actual_webtransport_leave_waits_for_primary_and_recovers_lost_remove_response() {
+        tokio::time::timeout(Duration::from_secs(25), async {
+            for lose_response in [false, true] {
+                let a = Fixture::new().await;
+                let b = Fixture::new().await;
+                a.authenticate().await;
+                b.authenticate().await;
+                let created = ClusterState::decode(
+                    &ok(
+                        &a,
+                        ProcId::CreateCluster,
+                        Some(
+                            CreateClusterReq {
+                                operation_id: vec![1; 32],
+                                confirmed: true,
+                            }
+                            .encode(),
+                        ),
+                    )
+                    .await,
+                )
+                .unwrap();
+                let (genesis, head, _) = member(created);
+                let consent = ClusterJoinConsent::decode(
+                    &ok(
+                        &b,
+                        ProcId::PrepareClusterJoin,
+                        Some(
+                            PrepareClusterJoinReq {
+                                operation_id: vec![2; 32],
+                                genesis,
+                                confirmed: true,
+                            }
+                            .encode(),
+                        ),
+                    )
+                    .await,
+                )
+                .unwrap();
+                let admission = consent.admission_id.clone();
+                ok(
+                    &a,
+                    ProcId::AdmitClusterMember,
+                    Some(
+                        AdmitClusterMemberReq {
+                            operation_id: vec![3; 32],
+                            expected_management_epoch: 1,
+                            consent,
+                        }
+                        .encode(),
+                    ),
+                )
+                .await;
+                ok(
+                    &b,
+                    ProcId::FinishClusterJoin,
+                    Some(
+                        FinishClusterJoinReq {
+                            operation_id: vec![2; 32],
+                            history: history(&a, head.cluster_id).await,
+                        }
+                        .encode(),
+                    ),
+                )
+                .await;
+                let leave = LeaveClusterReq {
+                    operation_id: vec![4; 32],
+                };
+                assert!(matches!(
+                    a.unary(ProcId::LeaveCluster, Some(leave.encode())).await,
+                    ReqResMessage::ResponseUnaryError { .. }
+                ));
+                let pending = ok(&b, ProcId::LeaveCluster, Some(leave.encode())).await;
+                assert!(matches!(
+                    ClusterState::decode(&pending).unwrap(),
+                    ClusterState::Leaving { .. }
+                ));
+                assert_eq!(
+                    ok(&b, ProcId::LeaveCluster, Some(leave.encode())).await,
+                    pending
+                );
+                let path = b._dir.path().join("rieul.cluster.sqlite");
+                assert!(runtime::worker::tick(&path, &b._client).await.is_err());
+                assert!(matches!(get(&b).await, ClusterState::Leaving { .. }));
+                if lose_response {
+                    // Commit at the primary but deliberately never apply the
+                    // returned entry at B, modeling response loss/restart.
+                    ok(
+                        &a,
+                        ProcId::RemoveClusterMember,
+                        Some(
+                            RemoveClusterMemberReq {
+                                operation_id: leave.operation_id.clone(),
+                                expected_management_epoch: 1,
+                                admission_id: admission,
+                            }
+                            .encode(),
+                        ),
+                    )
+                    .await;
+                }
+                runtime::worker::tick(&path, &a._client).await.unwrap();
+                assert!(matches!(get(&b).await, ClusterState::Removed { .. }));
+                assert!(matches!(
+                    ClusterState::decode(&ok(&b, ProcId::LeaveCluster, Some(leave.encode())).await)
+                        .unwrap(),
+                    ClusterState::Removed { .. }
+                ));
+                assert!(matches!(
+                    b.unary(
+                        ProcId::LeaveCluster,
+                        Some(
+                            LeaveClusterReq {
+                                operation_id: vec![5; 32]
+                            }
+                            .encode()
+                        )
+                    )
+                    .await,
+                    ReqResMessage::ResponseUnaryError { .. }
+                ));
+                assert_eq!(member(get(&a).await).1.sequence, 2);
+                ok(
+                    &b,
+                    ProcId::CreateCluster,
+                    Some(
+                        CreateClusterReq {
+                            operation_id: vec![6; 32],
+                            confirmed: true,
+                        }
+                        .encode(),
+                    ),
+                )
+                .await;
+                assert!(matches!(
+                    b.unary(ProcId::LeaveCluster, Some(leave.encode())).await,
+                    ReqResMessage::ResponseUnaryError { .. }
+                ));
+                assert!(matches!(get(&b).await, ClusterState::Member { .. }));
+            }
+        })
+        .await
+        .unwrap();
     }
     #[tokio::test]
     async fn actual_webtransport_discovers_transferred_primary_after_old_primary_stops() {

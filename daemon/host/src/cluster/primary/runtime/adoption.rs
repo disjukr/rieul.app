@@ -178,6 +178,9 @@ pub(super) fn begin(
         .transaction_with_behavior(TransactionBehavior::Immediate)?;
     let current = load_node(&tx)?.ok_or(RuntimeError::InvalidState)?;
     require_member(&current)?;
+    if leaving(&tx, &current)? {
+        return Err(RuntimeError::InvalidState);
+    }
     if current.g != n.g || current.admission != n.admission {
         return Err(RuntimeError::Conflict);
     }
@@ -227,6 +230,9 @@ pub(super) fn complete(
         .transaction_with_behavior(TransactionBehavior::Immediate)?;
     let current = load_node(&tx)?.ok_or(RuntimeError::InvalidState)?;
     require_member(&current)?;
+    if leaving(&tx, &current)? {
+        return Err(RuntimeError::InvalidState);
+    }
     let p = pending(&tx, &auth.client_id, grant)?;
     let c = &p.challenge;
     if cancelled(&tx, grant)? {

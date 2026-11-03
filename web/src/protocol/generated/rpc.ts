@@ -96,6 +96,7 @@ export enum ProcId {
   GetClusterPeerChallenge = 93,
   ExecuteClusterPeerRequest = 94,
   GetClusterRemovalProof = 95,
+  LeaveCluster = 96,
   GetClusterRevocationIssues = 97,
 }
 
@@ -1452,6 +1453,7 @@ export interface ApplyClusterHistoryReq {
 }
 
 export type ClusterState =
+  | { type: "leaving"; clusterId: Uint8Array; admissionId: Uint8Array }
   | { type: "unaffiliated" }
   | { type: "joining"; consent: ClusterJoinConsent }
   | { type: "member"; genesis: ClusterGenesis; head: ClusterHead; localAdmissionId: Uint8Array; members: ClusterMember[]; primaryTransition: ClusterPrimaryTransition }
@@ -1554,6 +1556,10 @@ export interface ClusterRevocationIssue {
 
 export interface ClusterRevocationIssues {
   issues: ClusterRevocationIssue[];
+}
+
+export interface LeaveClusterReq {
+  operationId: Uint8Array;
 }
 
 export interface CreateAgentProjectReq {
@@ -3289,6 +3295,18 @@ export const getClusterRemovalProofProc: ProcCodec<ReadClusterHistoryReq, Cluste
   decodeError: decodeClusterErrorValue,
 };
 
+export const leaveClusterProc: ProcCodec<LeaveClusterReq, ClusterState, ClusterError> = {
+  id: ProcId.LeaveCluster,
+  name: "LeaveCluster",
+  stream: "unary",
+  requestType: "LeaveClusterReq",
+  responseType: "ClusterState",
+  errorType: "ClusterError",
+  encodeRequest: encodeLeaveClusterReqValue,
+  decodeResponse: decodeClusterStateValue,
+  decodeError: decodeClusterErrorValue,
+};
+
 export const getClusterRevocationIssuesProc: ProcCodec<undefined, ClusterRevocationIssues, ClusterError> = {
   id: ProcId.GetClusterRevocationIssues,
   name: "GetClusterRevocationIssues",
@@ -3395,6 +3413,7 @@ export const procs = {
   [ProcId.GetClusterPeerChallenge]: getClusterPeerChallengeProc,
   [ProcId.ExecuteClusterPeerRequest]: executeClusterPeerRequestProc,
   [ProcId.GetClusterRemovalProof]: getClusterRemovalProofProc,
+  [ProcId.LeaveCluster]: leaveClusterProc,
   [ProcId.GetClusterRevocationIssues]: getClusterRevocationIssuesProc,
 } as const;
 
@@ -9359,6 +9378,12 @@ export function decodeApplyClusterHistoryReqValue(value: CborValue): ApplyCluste
 
 export function encodeClusterStateValue(value: ClusterState): CborValue {
   switch (value.type) {
+    case "leaving": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, bytes(required(value.clusterId, "ClusterState.Leaving.clusterId")));
+      fields.set(2, bytes(required(value.admissionId, "ClusterState.Leaving.admissionId")));
+      return [5, fields];
+    }
     case "unaffiliated": {
       const fields = new Map<number, CborValue>();
       return [0, fields];
@@ -9395,6 +9420,12 @@ export function encodeClusterStateValue(value: ClusterState): CborValue {
 export function decodeClusterStateValue(value: CborValue): ClusterState {
   const [variantId, fields] = expectUnion(value);
   switch (variantId) {
+    case 5:
+      return {
+        type: "leaving",
+        clusterId: fieldOrDefault(fields.get(1), (value) => bytesValue(value), () => new Uint8Array()),
+        admissionId: fieldOrDefault(fields.get(2), (value) => bytesValue(value), () => new Uint8Array()),
+      };
     case 0:
       return {
         type: "unaffiliated",
@@ -9820,6 +9851,19 @@ export function decodeClusterRevocationIssuesValue(value: CborValue): ClusterRev
   const fields = expectMap(value);
   return {
     issues: fieldOrDefault(fields.get(1), (value) => array(value).map((item) => decodeClusterRevocationIssueValue(item)), () => []),
+  };
+}
+
+export function encodeLeaveClusterReqValue(value: LeaveClusterReq): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, bytes(required(value.operationId, "LeaveClusterReq.operationId")));
+  return fields;
+}
+
+export function decodeLeaveClusterReqValue(value: CborValue): LeaveClusterReq {
+  const fields = expectMap(value);
+  return {
+    operationId: fieldOrDefault(fields.get(1), (value) => bytesValue(value), () => new Uint8Array()),
   };
 }
 
@@ -13755,7 +13799,9 @@ function defaultApplyClusterHistoryReq(): ApplyClusterHistoryReq {
 
 function defaultClusterState(): ClusterState {
   return {
-    type: "unaffiliated",
+    type: "leaving",
+    clusterId: new Uint8Array(),
+    admissionId: new Uint8Array(),
   };
 }
 
@@ -13870,6 +13916,12 @@ function defaultClusterRevocationIssue(): ClusterRevocationIssue {
 function defaultClusterRevocationIssues(): ClusterRevocationIssues {
   return {
     issues: [],
+  };
+}
+
+function defaultLeaveClusterReq(): LeaveClusterReq {
+  return {
+    operationId: new Uint8Array(),
   };
 }
 

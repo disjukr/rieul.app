@@ -215,6 +215,13 @@ struct ApplyClusterHistoryReq {
 }
 
 union ClusterState {
+  @ id - 5
+  Leaving(
+    @ id - 1
+    clusterId: bytes,
+    @ id - 2
+    admissionId: bytes,
+  ),
   @ id - 0
   Unaffiliated,
   @ id - 1
@@ -445,4 +452,12 @@ struct ClusterRevocationIssue {
 struct ClusterRevocationIssues {
   @ id - 1
   issues: ClusterRevocationIssue[],
+}
+
+@ id - 96
+@ stream - unary
+proc LeaveCluster = LeaveClusterReq -> ClusterState throws ClusterError
+struct LeaveClusterReq {
+  @ id - 1
+  operationId: bytes,
 }

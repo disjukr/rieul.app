@@ -426,6 +426,35 @@ async fn tick_with_cursor(
         }
     }
     let p = path.clone();
+    let leaving = tokio::task::spawn_blocking(move || leave_request(&p))
+        .await
+        .map_err(|_| RuntimeError::Storage)??;
+    if let Some(request) = leaving {
+        let p = path.clone();
+        let (server, url, _, _, _) = tokio::task::spawn_blocking(move || route(&p))
+            .await
+            .map_err(|_| RuntimeError::Storage)??;
+        // Once Remove is committed this node loses normal peer authority.
+        // Whether its response arrives or not, only its own removal proof is
+        // used to finish local detachment. Never infer success from enqueue.
+        let sent = call(
+            client,
+            &path,
+            server,
+            &url,
+            ProcId::RemoveClusterMember,
+            request.encode(),
+            format!("node:leave:{local:?}"),
+        )
+        .await;
+        let synced = synchronize(&path, client, cursor, credentials).await;
+        if synced.is_ok() {
+            return Ok(());
+        }
+        sent?;
+        return synced;
+    }
+    let p = path.clone();
     let intents = tokio::task::spawn_blocking(move || adoption::pending_intents(&p))
         .await
         .map_err(|_| RuntimeError::Storage)??;

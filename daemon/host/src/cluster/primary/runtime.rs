@@ -220,6 +220,7 @@ fn database(path: &Path, create: bool) -> Result<Connection, RuntimeError> {
     db.execute_batch("PRAGMA synchronous=FULL;
     CREATE TABLE IF NOT EXISTS node(id INTEGER PRIMARY KEY CHECK(id=1),pkcs8 BLOB NOT NULL,nonce BLOB NOT NULL,root BLOB NOT NULL,root_key BLOB NOT NULL,admission BLOB NOT NULL,operation BLOB NOT NULL,phase INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS node_endpoint(id INTEGER PRIMARY KEY CHECK(id=1),local TEXT NOT NULL,root TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS leaving(operation BLOB PRIMARY KEY,cluster BLOB NOT NULL,admission BLOB NOT NULL,UNIQUE(cluster,admission));
     CREATE TABLE IF NOT EXISTS retired_local(operation BLOB PRIMARY KEY,cluster BLOB NOT NULL,admission BLOB NOT NULL);")?;
     Ok(db)
 }
@@ -373,6 +374,97 @@ fn opened(path: &Path) -> Result<(Node, Store), RuntimeError> {
     let store = Store::open(path, node.g.clone(), key(&node.pair))?;
     Ok((node, store))
 }
+fn leaving(db: &Connection, n: &Node) -> Result<bool, RuntimeError> {
+    Ok(db.query_row(
+        "SELECT EXISTS(SELECT 1 FROM leaving WHERE cluster=?1 AND admission=?2)",
+        params![n.g.cluster(), n.admission],
+        |r| r.get(0),
+    )?)
+}
+fn leave_request(path: &Path) -> Result<Option<RemoveClusterMemberReq>, RuntimeError> {
+    let (n, store) = opened(path)?;
+    if n.phase != 2 {
+        return Ok(None);
+    }
+    let operation: Option<Vec<u8>> = store
+        .db
+        .query_row(
+            "SELECT operation FROM leaving WHERE cluster=?1 AND admission=?2",
+            params![n.g.cluster(), n.admission],
+            |r| r.get(0),
+        )
+        .optional()?;
+    let s = store.state()?;
+    operation
+        .map(|operation| {
+            Ok(RemoveClusterMemberReq {
+                operation_id: id(&operation)?.to_vec(),
+                admission_id: n.admission.to_vec(),
+                expected_management_epoch: s.epoch as i64,
+            })
+        })
+        .transpose()
+}
+fn request_leave(
+    path: &Path,
+    auth: &Authorized,
+    operation: Id,
+) -> Result<ClusterState, RuntimeError> {
+    let (n, mut store) = opened(path)?;
+    let tx = store
+        .db
+        .transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let current = load_node(&tx)?.ok_or(RuntimeError::InvalidState)?;
+    if current.g != n.g || current.admission != n.admission {
+        return Err(RuntimeError::Conflict);
+    }
+    authorize_transaction(&tx, &current, auth)?;
+    let binding: Option<(Vec<u8>, Vec<u8>)> = tx
+        .query_row(
+            "SELECT cluster,admission FROM leaving WHERE operation=?1",
+            params![operation],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()?;
+    if let Some((cluster, admission)) = binding {
+        if cluster != current.g.cluster() || admission != current.admission {
+            return Err(RuntimeError::Conflict);
+        }
+    }
+    let old: Option<Vec<u8>> = tx
+        .query_row(
+            "SELECT operation FROM leaving WHERE cluster=?1 AND admission=?2",
+            params![current.g.cluster(), current.admission],
+            |r| r.get(0),
+        )
+        .optional()?;
+    if let Some(old) = old {
+        if old != operation {
+            return Err(RuntimeError::Conflict);
+        }
+        tx.commit()?;
+        return state(path);
+    }
+    require_member(&current)?;
+    let s = replay(&current.g, &load(&tx, current.g.cluster())?)?;
+    if s.operations.contains(&operation) {
+        return Err(RuntimeError::Conflict);
+    }
+    let count: u64 = tx.query_row("SELECT COUNT(*) FROM leaving", [], |r| r.get(0))?;
+    if count >= MAX_HISTORY as u64 {
+        return Err(RuntimeError::Limit);
+    }
+    let prepared:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM prepared WHERE epoch=?1 AND prefix_sequence=?2 AND prefix_hash=?3)",params![s.epoch,s.sequence,s.head],|r|r.get(0))?;
+    if s.primary == current.admission || prepared {
+        return Err(RuntimeError::InvalidState);
+    }
+    tx.execute(
+        "INSERT INTO leaving VALUES(?1,?2,?3)",
+        params![operation, current.g.cluster(), current.admission],
+    )?;
+    tx.commit()?;
+    state(path)
+}
 fn state(path: &Path) -> Result<ClusterState, RuntimeError> {
     if !path.exists() {
         return Ok(ClusterState::Unaffiliated);
@@ -391,6 +483,12 @@ fn state(path: &Path) -> Result<ClusterState, RuntimeError> {
             admission_id: n.admission.to_vec(),
         }),
         2 => {
+            if leaving(&store.db, &n)? {
+                return Ok(ClusterState::Leaving {
+                    cluster_id: n.g.cluster().to_vec(),
+                    admission_id: n.admission.to_vec(),
+                });
+            }
             let s = store.state()?;
             if s.members.get(&n.admission) != Some(&key(&n.pair)) {
                 return Err(RuntimeError::Retired);
@@ -673,6 +771,9 @@ pub(crate) fn execute(
                 issues: adoption::issues(path)?,
             })
         }
+        RpcRequest::LeaveCluster(r) => {
+            RpcResponse::LeaveCluster(request_leave(path, auth, id(&r.operation_id)?)?)
+        }
         RpcRequest::CreateCluster(r) => {
             if !r.confirmed {
                 return Err(RuntimeError::InvalidState);
@@ -829,6 +930,9 @@ pub(crate) fn execute(
             let current = load_node(&tx)?.ok_or(RuntimeError::InvalidState)?;
             require_member(&current)?;
             authorize_transaction(&tx, &current, auth)?;
+            if leaving(&tx, &current)? {
+                return Err(RuntimeError::InvalidState);
+            }
             let old:Option<(u64,Vec<u8>,Vec<u8>,u64,Vec<u8>)>=tx.query_row("SELECT epoch,target,acceptance,prefix_sequence,prefix_hash FROM prepared WHERE operation=?1",params![op],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?))).optional()?;
             let response = if let Some((epoch, target, signature, sequence, prefix)) = old {
                 let entries = load(&tx, n.g.cluster())?;
@@ -1002,6 +1106,10 @@ mod auth_regression_tests {
         .unwrap();
         let (_, mut bst) = opened(&bpath).unwrap();
         let transfer = bst.prepare_transfer(&bn.pair, [4; 32]).unwrap();
+        assert!(matches!(
+            request_leave(&bpath, &auth(), [5; 32]),
+            Err(RuntimeError::InvalidState)
+        ));
         assert!(matches!(
             execute(
                 &bpath,
