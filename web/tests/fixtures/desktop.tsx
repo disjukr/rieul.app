@@ -6,9 +6,12 @@ import { render } from "@solidjs/web";
 import { desktopBunja } from "../../src/state/desktop.ts";
 import { DesktopTool } from "../../src/view/workbench/tool/desktop/index.tsx";
 import { bindDesktopInput } from "../../src/protocol/desktop-input.ts";
-import type {
-  DesktopConfiguration,
-  DesktopInputEvent,
+import {
+  DesktopQualityVerification,
+  type DesktopQualityPolicy,
+  type DesktopQualitySupport,
+  type DesktopConfiguration,
+  type DesktopInputEvent,
 } from "../../src/protocol/generated/rpc.ts";
 function Fixture() {
   const [phase, setPhase] = createSignal<"idle" | "viewing">("idle");
@@ -24,8 +27,65 @@ function Fixture() {
     scale: 1,
     dpi: 96,
   };
+  const [qualitySupport, setQualitySupport] =
+    createSignal<DesktopQualitySupport>();
+  const [qualityPolicy, setQualityPolicy] =
+    createSignal<DesktopQualityPolicy>();
   const [inputReady, setInputReady] = createSignal(false);
   const model = {
+    qualitySupported: createMemo(() =>
+      new URLSearchParams(location.search).has("quality"),
+    ),
+    qualitySupport,
+    qualityPolicy,
+    qualityBusy: createMemo(() => false),
+    qualityMessage: createSignal<string>()[0],
+    async queryQuality() {
+      setQualitySupport({
+        layoutEpoch: 1,
+        revision: 1,
+        automaticAvailable: true,
+        concurrentThroughputVerified: false,
+        policy: {
+          type: "manual",
+          target: { fps: 60, totalBitrate: 20_000_000 },
+        },
+        candidates: [
+          {
+            target: { fps: 30, totalBitrate: 5_000_000 },
+            tracks: configuration()!.tracks,
+            verification: DesktopQualityVerification.Verified,
+            reason: "Fixture encoder verified; throughput unverified.",
+          },
+          {
+            target: { fps: 120, totalBitrate: 50_000_000 },
+            tracks: configuration()!.tracks,
+            verification: DesktopQualityVerification.Unknown,
+            reason: "Unverified.",
+          },
+        ],
+      });
+    },
+    async applyQuality(policy: DesktopQualityPolicy) {
+      setQualityPolicy(policy);
+      const target =
+        policy.type === "manual"
+          ? policy.target
+          : { fps: 30, totalBitrate: 5_000_000 };
+      setConfiguration((c) => ({
+        ...c!,
+        totalBitrate: target.totalBitrate,
+        tracks: c!.tracks.map((t) => ({
+          ...t,
+          codecEpoch: t.codecEpoch + 1,
+          viewport: {
+            ...t.viewport,
+            fps: target.fps,
+            bitrate: target.totalBitrate,
+          },
+        })),
+      }));
+    },
     availabilityMessage: createMemo(() => undefined),
     outputHeight,
     maxViewports: createSignal(8)[0],

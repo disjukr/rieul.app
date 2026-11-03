@@ -3,12 +3,16 @@
 use crate::maintenance::{WorkGate, WorkGuard};
 use rieul_daemon_core::generated::rpc::{
     DesktopControlAction, DesktopInputEvent, DesktopInputFrame, DesktopKeyboardMode,
-    DesktopViewport,
+    DesktopViewport, DesktopQualityPolicy,
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
 };
+
+#[path = "desktop_quality.rs"]
+mod quality;
+pub use quality::validate_video_probe;
 
 pub const PROFILE: u64 = 1;
 pub const MAX_FRAME: usize = 16 * 1024;
@@ -810,6 +814,10 @@ pub trait Backend: Send + Sync {
         self.input(&DesktopInputEvent::ReleaseAll)
     }
 
+    /// Synthetic encoding only; must never capture a screen or inject input.
+    fn probe_video(&self, _track: &rieul_daemon_core::generated::rpc::DesktopTrack) -> rieul_daemon_core::generated::rpc::DesktopQualityVerification {
+        rieul_daemon_core::generated::rpc::DesktopQualityVerification::Unknown
+    }
     fn capabilities(&self) -> rieul_daemon_core::generated::rpc::DesktopCapabilities;
     fn displays(&self) -> Vec<rieul_daemon_core::generated::rpc::DesktopDisplay>;
     fn input(&self, event: &DesktopInputEvent) -> Result<(), Error>;
@@ -883,6 +891,9 @@ impl Input for BackendInput {
 }
 /// Owned by one daemon runtime. All controllers share this one state machine.
 pub struct Runtime {
+    quality: std::sync::Mutex<BTreeMap<String, quality::State>>,
+    quality_operation: std::sync::Mutex<()>,
+    quality_samples: std::sync::Mutex<BTreeMap<(String, u64), quality::Sample>>,
     state: std::sync::Mutex<Desktop<BackendInput>>,
     backend: Option<Arc<dyn Backend>>,
     pub(crate) changed: tokio::sync::watch::Sender<u64>,
@@ -900,6 +911,7 @@ impl Runtime {
     pub fn new(gate: Arc<WorkGate>, backend: Option<Arc<dyn Backend>>) -> Arc<Self> {
         let (changed, _) = tokio::sync::watch::channel(0);
         Arc::new(Self {
+            quality: Default::default(), quality_operation: Default::default(), quality_samples: Default::default(),
             state: std::sync::Mutex::new(Desktop::new(gate.clone(), BackendInput(backend.clone()))),
             backend,
             changed,
@@ -930,6 +942,8 @@ impl Runtime {
             self.codecs.lock().map_err(|_| Error::Backend)?.clear();
             self.configurations.lock().map_err(|_| Error::Backend)?.clear();
             self.feedback.lock().map_err(|_| Error::Backend)?.clear();
+            self.quality.lock().map_err(|_| Error::Backend)?.clear();
+            self.quality_samples.lock().map_err(|_| Error::Backend)?.clear();
             *self.layout_displays.lock().map_err(|_| Error::Backend)? = None;
             self.changed.send_modify(|n| *n = n.wrapping_add(1));
         }
@@ -977,6 +991,8 @@ impl Runtime {
             .lock()
             .map_err(|_| Error::Backend)?
             .retain(|(id, _), _| d.attachments.contains_key(id));
+        self.quality.lock().map_err(|_| Error::Backend)?.retain(|id, _| d.attachments.contains_key(id));
+        self.quality_samples.lock().map_err(|_| Error::Backend)?.retain(|(id, _), _| d.attachments.contains_key(id));
         self.changed.send_modify(|n| *n = n.wrapping_add(1));
         result
     }
@@ -1208,6 +1224,8 @@ impl Runtime {
                 return Err(Error::Stale);
             }
             a.sequence = frame.sequence;
+            self.quality_samples.lock().map_err(|_| Error::Backend)?.entry((frame.attach_id.clone(), *track_id)).or_default()
+                .receive(*codec_epoch, *group_id, *queue_depth, *decode_micros, *render_micros);
             self.feedback.lock().map_err(|_| Error::Backend)?.insert(
                 (frame.attach_id.clone(), *track_id),
                 (std::time::Instant::now(), *queue_depth),
@@ -1269,7 +1287,7 @@ impl Runtime {
         }).collect();
         self.configure_impl(auth, connection, now, ConfigureDesktopViewportsReq {
             attach_id: id.to_owned(), layout_epoch, viewports, total_bitrate: budget,
-        }, true)
+        }, true, None)
     }
     pub(crate) fn configure(
         &self,
@@ -1278,7 +1296,7 @@ impl Runtime {
         now: u64,
         request: rieul_daemon_core::generated::rpc::ConfigureDesktopViewportsReq,
     ) -> Result<rieul_daemon_core::generated::rpc::DesktopConfiguration, Error> {
-        self.configure_impl(auth, connection, now, request, false)
+        self.configure_impl(auth, connection, now, request, false, None)
     }
     fn configure_impl(
         &self,
@@ -1287,12 +1305,17 @@ impl Runtime {
         now: u64,
         request: rieul_daemon_core::generated::rpc::ConfigureDesktopViewportsReq,
         server_owned: bool,
+        quality_change: Option<(u64, DesktopQualityPolicy, bool)>,
     ) -> Result<rieul_daemon_core::generated::rpc::DesktopConfiguration, Error> {
         use rieul_daemon_core::generated::rpc::*;
         let backend = self.backend.as_ref().ok_or(Error::Unsupported)?;
         let displays = backend.displays();
         self.mutate(|d| {
             d.authorize(auth, connection, &request.attach_id, now)?;
+            if let Some((revision, _, _)) = &quality_change {
+                let current = self.configuration(&request.attach_id).ok_or(Error::Stale)?;
+                if quality::revision(&current) != *revision || !self.quality.lock().map_err(|_| Error::Backend)?.contains_key(&request.attach_id) { return Err(Error::Stale); }
+            }
             if !server_owned && d.attachments[&request.attach_id].server_viewports {
                 return Err(Error::Invalid);
             }
@@ -1355,6 +1378,19 @@ impl Runtime {
                     })
                     .collect(),
             };
+            if let Some((_, policy, new_policy)) = quality_change {
+                let mut states = self.quality.lock().map_err(|_| Error::Backend)?;
+                let state = states.get_mut(&request.attach_id).ok_or(Error::Stale)?;
+                state.revision = quality::revision(&configuration);
+                if matches!(policy, DesktopQualityPolicy::Manual { .. }) {
+                    state.adaptive.clear();
+                } else if new_policy {
+                    state.adaptive = state.verified.clone();
+                }
+                state.policy = policy;
+                state.last_change = std::time::Instant::now();
+                state.healthy = 0;
+            }
             self.configurations
                 .lock()
                 .map_err(|_| Error::Backend)?

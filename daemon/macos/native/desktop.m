@@ -131,13 +131,13 @@ static void encoded(void *ref,void *source,OSStatus status,VTEncodeInfoFlags fla
 }
 - (void)dealloc { if(compression) { VTCompressionSessionInvalidate(compression); CFRelease(compression); } if(latest) CVPixelBufferRelease(latest); }
 @end
-static bool synthetic_frame(uint32_t *codec,RDPacket emit,void *context) {
+static bool synthetic_frame_at(uint32_t width,uint32_t height,uint32_t fps,uint32_t bitrate,uint32_t *codec,RDPacket emit,void *context) {
     @autoreleasepool {
         RDStream *self=[RDStream new]; self->packet=[NSMutableData new];
-        self->compression=encoder(640,480,60,2000000,encoded,(__bridge void *)self);
+        self->compression=encoder(width,height,fps,bitrate,encoded,(__bridge void *)self);
         if(!self->compression) return false;
         CVPixelBufferRef image=NULL;
-        if(CVPixelBufferCreate(NULL,640,480,kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,NULL,&image)) return false;
+        if(CVPixelBufferCreate(NULL,width,height,kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,NULL,&image)) return false;
         CVPixelBufferLockBaseAddress(image,0);
         for(size_t plane=0;plane<2;plane++) memset(CVPixelBufferGetBaseAddressOfPlane(image,plane),plane?128:16,CVPixelBufferGetBytesPerRowOfPlane(image,plane)*CVPixelBufferGetHeightOfPlane(image,plane));
         CVPixelBufferUnlockBaseAddress(image,0);
@@ -152,8 +152,8 @@ static bool synthetic_frame(uint32_t *codec,RDPacket emit,void *context) {
         return !emit || emit(context,self->packet.bytes,self->packet.length,0);
     }
 }
-bool rd_hardware_codec(uint32_t *codec) { return synthetic_frame(codec,NULL,NULL); }
-bool rd_synthetic_packet(RDPacket emit,void *context) { uint32_t codec; return synthetic_frame(&codec,emit,context); }
+bool rd_hardware_codec(uint32_t *codec) { return synthetic_frame_at(640,480,60,2000000,codec,NULL,NULL); }
+bool rd_synthetic_packet(RDPacket emit,void *context) { uint32_t codec; return synthetic_frame_at(640,480,60,2000000,&codec,emit,context); }
 bool rd_capture_destroy(void *handle);
 // The returned object owns a bounded (latest only) frame slot and a hardware session.
 void *rd_capture_create(uint32_t id,double x,double y,double w,double h,uint32_t width,uint32_t height,uint32_t fps,uint32_t bitrate,bool *shutdown_failed) {
@@ -277,4 +277,11 @@ bool rd_av1_hardware_encoder_available(void) {
         VTCompressionSessionInvalidate(session);CFRelease(session);
         return hardware;
     }
+}
+
+// Bounded synthetic encoder validation. No display capture or input APIs are used.
+bool rd_probe_video(uint32_t width,uint32_t height,uint32_t fps,uint32_t bitrate,uint32_t *codec) {
+    if(width<2 || height<2 || width>4096 || height>4096 || width%2 || height%2 ||
+       (uint64_t)width*height>8388608 || fps<1 || fps>120 || bitrate<1 || bitrate>100000000) return false;
+    return synthetic_frame_at(width,height,fps,bitrate,codec,NULL,NULL);
 }

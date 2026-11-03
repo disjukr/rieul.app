@@ -238,10 +238,12 @@ impl HostRpcHandler {
             let mut previous_cursor = None;
             let mut tick = tokio::time::interval(Duration::from_millis(100));
             loop {
+                let mut quality_tick = false;
                 tokio::select! {
                     _ = send.stopped() => return Ok(()),
                     _ = changed.changed() => {},
                     _ = tick.tick() => {
+                        quality_tick = true;
                         if self.desktop_auth().await.is_err() { return Ok(()); }
                         let runtime=self.desktop.clone();
                         if let Some(work)=runtime.capture_work(){
@@ -282,6 +284,15 @@ impl HostRpcHandler {
                             return Ok(());
                         }
                     }
+                }
+                if existing && quality_tick {
+                    let (auth, connection, _) = self.desktop_auth().await.map_err(|e| anyhow::anyhow!("{e:?}"))?;
+                    let config_id = id.clone();
+                    let work = self.desktop.capture_work();
+                    let _ = blocking(self.desktop.clone(), move |r| {
+                        let _work = work.ok_or(desktop::Error::Busy)?;
+                        r.adjust_quality(&auth, connection, now_ms(), &config_id)
+                    }).await;
                 }
                 let config_id = id.clone();
                 let next = blocking(self.desktop.clone(), move |r| {
@@ -358,6 +369,34 @@ impl HostRpcHandler {
                     previous = current;
                 }
             }
+        })
+    }
+    pub(super) fn query_desktop_quality_support_rpc<'a>(&'a mut self, request: DesktopQualityQuery) -> RpcHandlerFuture<'a, Result<UnaryRpcOutcome>> {
+        Box::pin(async move {
+            let result = match self.desktop_auth().await {
+                Ok((auth, connection, _)) => {
+                    let work = self.desktop.capture_work();
+                    blocking(self.desktop.clone(), move |r| {
+                        let _work = work.ok_or(desktop::Error::Busy)?;
+                        r.query_quality(&auth, connection, now_ms(), request)
+                    }).await
+                }, Err(e) => Err(e),
+            };
+            Ok(match result { Ok(value) => RpcResponse::QueryDesktopQualitySupport(value).into(), Err(e) => UnaryRpcOutcome::Message(failure(ProcId::QueryDesktopQualitySupport, e, false)) })
+        })
+    }
+    pub(super) fn set_desktop_quality_rpc<'a>(&'a mut self, request: SetDesktopQualityReq) -> RpcHandlerFuture<'a, Result<UnaryRpcOutcome>> {
+        Box::pin(async move {
+            let result = match self.desktop_auth().await {
+                Ok((auth, connection, _)) => {
+                    let work = self.desktop.capture_work();
+                    blocking(self.desktop.clone(), move |r| {
+                        let _work = work.ok_or(desktop::Error::Busy)?;
+                        r.set_quality(&auth, connection, now_ms(), request)
+                    }).await
+                }, Err(e) => Err(e),
+            };
+            Ok(match result { Ok(value) => RpcResponse::SetDesktopQuality(value).into(), Err(e) => UnaryRpcOutcome::Message(failure(ProcId::SetDesktopQuality, e, false)) })
         })
     }
     pub(super) fn set_desktop_control_rpc<'a>(
@@ -580,6 +619,7 @@ pub(super) mod tests {
                 std::sync::mpsc::Receiver<()>,
             )>,
         >,
+        probe_pause: std::sync::Mutex<Option<(tokio::sync::oneshot::Sender<()>, std::sync::mpsc::Receiver<()>)>>,
         layout_offset: std::sync::atomic::AtomicI64,
         display_count: std::sync::atomic::AtomicUsize,
         streaming_group: std::sync::atomic::AtomicBool,
@@ -616,6 +656,12 @@ pub(super) mod tests {
             } else {
                 Ok(())
             }
+        }
+        fn probe_video(&self, _: &DesktopTrack) -> DesktopQualityVerification {
+            if let Some((started,release))=self.probe_pause.lock().unwrap().take() {
+                let _=started.send(()); let _=release.recv();
+            }
+            DesktopQualityVerification::Verified
         }
         fn capabilities(&self) -> DesktopCapabilities {
             DesktopCapabilities {
@@ -749,6 +795,20 @@ pub(super) mod tests {
                 if f.backend.inputs.lock().unwrap().contains(&key) { break; }
                 changed.await;
             }
+            // Quality uses separate RPCs and retains the same input stream/held key.
+            let support = f.unary(ProcId::QueryDesktopQualitySupport, Some(DesktopQualityQuery {attach_id:id.clone(), candidates:None}.encode())).await;
+            let ReqResMessage::ResponseUnaryOk {payload:Some(bytes)} = support else {panic!("quality query failed")};
+            let support=DesktopQualitySupport::decode(&bytes).unwrap();
+            assert!(support.automatic_available);
+            let held_count=f.backend.inputs.lock().unwrap().len();
+            let response=f.unary(ProcId::SetDesktopQuality,Some(SetDesktopQualityReq {attach_id:id.clone(),layout_epoch:support.layout_epoch,revision:support.revision,policy:DesktopQualityPolicy::Manual {target:DesktopQualityTarget {fps:30,total_bitrate:5_000_000}}}.encode())).await;
+            assert!(matches!(response,ReqResMessage::ResponseUnaryOk {..}));
+            let quality=configured_event(&mut events).await;
+            assert_eq!(quality.layout_epoch,first.layout_epoch);
+            assert_eq!(quality.tracks[0].viewport.fps,30);
+            assert!(quality.tracks[0].codec_epoch>first.tracks[0].codec_epoch);
+            assert_eq!(f.runtime.control().unwrap(),control);
+            assert_eq!(f.backend.inputs.lock().unwrap().len(),held_count);
             f.backend.display_count.store(2, std::sync::atomic::Ordering::SeqCst);
             let second = configured_event(&mut events).await;
             assert_eq!(second.tracks.len(), 2);
@@ -774,6 +834,26 @@ pub(super) mod tests {
             drop(events);
             while f.runtime.has(&id) { tokio::task::yield_now().await; }
             assert!(matches!(f.unary(ProcId::GetDesktopCapabilities, None).await, ReqResMessage::ResponseUnaryOk { .. }));
+        }).await.unwrap();
+    }
+    #[tokio::test]
+    async fn quality_probe_disconnect_retains_drain_guard_until_native_finishes() {
+        tokio::time::timeout(Duration::from_secs(10), async {
+            let f=Fixture::new().await; f.authenticate().await;
+            let (id,mut events)=f.attach_mode(ProcId::AttachExistingDesktop).await;
+            configured_event(&mut events).await;
+            let (started,waiting)=tokio::sync::oneshot::channel();
+            let (release,blocked)=std::sync::mpsc::channel();
+            *f.backend.probe_pause.lock().unwrap()=Some((started,blocked));
+            let (mut send,_recv)=f.session.open_bi().await.unwrap();
+            send.write_all(&ReqResMessage::RequestUnary {proc_id:ProcId::QueryDesktopQualitySupport.as_u64(),payload:Some(DesktopQualityQuery {attach_id:id.clone(),candidates:None}.encode())}.encode()).await.unwrap();
+            send.finish().unwrap(); waiting.await.unwrap();
+            f.session.close(0,b"cancel quality probe fixture");
+            while f.runtime.has(&id) {tokio::task::yield_now().await;}
+            assert!(f.gate.begin_drain().is_none());
+            drop(release);
+            let _drain=loop {if let Some(drain)=f.gate.begin_drain(){break drain;}tokio::task::yield_now().await;};
+            assert!(f.runtime.capture_work().is_none());
         }).await.unwrap();
     }
     #[tokio::test]
@@ -2027,12 +2107,14 @@ async fn stream_media(
             match tokio::time::timeout(Duration::from_millis(500), session.open_uni()).await {
                 Ok(Ok(s)) => s,
                 _ => {
+                    runtime.record_delivery(&id, &track, true);
                     drop(rx);
                     let _ = producer.await;
                     continue;
                 }
             };
         let mut bytes = 0usize;
+        let mut blocked = Duration::ZERO;
         let result = tokio::time::timeout(Duration::from_secs(5), async {
             let mut index = 0u64;
             while let Some(frame) = rx.recv().await {
@@ -2060,18 +2142,23 @@ async fn stream_media(
                 if bytes > rieul_daemon_core::desktop_transport::MAX_GROUP_BYTES {
                     anyhow::bail!("desktop group exceeds budget");
                 }
+                let writing = std::time::Instant::now();
                 tokio::time::timeout(Duration::from_millis(500), send.write_all(&encoded))
                     .await??;
+                blocked += writing.elapsed();
                 index += 1;
             }
             if index == 0 {
                 anyhow::bail!("desktop group has no frame");
             }
             send.finish()?;
+            let finishing = std::time::Instant::now();
             tokio::time::timeout(Duration::from_millis(500), send.stopped()).await??;
+            blocked += finishing.elapsed();
             Ok::<_, anyhow::Error>(())
         })
         .await;
+        runtime.record_delivery(&id, &track, !matches!(result, Ok(Ok(()))) || blocked > Duration::from_millis(250));
         if !matches!(result, Ok(Ok(()))) {
             let _ = send.reset(1);
         }

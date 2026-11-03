@@ -105,6 +105,8 @@ export enum ProcId {
   AttachDesktopWithLayout = 102,
   ConfigureDesktopLayout = 103,
   AttachExistingDesktop = 104,
+  QueryDesktopQualitySupport = 105,
+  SetDesktopQuality = 106,
 }
 
 export interface SubscribeWindowDetailReq {
@@ -1016,6 +1018,50 @@ export interface ConfigureDesktopLayoutReq {
 export interface DesktopLayout {
   layoutEpoch: number;
   displays: DesktopDisplay[];
+}
+
+export enum DesktopQualityVerification {
+  Unknown = 0,
+  Verified = 1,
+  Unsupported = 2,
+}
+
+export interface DesktopQualityTarget {
+  fps: number;
+  totalBitrate: number;
+}
+
+export type DesktopQualityPolicy =
+  | { type: "manual"; target: DesktopQualityTarget }
+  | { type: "auto" }
+;
+
+export interface DesktopQualityQuery {
+  attachId: string;
+  candidates?: DesktopQualityTarget[];
+}
+
+export interface DesktopQualityCandidate {
+  target: DesktopQualityTarget;
+  tracks: DesktopTrack[];
+  verification: DesktopQualityVerification;
+  reason: string;
+}
+
+export interface DesktopQualitySupport {
+  layoutEpoch: number;
+  revision: number;
+  candidates: DesktopQualityCandidate[];
+  automaticAvailable: boolean;
+  concurrentThroughputVerified: boolean;
+  policy: DesktopQualityPolicy;
+}
+
+export interface SetDesktopQualityReq {
+  attachId: string;
+  layoutEpoch: number;
+  revision: number;
+  policy: DesktopQualityPolicy;
 }
 
 export interface DaemonInfo {
@@ -3487,6 +3533,30 @@ export const attachExistingDesktopProc: ProcCodec<AttachDesktopReq, DesktopEvent
   decodeError: decodeDesktopErrorValue,
 };
 
+export const queryDesktopQualitySupportProc: ProcCodec<DesktopQualityQuery, DesktopQualitySupport, DesktopError> = {
+  id: ProcId.QueryDesktopQualitySupport,
+  name: "QueryDesktopQualitySupport",
+  stream: "unary",
+  requestType: "DesktopQualityQuery",
+  responseType: "DesktopQualitySupport",
+  errorType: "DesktopError",
+  encodeRequest: encodeDesktopQualityQueryValue,
+  decodeResponse: decodeDesktopQualitySupportValue,
+  decodeError: decodeDesktopErrorValue,
+};
+
+export const setDesktopQualityProc: ProcCodec<SetDesktopQualityReq, DesktopConfiguration, DesktopError> = {
+  id: ProcId.SetDesktopQuality,
+  name: "SetDesktopQuality",
+  stream: "unary",
+  requestType: "SetDesktopQualityReq",
+  responseType: "DesktopConfiguration",
+  errorType: "DesktopError",
+  encodeRequest: encodeSetDesktopQualityReqValue,
+  decodeResponse: decodeDesktopConfigurationValue,
+  decodeError: decodeDesktopErrorValue,
+};
+
 export const procs = {
   [ProcId.GetDaemonInfo]: getDaemonInfoProc,
   [ProcId.StartPairing]: startPairingProc,
@@ -3590,6 +3660,8 @@ export const procs = {
   [ProcId.AttachDesktopWithLayout]: attachDesktopWithLayoutProc,
   [ProcId.ConfigureDesktopLayout]: configureDesktopLayoutProc,
   [ProcId.AttachExistingDesktop]: attachExistingDesktopProc,
+  [ProcId.QueryDesktopQualitySupport]: queryDesktopQualitySupportProc,
+  [ProcId.SetDesktopQuality]: setDesktopQualityProc,
 } as const;
 
 export function encodeSubscribeWindowDetailReqValue(value: SubscribeWindowDetailReq): CborValue {
@@ -7742,6 +7814,137 @@ export function decodeDesktopLayoutValue(value: CborValue): DesktopLayout {
   return {
     layoutEpoch: fieldOrDefault(fields.get(1), (value) => integer(value), () => 0),
     displays: fieldOrDefault(fields.get(2), (value) => array(value).map((item) => decodeDesktopDisplayValue(item)), () => []),
+  };
+}
+
+export function encodeDesktopQualityVerificationValue(value: DesktopQualityVerification): CborValue {
+  return integer(value);
+}
+
+export function decodeDesktopQualityVerificationValue(value: CborValue): DesktopQualityVerification {
+  const id = integer(value);
+  if (![0, 1, 2].includes(id)) throw new Error(`unknown DesktopQualityVerification variant ${id}`);
+  return id as DesktopQualityVerification;
+}
+
+export function encodeDesktopQualityTargetValue(value: DesktopQualityTarget): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, u53(required(value.fps, "DesktopQualityTarget.fps")));
+  fields.set(2, u53(required(value.totalBitrate, "DesktopQualityTarget.totalBitrate")));
+  return fields;
+}
+
+export function decodeDesktopQualityTargetValue(value: CborValue): DesktopQualityTarget {
+  const fields = expectMap(value);
+  return {
+    fps: fieldOrDefault(fields.get(1), (value) => integer(value), () => 0),
+    totalBitrate: fieldOrDefault(fields.get(2), (value) => integer(value), () => 0),
+  };
+}
+
+export function encodeDesktopQualityPolicyValue(value: DesktopQualityPolicy): CborValue {
+  switch (value.type) {
+    case "manual": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, encodeDesktopQualityTargetValue(required(value.target, "DesktopQualityPolicy.Manual.target")));
+      return [0, fields];
+    }
+    case "auto": {
+      const fields = new Map<number, CborValue>();
+      return [1, fields];
+    }
+  }
+}
+
+export function decodeDesktopQualityPolicyValue(value: CborValue): DesktopQualityPolicy {
+  const [variantId, fields] = expectUnion(value);
+  switch (variantId) {
+    case 0:
+      return {
+        type: "manual",
+        target: fieldOrDefault(fields.get(1), (value) => decodeDesktopQualityTargetValue(value), () => defaultDesktopQualityTarget()),
+      };
+    case 1:
+      return {
+        type: "auto",
+      };
+  }
+  throw new Error(`unknown DesktopQualityPolicy variant ${variantId}`);
+}
+
+export function encodeDesktopQualityQueryValue(value: DesktopQualityQuery): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, text(required(value.attachId, "DesktopQualityQuery.attachId")));
+  if (value.candidates !== undefined) fields.set(2, value.candidates.map((item) => encodeDesktopQualityTargetValue(item)));
+  return fields;
+}
+
+export function decodeDesktopQualityQueryValue(value: CborValue): DesktopQualityQuery {
+  const fields = expectMap(value);
+  return {
+    attachId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+    candidates: optionalField(fields.get(2), (value) => array(value).map((item) => decodeDesktopQualityTargetValue(item))),
+  };
+}
+
+export function encodeDesktopQualityCandidateValue(value: DesktopQualityCandidate): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, encodeDesktopQualityTargetValue(required(value.target, "DesktopQualityCandidate.target")));
+  fields.set(2, required(value.tracks, "DesktopQualityCandidate.tracks").map((item) => encodeDesktopTrackValue(item)));
+  fields.set(3, encodeDesktopQualityVerificationValue(required(value.verification, "DesktopQualityCandidate.verification")));
+  fields.set(4, text(required(value.reason, "DesktopQualityCandidate.reason")));
+  return fields;
+}
+
+export function decodeDesktopQualityCandidateValue(value: CborValue): DesktopQualityCandidate {
+  const fields = expectMap(value);
+  return {
+    target: fieldOrDefault(fields.get(1), (value) => decodeDesktopQualityTargetValue(value), () => defaultDesktopQualityTarget()),
+    tracks: fieldOrDefault(fields.get(2), (value) => array(value).map((item) => decodeDesktopTrackValue(item)), () => []),
+    verification: fieldOrDefault(fields.get(3), (value) => decodeDesktopQualityVerificationValue(value), () => DesktopQualityVerification.Unknown),
+    reason: fieldOrDefault(fields.get(4), (value) => textValue(value), () => ""),
+  };
+}
+
+export function encodeDesktopQualitySupportValue(value: DesktopQualitySupport): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, u53(required(value.layoutEpoch, "DesktopQualitySupport.layoutEpoch")));
+  fields.set(2, u53(required(value.revision, "DesktopQualitySupport.revision")));
+  fields.set(3, required(value.candidates, "DesktopQualitySupport.candidates").map((item) => encodeDesktopQualityCandidateValue(item)));
+  fields.set(4, bool(required(value.automaticAvailable, "DesktopQualitySupport.automaticAvailable")));
+  fields.set(5, bool(required(value.concurrentThroughputVerified, "DesktopQualitySupport.concurrentThroughputVerified")));
+  fields.set(6, encodeDesktopQualityPolicyValue(required(value.policy, "DesktopQualitySupport.policy")));
+  return fields;
+}
+
+export function decodeDesktopQualitySupportValue(value: CborValue): DesktopQualitySupport {
+  const fields = expectMap(value);
+  return {
+    layoutEpoch: fieldOrDefault(fields.get(1), (value) => integer(value), () => 0),
+    revision: fieldOrDefault(fields.get(2), (value) => integer(value), () => 0),
+    candidates: fieldOrDefault(fields.get(3), (value) => array(value).map((item) => decodeDesktopQualityCandidateValue(item)), () => []),
+    automaticAvailable: fieldOrDefault(fields.get(4), (value) => boolValue(value), () => false),
+    concurrentThroughputVerified: fieldOrDefault(fields.get(5), (value) => boolValue(value), () => false),
+    policy: fieldOrDefault(fields.get(6), (value) => decodeDesktopQualityPolicyValue(value), () => defaultDesktopQualityPolicy()),
+  };
+}
+
+export function encodeSetDesktopQualityReqValue(value: SetDesktopQualityReq): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, text(required(value.attachId, "SetDesktopQualityReq.attachId")));
+  fields.set(2, u53(required(value.layoutEpoch, "SetDesktopQualityReq.layoutEpoch")));
+  fields.set(3, u53(required(value.revision, "SetDesktopQualityReq.revision")));
+  fields.set(4, encodeDesktopQualityPolicyValue(required(value.policy, "SetDesktopQualityReq.policy")));
+  return fields;
+}
+
+export function decodeSetDesktopQualityReqValue(value: CborValue): SetDesktopQualityReq {
+  const fields = expectMap(value);
+  return {
+    attachId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+    layoutEpoch: fieldOrDefault(fields.get(2), (value) => integer(value), () => 0),
+    revision: fieldOrDefault(fields.get(3), (value) => integer(value), () => 0),
+    policy: fieldOrDefault(fields.get(4), (value) => decodeDesktopQualityPolicyValue(value), () => defaultDesktopQualityPolicy()),
   };
 }
 
@@ -13696,6 +13899,55 @@ function defaultDesktopLayout(): DesktopLayout {
   return {
     layoutEpoch: 0,
     displays: [],
+  };
+}
+
+function defaultDesktopQualityTarget(): DesktopQualityTarget {
+  return {
+    fps: 0,
+    totalBitrate: 0,
+  };
+}
+
+function defaultDesktopQualityPolicy(): DesktopQualityPolicy {
+  return {
+    type: "manual",
+    target: defaultDesktopQualityTarget(),
+  };
+}
+
+function defaultDesktopQualityQuery(): DesktopQualityQuery {
+  return {
+    attachId: "",
+  };
+}
+
+function defaultDesktopQualityCandidate(): DesktopQualityCandidate {
+  return {
+    target: defaultDesktopQualityTarget(),
+    tracks: [],
+    verification: DesktopQualityVerification.Unknown,
+    reason: "",
+  };
+}
+
+function defaultDesktopQualitySupport(): DesktopQualitySupport {
+  return {
+    layoutEpoch: 0,
+    revision: 0,
+    candidates: [],
+    automaticAvailable: false,
+    concurrentThroughputVerified: false,
+    policy: defaultDesktopQualityPolicy(),
+  };
+}
+
+function defaultSetDesktopQualityReq(): SetDesktopQualityReq {
+  return {
+    attachId: "",
+    layoutEpoch: 0,
+    revision: 0,
+    policy: defaultDesktopQualityPolicy(),
   };
 }
 

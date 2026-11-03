@@ -7,7 +7,7 @@
 import rieul.ipc.common { IpcProcError }
 import rieul.rpc.desktop {
   DesktopCapabilities, DesktopDisplay, DesktopEvent, DesktopInputEvent,
-  DesktopViewport, DesktopTrack,
+  DesktopViewport, DesktopTrack, DesktopQualityVerification,
 }
 
 @ id - 10
@@ -23,6 +23,11 @@ struct UserDesktopRequest {
   command: UserDesktopCommand,
 }
 union UserDesktopCommand {
+  @ id - 8
+  ProbeVideo(
+    @ id - 1
+    track: DesktopTrack,
+  ),
   @ id - 0
   Ping(
   ),
@@ -69,6 +74,11 @@ struct UserDesktopResponse {
   result: UserDesktopResult,
 }
 union UserDesktopResult {
+  @ id - 6
+  VideoProbe(
+    @ id - 1
+    verification: DesktopQualityVerification,
+  ),
   @ id - 0
   Done(
   ),

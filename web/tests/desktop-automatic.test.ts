@@ -5,11 +5,15 @@ import { createRoot, createSignal, flush as flushSolid } from "solid-js";
 import * as client from "../src/protocol/generated/client.ts";
 import {
   DesktopAvailability,
+  DesktopQualityVerification,
+  type DesktopQualityPolicy,
   ProcId,
   type DesktopEvent,
   type DesktopConfiguration,
 } from "../src/protocol/generated/rpc.ts";
 import { rpcSessionStub } from "./helpers/rpc-session.ts";
+let qualityQueries = 0,
+  qualityChanges = 0;
 let configureCalls = 0,
   controlCalls = 0;
 let procedure: number | undefined;
@@ -47,6 +51,35 @@ function config(epoch: number): DesktopConfiguration {
 mock.module("../src/protocol/generated/client.ts", {
   namedExports: {
     ...client,
+    queryDesktopQualitySupport: async () => {
+      qualityQueries++;
+      return {
+        layoutEpoch: 1,
+        revision: 1,
+        automaticAvailable: true,
+        concurrentThroughputVerified: false,
+        policy: { type: "manual", target: { fps: 60, totalBitrate: 1000 } },
+        candidates: [
+          {
+            target: { fps: 30, totalBitrate: 5_000_000 },
+            tracks: config(1).tracks,
+            verification: DesktopQualityVerification.Verified,
+            reason: "fixture",
+          },
+        ],
+      };
+    },
+    setDesktopQuality: async (
+      _: unknown,
+      request: { policy: DesktopQualityPolicy },
+    ) => {
+      qualityChanges++;
+      const next = config(1);
+      next.tracks[0]!.codecEpoch = 2;
+      next.tracks[0]!.viewport.fps = 30;
+      enqueue({ type: "configured", configuration: next });
+      return next;
+    },
     getDesktopCapabilities: async () => ({
       profile: 1,
       capture: DesktopAvailability.Available,
@@ -65,6 +98,9 @@ mock.module("../src/protocol/generated/client.ts", {
     detachDesktop: async () => {},
     renewDesktopLease: async () => ({ remainingMs: 15000 }),
   },
+});
+mock.module("../src/solid/popup-styles.ts", {
+  namedExports: { copyDocumentStyles: () => () => {} },
 });
 mock.module("../src/protocol/desktop-session.ts", {
   namedExports: {
@@ -158,6 +194,8 @@ test("automatic existing displays consume server tracks and layout changes witho
               supportedProcIds: [
                 ProcId.GetDesktopCapabilities,
                 ProcId.AttachExistingDesktop,
+                ProcId.QueryDesktopQualitySupport,
+                ProcId.SetDesktopQuality,
                 ProcId.AttachDesktop,
               ],
             },
@@ -181,6 +219,49 @@ test("automatic existing displays consume server tracks and layout changes witho
     assert.deepEqual(entry.value.configuration(), config(1));
     assert.equal(configureCalls, 0);
     assert.equal(controlCalls, 0);
+    // The real popup lifecycle keeps the document/canvas on a quality-only change.
+    let popupClosed = 0;
+    const element = () => ({ style: {}, setAttribute() {}, append() {} });
+    const popup = {
+      document: { body: element(), createElement: element },
+      close() {
+        popupClosed++;
+      },
+      addEventListener() {},
+    };
+    const oldWindow = globalThis.window,
+      oldDocument = globalThis.document;
+    Object.assign(globalThis, { window: { open: () => popup }, document: {} });
+    try {
+      entry.value.openWindow("screen");
+      await entry.value.applyQuality({ type: "auto" });
+      assert.equal(qualityChanges, 0); // no mutation before support query
+      await entry.value.queryQuality({ fps: 30, totalBitrate: 5_000_000 });
+      assert.equal(qualityQueries, 1);
+      await entry.value.applyQuality({
+        type: "manual",
+        target: { fps: 30, totalBitrate: 5_000_000 },
+      });
+      await flush();
+      assert.equal(qualityChanges, 1);
+      assert.equal(popupClosed, 0);
+      assert.equal(entry.value.configuration()?.tracks[0]?.viewport.fps, 30);
+      assert.equal(entry.value.qualitySupport(), undefined);
+      enqueue({ type: "configured", configuration: config(1) }); // late old epoch
+      await flush();
+      assert.equal(entry.value.configuration()?.tracks[0]?.codecEpoch, 2);
+      assert.equal(controlCalls, 0);
+      assert.equal(configureCalls, 0);
+      enqueue({ type: "layout", layoutEpoch: 2, displays: [] });
+      enqueue({
+        type: "configured",
+        configuration: { layoutEpoch: 2, totalBitrate: 1000, tracks: [] },
+      });
+      await flush();
+      assert.equal(popupClosed, 1);
+    } finally {
+      Object.assign(globalThis, { window: oldWindow, document: oldDocument });
+    }
     enqueue({ type: "layout", layoutEpoch: 2, displays: [] });
     enqueue({
       type: "configured",

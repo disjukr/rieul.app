@@ -36,6 +36,7 @@ unsafe extern "C" {
     fn rd_permissions() -> i32;
     fn rd_displays(out: *mut Display, capacity: usize) -> usize;
     fn rd_hardware_codec(codec: *mut u32) -> bool;
+    fn rd_probe_video(width: u32, height: u32, fps: u32, bitrate: u32, codec: *mut u32) -> bool;
     #[cfg(test)]
     fn rd_av1_hardware_encoder_available() -> bool;
     #[cfg(test)]
@@ -291,6 +292,18 @@ fn map_point(v: &DesktopViewport, d: &Display, x: f64, y: f64) -> Result<(f64, f
     ))
 }
 impl Backend for MacDesktop {
+    fn probe_video(&self, track: &DesktopTrack) -> DesktopQualityVerification {
+        if !rieul_daemon_host::desktop::validate_video_probe(track) || !track.codec.codec.starts_with("avc1.") {
+            return DesktopQualityVerification::Unsupported;
+        }
+        let v = &track.viewport;
+        let mut codec = 0;
+        if unsafe { rd_probe_video(v.width as u32, v.height as u32, v.fps as u32, v.bitrate as u32, &mut codec) }
+            && format!("avc1.{codec:06x}").eq_ignore_ascii_case(&track.codec.codec) {
+            DesktopQualityVerification::Verified
+        } else { DesktopQualityVerification::Unknown }
+    }
+
     fn recover_input(&self, keys: &[u64], buttons: &[u64]) -> Result<(), Error> {
         if keys.is_empty() && buttons.is_empty() { return Ok(()); }
         {
@@ -610,6 +623,17 @@ mod tests {
         assert!(unsafe { rd_hardware_codec(&mut codec) });
         assert_eq!(codec >> 16, 66);
         assert_eq!(codec & 255, 42);
+    }
+    #[test]
+    #[ignore = "exact synthetic hardware encoder targets only; no screen capture/input"]
+    fn synthetic_quality_combinations() {
+        for (width,height,fps,bitrate) in [(1280,720,15,2_000_000),(1280,720,30,5_000_000),(1920,1080,60,20_000_000)] {
+            let mut codec=0;
+            assert!(unsafe {rd_probe_video(width,height,fps,bitrate,&mut codec)}, "{width}x{height} {fps}fps {bitrate}");
+            assert_eq!(codec >> 16,66); assert_eq!(codec & 255,42);
+        }
+        let mut codec=0;
+        assert!(!unsafe {rd_probe_video(4097,720,60,20_000_000,&mut codec)});
     }
     #[test]
     #[ignore = "synthetic hardware bitstream export only; no capture/input"]

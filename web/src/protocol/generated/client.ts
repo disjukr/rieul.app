@@ -109,6 +109,8 @@ import {
   attachDesktopWithLayoutProc,
   configureDesktopLayoutProc,
   attachExistingDesktopProc,
+  queryDesktopQualitySupportProc,
+  setDesktopQualityProc,
 } from "./rpc.ts";
 import type {
   ActivateClusterPrimaryReq,
@@ -181,6 +183,8 @@ import type {
   DesktopLayout,
   DesktopLayoutCapabilities,
   DesktopLease,
+  DesktopQualityQuery,
+  DesktopQualitySupport,
   DirectoryTableEvent,
   FinishClusterJoinReq,
   GetClusterClientAdoptionReq,
@@ -226,6 +230,7 @@ import type {
   SetAgentSessionConfigReq,
   SetAgentSessionConfigRes,
   SetDesktopControlReq,
+  SetDesktopQualityReq,
   StartPairingReq,
   StartPairingRes,
   SubscribeAgentSessionCatalogReq,
@@ -661,4 +666,12 @@ export function configureDesktopLayout(transport: WebTransport, request: Configu
 
 export function attachExistingDesktop(transport: WebTransport, request: AttachDesktopReq): AsyncGenerator<DesktopEvent> {
   return callServerStream(transport, attachExistingDesktopProc, request);
+}
+
+export function queryDesktopQualitySupport(transport: WebTransport, request: DesktopQualityQuery): Promise<DesktopQualitySupport> {
+  return callUnary(transport, queryDesktopQualitySupportProc, request);
+}
+
+export function setDesktopQuality(transport: WebTransport, request: SetDesktopQualityReq): Promise<DesktopConfiguration> {
+  return callUnary(transport, setDesktopQualityProc, request);
 }

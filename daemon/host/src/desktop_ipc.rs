@@ -83,6 +83,11 @@ fn execute(backend: &dyn Backend, command: UserDesktopCommand) -> Result<UserDes
             backend.recover_input(&keys, &buttons)?;
             UserDesktopResult::Done
         }
+        UserDesktopCommand::ProbeVideo { track } => {
+            let track = DesktopTrack::decode(&track.encode()).map_err(|_| Error::Invalid)?;
+            if !crate::desktop::validate_video_probe(&track) { return Err(Error::Invalid); }
+            UserDesktopResult::VideoProbe { verification: ipc::DesktopQualityVerification::decode(&backend.probe_video(&track).encode()).map_err(|_| Error::Invalid)? }
+        }
         UserDesktopCommand::Ping => UserDesktopResult::Done,
         UserDesktopCommand::Capabilities => UserDesktopResult::Capabilities {
             value: ipc::DesktopCapabilities::decode(&backend.capabilities().encode())
@@ -183,6 +188,7 @@ pub async fn serve_until<S: Channel + 'static>(
     let mut tracks =
         BTreeMap::<(u64, u64), (ipc::DesktopTrack, Arc<tokio::sync::Mutex<()>>)>::new();
     let mut groups = tokio::task::JoinSet::new();
+    let mut probes = tokio::task::JoinSet::new();
     let outcome = async {
         loop {
             let message = tokio::select! {
@@ -208,6 +214,7 @@ pub async fn serve_until<S: Channel + 'static>(
             if request.request_id <= last { return Err(Error::Stale); }
             last = request.request_id;
             while groups.try_join_next().is_some() {}
+            while probes.try_join_next().is_some() {}
             if let UserDesktopCommand::Group { track } = &request.command {
                 let key = (track.track_id, track.codec_epoch);
                 if tracks.len() >= 32 && !tracks.contains_key(&key) { return Err(Error::Limit); }
@@ -218,6 +225,18 @@ pub async fn serve_until<S: Channel + 'static>(
                 let backend = backend.clone(); let tx = tx.clone();
                 groups.spawn(async move {
                     let response = tokio::task::spawn_blocking(move || { let _guard = guard; result(execute(backend.as_ref(), request.command)) }).await
+                        .unwrap_or(UserDesktopResult::Failed { code: "Backend".into() });
+                    let _ = tx.send(UserDesktopResponse { request_id: request.request_id, result: response }).await;
+                });
+            } else if matches!(request.command, UserDesktopCommand::ProbeVideo { .. }) {
+                // A bounded synthetic probe must not block the IPC reader/input channel.
+                if !probes.is_empty() {
+                    tx.send(UserDesktopResponse { request_id: request.request_id, result: result(Err(Error::Busy)) }).await.map_err(|_| Error::Backend)?;
+                    continue;
+                }
+                let backend = backend.clone(); let tx = tx.clone();
+                probes.spawn(async move {
+                    let response = tokio::task::spawn_blocking(move || result(execute(backend.as_ref(), request.command))).await
                         .unwrap_or(UserDesktopResult::Failed { code: "Backend".into() });
                     let _ = tx.send(UserDesktopResponse { request_id: request.request_id, result: response }).await;
                 });
@@ -235,6 +254,7 @@ pub async fn serve_until<S: Channel + 'static>(
     drop(tx);
     // Group workers may hold native captures; drain real work before releasing ownership.
     while groups.join_next().await.is_some() {}
+    while probes.join_next().await.is_some() {}
     let cleanup = tokio::task::spawn_blocking(move || {
         let mut ok = backend.input(&DesktopInputEvent::ReleaseAll).is_ok();
         for (_, (track, _)) in tracks {
@@ -450,6 +470,13 @@ impl Backend for Proxy {
         }
     }
 
+    fn probe_video(&self, track: &DesktopTrack) -> DesktopQualityVerification {
+        if !crate::desktop::validate_video_probe(track) { return DesktopQualityVerification::Unsupported; }
+        match self.call(UserDesktopCommand::ProbeVideo { track: ipc::DesktopTrack::decode(&track.encode()).unwrap() }) {
+            Ok(UserDesktopResult::VideoProbe { verification }) => DesktopQualityVerification::decode(&verification.encode()).unwrap_or(DesktopQualityVerification::Unknown),
+            _ => DesktopQualityVerification::Unknown,
+        }
+    }
     fn capabilities(&self) -> DesktopCapabilities {
         match self.call(UserDesktopCommand::Capabilities) {
             Ok(UserDesktopResult::Capabilities { value }) => DesktopCapabilities::decode(&value.encode()).unwrap_or_default(),
@@ -543,8 +570,13 @@ mod tests {
     struct Fake {
         inputs: Mutex<Vec<DesktopInputEvent>>,
         stopped: AtomicUsize,
+        probe_pause: Mutex<Option<(tokio::sync::oneshot::Sender<()>,std::sync::mpsc::Receiver<()>)>>,
     }
     impl Backend for Fake {
+        fn probe_video(&self, _: &DesktopTrack) -> DesktopQualityVerification {
+            if let Some((started,release))=self.probe_pause.lock().unwrap().take(){let _=started.send(()); let _=release.recv();}
+            DesktopQualityVerification::Unknown
+        }
         fn capabilities(&self) -> DesktopCapabilities {
             DesktopCapabilities {
                 capture: DesktopAvailability::Available,
@@ -567,6 +599,16 @@ mod tests {
             self.stopped.fetch_add(1, Ordering::SeqCst);
             Ok(())
         }
+    }
+    #[test]
+    fn synthetic_probe_bounds_and_unknown_backend_do_not_inject_input() {
+        let backend=Fake::default();
+        let mut track=DesktopTrack {viewport:DesktopViewport {width:1280,height:720,fps:30,bitrate:5_000_000,..Default::default()},..Default::default()};
+        let command=|t:&DesktopTrack| UserDesktopCommand::ProbeVideo {track:ipc::DesktopTrack::decode(&t.encode()).unwrap()};
+        assert_eq!(execute(&backend,command(&track)).unwrap(),UserDesktopResult::VideoProbe {verification:ipc::DesktopQualityVerification::Unknown});
+        track.viewport.width=8192;
+        assert!(matches!(execute(&backend,command(&track)),Err(Error::Invalid)));
+        assert!(backend.inputs.lock().unwrap().is_empty()); assert_eq!(backend.stopped.load(Ordering::SeqCst),0);
     }
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn proxy_multiplexes_media_and_releases_on_parent_shutdown_without_reconnect() {
@@ -635,6 +677,36 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(attempts.load(Ordering::SeqCst), 1);
+    }
+    #[tokio::test]
+    async fn busy_probe_does_not_block_input_or_consume_eight_media_slots() {
+        tokio::time::timeout(Duration::from_secs(5),async {
+            let (mut client,server)=tokio::io::duplex(65536);
+            let backend=Arc::new(Fake::default());
+            let (started,waiting)=tokio::sync::oneshot::channel(); let (release,blocked)=std::sync::mpsc::channel();
+            *backend.probe_pause.lock().unwrap()=Some((started,blocked));
+            let task=tokio::spawn(serve(server,backend.clone()));
+            let track=ipc::DesktopTrack {viewport:ipc::DesktopViewport {width:1280,height:720,fps:30,bitrate:5_000_000,..Default::default()},..Default::default()};
+            write(&mut client,Message::RequestStreamStart {proc_id:ipc::ProcId::HostUserDesktop.as_u64(),stream_id:STREAM,payload:Some(UserDesktopRequest {request_id:1,command:UserDesktopCommand::ProbeVideo {track:track.clone()}}.encode())},REQUEST_LIMIT).await.unwrap();
+            waiting.await.unwrap();
+            let mut commands=vec![UserDesktopCommand::ProbeVideo {track:track.clone()},UserDesktopCommand::Input {event:ipc::DesktopInputEvent::PhysicalKey {usage:4,down:true,repeat:false},viewport:None}];
+            for id in 1..=8 {let mut track=track.clone();track.track_id=id;track.codec_epoch=1;commands.push(UserDesktopCommand::Group {track});}
+            for (i,command) in commands.into_iter().enumerate(){write(&mut client,Message::RequestStreamChunk {stream_id:STREAM,payload:UserDesktopRequest {request_id:i as u64+2,command}.encode()},REQUEST_LIMIT).await.unwrap();}
+            let mut reader=Reader::default(); let mut replies=BTreeMap::new();
+            for _ in 0..10 {
+                let message=reader.read(&mut client,RESPONSE_LIMIT).await.unwrap();
+                let payload=match message {Message::ResponseStreamStart {payload:Some(p),..}|Message::ResponseStreamChunk {payload:p,..}=>p,_=>panic!("unexpected IPC response")};
+                let response=UserDesktopResponse::decode(&payload).unwrap();replies.insert(response.request_id,response.result);
+            }
+            assert!(matches!(replies.get(&2),Some(UserDesktopResult::Failed {code}) if code=="Busy"));
+            assert!(matches!(replies.get(&3),Some(UserDesktopResult::Done)));
+            assert_eq!(backend.inputs.lock().unwrap().len(),1);
+            assert!(!replies.contains_key(&1));
+            drop(release);
+            let _=reader.read(&mut client,RESPONSE_LIMIT).await.unwrap();
+            drop(client);assert!(task.await.unwrap().is_err());
+            assert_eq!(backend.stopped.load(Ordering::SeqCst),8);
+        }).await.unwrap();
     }
     #[tokio::test]
     async fn duplicate_request_and_oversized_frame_retire_the_session() {

@@ -21,7 +21,7 @@ test("every current schema RPC belongs to exactly one stable category", () => {
   assert.deepEqual(
     result.categories.map((c) => [c.id, c.total]),
     [
-      ["screen", 11],
+      ["screen", 13],
       ["files", 10],
       ["terminal", 7],
       ["processes", 8],
@@ -53,9 +53,9 @@ test("counts, percentages and complete details share deduplicated advertised sup
   ]);
   const screen = result.categories.find((c) => c.id === "screen")!;
   assert.equal(screen.supported, 3);
-  assert.equal(screen.unsupported, 8);
-  assert.equal(screen.percent, 27);
-  assert.equal(screen.entries.length, 11);
+  assert.equal(screen.unsupported, 10);
+  assert.equal(screen.percent, 23);
+  assert.equal(screen.entries.length, 13);
   for (const category of result.categories) {
     assert.equal(
       category.supported,

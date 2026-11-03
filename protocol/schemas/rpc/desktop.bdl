@@ -533,3 +533,82 @@ struct DesktopLayout {
 @ id - 104
 @ stream - server
 proc AttachExistingDesktop = AttachDesktopReq -> DesktopEvent throws DesktopError
+
+@ id - 105
+@ stream - unary
+proc QueryDesktopQualitySupport = DesktopQualityQuery -> DesktopQualitySupport throws DesktopError
+
+@ id - 106
+@ stream - unary
+proc SetDesktopQuality = SetDesktopQualityReq -> DesktopConfiguration throws DesktopError
+
+enum DesktopQualityVerification {
+  @ id - 0
+  Unknown,
+  @ id - 1
+  Verified,
+  @ id - 2
+  Unsupported,
+}
+
+struct DesktopQualityTarget {
+  @ id - 1
+  fps: u53,
+  @ id - 2
+  totalBitrate: u53,
+}
+
+union DesktopQualityPolicy {
+  @ id - 0
+  Manual(
+    @ id - 1
+    target: DesktopQualityTarget,
+  ),
+  @ id - 1
+  Auto(
+  ),
+}
+
+struct DesktopQualityQuery {
+  @ id - 1
+  attachId: string,
+  @ id - 2
+  candidates?: DesktopQualityTarget[],
+}
+
+struct DesktopQualityCandidate {
+  @ id - 1
+  target: DesktopQualityTarget,
+  @ id - 2
+  tracks: DesktopTrack[],
+  @ id - 3
+  verification: DesktopQualityVerification,
+  @ id - 4
+  reason: string,
+}
+
+struct DesktopQualitySupport {
+  @ id - 1
+  layoutEpoch: u53,
+  @ id - 2
+  revision: u53,
+  @ id - 3
+  candidates: DesktopQualityCandidate[],
+  @ id - 4
+  automaticAvailable: bool,
+  @ id - 5
+  concurrentThroughputVerified: bool,
+  @ id - 6
+  policy: DesktopQualityPolicy,
+}
+
+struct SetDesktopQualityReq {
+  @ id - 1
+  attachId: string,
+  @ id - 2
+  layoutEpoch: u53,
+  @ id - 3
+  revision: u53,
+  @ id - 4
+  policy: DesktopQualityPolicy,
+}

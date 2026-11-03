@@ -318,11 +318,61 @@ currently uses full-display crops, aspect-preserving encoded dimensions capped a
 adaptive quality, universal encoder support, guaranteed throughput, or maximum
 achievable quality. Encoder startup may reject an unsupported combination.
 
-Quality policy is a separate pending stage: Auto and Manual targets (e.g. FPS),
-not a Maximum mode. Before exposing either mode, query combined runtime support
-for codec/dimensions/FPS/bitrate, distinguish verified/unsupported/unknown results,
-and bind observations to layout/backend generation. Independent maxima are not a
-Cartesian-product guarantee. Dynamic quality requires measured transfer and
-receiver feedback; the existing queue-delay pacing alone is not adaptive encoding.
-Quality changes must preserve window and input identity and must not reuse the
-current topology-reset path. No new quality policy is advertised in this change.
+## Quality support and Auto / Manual targets
+
+`QueryDesktopQualitySupport` (105) queries an existing automatic attachment.
+`SetDesktopQuality` (106) applies a policy using that query's layout epoch and
+revision. Discover both with supportedProcIds; older daemons retain their existing
+behavior without pretending to offer these modes. Existing 66–104 codecs and
+fields are unchanged. The matching signed daemon/helper adds only synthetic
+ProbeVideo command/result variants to its private IPC.
+
+The first implementation keeps each current track's codec, crop and encoded
+resolution fixed. A query may supply up to four FPS/shared-bitrate candidates;
+the server also tests its current target and bounded Auto ladder. Every returned
+candidate contains the **complete actual per-track combination**, not independent
+maximum dimensions/FPS/bitrate. It reports Verified, Unsupported or Unknown with
+a reason. Verified means each exact codec/dimensions/FPS/bitrate encoder setup
+produced a synthetic keyframe, using the native hardware-only encoder. It does
+not measure simultaneous multi-display throughput, sustainable FPS, or network
+capacity: concurrentThroughputVerified remains false. Setup/resource/probe-budget
+failures are Unknown; implemented codec/validation exclusions are Unsupported.
+Current H.264 Baseline level 4.2 enforces combined frame macroblocks/rate and a
+conservative 50 Mbps per-track bound before probing, so 720p120 does not imply
+1080p120. See [H.264 Annex A](https://www.itu.int/rec/T-REC-H.264-202408-S/en)
+and the [FFmpeg level table](https://github.com/FFmpeg/FFmpeg/blob/master/libavcodec/h264_levels.c).
+The per-query probe budget is two seconds between native calls; a native call
+already in flight retains workload protection until completion. IPC probes are
+bounded and do not block the reader that handles input. No capture/input or OS
+permission prompt is needed to produce the synthetic frame.
+
+Queries cache exact verified combinations for this attachment/revision. Manual
+accepts only a previously verified target. Re-query after a revision/layout change;
+there is no silent downgrade of a manual request. Actual encoder allocation can
+still fail later; existing stream failure/cleanup behavior applies. Resolution or
+codec selection as a quality setting is **not implemented** in this phase. Existing
+attachment size limits and platform exclusions still apply. Runtime probing is
+not a global platform support claim; Windows GPU combinations require validation
+on the actual device.
+
+Auto is available only after at least two ladder combinations verify. The initial
+ladder is 15 FPS/2 Mbps, 30 FPS/5 Mbps, 60 FPS/20 Mbps shared across tracks. These
+are candidates, not a fixed preset masquerading as feedback control. Auto starts
+at the highest verified ladder entry, moves down on measured transport write/ACK
+pressure or receiver queue/processing pressure, and moves up only after five
+fresh healthy observations for all tracks. It has a two-second change cooldown;
+stale, duplicate, wrong-epoch or missing receiver feedback cannot cause upgrades.
+Transport write/ACK wait excludes capture/GOP production time. Receiver processing
+includes queue/decode and canvas draw time, not a measured monitor presentation
+rate. The controller is deliberately conservative and is not a bandwidth estimator.
+Manual never uses the adaptive controller. Both FPS and bitrate are targets rather
+than guarantees, and neither mode is lossless or unlimited.
+
+Quality changes increment codec epochs and start independent keyframes while
+retaining layout epoch, viewport/canvas/popups, input stream, control epoch and
+held keys. Real topology changes still release input and rebuild geometry. Queries
+and changes recheck authenticated attachment ownership; cancellation/disconnect
+never releases an in-flight native work guard early. UI and localhost transport
+fixtures verify these boundaries; synthetic Mac VideoToolbox tests verify selected
+actual encoder combinations without touching the host screen. Real network/GPU
+performance tuning and Windows hardware throughput remain unverified.

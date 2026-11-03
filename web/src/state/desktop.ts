@@ -19,11 +19,16 @@ import {
   getDesktopCapabilities,
   renewDesktopLease,
   setDesktopControl,
+  queryDesktopQualitySupport,
+  setDesktopQuality,
 } from "../protocol/generated/client.ts";
 import {
   DesktopAvailability,
   DesktopControlAction,
   DesktopKeyboardMode,
+  type DesktopQualitySupport,
+  type DesktopQualityPolicy,
+  type DesktopQualityTarget,
   ProcId,
   type DesktopConfiguration,
   type DesktopCapabilities,
@@ -56,6 +61,23 @@ export const desktopBunja = bunja(() => {
   const [attachId, setAttachId] = createSignal<string>();
   const [stats, setStats] = createSignal<DesktopVideoStats>();
   const [busy, setBusy] = createSignal(false);
+  const [qualitySupport, setQualitySupport] =
+    createSignal<DesktopQualitySupport>();
+  const [qualityBusy, setQualityBusy] = createSignal(false);
+  const [qualityMessage, setQualityMessage] = createSignal<string>();
+  const [qualityPolicy, setQualityPolicy] =
+    createSignal<DesktopQualityPolicy>();
+  const qualitySupported = createMemo(() => {
+    const info = rpc.daemonInfo();
+    return (
+      info.phase === "ready" &&
+      [
+        ProcId.AttachExistingDesktop,
+        ProcId.QueryDesktopQualitySupport,
+        ProcId.SetDesktopQuality,
+      ].every((id) => info.daemonInfo.supportedProcIds.includes(id))
+    );
+  });
   const [outputHeight, setOutputHeight] = createSignal(1080);
   const [maxViewports, setMaxViewports] = createSignal(8);
   const [inputReady, setInputReady] = createSignal(false);
@@ -91,8 +113,8 @@ export const desktopBunja = bunja(() => {
   );
   let active = false,
     generation = 0,
-    layoutEpoch = 0,
-    lastStats = 0;
+    layoutEpoch = 0;
+  const lastStats = new Map<number, number>();
   let transport: WebTransport | undefined,
     video: DesktopVideoReceiver | undefined,
     input: DesktopInputChannel | undefined;
@@ -138,6 +160,11 @@ export const desktopBunja = bunja(() => {
     if (oldTransport && id)
       void detachDesktop(oldTransport, { attachId: id }).catch(() => {});
     void oldEvents?.return(undefined).catch(() => {});
+    lastStats.clear();
+    setQualitySupport(undefined);
+    setQualityPolicy(undefined);
+    setQualityMessage(undefined);
+    setQualityBusy(false);
     setStats(undefined);
     setMessage(undefined);
     setInputReady(false);
@@ -192,19 +219,88 @@ export const desktopBunja = bunja(() => {
   async function applyConfiguration(next: DesktopConfiguration, token: number) {
     const key = JSON.stringify(next);
     if (key === configKey) return;
+    const previous = configuration();
+    if (
+      previous &&
+      (next.layoutEpoch < previous.layoutEpoch ||
+        (next.layoutEpoch === previous.layoutEpoch &&
+          Math.max(0, ...next.tracks.map((t) => t.codecEpoch)) <
+            Math.max(0, ...previous.tracks.map((t) => t.codecEpoch))))
+    )
+      return;
     configKey = key;
-    // Popup geometry belongs to one configuration; reopen after a layout change.
-    for (const [popup, cleanup] of popups) {
-      cleanup();
-      popup.close();
+    const geometry = (value: DesktopConfiguration | undefined) =>
+      JSON.stringify([
+        value?.layoutEpoch,
+        value?.tracks.map((t) => ({
+          ...t.viewport,
+          fps: undefined,
+          bitrate: undefined,
+        })),
+      ]);
+    if (geometry(previous) !== geometry(next)) {
+      for (const [popup, cleanup] of popups) {
+        cleanup();
+        popup.close();
+      }
+      popups.clear();
+      setQualitySupport(undefined);
+      setQualityPolicy(undefined);
     }
-    popups.clear();
     if (next.tracks.some((t) => !offeredCodecs.includes(t.codec.codec)))
       throw new Error("Daemon selected an unoffered screen codec");
     currentCodec = next.tracks[0]?.codec.codec ?? "";
     await video?.configure(next);
     if (token !== generation) return;
     setConfiguration(next);
+  }
+  async function queryQuality(candidate?: DesktopQualityTarget) {
+    if (!transport || !attachId() || !qualitySupported() || qualityBusy())
+      return;
+    const token = generation;
+    setQualityBusy(true);
+    setQualityMessage(undefined);
+    setQualitySupport(undefined);
+    try {
+      const support = await queryDesktopQualitySupport(transport, {
+        attachId: attachId()!,
+        candidates: candidate ? [candidate] : undefined,
+      });
+      if (token !== generation) return;
+      setQualitySupport(support);
+      setQualityPolicy(support.policy);
+    } catch (error) {
+      if (token === generation) setQualityMessage(String(error));
+    } finally {
+      if (token === generation) setQualityBusy(false);
+    }
+  }
+  async function applyQuality(policy: DesktopQualityPolicy) {
+    const support = qualitySupport();
+    if (!support || !transport || !attachId() || qualityBusy()) return;
+    const token = generation;
+    setQualityBusy(true);
+    setQualityMessage(undefined);
+    try {
+      await setDesktopQuality(transport, {
+        attachId: attachId()!,
+        layoutEpoch: support.layoutEpoch,
+        revision: support.revision,
+        policy,
+      });
+      if (token !== generation) return;
+      setQualityPolicy(policy);
+      setQualitySupport(undefined);
+    } catch (error) {
+      if (token === generation) {
+        setQualityMessage(
+          `${String(error)}. Check support again before retrying.`,
+        );
+        setQualitySupport(undefined);
+      }
+    } finally {
+      if (token === generation) setQualityBusy(false);
+    }
   }
   async function configure(
     ids: string[],
@@ -376,9 +472,10 @@ export const desktopBunja = bunja(() => {
                   if (
                     token === generation &&
                     (next.requestKeyframe ||
-                      performance.now() - lastStats > 500)
+                      performance.now() - (lastStats.get(next.trackId) ?? 0) >
+                        500)
                   ) {
-                    lastStats = performance.now();
+                    lastStats.set(next.trackId, performance.now());
                     setStats(next);
                     if (caps.feedback)
                       input?.send({ type: "feedback", ...next });
@@ -422,6 +519,8 @@ export const desktopBunja = bunja(() => {
               await applyConfiguration(event.configuration, token);
               if (token === generation) setPhase("viewing");
             } else if (event.type === "layout") {
+              if (event.layoutEpoch <= layoutEpoch) continue;
+              configKey = "";
               send({ type: "releaseAll" });
               layoutEpoch = event.layoutEpoch;
               setDisplays(event.displays);
@@ -617,6 +716,13 @@ export const desktopBunja = bunja(() => {
     busy,
     supported,
     automaticDisplays,
+    qualitySupported,
+    qualitySupport,
+    qualityBusy,
+    qualityMessage,
+    qualityPolicy,
+    queryQuality,
+    applyQuality,
     modes,
     availabilityMessage,
     outputHeight,

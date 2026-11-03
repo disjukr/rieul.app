@@ -16,6 +16,7 @@ use std::{
 enum Command {
     Recover(Vec<u64>, Vec<u64>),
     Capabilities,
+    Probe(DesktopTrack),
     Displays,
     Cursor(u64),
     Input(DesktopInputEvent, Option<DesktopViewport>),
@@ -23,6 +24,7 @@ enum Command {
     End(DesktopTrack),
 }
 enum Reply {
+    Probe(DesktopQualityVerification),
     Cursor(DesktopEvent),
     Capabilities(DesktopCapabilities),
     Displays(Vec<DesktopDisplay>),
@@ -62,8 +64,9 @@ impl WindowsDesktop {
                         let _ = request.reply.send(Err(Error::Stale));
                         continue;
                     }
+                    let read_only_probe = matches!(&request.command, Command::Probe(_));
                     let result = state.execute(request.command);
-                    if request.reply.send(result).is_err() {
+                    if request.reply.send(result).is_err() && !read_only_probe {
                         let _ = state.release();
                         state.tracks.clear();
                     }
@@ -108,6 +111,11 @@ fn unavailable(reason: &str) -> DesktopCapabilities {
     }
 }
 impl Backend for WindowsDesktop {
+    fn probe_video(&self, track: &DesktopTrack) -> DesktopQualityVerification {
+        if !rieul_daemon_host::desktop::validate_video_probe(track) { return DesktopQualityVerification::Unsupported; }
+        match self.call(Command::Probe(track.clone())) { Ok(Reply::Probe(value)) => value, _ => DesktopQualityVerification::Unknown }
+    }
+
     fn recover_input(&self, keys: &[u64], buttons: &[u64]) -> Result<(), Error> {
         match self.call(Command::Recover(keys.to_vec(), buttons.to_vec()))? {
             Reply::Done => Ok(()), _=>Err(Error::Backend),
@@ -199,6 +207,23 @@ impl Worker {
             return Err(Error::Unauthorized);
         }
         match command {
+            Command::Probe(track) => {
+                if !rieul_daemon_host::desktop::validate_video_probe(&track) { return Ok(Reply::Probe(DesktopQualityVerification::Unsupported)); }
+                let format = if track.codec.codec.starts_with("avc1.") { native::Codec::H264 }
+                    else if track.codec.codec.starts_with("av01.") { native::Codec::Av1 }
+                    else { return Ok(Reply::Probe(DesktopQualityVerification::Unsupported)); };
+                let v = &track.viewport;
+                let verified = (|| {
+                    let encoder = native::HardwareEncoder::with_codec(v.width as u32, v.height as u32, v.fps as u32, v.bitrate as u32, format).ok()?;
+                    let mut pixels = vec![128; (v.width * v.height * 3 / 2) as usize];
+                    pixels[..(v.width * v.height) as usize].fill(16);
+                    let packet = encoder.encode_keyframe(&pixels, 0).ok()?;
+                    if format == native::Codec::Av1 {
+                        crate::desktop_pixels::av1_independent(&packet, &mut vec![]).map(|(codec, _)| codec)
+                    } else { avc_codec(&packet) }
+                })();
+                Ok(Reply::Probe(if verified.as_deref() == Some(track.codec.codec.as_str()) { DesktopQualityVerification::Verified } else { DesktopQualityVerification::Unknown }))
+            }
             Command::Recover(keys, buttons) => {
                 self.keys.extend(keys); self.buttons.extend(buttons);
                 self.release()?;

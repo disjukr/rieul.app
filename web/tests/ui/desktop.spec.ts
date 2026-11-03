@@ -126,3 +126,53 @@ test("existing display mode opens directly without layout or quality setup", asy
     0,
   );
 });
+
+test("quality query separates unknown support and preserves focused held input on a new encoding epoch", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/tests/fixtures/desktop.html?automatic&quality");
+  await page.getByRole("button", { name: "Open screen", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "Use Auto", exact: true }),
+  ).toHaveCount(0);
+  await page.getByRole("button", { name: "Check quality support" }).click();
+  await expect(
+    page.getByRole("button", { name: "Use 120 FPS / 50 Mbps", exact: true }),
+  ).toBeDisabled();
+  await page
+    .getByRole("button", { name: "Acquire control", exact: true })
+    .click();
+  const canvas = page.getByLabel("Display fixture", { exact: true });
+  await canvas.focus();
+  await page.keyboard.down("a");
+  const handle = await canvas.elementHandle();
+  // Programmatic click models an asynchronous Auto quality change without causing blur.
+  await page
+    .getByRole("button", { name: "Use Auto", exact: true })
+    .evaluate((button: HTMLButtonElement) => button.click());
+  await expect(
+    page.getByText("Current target: 30 FPS", { exact: false }),
+  ).toBeVisible();
+  await expect(canvas).toBeFocused();
+  expect(await handle!.evaluate((node) => node.isConnected)).toBe(true);
+  let events: DesktopInputEvent[] = JSON.parse(
+    (await page.getByLabel("Recorded input").textContent())!,
+  );
+  expect(events.filter((e) => e.type === "releaseAll")).toHaveLength(0);
+  await page.keyboard.up("a");
+  events = JSON.parse((await page.getByLabel("Recorded input").textContent())!);
+  expect(
+    events
+      .filter((e) => e.type === "physicalKey")
+      .map((e) => [e.usage, e.down]),
+  ).toEqual([
+    [4, true],
+    [4, false],
+  ]);
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
+});

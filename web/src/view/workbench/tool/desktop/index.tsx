@@ -1,15 +1,20 @@
 import { global } from "zyzz/web";
 import { style, theme } from "../../../../zyzz.config.ts";
 import { Button } from "../../../ui/button.tsx";
-import { createEffect, createMemo, createSignal, untrack } from "solid-js";
+import { For, createEffect, createMemo, createSignal, untrack } from "solid-js";
 import { desktopCursorPng } from "../../../../protocol/desktop-cursor.ts";
 import { useBunja } from "bunja/solid";
 import { desktopBunja } from "../../../../state/desktop.ts";
-import type { DesktopTrack } from "../../../../protocol/generated/rpc.ts";
+import {
+  DesktopQualityVerification,
+  type DesktopTrack,
+} from "../../../../protocol/generated/rpc.ts";
 
 /** Semantic classes also style the separate display document. */
 export function DesktopTool() {
   const desktop = useBunja(desktopBunja);
+  const [fps, setFps] = createSignal(60);
+  const [mbps, setMbps] = createSignal(20);
   return (
     <section
       {...styles.root({ className: "rieul-desktop" })}
@@ -128,15 +133,141 @@ export function DesktopTool() {
           releases held inputs.
         </label>
       )}
+      {desktop().qualitySupported() &&
+        desktop().phase() === "viewing" &&
+        !!desktop().configuration()?.tracks.length && (
+          <fieldset {...styles.help()}>
+            <legend>Video quality</legend>
+            <p>
+              Current target:{" "}
+              {desktop().configuration()?.tracks[0]?.viewport.fps} FPS,{" "}
+              {(desktop().configuration()?.totalBitrate ?? 0) / 1_000_000} Mbps
+              shared. Mode:{" "}
+              {desktop().qualityPolicy()?.type === "auto" ? "Auto" : "Manual"}.
+            </p>
+            <label>
+              Target FPS{" "}
+              <input
+                {...styles.select()}
+                type="number"
+                min="1"
+                max="120"
+                value={fps()}
+                onInput={(e) => setFps(Number(e.currentTarget.value))}
+              />
+            </label>{" "}
+            <label>
+              Shared bitrate target (Mbps){" "}
+              <input
+                {...styles.select()}
+                type="number"
+                min="0.1"
+                max="100"
+                step="0.1"
+                value={mbps()}
+                onInput={(e) => setMbps(Number(e.currentTarget.value))}
+              />
+            </label>{" "}
+            <Button
+              size="sm"
+              disabled={
+                desktop().qualityBusy() ||
+                !Number.isInteger(fps()) ||
+                fps() < 1 ||
+                fps() > 120 ||
+                !Number.isFinite(mbps()) ||
+                mbps() < 0.1 ||
+                mbps() > 100
+              }
+              onClick={() =>
+                void desktop().queryQuality({
+                  fps: fps(),
+                  totalBitrate: Math.round(mbps() * 1_000_000),
+                })
+              }
+            >
+              Check quality support
+            </Button>
+            <p>
+              Targets are not guaranteed performance. Resolution and codec stay
+              as shown below. Auto uses measured delivery delays and receiver
+              queue feedback within verified combinations.
+            </p>
+            {desktop().qualitySupport() && (
+              <div>
+                <Button
+                  size="sm"
+                  disabled={
+                    desktop().qualityBusy() ||
+                    !desktop().qualitySupport()?.automaticAvailable
+                  }
+                  onClick={() => void desktop().applyQuality({ type: "auto" })}
+                >
+                  Use Auto
+                </Button>
+                <For each={desktop().qualitySupport()?.candidates}>
+                  {(candidate) => (
+                    <div>
+                      <span>
+                        {candidate.target.fps} FPS ·{" "}
+                        {candidate.target.totalBitrate / 1_000_000} Mbps —{" "}
+                        {candidate.verification ===
+                        DesktopQualityVerification.Verified
+                          ? "Encoder verified"
+                          : candidate.verification ===
+                              DesktopQualityVerification.Unsupported
+                            ? "Unsupported"
+                            : "Unverified"}
+                        . {candidate.reason}
+                      </span>{" "}
+                      <Button
+                        size="sm"
+                        disabled={
+                          desktop().qualityBusy() ||
+                          candidate.verification !==
+                            DesktopQualityVerification.Verified
+                        }
+                        onClick={() =>
+                          void desktop().applyQuality({
+                            type: "manual",
+                            target: candidate.target,
+                          })
+                        }
+                      >
+                        Use {candidate.target.fps} FPS /{" "}
+                        {candidate.target.totalBitrate / 1_000_000} Mbps
+                      </Button>
+                    </div>
+                  )}
+                </For>
+              </div>
+            )}
+            <p role="status">
+              {desktop().qualityBusy()
+                ? "Checking or applying quality…"
+                : desktop().qualityMessage()}
+            </p>
+          </fieldset>
+        )}
       {desktop().phase() === "viewing" && !desktop().displays().length && (
         <p {...styles.help()}>The daemon has no active displays.</p>
       )}
       <div {...styles.viewports({ className: "rieul-desktop-viewports" })}>
-        {desktop()
-          .configuration()
-          ?.tracks.map((track) => (
-            <DesktopSurface track={track} />
-          ))}
+        <For
+          each={desktop()
+            .configuration()
+            ?.tracks.map((t) => t.viewport.viewportId)}
+        >
+          {(id) => (
+            <DesktopSurface
+              track={
+                desktop()
+                  .configuration()!
+                  .tracks.find((t) => t.viewport.viewportId === id)!
+              }
+            />
+          )}
+        </For>
       </div>
       {desktop().stats() && (
         <output
@@ -154,19 +285,29 @@ export function DesktopTool() {
 function DesktopSurface(props: { track: DesktopTrack }) {
   const desktop = useBunja(desktopBunja);
   const [canvas, setCanvas] = createSignal<HTMLCanvasElement>();
+  const surfaceGeometry = createMemo(() =>
+    JSON.stringify([
+      props.track.viewport.viewportId,
+      props.track.viewport.width,
+      props.track.viewport.height,
+    ]),
+  );
   createEffect(
     createMemo(() => ({
       canvas: canvas(),
-      track: props.track,
+      geometry: surfaceGeometry(),
       model: desktop(),
     })),
-    ({ canvas, track, model }) => {
+    ({ canvas, geometry, model }) => {
       if (!canvas) return;
-      canvas.width = track.viewport.width;
-      canvas.height = track.viewport.height;
-      const cleanup = untrack(() =>
-        model.registerSurface(track.viewport.viewportId, canvas),
-      );
+      const [id, width, height] = JSON.parse(geometry) as [
+        string,
+        number,
+        number,
+      ];
+      canvas.width = width;
+      canvas.height = height;
+      const cleanup = untrack(() => model.registerSurface(id, canvas));
       return () => untrack(cleanup);
     },
   );
@@ -227,6 +368,10 @@ function DesktopSurface(props: { track: DesktopTrack }) {
         })}
       >
         <h3 {...styles.displayTitle()}>{props.track.viewport.displayId}</h3>
+        <span>
+          {props.track.viewport.width} × {props.track.viewport.height} ·{" "}
+          {props.track.codec.codec}
+        </span>
         <Button
           size="sm"
           type="button"
