@@ -24,6 +24,7 @@ import {
   DesktopAvailability,
   DesktopControlAction,
   DesktopKeyboardMode,
+  ProcId,
   type DesktopConfiguration,
   type DesktopCapabilities,
   type DesktopControl,
@@ -67,6 +68,13 @@ export const desktopBunja = bunja(() => {
     );
   });
   const supported = createMemo(() => modes().existing);
+  const automaticDisplays = createMemo(() => {
+    const info = rpc.daemonInfo();
+    return (
+      info.phase === "ready" &&
+      info.daemonInfo.supportedProcIds.includes(ProcId.AttachExistingDesktop)
+    );
+  });
   const availabilityMessage = createMemo(() => {
     const info = rpc.daemonInfo();
     if (info.phase === "loading") return "Checking daemon support…";
@@ -203,7 +211,8 @@ export const desktopBunja = bunja(() => {
     attachment = attachId(),
     layout?: DesktopDisplay[],
   ) {
-    if (!transport || !attachment || (busy() && !layout)) return;
+    if (automaticDisplays() || !transport || !attachment || (busy() && !layout))
+      return;
     const token = generation,
       version = ++configVersion;
     setBusy(true);
@@ -250,7 +259,8 @@ export const desktopBunja = bunja(() => {
     }
   }
   async function resize(height: number) {
-    if (![720, 1080, 2160].includes(height) || busy()) return;
+    if (automaticDisplays() || ![720, 1080, 2160].includes(height) || busy())
+      return;
     setOutputHeight(height);
     if (phase() === "viewing")
       await configure(
@@ -310,6 +320,9 @@ export const desktopBunja = bunja(() => {
           keyboardMode: DesktopKeyboardMode.Physical,
         },
         eventsAbort.signal,
+        automaticDisplays()
+          ? ProcId.AttachExistingDesktop
+          : ProcId.AttachDesktop,
       );
       events = iterator;
       void (async () => {
@@ -323,7 +336,7 @@ export const desktopBunja = bunja(() => {
               break;
             }
             if (event.type === "attached") {
-              clearTimeout(attachTimeout);
+              if (!automaticDisplays()) clearTimeout(attachTimeout);
               inputFeatures = {
                 physicalKeys: caps.physicalKeys,
                 wheelUnits: caps.wheelUnits,
@@ -379,7 +392,6 @@ export const desktopBunja = bunja(() => {
                     failed(new Error("AV1 decoder failed"));
                 },
               );
-              setPhase("viewing");
               renew = setInterval(
                 () => {
                   if (token === generation)
@@ -391,28 +403,37 @@ export const desktopBunja = bunja(() => {
                 },
                 Math.max(1000, Math.min(5000, event.leaseMs / 3)),
               );
-              await configure(
-                event.displays.slice(0, maxViewports()).map((d) => d.displayId),
-                event.attachId,
-                event.displays,
-              );
-            } else if (event.type === "control") {
-              setControl(event.control);
-              if (!controlling()) input?.flush();
-            } else if (event.type === "configured")
-              await applyConfiguration(event.configuration, token);
-            else if (event.type === "layout") {
-              send({ type: "releaseAll" });
-              layoutEpoch = event.layoutEpoch;
-              setDisplays(event.displays);
-              await configure(
-                configuration()?.tracks.map((t) => t.viewport.displayId) ??
+              if (!automaticDisplays()) {
+                await configure(
                   event.displays
                     .slice(0, maxViewports())
                     .map((d) => d.displayId),
-                attachId(),
-                event.displays,
-              );
+                  event.attachId,
+                  event.displays,
+                );
+                if (token === generation) setPhase("viewing");
+              }
+            } else if (event.type === "control") {
+              setControl(event.control);
+              if (!controlling()) input?.flush();
+            } else if (event.type === "configured") {
+              if (event.configuration.layoutEpoch < layoutEpoch) continue;
+              clearTimeout(attachTimeout);
+              await applyConfiguration(event.configuration, token);
+              if (token === generation) setPhase("viewing");
+            } else if (event.type === "layout") {
+              send({ type: "releaseAll" });
+              layoutEpoch = event.layoutEpoch;
+              setDisplays(event.displays);
+              setConfiguration(undefined);
+              if (!automaticDisplays())
+                await configure(
+                  event.displays
+                    .slice(0, maxViewports())
+                    .map((d) => d.displayId),
+                  attachId(),
+                  event.displays,
+                );
             } else if (event.type === "cursor") setCursor(event);
             else if (event.type === "closed") throw new Error(event.reason);
           }
@@ -595,6 +616,7 @@ export const desktopBunja = bunja(() => {
     stats,
     busy,
     supported,
+    automaticDisplays,
     modes,
     availabilityMessage,
     outputHeight,

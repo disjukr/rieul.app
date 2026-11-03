@@ -53,6 +53,7 @@ struct Attachment {
     deadline: u64,
     sequence: u64,
     viewports: BTreeMap<String, DesktopViewport>,
+    server_viewports: bool,
     _work: WorkGuard,
 }
 pub struct Desktop<I> {
@@ -122,6 +123,7 @@ impl<I: Input> Desktop<I> {
                 deadline: now.saturating_add(LEASE_MS),
                 sequence: 0,
                 viewports: BTreeMap::new(),
+                server_viewports: false,
                 _work: work,
             },
         );
@@ -1131,6 +1133,7 @@ impl Runtime {
                 return Ok(());
             }
             if previous.is_some() {
+                if d.holder.is_some() { d.release()?; }
                 d.layout_changed()?;
                 self.configurations
                     .lock()
@@ -1228,6 +1231,43 @@ impl Runtime {
     ) -> Option<rieul_daemon_core::generated::rpc::DesktopConfiguration> {
         self.configurations.lock().ok()?.get(id).cloned()
     }
+    pub(crate) fn configure_existing(
+        &self,
+        auth: &impl Credentials,
+        connection: u64,
+        now: u64,
+        id: &str,
+    ) -> Result<rieul_daemon_core::generated::rpc::DesktopConfiguration, Error> {
+        use rieul_daemon_core::generated::rpc::*;
+        // Preserve the legacy viewer's bounded video defaults until runtime quality
+        // negotiation exists. These are encoding limits, never OS display settings.
+        let width = 1920;
+        let height = 1080;
+        let fps = 60;
+        let budget = 20_000_000;
+        let DesktopEvent::Layout { layout_epoch, displays } = self.layout_event()? else {
+            unreachable!()
+        };
+        // Never silently omit a display or describe a subset as the whole desktop.
+        if displays.len() > MAX_VIEWPORTS || budget < displays.len() as u64 {
+            return Err(Error::Limit);
+        }
+        let bitrate = budget / (displays.len().max(1) as u64);
+        let viewports = displays.into_iter().map(|display| {
+            let crop = DesktopRect { x: 0, y: 0, width: display.bounds.width, height: display.bounds.height };
+            let scale = (width as f64 / crop.width as f64)
+                .min(height as f64 / crop.height as f64).min(1.0);
+            DesktopViewport {
+                viewport_id: display.display_id.clone(), display_id: display.display_id,
+                width: ((crop.width as f64 * scale) as u64 / 2 * 2).max(2),
+                height: ((crop.height as f64 * scale) as u64 / 2 * 2).max(2),
+                crop, fps, bitrate,
+            }
+        }).collect();
+        self.configure_impl(auth, connection, now, ConfigureDesktopViewportsReq {
+            attach_id: id.to_owned(), layout_epoch, viewports, total_bitrate: budget,
+        }, true)
+    }
     pub(crate) fn configure(
         &self,
         auth: &impl Credentials,
@@ -1235,11 +1275,24 @@ impl Runtime {
         now: u64,
         request: rieul_daemon_core::generated::rpc::ConfigureDesktopViewportsReq,
     ) -> Result<rieul_daemon_core::generated::rpc::DesktopConfiguration, Error> {
+        self.configure_impl(auth, connection, now, request, false)
+    }
+    fn configure_impl(
+        &self,
+        auth: &impl Credentials,
+        connection: u64,
+        now: u64,
+        request: rieul_daemon_core::generated::rpc::ConfigureDesktopViewportsReq,
+        server_owned: bool,
+    ) -> Result<rieul_daemon_core::generated::rpc::DesktopConfiguration, Error> {
         use rieul_daemon_core::generated::rpc::*;
         let backend = self.backend.as_ref().ok_or(Error::Unsupported)?;
         let displays = backend.displays();
         self.mutate(|d| {
             d.authorize(auth, connection, &request.attach_id, now)?;
+            if !server_owned && d.attachments[&request.attach_id].server_viewports {
+                return Err(Error::Invalid);
+            }
             for v in &request.viewports {
                 let display = displays
                     .iter()
@@ -1283,6 +1336,7 @@ impl Runtime {
                 request.viewports.clone(),
                 request.total_bitrate,
             )?;
+            d.attachments.get_mut(&request.attach_id).unwrap().server_viewports = server_owned;
             let configuration = DesktopConfiguration {
                 layout_epoch: request.layout_epoch,
                 total_bitrate: request.total_bitrate,

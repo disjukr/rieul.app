@@ -20,9 +20,9 @@ test("category donuts expose denominator and every supported/unsupported RPC wit
       name: "Screen RPC support",
       exact: true,
     });
-    await expect(screen.getByText("30% supported")).toBeVisible();
-    await expect(screen.getByText("3 of 10 RPCs")).toBeVisible();
-    await expect(screen.getByText("7 not supported")).toBeVisible();
+    await expect(screen.getByText("27% supported")).toBeVisible();
+    await expect(screen.getByText("3 of 11 RPCs")).toBeVisible();
+    await expect(screen.getByText("8 not supported")).toBeVisible();
     const files = page.getByRole("article", {
       name: "Files RPC support",
       exact: true,
@@ -34,11 +34,11 @@ test("category donuts expose denominator and every supported/unsupported RPC wit
     await expect(summary).toBeFocused();
     await summary.hover();
     await page.keyboard.press("Enter");
-    await expect(screen.getByRole("listitem")).toHaveCount(10);
+    await expect(screen.getByRole("listitem")).toHaveCount(11);
     await expect(screen.getByText("Supported", { exact: true })).toHaveCount(3);
     await expect(
       screen.getByText("Not supported", { exact: true }),
-    ).toHaveCount(7);
+    ).toHaveCount(8);
     await expect(
       screen.getByText("WriteDesktopInput", { exact: true }),
     ).toBeVisible();
@@ -55,8 +55,8 @@ test("category donuts expose denominator and every supported/unsupported RPC wit
     await expect(screen).toMatchAriaSnapshot(`
       - article "Screen RPC support":
         - heading "Screen" [level=3]
-        - strong: 30% supported
-        - text: 3 of 10 RPCs 7 not supported
+        - strong: 27% supported
+        - text: 3 of 11 RPCs 8 not supported
         - group:
           - text: View Screen RPCs
           - list:
@@ -90,6 +90,9 @@ test("category donuts expose denominator and every supported/unsupported RPC wit
             - listitem:
               - code: ConfigureDesktopLayout
               - text: RPC 103 Not supported
+            - listitem:
+              - code: AttachExistingDesktop
+              - text: RPC 104 Not supported
     `);
     await screen.scrollIntoViewIfNeeded();
     await screen.screenshot({
@@ -120,15 +123,15 @@ test("unknown, zero and full support stay distinct across reactive changes", asy
     0,
   );
   await page.getByRole("button", { name: "None supported" }).click();
-  await expect(screen.getByText("0 of 10 RPCs")).toBeVisible();
+  await expect(screen.getByText("0 of 11 RPCs")).toBeVisible();
   await screen.locator("summary").click();
   await expect(screen.getByText("Not supported", { exact: true })).toHaveCount(
-    10,
+    11,
   );
   await page.getByRole("button", { name: "All supported" }).click();
   await expect(screen.getByText("100% supported")).toBeVisible();
-  await expect(screen.getByText("10 of 10 RPCs")).toBeVisible();
+  await expect(screen.getByText("11 of 11 RPCs")).toBeVisible();
   await screen.locator("summary").click();
-  await expect(screen.getByText("Supported", { exact: true })).toHaveCount(10);
+  await expect(screen.getByText("Supported", { exact: true })).toHaveCount(11);
   await expect(page.getByText(/Other advertised RPCs/)).toHaveCount(0);
 });

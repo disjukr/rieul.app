@@ -5,7 +5,8 @@ export function desktopModes(ids: readonly number[]) {
   return {
     existing:
       ids.includes(ProcId.GetDesktopCapabilities) &&
-      ids.includes(ProcId.AttachDesktop),
+      (ids.includes(ProcId.AttachDesktop) ||
+        ids.includes(ProcId.AttachExistingDesktop)),
     custom:
       ids.includes(ProcId.GetDesktopLayoutCapabilities) &&
       ids.includes(ProcId.AttachDesktopWithLayout),

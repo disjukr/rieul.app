@@ -1224,6 +1224,7 @@ fn build_rpc_handlers(
         .get_daemon_info(HostRpcHandler::get_daemon_info_rpc)
         .get_desktop_capabilities(HostRpcHandler::get_desktop_capabilities_rpc)
         .attach_desktop(HostRpcHandler::attach_desktop_rpc)
+        .attach_existing_desktop(HostRpcHandler::attach_existing_desktop_rpc)
         .configure_desktop_viewports(HostRpcHandler::configure_desktop_viewports_rpc)
         .set_desktop_control(HostRpcHandler::set_desktop_control_rpc)
         .renew_desktop_lease(HostRpcHandler::renew_desktop_lease_rpc)

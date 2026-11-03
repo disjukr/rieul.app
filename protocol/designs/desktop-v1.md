@@ -294,3 +294,35 @@ the logged-in desktop; it is not a separate OS login session.
 Windows requires a real IDD/IddCx backend and its packaging/validation. macOS public
 virtual-display creation support remains unconfirmed; existing display mode APIs
 are insufficient evidence. Neither drivers nor OS configuration are changed here.
+
+
+## Automatic existing-display attachment
+
+`AttachExistingDesktop` (104) accepts only the existing codec/transport/input
+negotiation request. It sends Attached, Configured and video without requiring a
+ConfigureDesktopViewports request. It follows the current OS display set, including
+hotplug, removal and an empty desktop. Each configuration covers the backend-reported display set;
+existing platform exclusions (such as rotated Windows outputs) remain. More than eight reported displays fails explicitly rather than silently omitting a subset.
+A real topology change invalidates old coordinates, releases control/held input,
+and restarts video with new layout/codec epochs. It never changes OS configuration.
+An automatic attachment rejects legacy client viewport configuration. Closing its
+event stream tears down only that attachment; credentials and the shared connection
+remain usable. A failed encoder ends the attachment, and failed native shutdown
+continues to retain workload protection.
+
+The new client prefers 104 when advertised and otherwise keeps the 67/68 legacy
+path for older daemons. Older clients can continue using 67/68 on new daemons.
+The viewer no longer asks users to configure the display set. Automatic attachment
+currently uses full-display crops, aspect-preserving encoded dimensions capped at
+1920 × 1080 (the legacy viewer default), 60 FPS target, and a shared 20 Mbps target. These are bounded defaults, **not**
+adaptive quality, universal encoder support, guaranteed throughput, or maximum
+achievable quality. Encoder startup may reject an unsupported combination.
+
+Quality policy is a separate pending stage: Auto and Manual targets (e.g. FPS),
+not a Maximum mode. Before exposing either mode, query combined runtime support
+for codec/dimensions/FPS/bitrate, distinguish verified/unsupported/unknown results,
+and bind observations to layout/backend generation. Independent maxima are not a
+Cartesian-product guarantee. Dynamic quality requires measured transfer and
+receiver feedback; the existing queue-delay pacing alone is not adaptive encoding.
+Quality changes must preserve window and input identity and must not reuse the
+current topology-reset path. No new quality policy is advertised in this change.

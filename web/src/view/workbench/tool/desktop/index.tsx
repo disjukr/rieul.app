@@ -108,74 +108,29 @@ export function DesktopTool() {
         Keyboard input uses physical keys. IME and OS-reserved shortcuts are
         unavailable. Ctrl+Alt+Escape leaves screen keyboard focus.
       </p>
-      <label {...styles.help()}>
-        Maximum video size
-        <select
-          {...styles.select()}
-          aria-label="Maximum video size"
-          value={desktop().outputHeight()}
-          disabled={desktop().busy() || desktop().phase() === "connecting"}
-          onChange={(event) =>
-            void desktop().resize(Number(event.currentTarget.value))
-          }
-        >
-          <option value="720">1280 × 720</option>
-          <option value="1080">1920 × 1080</option>
-          <option value="2160">3840 × 2160</option>
-        </select>{" "}
-        Video size only; OS display resolution is unchanged. Changing size
-        releases held inputs.
-      </label>
-      <fieldset
-        {...styles.displays({ className: "rieul-desktop-displays" })}
-        disabled={desktop().busy() || desktop().phase() !== "viewing"}
-      >
-        <legend>Displays (up to {desktop().maxViewports()})</legend>
-        {desktop()
-          .displays()
-          .map((display) => (
-            <label {...styles.displayOption()}>
-              <input
-                type="checkbox"
-                disabled={
-                  !desktop()
-                    .configuration()
-                    ?.tracks.some(
-                      (t) => t.viewport.displayId === display.displayId,
-                    ) &&
-                  (desktop().configuration()?.tracks.length ?? 0) >=
-                    desktop().maxViewports()
-                }
-                checked={
-                  desktop()
-                    .configuration()
-                    ?.tracks.some(
-                      (t) => t.viewport.displayId === display.displayId,
-                    ) ?? false
-                }
-                onChange={(event) => {
-                  const ids =
-                    desktop()
-                      .configuration()
-                      ?.tracks.map((t) => t.viewport.displayId) ?? [];
-                  void desktop().configure(
-                    event.currentTarget.checked
-                      ? [...ids, display.displayId]
-                      : ids.filter((id) => id !== display.displayId),
-                  );
-                }}
-              />
-              {display.displayId} ({display.bounds.width} ×{" "}
-              {display.bounds.height})
-            </label>
-          ))}
-      </fieldset>
-      {desktop().phase() === "viewing" &&
-        !desktop().configuration()?.tracks.length && (
-          <p {...styles.help()}>
-            No display selected. Select a display above to show its screen.
-          </p>
-        )}
+      {!desktop().automaticDisplays() && (
+        <label {...styles.help()}>
+          Maximum video size
+          <select
+            {...styles.select()}
+            aria-label="Maximum video size"
+            value={desktop().outputHeight()}
+            disabled={desktop().busy() || desktop().phase() === "connecting"}
+            onChange={(event) =>
+              void desktop().resize(Number(event.currentTarget.value))
+            }
+          >
+            <option value="720">1280 × 720</option>
+            <option value="1080">1920 × 1080</option>
+            <option value="2160">3840 × 2160</option>
+          </select>{" "}
+          Video size only; OS display resolution is unchanged. Changing size
+          releases held inputs.
+        </label>
+      )}
+      {desktop().phase() === "viewing" && !desktop().displays().length && (
+        <p {...styles.help()}>The daemon has no active displays.</p>
+      )}
       <div {...styles.viewports({ className: "rieul-desktop-viewports" })}>
         {desktop()
           .configuration()

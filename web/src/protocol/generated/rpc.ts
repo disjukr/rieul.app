@@ -104,6 +104,7 @@ export enum ProcId {
   GetDesktopLayoutCapabilities = 101,
   AttachDesktopWithLayout = 102,
   ConfigureDesktopLayout = 103,
+  AttachExistingDesktop = 104,
 }
 
 export interface SubscribeWindowDetailReq {
@@ -3474,6 +3475,18 @@ export const configureDesktopLayoutProc: ProcCodec<ConfigureDesktopLayoutReq, De
   decodeError: decodeDesktopErrorValue,
 };
 
+export const attachExistingDesktopProc: ProcCodec<AttachDesktopReq, DesktopEvent, DesktopError> = {
+  id: ProcId.AttachExistingDesktop,
+  name: "AttachExistingDesktop",
+  stream: "server",
+  requestType: "AttachDesktopReq",
+  responseType: "DesktopEvent",
+  errorType: "DesktopError",
+  encodeRequest: encodeAttachDesktopReqValue,
+  decodeResponse: decodeDesktopEventValue,
+  decodeError: decodeDesktopErrorValue,
+};
+
 export const procs = {
   [ProcId.GetDaemonInfo]: getDaemonInfoProc,
   [ProcId.StartPairing]: startPairingProc,
@@ -3576,6 +3589,7 @@ export const procs = {
   [ProcId.GetDesktopLayoutCapabilities]: getDesktopLayoutCapabilitiesProc,
   [ProcId.AttachDesktopWithLayout]: attachDesktopWithLayoutProc,
   [ProcId.ConfigureDesktopLayout]: configureDesktopLayoutProc,
+  [ProcId.AttachExistingDesktop]: attachExistingDesktopProc,
 } as const;
 
 export function encodeSubscribeWindowDetailReqValue(value: SubscribeWindowDetailReq): CborValue {

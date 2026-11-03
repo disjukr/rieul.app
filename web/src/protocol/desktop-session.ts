@@ -17,6 +17,9 @@ export async function* desktopEvents(
   transport: WebTransport,
   request: AttachDesktopReq,
   signal: AbortSignal,
+  procedure:
+    | ProcId.AttachDesktop
+    | ProcId.AttachExistingDesktop = ProcId.AttachDesktop,
 ): AsyncGenerator<DesktopEvent> {
   const stream = await transport.createBidirectionalStream();
   const reader = stream.readable.getReader(),
@@ -34,7 +37,7 @@ export async function* desktopEvents(
       encodeReqResMessageSequence([
         {
           kind: ReqResMessageKind.RequestUnary,
-          procId: ProcId.AttachDesktop,
+          procId: procedure,
           payload: encodeCbor(encodeAttachDesktopReqValue(request)),
         },
       ]),

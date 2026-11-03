@@ -170,19 +170,35 @@ impl HostRpcHandler {
         &'a mut self,
         request: AttachDesktopReq,
     ) -> RpcHandlerFuture<'a, Result<()>> {
+        self.attach_desktop_stream_rpc(request, false)
+    }
+    pub(super) fn attach_existing_desktop_rpc<'a>(
+        &'a mut self,
+        request: AttachDesktopReq,
+    ) -> RpcHandlerFuture<'a, Result<()>> {
+        self.attach_desktop_stream_rpc(request, true)
+    }
+    fn attach_desktop_stream_rpc<'a>(
+        &'a mut self,
+        request: AttachDesktopReq,
+        existing: bool,
+    ) -> RpcHandlerFuture<'a, Result<()>> {
         Box::pin(async move {
+            let proc = if existing { ProcId::AttachExistingDesktop } else { ProcId::AttachDesktop };
             let send = self.response_stream();
             let mut send = send.lock().await;
             let (auth, connection, client) = match self.desktop_auth().await {
                 Ok(a) => a,
                 Err(e) => {
-                    write_event(&mut send, failure(ProcId::AttachDesktop, e, true)).await?;
+                    write_event(&mut send, failure(proc, e, true)).await?;
                     return Ok(());
                 }
             };
             let mut changed = self.desktop.changed.subscribe();
             let runtime = self.desktop.clone();
+            let work = runtime.capture_work().ok_or_else(|| anyhow::anyhow!("desktop draining"))?;
             let (attached, _cleanup) = match tokio::task::spawn_blocking(move || {
+                let _work = work;
                 let attached = runtime.attach(&auth, connection, &client, now_ms(), &request)?;
                 let DesktopEvent::Attached { ref attach_id, .. } = attached else {
                     return Err(desktop::Error::Backend);
@@ -191,13 +207,16 @@ impl HostRpcHandler {
                     runtime: runtime.clone(),
                     id: attach_id.clone(),
                 };
+                if existing {
+                    runtime.configure_existing(&auth, connection, now_ms(), attach_id)?;
+                }
                 Ok((attached, cleanup))
             })
             .await?
             {
                 Ok(value) => value,
                 Err(e) => {
-                    write_event(&mut send, failure(ProcId::AttachDesktop, e, true)).await?;
+                    write_event(&mut send, failure(proc, e, true)).await?;
                     return Ok(());
                 }
             };
@@ -209,9 +228,8 @@ impl HostRpcHandler {
             else {
                 unreachable!()
             };
-            let mut previous_layout = blocking(self.desktop.clone(), |r| r.layout_event())
-                .await
-                .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+            let DesktopEvent::Attached { layout_epoch, ref displays, .. } = attached else { unreachable!() };
+            let mut previous_layout = DesktopEvent::Layout { layout_epoch, displays: displays.clone() };
             let id = attach_id.clone();
             let mut previous = control.clone();
             write_event(&mut send, stream_start_payload_message(attached.encode())).await?;
@@ -247,12 +265,33 @@ impl HostRpcHandler {
                     previous_layout = layout;
                     previous_cursor = None;
                 }
+                if existing {
+                    let config_id = id.clone();
+                    let missing = blocking(self.desktop.clone(), move |r| Ok(r.configuration(&config_id).is_none())).await.map_err(|e| anyhow::anyhow!("{e:?}"))?;
+                    if missing {
+                        let (auth, connection, _) = self.desktop_auth().await.map_err(|e| anyhow::anyhow!("{e:?}"))?;
+                        let config_id = id.clone();
+                        let work = self.desktop.capture_work().ok_or_else(|| anyhow::anyhow!("desktop draining"))?;
+                        let result = blocking(self.desktop.clone(), move |r| {
+                            let _work = work;
+                            r.configure_existing(&auth, connection, now_ms(), &config_id)
+                        }).await;
+                        if matches!(result, Err(desktop::Error::Stale)) { continue; }
+                        if let Err(e) = result {
+                            write_event(&mut send, failure(proc, e, true)).await?;
+                            return Ok(());
+                        }
+                    }
+                }
                 let config_id = id.clone();
                 let next = blocking(self.desktop.clone(), move |r| {
                     Ok(r.configuration(&config_id))
                 })
                 .await
                 .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+                if let (Some(next), DesktopEvent::Layout { layout_epoch, .. }) = (&next, &previous_layout) {
+                    if next.layout_epoch != *layout_epoch { continue; }
+                }
                 if next != configuration {
                     media.abort_all();
                     if let Some(next) = &next {
@@ -542,6 +581,7 @@ pub(super) mod tests {
             )>,
         >,
         layout_offset: std::sync::atomic::AtomicI64,
+        display_count: std::sync::atomic::AtomicUsize,
         streaming_group: std::sync::atomic::AtomicBool,
         shutdown_fails: std::sync::atomic::AtomicBool,
         encoding_fails: std::sync::atomic::AtomicBool,
@@ -612,8 +652,11 @@ pub(super) mod tests {
                 // Dropping the sender also unblocks this worker on test failure.
                 let _ = release.recv();
             }
-            vec![DesktopDisplay {
-                display_id: "fixture".into(),
+            let count = match self.display_count.load(std::sync::atomic::Ordering::SeqCst) {
+                0 => 1, usize::MAX => 0, n => n,
+            };
+            (0..count).map(|index| DesktopDisplay {
+                display_id: if index == 0 { "fixture".into() } else { format!("fixture-{index}") },
                 bounds: DesktopRect {
                     x: self.layout_offset.load(std::sync::atomic::Ordering::SeqCst),
                     y: 0,
@@ -622,7 +665,7 @@ pub(super) mod tests {
                 },
                 scale: 1.0,
                 dpi: 96.0,
-            }]
+            }).collect()
         }
         fn group(&self, _: &DesktopTrack) -> Result<Vec<desktop::EncodedFrame>, desktop::Error> {
             if self
@@ -660,6 +703,76 @@ pub(super) mod tests {
             self.changed.notify_one();
             Ok(())
         }
+    }
+    async fn configured_event(reader: &mut ReqResMessageReader) -> DesktopConfiguration {
+        loop {
+            let message = reader.next().await.unwrap().unwrap();
+            let ReqResMessage::ResponseStreamChunk { payload: bytes } = message else { panic!("{message:?}") };
+            if let DesktopEvent::Configured { configuration } = DesktopEvent::decode(&bytes).unwrap() { return configuration; }
+        }
+    }
+    #[tokio::test]
+    async fn existing_displays_stream_without_configure_and_follow_hotplug() {
+        tokio::time::timeout(Duration::from_secs(10), async {
+            let f = Fixture::new().await;
+            f.authenticate().await;
+            let (id, mut events) = f.attach_mode(ProcId::AttachExistingDesktop).await;
+            let first = configured_event(&mut events).await;
+            assert_eq!(first.tracks.len(), 1);
+            assert_eq!(first.tracks[0].viewport.display_id, "fixture");
+            assert_eq!(first.tracks[0].viewport.crop.width, 64);
+            assert_eq!(first.tracks[0].viewport.width, 64);
+            let mut media = f.session.accept_uni().await.unwrap();
+            let mut header = [0; 4];
+            media.read_exact(&mut header).await.unwrap();
+            let mut bytes = vec![0; u32::from_be_bytes(header) as usize];
+            media.read_exact(&mut bytes).await.unwrap();
+            let frame = DesktopMediaObject::decode(&bytes).unwrap();
+            assert!(frame.keyframe);
+            assert_eq!(frame.attach_id, id);
+            // Legacy configuration may not take ownership of an automatic attachment.
+            let denied = f.unary(ProcId::ConfigureDesktopViewports, Some(ConfigureDesktopViewportsReq {
+                attach_id: id.clone(), layout_epoch: first.layout_epoch,
+                total_bitrate: 1000, viewports: vec![],
+            }.encode())).await;
+            assert!(matches!(denied, ReqResMessage::ResponseUnaryError { .. }));
+            f.control(&id, DesktopControlAction::Acquire).await;
+            f.backend.display_count.store(2, std::sync::atomic::Ordering::SeqCst);
+            let second = configured_event(&mut events).await;
+            assert_eq!(second.tracks.len(), 2);
+            assert!(second.layout_epoch > first.layout_epoch);
+            assert!(second.tracks[0].codec_epoch > first.tracks[0].codec_epoch);
+            assert!(f.runtime.control().unwrap().holder_attach_id.is_none());
+            f.backend.display_count.store(usize::MAX, std::sync::atomic::Ordering::SeqCst);
+            let empty = configured_event(&mut events).await;
+            assert!(empty.tracks.is_empty());
+            f.backend.display_count.store(0, std::sync::atomic::Ordering::SeqCst);
+            let restored = configured_event(&mut events).await;
+            assert_eq!(restored.tracks.len(), 1);
+            // End only this attach stream; the authenticated connection remains usable.
+            drop(events);
+            while f.runtime.has(&id) { tokio::task::yield_now().await; }
+            assert!(matches!(f.unary(ProcId::GetDesktopCapabilities, None).await, ReqResMessage::ResponseUnaryOk { .. }));
+        }).await.unwrap();
+    }
+    #[tokio::test]
+    async fn existing_displays_reject_unauthorized_and_over_limit_without_leaking_attach() {
+        tokio::time::timeout(Duration::from_secs(5), async {
+            let f = Fixture::new().await;
+            let request = AttachDesktopReq { profile: 1, codecs: vec!["fixture-only".into()], media_uni_streams: true, keyboard_mode: DesktopKeyboardMode::Physical };
+            let denied = f.unary(ProcId::AttachExistingDesktop, Some(request.encode())).await;
+            assert!(matches!(denied, ReqResMessage::ResponseStreamErrorEnd { .. }));
+            f.authenticate().await;
+            f.backend.display_count.store(9, std::sync::atomic::Ordering::SeqCst);
+            let over_limit = f.unary(ProcId::AttachExistingDesktop, Some(request.encode())).await;
+            assert!(matches!(over_limit, ReqResMessage::ResponseStreamErrorEnd { .. }));
+            while !f.runtime.is_empty() { tokio::task::yield_now().await; }
+            f.backend.display_count.store(0, std::sync::atomic::Ordering::SeqCst);
+            f.backend.encoding_fails.store(true, std::sync::atomic::Ordering::SeqCst);
+            let (id, mut events) = f.attach_mode(ProcId::AttachExistingDesktop).await;
+            configured_event(&mut events).await;
+            while f.runtime.has(&id) { tokio::task::yield_now().await; }
+        }).await.unwrap();
     }
     #[test]
     fn selected_codec_follows_client_preference_without_a_protocol_codec_priority() {
@@ -1092,10 +1205,13 @@ pub(super) mod tests {
             assert!(matches!(response, ReqResMessage::SessionAuthenticated));
         }
         async fn attach(&self) -> (String, ReqResMessageReader) {
+            self.attach_mode(ProcId::AttachDesktop).await
+        }
+        async fn attach_mode(&self, proc: ProcId) -> (String, ReqResMessageReader) {
             let (mut send, recv) = self.session.open_bi().await.unwrap();
             send.write_all(
                 &ReqResMessage::RequestUnary {
-                    proc_id: ProcId::AttachDesktop.as_u64(),
+                    proc_id: proc.as_u64(),
                     payload: Some(
                         AttachDesktopReq {
                             profile: 1,

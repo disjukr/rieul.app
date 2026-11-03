@@ -526,3 +526,10 @@ struct DesktopLayout {
   @ id - 2
   displays: DesktopDisplay[],
 }
+
+# description
+| Streams the current OS displays without client viewport configuration.
+| The daemon owns track geometry. No OS configuration is changed.
+@ id - 104
+@ stream - server
+proc AttachExistingDesktop = AttachDesktopReq -> DesktopEvent throws DesktopError

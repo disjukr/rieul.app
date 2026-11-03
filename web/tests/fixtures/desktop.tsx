@@ -39,6 +39,9 @@ function Fixture() {
     attachId: createSignal<string | undefined>("fixture")[0],
     displays: createSignal([display])[0],
     supported: createMemo(() => true),
+    automaticDisplays: createMemo(() =>
+      new URLSearchParams(location.search).has("automatic"),
+    ),
     modes: createMemo(() => ({ existing: true, custom: false })),
     inputReady,
     busy: createSignal(false)[0],

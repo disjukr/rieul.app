@@ -15,6 +15,7 @@ test("legacy Screen daemon retains existing mode without implying custom layout"
     existing: true,
     custom: false,
   });
+  assert.deepEqual(desktopModes([66, 104]), { existing: true, custom: false });
   assert.deepEqual(desktopModes([66]), { existing: false, custom: false });
   assert.deepEqual(desktopModes([]), { existing: false, custom: false });
 });

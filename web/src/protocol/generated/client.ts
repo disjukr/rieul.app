@@ -108,6 +108,7 @@ import {
   getDesktopLayoutCapabilitiesProc,
   attachDesktopWithLayoutProc,
   configureDesktopLayoutProc,
+  attachExistingDesktopProc,
 } from "./rpc.ts";
 import type {
   ActivateClusterPrimaryReq,
@@ -656,4 +657,8 @@ export function attachDesktopWithLayout(transport: WebTransport, request: Attach
 
 export function configureDesktopLayout(transport: WebTransport, request: ConfigureDesktopLayoutReq): Promise<DesktopLayout> {
   return callUnary(transport, configureDesktopLayoutProc, request);
+}
+
+export function attachExistingDesktop(transport: WebTransport, request: AttachDesktopReq): AsyncGenerator<DesktopEvent> {
+  return callServerStream(transport, attachExistingDesktopProc, request);
 }

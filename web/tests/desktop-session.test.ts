@@ -4,11 +4,13 @@ import { desktopEvents } from "../src/protocol/desktop-session.ts";
 import { encodeCbor } from "../src/protocol/cbor.ts";
 import {
   DesktopKeyboardMode,
+  ProcId,
   encodeDesktopEventValue,
   type DesktopEvent,
 } from "../src/protocol/generated/rpc.ts";
 import {
   encodeReqResMessageSequence,
+  decodeReqResMessageSequence,
   ReqResMessageKind,
 } from "../src/protocol/wire.ts";
 const request = {
@@ -23,10 +25,15 @@ const event: DesktopEvent = {
 };
 function fixture(bytes?: Uint8Array) {
   let canceled = 0;
+  const writes: Uint8Array[] = [];
   const transport = {
     async createBidirectionalStream() {
       return {
-        writable: new WritableStream<Uint8Array>(),
+        writable: new WritableStream<Uint8Array>({
+          write(bytes) {
+            writes.push(bytes);
+          },
+        }),
         readable: new ReadableStream<Uint8Array>({
           start(c) {
             if (bytes) {
@@ -41,7 +48,7 @@ function fixture(bytes?: Uint8Array) {
       };
     },
   } as WebTransport;
-  return { transport, canceled: () => canceled };
+  return { transport, writes, canceled: () => canceled };
 }
 test("bounded desktop events decode ordered messages and cancellation touches only attachment", async () => {
   const bytes = encodeReqResMessageSequence([
@@ -92,5 +99,30 @@ test("events reject truncated, invalid ordering and oversized incomplete envelop
       )) {
       }
     });
+  }
+});
+
+test("automatic attach uses its own procedure without a viewport request or fallback", async () => {
+  for (const procedure of [
+    ProcId.AttachDesktop,
+    ProcId.AttachExistingDesktop,
+  ] as const) {
+    const f = fixture(
+      encodeReqResMessageSequence([
+        {
+          kind: ReqResMessageKind.ResponseStreamStart,
+          payload: encodeCbor(encodeDesktopEventValue(event)),
+        },
+      ]),
+    );
+    for await (const _ of desktopEvents(
+      f.transport,
+      request,
+      new AbortController().signal,
+      procedure,
+    )) {
+    }
+    assert.equal(f.writes.length, 1);
+    assert.equal(decodeReqResMessageSequence(f.writes[0])[0].procId, procedure);
   }
 });

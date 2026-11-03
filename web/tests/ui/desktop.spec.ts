@@ -94,3 +94,35 @@ test("viewer settings remain usable at a narrow viewport without taking control"
     page.getByRole("button", { name: "Acquire control", exact: true }),
   ).toBeDisabled();
 });
+
+test("existing display mode opens directly without layout or quality setup", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/tests/fixtures/desktop.html?automatic");
+  await expect(page.getByRole("checkbox")).toHaveCount(0);
+  await expect(
+    page.getByRole("combobox", { name: "Maximum video size" }),
+  ).toHaveCount(0);
+  await page.getByRole("button", { name: "Open screen", exact: true }).click();
+  await expect(
+    page.getByLabel("Display fixture", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByLabel("Recorded input")).toHaveText("[]");
+  await page.getByRole("button", { name: "Open in another window" }).hover();
+  await page
+    .getByRole("button", { name: "Acquire control", exact: true })
+    .focus();
+  await expect(
+    page.getByRole("button", { name: "Acquire control", exact: true }),
+  ).toBeFocused();
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
+  await page.getByRole("button", { name: "Close screen", exact: true }).click();
+  await expect(page.getByLabel("Display fixture", { exact: true })).toHaveCount(
+    0,
+  );
+});
