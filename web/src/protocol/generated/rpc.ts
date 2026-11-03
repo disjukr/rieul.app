@@ -100,6 +100,7 @@ export enum ProcId {
   GetClusterRevocationIssues = 97,
   ReadClusterJoinHistory = 98,
   ConfigureClusterJoinSync = 99,
+  AuthenticateClusterClient = 100,
 }
 
 export interface SubscribeWindowDetailReq {
@@ -1575,6 +1576,17 @@ export interface ReadClusterJoinHistoryReq {
 export interface ConfigureClusterJoinSyncReq {
   operationId: Uint8Array;
   bootstrapHistory: ClusterHistory;
+}
+
+export interface AuthenticateClusterClientReq {
+  knownHead: ClusterHead;
+  serverAdmissionId: Uint8Array;
+  serverPublicKey: Uint8Array;
+  grantId: Uint8Array;
+  clientPublicKey: Uint8Array;
+  nonce: Uint8Array;
+  connectionId: number;
+  signature: Uint8Array;
 }
 
 export interface CreateAgentProjectReq {
@@ -3358,6 +3370,18 @@ export const configureClusterJoinSyncProc: ProcCodec<ConfigureClusterJoinSyncReq
   decodeError: decodeClusterErrorValue,
 };
 
+export const authenticateClusterClientProc: ProcCodec<AuthenticateClusterClientReq, ClusterHistory, ClusterError> = {
+  id: ProcId.AuthenticateClusterClient,
+  name: "AuthenticateClusterClient",
+  stream: "unary",
+  requestType: "AuthenticateClusterClientReq",
+  responseType: "ClusterHistory",
+  errorType: "ClusterError",
+  encodeRequest: encodeAuthenticateClusterClientReqValue,
+  decodeResponse: decodeClusterHistoryValue,
+  decodeError: decodeClusterErrorValue,
+};
+
 export const procs = {
   [ProcId.GetDaemonInfo]: getDaemonInfoProc,
   [ProcId.StartPairing]: startPairingProc,
@@ -3456,6 +3480,7 @@ export const procs = {
   [ProcId.GetClusterRevocationIssues]: getClusterRevocationIssuesProc,
   [ProcId.ReadClusterJoinHistory]: readClusterJoinHistoryProc,
   [ProcId.ConfigureClusterJoinSync]: configureClusterJoinSyncProc,
+  [ProcId.AuthenticateClusterClient]: authenticateClusterClientProc,
 } as const;
 
 export function encodeSubscribeWindowDetailReqValue(value: SubscribeWindowDetailReq): CborValue {
@@ -9944,6 +9969,33 @@ export function decodeConfigureClusterJoinSyncReqValue(value: CborValue): Config
   };
 }
 
+export function encodeAuthenticateClusterClientReqValue(value: AuthenticateClusterClientReq): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, encodeClusterHeadValue(required(value.knownHead, "AuthenticateClusterClientReq.knownHead")));
+  fields.set(2, bytes(required(value.serverAdmissionId, "AuthenticateClusterClientReq.serverAdmissionId")));
+  fields.set(3, bytes(required(value.serverPublicKey, "AuthenticateClusterClientReq.serverPublicKey")));
+  fields.set(4, bytes(required(value.grantId, "AuthenticateClusterClientReq.grantId")));
+  fields.set(5, bytes(required(value.clientPublicKey, "AuthenticateClusterClientReq.clientPublicKey")));
+  fields.set(6, bytes(required(value.nonce, "AuthenticateClusterClientReq.nonce")));
+  fields.set(7, i53(required(value.connectionId, "AuthenticateClusterClientReq.connectionId")));
+  fields.set(8, bytes(required(value.signature, "AuthenticateClusterClientReq.signature")));
+  return fields;
+}
+
+export function decodeAuthenticateClusterClientReqValue(value: CborValue): AuthenticateClusterClientReq {
+  const fields = expectMap(value);
+  return {
+    knownHead: fieldOrDefault(fields.get(1), (value) => decodeClusterHeadValue(value), () => defaultClusterHead()),
+    serverAdmissionId: fieldOrDefault(fields.get(2), (value) => bytesValue(value), () => new Uint8Array()),
+    serverPublicKey: fieldOrDefault(fields.get(3), (value) => bytesValue(value), () => new Uint8Array()),
+    grantId: fieldOrDefault(fields.get(4), (value) => bytesValue(value), () => new Uint8Array()),
+    clientPublicKey: fieldOrDefault(fields.get(5), (value) => bytesValue(value), () => new Uint8Array()),
+    nonce: fieldOrDefault(fields.get(6), (value) => bytesValue(value), () => new Uint8Array()),
+    connectionId: fieldOrDefault(fields.get(7), (value) => integer(value), () => 0),
+    signature: fieldOrDefault(fields.get(8), (value) => bytesValue(value), () => new Uint8Array()),
+  };
+}
+
 export function encodeCreateAgentProjectReqValue(value: CreateAgentProjectReq): CborValue {
   const fields = new Map<number, CborValue>();
   fields.set(1, text(required(value.rootPath, "CreateAgentProjectReq.rootPath")));
@@ -14016,6 +14068,19 @@ function defaultConfigureClusterJoinSyncReq(): ConfigureClusterJoinSyncReq {
   return {
     operationId: new Uint8Array(),
     bootstrapHistory: defaultClusterHistory(),
+  };
+}
+
+function defaultAuthenticateClusterClientReq(): AuthenticateClusterClientReq {
+  return {
+    knownHead: defaultClusterHead(),
+    serverAdmissionId: new Uint8Array(),
+    serverPublicKey: new Uint8Array(),
+    grantId: new Uint8Array(),
+    clientPublicKey: new Uint8Array(),
+    nonce: new Uint8Array(),
+    connectionId: 0,
+    signature: new Uint8Array(),
   };
 }
 

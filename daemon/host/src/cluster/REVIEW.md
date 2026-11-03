@@ -300,3 +300,49 @@ only the exact receipt replays; changed content is rejected.
 
 Validation: full host suite 164 passed / 3 ignored; diff whitespace check passed.
 No browser changes, main push, release or environment mutation in this checkpoint.
+
+## Cluster client session authentication (server checkpoint)
+
+Adds unary AuthenticateClusterClient (100), registered only on supported private
+storage platforms. It consumes the existing five-second per-connection nonce
+(single use, 128 global bound, one challenge/second). The Ed25519 transcript is a
+canonical CBOR array headed `rieul.cluster.client-session.v1`, binding cluster,
+known epoch/sequence/hash/primary, target admission/key, grant/client key, nonce
+and connection ID. The pinned prefix must exactly exist in the verified local
+log. No history or address is returned before proof succeeds; a valid proof
+returns current verified history. Challenge server proof remains bound to the
+cluster and server key, which the caller must obtain from its pinned history.
+
+Session authority is a typed Principal, not a parsed client ID or copied paired
+credential. General RPC admission revalidates grant, expiry, local admission/key,
+node membership and minimum observed log position. Management mutations recheck
+the principal within their existing write transactions before receipts. Screen
+credentials combine local records with currently valid cluster subjects without
+writing synthetic local credentials. Update RPCs accept the same validated
+principal. Local-pairing adoption and secret renewal are not grant-minting
+shortcuts: adoption entry RPCs require a local pairing, and renewal has no local
+credential to renew for a cluster subject.
+
+The existing 100ms session tick closes a grant session on invalidity. Per-session
+stream tasks are scoped in a JoinSet and abort at connection exit, including idle
+subscriptions. Screen's existing attachment/connection cleanup releases held
+input. Already admitted operations may complete at their operation boundary;
+this is not retroactive cancellation of completed effects. Cached replicas still
+cannot learn revocations during a partition. Forwarded management retains the
+trusted member's signed original-principal attestation and dispatch boundary.
+Database rollback fencing remains outside the supported recovery model.
+
+Tests cover proof field substitution, exact pinned prefix, revoked grant write
+recheck, expiry/removed node/new incarnation/older state, and real localhost
+WebTransport connections to two fixture daemons after automatic adoption. Those
+connections use only the synthetic client's private key; ordinary environment,
+Screen and management reads succeed. Nonce replay fails. Issuer removal preserves
+the accepted grant on the other daemon, while removed-node and revoked-grant
+connections close and held synthetic input is released. These are Rust transport
+fixtures, not browser E2E. Browser key storage, history verification, automatic
+adoption initiation/discovery and UI remain the next separate checkpoint.
+
+Validation: full host 167 passed / 3 ignored; web/codegen 112 passed; TypeScript
+check and production web build passed. No actual host, credential, permission,
+main push or deployment changes. Independent auth review is required before
+publication; Windows enrollment remains disabled.

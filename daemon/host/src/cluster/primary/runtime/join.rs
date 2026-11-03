@@ -229,6 +229,7 @@ mod tests {
         Authorized {
             expires_at_unix: now() + 3600,
             client_id: "fixture".into(),
+            grant: None,
             peer: None,
         }
     }

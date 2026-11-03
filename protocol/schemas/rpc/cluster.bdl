@@ -486,3 +486,26 @@ struct ConfigureClusterJoinSyncReq {
   @ id - 2
   bootstrapHistory: ClusterHistory,
 }
+
+// Uses the per-connection, single-use GetClusterPeerChallenge nonce.
+@ id - 100
+@ stream - unary
+proc AuthenticateClusterClient = AuthenticateClusterClientReq -> ClusterHistory throws ClusterError
+struct AuthenticateClusterClientReq {
+  @ id - 1
+  knownHead: ClusterHead,
+  @ id - 2
+  serverAdmissionId: bytes,
+  @ id - 3
+  serverPublicKey: bytes,
+  @ id - 4
+  grantId: bytes,
+  @ id - 5
+  clientPublicKey: bytes,
+  @ id - 6
+  nonce: bytes,
+  @ id - 7
+  connectionId: i53,
+  @ id - 8
+  signature: bytes,
+}

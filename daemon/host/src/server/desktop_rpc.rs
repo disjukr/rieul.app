@@ -44,6 +44,7 @@ pub(super) async fn expire(
     runtime: &Arc<desktop::Runtime>,
     path: &Path,
     records: &SharedClientCredentials,
+    config_path: &Path,
 ) {
     if blocking(runtime.clone(), |r| Ok(r.is_empty()))
         .await
@@ -59,19 +60,30 @@ pub(super) async fn expire(
         let mut current = records.lock().await;
         *current = ClientCredentials::default();
     }
-    let auth = Auth(records.clone().lock_owned().await);
+    let subjects = cluster_subjects(config_path).await;
+    let auth = Auth(records.clone().lock_owned().await, subjects);
     let _ = blocking(runtime.clone(), move |r| {
         r.mutate(|d| d.expire(&auth, now_ms()))
     })
     .await;
 }
-struct Auth(tokio::sync::OwnedMutexGuard<ClientCredentials>);
+async fn cluster_subjects(config_path: &Path) -> Vec<String> {
+    let path = config_path.with_extension("cluster.sqlite");
+    tokio::task::spawn_blocking(move || {
+        crate::cluster::runtime::client::subjects(&path).unwrap_or_default()
+    })
+    .await
+    .unwrap_or_default()
+}
+struct Auth(tokio::sync::OwnedMutexGuard<ClientCredentials>, Vec<String>);
 impl Credentials for Auth {
     fn valid(&self, client: &str, _: u64) -> bool {
-        self.0
-            .clients
-            .iter()
-            .any(|r| r.client_id == client && r.expires_at_unix > now_unix())
+        self.1.iter().any(|subject| subject == client)
+            || self
+                .0
+                .clients
+                .iter()
+                .any(|r| r.client_id == client && r.expires_at_unix > now_unix())
     }
 }
 fn now_ms() -> u64 {
@@ -117,7 +129,8 @@ impl HostRpcHandler {
         load_runtime_client_credentials(&self.credentials_path, &self.client_credentials)
             .await
             .map_err(|_| desktop::Error::Unauthorized)?;
-        let auth = Auth(self.client_credentials.clone().lock_owned().await);
+        let subjects = cluster_subjects(&self.config_path).await;
+        let auth = Auth(self.client_credentials.clone().lock_owned().await, subjects);
         // Revocation still attempts cleanup, but never initiates a fresh helper.
         let valid = auth.valid(&client, now_ms());
         let auth = blocking(self.desktop.clone(), move |r| {
@@ -1042,6 +1055,120 @@ pub(super) mod tests {
                 panic!("{response:?}")
             };
             DesktopControl::decode(&payload).unwrap()
+        }
+        pub(in crate::server) async fn hold_key_on(
+            &self,
+            session: &web_transport_quinn::Session,
+        ) -> (
+            web_transport_quinn::SendStream,
+            web_transport_quinn::RecvStream,
+            ReqResMessageReader,
+        ) {
+            let (mut send, recv) = session.open_bi().await.unwrap();
+            send.write_all(
+                &ReqResMessage::RequestUnary {
+                    proc_id: ProcId::AttachDesktop.as_u64(),
+                    payload: Some(
+                        AttachDesktopReq {
+                            profile: 1,
+                            codecs: vec!["fixture-only".into()],
+                            media_uni_streams: true,
+                            keyboard_mode: DesktopKeyboardMode::Physical,
+                        }
+                        .encode(),
+                    ),
+                }
+                .encode(),
+            )
+            .await
+            .unwrap();
+            send.finish().unwrap();
+            let mut events = ReqResMessageReader::new(recv);
+            let ReqResMessage::ResponseStreamStart {
+                payload: Some(bytes),
+            } = events.next().await.unwrap().unwrap()
+            else {
+                panic!()
+            };
+            let DesktopEvent::Attached { attach_id, .. } = DesktopEvent::decode(&bytes).unwrap()
+            else {
+                panic!()
+            };
+            let (mut send, mut recv) = session.open_bi().await.unwrap();
+            send.write_all(
+                &ReqResMessage::RequestUnary {
+                    proc_id: ProcId::SetDesktopControl.as_u64(),
+                    payload: Some(
+                        SetDesktopControlReq {
+                            attach_id: attach_id.clone(),
+                            action: DesktopControlAction::Acquire,
+                        }
+                        .encode(),
+                    ),
+                }
+                .encode(),
+            )
+            .await
+            .unwrap();
+            send.finish().unwrap();
+            let messages =
+                ReqResMessage::decode_sequence(&recv.read_to_end(65536).await.unwrap()).unwrap();
+            let ReqResMessage::ResponseUnaryOk {
+                payload: Some(bytes),
+            } = &messages[0]
+            else {
+                panic!()
+            };
+            let control = DesktopControl::decode(bytes).unwrap();
+            let key = DesktopInputEvent::PhysicalKey {
+                usage: 225,
+                down: true,
+                repeat: false,
+            };
+            let frame = DesktopInputFrame {
+                attach_id,
+                input_epoch: control.input_epoch,
+                sequence: 1,
+                layout_epoch: 1,
+                event: key.clone(),
+            };
+            let (mut send, recv) = session.open_bi().await.unwrap();
+            send.write_all(
+                &ReqResMessage::RequestStreamStart {
+                    proc_id: ProcId::WriteDesktopInput.as_u64(),
+                    payload: Some(frame.encode()),
+                }
+                .encode(),
+            )
+            .await
+            .unwrap();
+            self.wait_input(&key).await;
+            (send, recv, events)
+        }
+        pub(in crate::server) async fn assert_control_released(&self) {
+            tokio::time::timeout(Duration::from_secs(2), async {
+                loop {
+                    if blocking(self.runtime.clone(), |r| r.control())
+                        .await
+                        .unwrap()
+                        .holder_attach_id
+                        .is_none()
+                    {
+                        break;
+                    }
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .unwrap();
+            let inputs = self.backend.inputs.lock().unwrap();
+            let key_down = inputs
+                .iter()
+                .rposition(|e| matches!(e, DesktopInputEvent::PhysicalKey { down: true, .. }))
+                .unwrap();
+            assert!(inputs[key_down + 1..]
+                .iter()
+                .any(|e| matches!(e, DesktopInputEvent::ReleaseAll)));
         }
         async fn wait_input(&self, event: &DesktopInputEvent) {
             loop {

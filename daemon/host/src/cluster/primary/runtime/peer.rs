@@ -70,6 +70,7 @@ pub(crate) fn authenticate(
     Ok(Authorized {
         expires_at_unix: now() + 10,
         client_id: r.original_principal.clone(),
+        grant: None,
         peer: Some((sender, public)),
     })
 }

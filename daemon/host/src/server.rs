@@ -187,6 +187,7 @@ pub trait PairingNotifier: Send + Sync {
 struct RpcSessionState {
     session_id: RpcSessionId,
     authenticated_client_id: Option<String>,
+    cluster_principal: Option<(PathBuf, crate::cluster::runtime::client::Principal)>,
 }
 
 pub async fn run_system_server(
@@ -1100,6 +1101,7 @@ async fn run_rpc_session(
 ) -> Result<()> {
     let session_state = Arc::new(Mutex::new(RpcSessionState {
         session_id: next_rpc_session_id(),
+        cluster_principal: None,
         authenticated_client_id: None,
     }));
     let _cluster_cleanup = cluster_rpc::ConnectionCleanup(rpc_session_id(&session_state).await);
@@ -1108,9 +1110,18 @@ async fn run_rpc_session(
         runtime: desktop.clone(),
         connection: rpc_session_id(&session_state).await,
     };
+    let mut stream_tasks = tokio::task::JoinSet::new();
     loop {
         tokio::select! {
-            _=desktop_tick.tick()=>{desktop_rpc::expire(&desktop, &credentials_path, &client_credentials).await;}
+            _ = stream_tasks.join_next(), if !stream_tasks.is_empty() => {}
+            _=desktop_tick.tick()=>{
+                let cluster_session = session_state.lock().await.cluster_principal.is_some();
+                if cluster_session && !is_authenticated(&session_state).await {
+                    session.close(0, b"Cluster authorization expired");
+                    return Ok(());
+                }
+                desktop_rpc::expire(&desktop, &credentials_path, &client_credentials, &config_path).await;
+            }
             _=disconnect.changed()=>{session.close(0,b"Confirmed server update");return Ok(());}
             stream = session.accept_bi() => {
                 let (send, recv) = stream?;
@@ -1137,7 +1148,7 @@ async fn run_rpc_session(
                 let admission=admission.clone();
                 let desktop=desktop.clone();
                 let stream_guard=crate::maintenance::ConnectionGuard::new(activity.clone());
-                tokio::spawn(async move {
+                stream_tasks.spawn(async move {
                     let _stream_guard=stream_guard;
                     let response = async {
                         handle_reqres_stream(
@@ -1274,6 +1285,7 @@ fn build_rpc_handlers(
 
     if crate::cluster::runtime::ENROLLMENT_SUPPORTED {
         handlers = handlers
+            .authenticate_cluster_client(HostRpcHandler::authenticate_cluster_client_rpc)
             .get_cluster_revocation_issues(HostRpcHandler::get_cluster_revocation_issues_rpc)
             .read_cluster_join_history(HostRpcHandler::read_cluster_join_history_rpc)
             .configure_cluster_join_sync(HostRpcHandler::configure_cluster_join_sync_rpc)
@@ -4118,7 +4130,14 @@ async fn authenticate_session_control(
             "paired credential verification failed",
         ));
     }
-    session_state.lock().await.authenticated_client_id = Some(credential.credential_id);
+    let mut state = session_state.lock().await;
+    if state.authenticated_client_id.is_some() || state.cluster_principal.is_some() {
+        return Ok(session_auth_error_message(
+            SessionAuthErrorCode::AlreadyAuthenticated,
+            "session is already authenticated",
+        ));
+    }
+    state.authenticated_client_id = Some(credential.credential_id);
     Ok(ReqResMessage::SessionAuthenticated)
 }
 
@@ -4885,6 +4904,10 @@ impl HostRpcHandler {
     }
 
     async fn updater_authorized(&self) -> Result<bool> {
+        let cluster_session = self.session_state.lock().await.cluster_principal.is_some();
+        if cluster_session {
+            return Ok(is_authenticated(&self.session_state).await);
+        }
         let Some(client_id) = authenticated_client_id(&self.session_state).await else {
             return Ok(false);
         };
@@ -5242,6 +5265,7 @@ impl HostRpcHandler {
 fn requires_authentication(proc_id: u64) -> bool {
     proc_id != ProcId::GetDaemonInfo.as_u64()
         && proc_id != ProcId::GetClusterPeerChallenge.as_u64()
+        && proc_id != ProcId::AuthenticateClusterClient.as_u64()
         && proc_id != ProcId::ExecuteClusterPeerRequest.as_u64()
         && proc_id != ProcId::ReadClusterJoinHistory.as_u64()
         && proc_id != ProcId::StartPairing.as_u64()
@@ -5325,10 +5349,22 @@ fn notify_trash_changed(trash_events: &SharedTrashEvents) {
 }
 
 async fn is_authenticated(session_state: &SharedRpcSessionState) -> bool {
-    session_state.lock().await.authenticated_client_id.is_some()
+    let state = session_state.lock().await;
+    if let Some((path, principal)) = state.cluster_principal.clone() {
+        drop(state);
+        return tokio::task::spawn_blocking(move || {
+            crate::cluster::runtime::client::validate(&path, &principal).is_ok()
+        })
+        .await
+        .unwrap_or(false);
+    }
+    state.authenticated_client_id.is_some()
 }
 
 async fn authenticated_client_id(session_state: &SharedRpcSessionState) -> Option<String> {
+    if !is_authenticated(session_state).await {
+        return None;
+    }
     session_state.lock().await.authenticated_client_id.clone()
 }
 
@@ -5942,6 +5978,7 @@ mod tests {
             test_pairing_challenge(),
             Arc::new(Mutex::new(RpcSessionState {
                 session_id: 1,
+                cluster_principal: None,
                 authenticated_client_id: Some("arbitrary-client".to_string()),
             })),
             test_files(),
@@ -6034,6 +6071,7 @@ mod tests {
                 test_pairing_challenge(),
                 Arc::new(Mutex::new(RpcSessionState {
                     session_id: 1,
+                    cluster_principal: None,
                     authenticated_client_id: if scenario == "unauthenticated" {
                         None
                     } else {
@@ -6077,6 +6115,7 @@ mod tests {
             test_pairing_challenge(),
             Arc::new(Mutex::new(RpcSessionState {
                 session_id: 1,
+                cluster_principal: None,
                 authenticated_client_id: Some("test-client".to_string()),
             })),
             test_files(),
@@ -6781,6 +6820,7 @@ mod tests {
         .unwrap();
         let session_state = Arc::new(Mutex::new(RpcSessionState {
             session_id: 0,
+            cluster_principal: None,
             authenticated_client_id: Some(client_id.clone()),
         }));
 
@@ -6858,6 +6898,7 @@ mod tests {
             test_pairing_challenge(),
             Arc::new(Mutex::new(RpcSessionState {
                 session_id: 0,
+                cluster_principal: None,
                 authenticated_client_id: Some(current_client_id.clone()),
             })),
             test_files(),
@@ -6991,6 +7032,7 @@ mod tests {
     fn test_session_state(session_id: RpcSessionId) -> SharedRpcSessionState {
         Arc::new(Mutex::new(RpcSessionState {
             session_id,
+            cluster_principal: None,
             authenticated_client_id: None,
         }))
     }

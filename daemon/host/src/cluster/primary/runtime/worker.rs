@@ -502,6 +502,7 @@ async fn tick_with_cursor(
                     &Authorized {
                         expires_at_unix: now() + 10,
                         client_id: "cancel-pending-adoption".into(),
+                        grant: None,
                         peer: None,
                     },
                     RpcRequest::RevokeClusterClientGrant(request),
@@ -593,6 +594,7 @@ async fn tick_with_cursor(
                     &Authorized {
                         expires_at_unix: now() + 10,
                         client_id: owner,
+                        grant: None,
                         peer: None,
                     },
                     grant,
@@ -750,6 +752,7 @@ mod tests {
             let auth = Authorized {
                 expires_at_unix: now() + 3600,
                 client_id: "owner".into(),
+                grant: None,
                 peer: None,
             };
             let client = Ed25519KeyPair::from_seed_unchecked(&[44; 32]).unwrap();

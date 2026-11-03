@@ -104,6 +104,7 @@ import {
   getClusterRevocationIssuesProc,
   readClusterJoinHistoryProc,
   configureClusterJoinSyncProc,
+  authenticateClusterClientProc,
 } from "./rpc.ts";
 import type {
   ActivateClusterPrimaryReq,
@@ -122,6 +123,7 @@ import type {
   AttachAgentSessionReq,
   AttachDesktopReq,
   AttachTerminalSessionReq,
+  AuthenticateClusterClientReq,
   AvailableShellsTableEvent,
   BeginClusterClientAdoptionReq,
   BulkJobMutationRes,
@@ -631,4 +633,8 @@ export function readClusterJoinHistory(transport: WebTransport, request: ReadClu
 
 export function configureClusterJoinSync(transport: WebTransport, request: ConfigureClusterJoinSyncReq): Promise<ClusterState> {
   return callUnary(transport, configureClusterJoinSyncProc, request);
+}
+
+export function authenticateClusterClient(transport: WebTransport, request: AuthenticateClusterClientReq): Promise<ClusterHistory> {
+  return callUnary(transport, authenticateClusterClientProc, request);
 }

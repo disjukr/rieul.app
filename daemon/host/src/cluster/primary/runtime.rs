@@ -1,5 +1,6 @@
 //! Opt-in management and primary-adopted client grants.
 mod adoption;
+pub(crate) mod client;
 pub(crate) mod join;
 pub(crate) mod peer;
 pub(crate) mod worker;
@@ -19,6 +20,7 @@ pub(crate) struct Authorized {
     pub(crate) expires_at_unix: i64,
     pub(crate) client_id: String,
     pub(crate) peer: Option<(Id, Id)>,
+    pub(crate) grant: Option<client::Principal>,
 }
 #[derive(Debug)]
 pub enum RuntimeError {
@@ -703,6 +705,9 @@ fn authorize_transaction(
     if auth.expires_at_unix <= now() {
         return Err(RuntimeError::Unauthorized);
     }
+    if let Some(principal) = &auth.grant {
+        principal.check(n, &replay(&n.g, &load(tx, n.g.cluster())?)?)?;
+    }
     if let Some((admission, public)) = auth.peer {
         let s = replay(&n.g, &load(tx, n.g.cluster())?)?;
         if s.members.get(&admission) != Some(&public) {
@@ -774,6 +779,17 @@ pub(crate) fn execute(
     // Must precede all database access, including durable receipt lookup.
     if auth.expires_at_unix <= now() {
         return Err(RuntimeError::Unauthorized);
+    }
+    if let Some(principal) = &auth.grant {
+        client::validate(path, principal)?;
+        if matches!(
+            request,
+            RpcRequest::BeginClusterClientAdoption(_)
+                | RpcRequest::CompleteClusterClientAdoption(_)
+                | RpcRequest::GetClusterClientAdoption(_)
+        ) {
+            return Err(RuntimeError::Unauthorized);
+        }
     }
     Ok(match request {
         RpcRequest::BeginClusterClientAdoption(r) => RpcResponse::BeginClusterClientAdoption(
@@ -1094,6 +1110,7 @@ mod auth_regression_tests {
         Authorized {
             expires_at_unix: now() + 3600,
             client_id: "fixture".into(),
+            grant: None,
             peer: None,
         }
     }
@@ -1229,6 +1246,7 @@ mod auth_regression_tests {
             )
             .unwrap();
         let stale = Authorized {
+            grant: None,
             peer: Some((member, key(&peer_pair))),
             ..auth()
         };

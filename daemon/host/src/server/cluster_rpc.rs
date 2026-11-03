@@ -7,7 +7,8 @@ pub(super) fn is_cluster_proc(proc: u64) -> bool {
     matches!(
         ProcId::from_u64(proc),
         Some(
-            ProcId::ReadClusterJoinHistory
+            ProcId::AuthenticateClusterClient
+                | ProcId::ReadClusterJoinHistory
                 | ProcId::ConfigureClusterJoinSync
                 | ProcId::GetClusterRevocationIssues
                 | ProcId::LeaveCluster
@@ -100,16 +101,27 @@ impl HostRpcHandler {
         // Retain the credential guard through the transaction, serializing local
         // revocation with the operation. Expiry is rechecked inside the runtime.
         let records = self.client_credentials.clone().lock_owned().await;
-        let Some(record) = records
+        let principal = self.session_state.lock().await.cluster_principal.clone();
+        let record = records
             .clients
             .iter()
-            .find(|r| r.client_id == client && r.expires_at_unix > now_unix())
-        else {
+            .find(|r| r.client_id == client && r.expires_at_unix > now_unix());
+        let expires_at_unix = if let Some((path, grant)) = principal.clone() {
+            match tokio::task::spawn_blocking(move || runtime::client::validate(&path, &grant))
+                .await?
+            {
+                Ok(expires) => expires,
+                Err(_) => return Ok(UnaryRpcOutcome::Message(unauthorized_message(proc))),
+            }
+        } else if let Some(record) = record {
+            record.expires_at_unix
+        } else {
             return Ok(UnaryRpcOutcome::Message(unauthorized_message(proc)));
         };
         let auth = Authorized {
-            expires_at_unix: record.expires_at_unix,
+            expires_at_unix,
             client_id: client.clone(),
+            grant: principal.clone().map(|(_, grant)| grant),
             peer: None,
         };
         let path = self.config_path.with_extension("cluster.sqlite");
@@ -138,7 +150,11 @@ impl HostRpcHandler {
                 load_runtime_client_credentials(&self.credentials_path, &self.client_credentials)
                     .await?;
                 let records = self.client_credentials.clone().lock_owned().await;
-                if !records
+                if principal.is_some() {
+                    if !is_authenticated(&self.session_state).await {
+                        return Ok(UnaryRpcOutcome::Message(unauthorized_message(proc)));
+                    }
+                } else if !records
                     .clients
                     .iter()
                     .any(|r| r.client_id == client && r.expires_at_unix > now_unix())
@@ -1232,6 +1248,96 @@ mod tests {
                 response,
                 ClusterClientAdoptionState::Accepted { .. }
             ));
+            // New connections possess only the adopted client key, never a paired secret.
+            let mut grant_sessions = Vec::new();
+            let mut held_streams = Vec::new();
+            for fixture in [&a, &b] {
+                let ClusterState::Member {
+                    head,
+                    local_admission_id,
+                    members,
+                    ..
+                } = get(fixture).await
+                else {
+                    panic!()
+                };
+                let target = members
+                    .iter()
+                    .find(|m| m.admission_id == local_admission_id)
+                    .unwrap();
+                let session = fixture
+                    ._client
+                    .connect(url::Url::parse(&target.endpoint).unwrap())
+                    .await
+                    .unwrap();
+                assert!(matches!(
+                    raw_join_call(&session, ProcId::GetDaemonEnvironment, None).await,
+                    ReqResMessage::ResponseUnaryError { .. }
+                ));
+                let ReqResMessage::ResponseUnaryOk {
+                    payload: Some(bytes),
+                } = raw_join_call(&session, ProcId::GetClusterPeerChallenge, None).await
+                else {
+                    panic!()
+                };
+                let nonce = ClusterPeerChallenge::decode(&bytes).unwrap();
+                let mut request = AuthenticateClusterClientReq {
+                    known_head: head,
+                    server_admission_id: local_admission_id,
+                    server_public_key: target.node_public_key.clone(),
+                    grant_id: challenge.grant_id.clone(),
+                    client_public_key: pair.public_key().as_ref().to_vec(),
+                    nonce: nonce.nonce,
+                    connection_id: nonce.connection_id,
+                    signature: Vec::new(),
+                };
+                request.signature = pair
+                    .sign(&runtime::client::proof_body(&request).unwrap())
+                    .as_ref()
+                    .to_vec();
+                assert!(matches!(
+                    raw_join_call(
+                        &session,
+                        ProcId::AuthenticateClusterClient,
+                        Some(request.encode())
+                    )
+                    .await,
+                    ReqResMessage::ResponseUnaryOk { .. }
+                ));
+                assert!(matches!(
+                    raw_join_call(
+                        &session,
+                        ProcId::AuthenticateClusterClient,
+                        Some(request.encode())
+                    )
+                    .await,
+                    ReqResMessage::ResponseUnaryError { .. }
+                ));
+                assert!(matches!(
+                    raw_join_call(&session, ProcId::GetDaemonEnvironment, None).await,
+                    ReqResMessage::ResponseUnaryOk { .. }
+                ));
+                assert!(matches!(
+                    raw_join_call(&session, ProcId::GetDesktopCapabilities, None).await,
+                    ReqResMessage::ResponseUnaryOk { .. }
+                ));
+                assert!(matches!(
+                    raw_join_call(
+                        &session,
+                        ProcId::ReadClusterHistory,
+                        Some(
+                            ReadClusterHistoryReq {
+                                cluster_id: challenge.cluster_id.clone()
+                            }
+                            .encode()
+                        )
+                    )
+                    .await,
+                    ReqResMessage::ResponseUnaryOk { .. }
+                ));
+                held_streams.push(fixture.hold_key_on(&session).await);
+                grant_sessions.push(session);
+            }
             let before = member(get(&a).await).1.sequence;
             runtime::worker::tick(&path, &a._client).await.unwrap();
             assert_eq!(member(get(&a).await).1.sequence, before);
@@ -1297,6 +1403,32 @@ mod tests {
             assert_eq!(member(get(&a).await).1.sequence, before + 2);
             runtime::worker::tick(&path, &a._client).await.unwrap();
             assert!(matches!(get(&b).await, ClusterState::Removed { .. }));
+            // Issuer removal does not revoke the already adopted grant on A.
+            assert!(matches!(
+                raw_join_call(&grant_sessions[0], ProcId::GetDaemonEnvironment, None).await,
+                ReqResMessage::ResponseUnaryOk { .. }
+            ));
+            tokio::time::timeout(Duration::from_secs(2), grant_sessions[1].closed())
+                .await
+                .unwrap();
+            b.assert_control_released().await;
+            ok(
+                &a,
+                ProcId::RevokeClusterClientGrant,
+                Some(
+                    RevokeClusterClientGrantReq {
+                        operation_id: vec![113; 32],
+                        expected_management_epoch: 1,
+                        grant_id: challenge.grant_id,
+                    }
+                    .encode(),
+                ),
+            )
+            .await;
+            tokio::time::timeout(Duration::from_secs(2), grant_sessions[0].closed())
+                .await
+                .unwrap();
+            a.assert_control_released().await;
         })
         .await
         .unwrap();
@@ -1514,6 +1646,42 @@ impl HostRpcHandler {
                 Ok(history) => RpcResponse::ReadClusterJoinHistory(history).into(),
                 Err(_) => UnaryRpcOutcome::Message(unauthorized_message(proc)),
             })
+        })
+    }
+}
+
+impl HostRpcHandler {
+    pub(super) fn authenticate_cluster_client_rpc<'a>(
+        &'a mut self,
+        request: AuthenticateClusterClientReq,
+    ) -> RpcHandlerFuture<'a, Result<UnaryRpcOutcome>> {
+        Box::pin(async move {
+            let proc = ProcId::AuthenticateClusterClient.as_u64();
+            let connection = rpc_session_id(&self.session_state).await;
+            if request.connection_id != connection as i64
+                || !consume_peer_challenge(connection, &request.nonce)
+            {
+                return Ok(UnaryRpcOutcome::Message(unauthorized_message(proc)));
+            }
+            let path = self.config_path.with_extension("cluster.sqlite");
+            let auth_path = path.clone();
+            let result = tokio::task::spawn_blocking(move || {
+                runtime::client::authenticate(&auth_path, &request)
+            })
+            .await?;
+            match result {
+                Ok((principal, history)) => {
+                    let mut state = self.session_state.lock().await;
+                    if state.authenticated_client_id.is_some() || state.cluster_principal.is_some()
+                    {
+                        return Ok(UnaryRpcOutcome::Message(unauthorized_message(proc)));
+                    }
+                    state.authenticated_client_id = Some(principal.subject());
+                    state.cluster_principal = Some((path, principal));
+                    Ok(RpcResponse::AuthenticateClusterClient(history).into())
+                }
+                Err(_) => Ok(UnaryRpcOutcome::Message(unauthorized_message(proc))),
+            }
         })
     }
 }

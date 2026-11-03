@@ -16,6 +16,7 @@ type CategoryId = (typeof rpcCategories)[number]["id"];
 // Explicit, exhaustive mapping: adding a schema procedure requires choosing
 // its category. Retired/unknown IDs never inflate a current category's total.
 export const rpcCategoryById: Record<ProcId, CategoryId> = {
+  [ProcId.AuthenticateClusterClient]: "daemon",
   [ProcId.GetDaemonInfo]: "daemon",
   [ProcId.StartPairing]: "daemon",
   [ProcId.CompletePairing]: "daemon",

@@ -410,6 +410,7 @@ mod tests {
         let auth = Authorized {
             expires_at_unix: now() + 3600,
             client_id: "owner".into(),
+            grant: None,
             peer: None,
         };
         let client = Ed25519KeyPair::from_seed_unchecked(&[22; 32]).unwrap();
@@ -456,6 +457,7 @@ mod tests {
             let auth = Authorized {
                 expires_at_unix: now() + 3600,
                 client_id: "client".into(),
+                grant: None,
                 peer: None,
             };
             let client = Ed25519KeyPair::from_seed_unchecked(&[22; 32]).unwrap();
@@ -544,6 +546,7 @@ mod tests {
         let auth = Authorized {
             expires_at_unix: now() + 3600,
             client_id: "client".into(),
+            grant: None,
             peer: None,
         };
         let (n, store) = opened(&path).unwrap();
