@@ -96,6 +96,7 @@ export enum ProcId {
   GetClusterPeerChallenge = 93,
   ExecuteClusterPeerRequest = 94,
   GetClusterRemovalProof = 95,
+  GetClusterRevocationIssues = 97,
 }
 
 export interface SubscribeWindowDetailReq {
@@ -1516,6 +1517,7 @@ export interface RevokeClusterClientGrantReq {
 }
 
 export type ClusterClientAdoptionState =
+  | { type: "cancellationNeedsActiveMember" }
   | { type: "pending" }
   | { type: "accepted"; history: ClusterHistory }
   | { type: "rejected" }
@@ -1541,6 +1543,17 @@ export interface ClusterPeerRequest {
 
 export interface ClusterPeerResponse {
   payload: Uint8Array;
+}
+
+export interface ClusterRevocationIssue {
+  clusterId: Uint8Array;
+  grantId: Uint8Array;
+  expiresAtUnix: number;
+  requiresActiveMember: boolean;
+}
+
+export interface ClusterRevocationIssues {
+  issues: ClusterRevocationIssue[];
 }
 
 export interface CreateAgentProjectReq {
@@ -3276,6 +3289,18 @@ export const getClusterRemovalProofProc: ProcCodec<ReadClusterHistoryReq, Cluste
   decodeError: decodeClusterErrorValue,
 };
 
+export const getClusterRevocationIssuesProc: ProcCodec<undefined, ClusterRevocationIssues, ClusterError> = {
+  id: ProcId.GetClusterRevocationIssues,
+  name: "GetClusterRevocationIssues",
+  stream: "unary",
+  requestType: "void",
+  responseType: "ClusterRevocationIssues",
+  errorType: "ClusterError",
+  encodeRequest: encodeVoidValue,
+  decodeResponse: decodeClusterRevocationIssuesValue,
+  decodeError: decodeClusterErrorValue,
+};
+
 export const procs = {
   [ProcId.GetDaemonInfo]: getDaemonInfoProc,
   [ProcId.StartPairing]: startPairingProc,
@@ -3370,6 +3395,7 @@ export const procs = {
   [ProcId.GetClusterPeerChallenge]: getClusterPeerChallengeProc,
   [ProcId.ExecuteClusterPeerRequest]: executeClusterPeerRequestProc,
   [ProcId.GetClusterRemovalProof]: getClusterRemovalProofProc,
+  [ProcId.GetClusterRevocationIssues]: getClusterRevocationIssuesProc,
 } as const;
 
 export function encodeSubscribeWindowDetailReqValue(value: SubscribeWindowDetailReq): CborValue {
@@ -9662,6 +9688,10 @@ export function decodeRevokeClusterClientGrantReqValue(value: CborValue): Revoke
 
 export function encodeClusterClientAdoptionStateValue(value: ClusterClientAdoptionState): CborValue {
   switch (value.type) {
+    case "cancellationNeedsActiveMember": {
+      const fields = new Map<number, CborValue>();
+      return [3, fields];
+    }
     case "pending": {
       const fields = new Map<number, CborValue>();
       return [0, fields];
@@ -9681,6 +9711,10 @@ export function encodeClusterClientAdoptionStateValue(value: ClusterClientAdopti
 export function decodeClusterClientAdoptionStateValue(value: CborValue): ClusterClientAdoptionState {
   const [variantId, fields] = expectUnion(value);
   switch (variantId) {
+    case 3:
+      return {
+        type: "cancellationNeedsActiveMember",
+      };
     case 0:
       return {
         type: "pending",
@@ -9754,6 +9788,38 @@ export function decodeClusterPeerResponseValue(value: CborValue): ClusterPeerRes
   const fields = expectMap(value);
   return {
     payload: fieldOrDefault(fields.get(1), (value) => bytesValue(value), () => new Uint8Array()),
+  };
+}
+
+export function encodeClusterRevocationIssueValue(value: ClusterRevocationIssue): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, bytes(required(value.clusterId, "ClusterRevocationIssue.clusterId")));
+  fields.set(2, bytes(required(value.grantId, "ClusterRevocationIssue.grantId")));
+  fields.set(3, i53(required(value.expiresAtUnix, "ClusterRevocationIssue.expiresAtUnix")));
+  fields.set(4, bool(required(value.requiresActiveMember, "ClusterRevocationIssue.requiresActiveMember")));
+  return fields;
+}
+
+export function decodeClusterRevocationIssueValue(value: CborValue): ClusterRevocationIssue {
+  const fields = expectMap(value);
+  return {
+    clusterId: fieldOrDefault(fields.get(1), (value) => bytesValue(value), () => new Uint8Array()),
+    grantId: fieldOrDefault(fields.get(2), (value) => bytesValue(value), () => new Uint8Array()),
+    expiresAtUnix: fieldOrDefault(fields.get(3), (value) => integer(value), () => 0),
+    requiresActiveMember: fieldOrDefault(fields.get(4), (value) => boolValue(value), () => false),
+  };
+}
+
+export function encodeClusterRevocationIssuesValue(value: ClusterRevocationIssues): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, required(value.issues, "ClusterRevocationIssues.issues").map((item) => encodeClusterRevocationIssueValue(item)));
+  return fields;
+}
+
+export function decodeClusterRevocationIssuesValue(value: CborValue): ClusterRevocationIssues {
+  const fields = expectMap(value);
+  return {
+    issues: fieldOrDefault(fields.get(1), (value) => array(value).map((item) => decodeClusterRevocationIssueValue(item)), () => []),
   };
 }
 
@@ -13760,7 +13826,7 @@ function defaultRevokeClusterClientGrantReq(): RevokeClusterClientGrantReq {
 
 function defaultClusterClientAdoptionState(): ClusterClientAdoptionState {
   return {
-    type: "pending",
+    type: "cancellationNeedsActiveMember",
   };
 }
 
@@ -13789,6 +13855,21 @@ function defaultClusterPeerRequest(): ClusterPeerRequest {
 function defaultClusterPeerResponse(): ClusterPeerResponse {
   return {
     payload: new Uint8Array(),
+  };
+}
+
+function defaultClusterRevocationIssue(): ClusterRevocationIssue {
+  return {
+    clusterId: new Uint8Array(),
+    grantId: new Uint8Array(),
+    expiresAtUnix: 0,
+    requiresActiveMember: false,
+  };
+}
+
+function defaultClusterRevocationIssues(): ClusterRevocationIssues {
+  return {
+    issues: [],
   };
 }
 

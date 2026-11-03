@@ -15,7 +15,7 @@ fn schema(db: &Connection) -> Result<(), RuntimeError> {
 // a separate receipt cache, bounded by the journal's maximum accepted grants.
 fn maintain(tx: &Transaction<'_>, n: &Node, state: &State) -> Result<(), RuntimeError> {
     tx.execute(
-        "DELETE FROM adoption_outbox WHERE expires<=?1 OR cluster!=?2 OR issuer!=?3",
+        "DELETE FROM adoption_outbox WHERE expires<=?1 OR ((cluster!=?2 OR issuer!=?3) AND grant_id NOT IN(SELECT grant_id FROM adoption_cancelled))",
         params![now(), n.g.cluster(), n.admission],
     )?;
     tx.execute(
@@ -23,8 +23,8 @@ fn maintain(tx: &Transaction<'_>, n: &Node, state: &State) -> Result<(), Runtime
         params![now(), n.g.cluster()],
     )?;
     let rows: Vec<Vec<u8>> = tx
-        .prepare("SELECT grant_id FROM adoption_outbox")?
-        .query_map([], |r| r.get(0))?
+        .prepare("SELECT grant_id FROM adoption_outbox WHERE cluster=?1")?
+        .query_map(params![n.g.cluster()], |r| r.get(0))?
         .collect::<Result<_, _>>()?;
     for raw in rows {
         let grant = id(&raw)?;
@@ -94,14 +94,32 @@ pub(super) fn cancel_owner(path: &Path, owner: &str) -> Result<(), RuntimeError>
     Ok(())
 }
 pub(super) fn cancellations(path: &Path) -> Result<Vec<Id>, RuntimeError> {
-    let (_, store) = opened(path)?;
+    let (n, store) = opened(path)?;
     schema(&store.db)?;
     let rows: Vec<Vec<u8>> = store
         .db
-        .prepare("SELECT grant_id FROM adoption_cancelled ORDER BY rowid LIMIT 8")?
-        .query_map([], |r| r.get(0))?
+        .prepare("SELECT grant_id FROM adoption_cancelled WHERE grant_id IN(SELECT grant_id FROM adoption_outbox WHERE cluster=?1) ORDER BY rowid LIMIT 8")?
+        .query_map(params![n.g.cluster()], |r| r.get(0))?
         .collect::<Result<_, _>>()?;
     rows.iter().map(|raw| id(raw)).collect()
+}
+pub(super) fn issues(path: &Path) -> Result<Vec<ClusterRevocationIssue>, RuntimeError> {
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+    let (n, store) = opened(path)?;
+    schema(&store.db)?;
+    let active = n.phase == 2 && store.state()?.members.get(&n.admission) == Some(&key(&n.pair));
+    let rows=store.db.prepare("SELECT cluster,grant_id,expires FROM adoption_outbox WHERE grant_id IN(SELECT grant_id FROM adoption_cancelled) AND expires>?1 ORDER BY rowid LIMIT 128")?.query_map([now()],|r|Ok((r.get::<_,Vec<u8>>(0)?,r.get::<_,Vec<u8>>(1)?,r.get::<_,i64>(2)?)))?.collect::<Result<Vec<_>,_>>()?;
+    Ok(rows
+        .into_iter()
+        .map(|(cluster, grant, expires)| ClusterRevocationIssue {
+            requires_active_member: !active || cluster != n.g.cluster(),
+            cluster_id: cluster,
+            grant_id: grant,
+            expires_at_unix: expires,
+        })
+        .collect())
 }
 pub(super) fn cancel_operation(grant: Id) -> Id {
     hash(
@@ -165,9 +183,13 @@ pub(super) fn begin(
     }
     let state = replay(&n.g, &load(&tx, n.g.cluster())?)?;
     maintain(&tx, &n, &state)?;
-    let existing:Option<Vec<u8>>=tx.query_row("SELECT grant_id FROM (SELECT * FROM adoption_outbox UNION ALL SELECT * FROM adoption_receipts) WHERE owner=?1 AND client=?2 AND cluster=?3 AND issuer=?4 AND expires>?5 ORDER BY expires DESC LIMIT 1",params![auth.client_id,public,n.g.cluster(),n.admission,now()],|r|r.get(0)).optional()?;
-    if let Some(grant) = existing {
-        let challenge = pending(&tx, &auth.client_id, id(&grant)?)?.challenge;
+    let candidates:Vec<Vec<u8>>=tx.prepare("SELECT grant_id FROM (SELECT * FROM adoption_outbox UNION ALL SELECT * FROM adoption_receipts) WHERE owner=?1 AND client=?2 AND cluster=?3 AND issuer=?4 AND expires>?5 ORDER BY expires DESC")?.query_map(params![auth.client_id,public,n.g.cluster(),n.admission,now()],|r|r.get(0))?.collect::<Result<_,_>>()?;
+    for raw in candidates {
+        let grant = id(&raw)?;
+        if state.revoked.contains(&grant) || cancelled(&tx, grant)? {
+            continue;
+        }
+        let challenge = pending(&tx, &auth.client_id, grant)?.challenge;
         tx.commit()?;
         return Ok(challenge);
     }
@@ -264,7 +286,11 @@ pub(super) fn get(
     let p = pending(&store.db, &auth.client_id, grant)?;
     let c = &p.challenge;
     if cancelled(&store.db, grant)? {
-        return Ok(ClusterClientAdoptionState::Rejected);
+        return Ok(if n.phase != 2 || c.cluster_id != n.g.cluster() {
+            ClusterClientAdoptionState::CancellationNeedsActiveMember
+        } else {
+            ClusterClientAdoptionState::Rejected
+        });
     }
     if id(&c.cluster_id)? != n.g.cluster() || c.expires_at_unix <= now() {
         return Ok(ClusterClientAdoptionState::Rejected);
@@ -370,6 +396,51 @@ pub(super) fn pending_intents(
 #[cfg(all(test, not(windows)))]
 mod tests {
     use super::*;
+    #[test]
+    fn revoked_or_cancelled_same_key_gets_new_grant_and_old_proof_stays_retired() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("cluster.sqlite");
+        initialize(&path, [1; 32], None, "https://fixture/rieul/rpc").unwrap();
+        let auth = Authorized {
+            expires_at_unix: now() + 3600,
+            client_id: "owner".into(),
+            peer: None,
+        };
+        let client = Ed25519KeyPair::from_seed_unchecked(&[22; 32]).unwrap();
+        let first = begin(&path, &auth, &key(&client)).unwrap();
+        let grant = id(&first.grant_id).unwrap();
+        let (n, mut store) = opened(&path).unwrap();
+        let proof = client.sign(&client_adoption_body(
+            n.g.cluster(),
+            grant,
+            n.admission,
+            key(&client),
+            first.expires_at_unix as u64,
+        ));
+        let completion = CompleteClusterClientAdoptionReq {
+            grant_id: first.grant_id.clone(),
+            client_proof: proof.as_ref().to_vec(),
+        };
+        assert!(matches!(
+            complete(&path, &auth, &completion).unwrap(),
+            ClusterClientAdoptionState::Accepted { .. }
+        ));
+        store
+            .commit(&n.pair, 1, [4; 32], Mutation::Revoke { grant })
+            .unwrap();
+        let second = begin(&path, &auth, &key(&client)).unwrap();
+        assert_ne!(first.grant_id, second.grant_id);
+        assert!(matches!(
+            complete(&path, &auth, &completion).unwrap(),
+            ClusterClientAdoptionState::Rejected
+        ));
+        assert!(store.state().unwrap().revoked.contains(&grant));
+        cancel_owner(&path, "owner").unwrap();
+        let third = begin(&path, &auth, &key(&client)).unwrap();
+        assert_ne!(second.grant_id, third.grant_id);
+        assert_ne!(first.grant_id, third.grant_id);
+        assert!(cancelled(&store.db, id(&second.grant_id).unwrap()).unwrap());
+    }
     #[test]
     fn cancelled_owner_cannot_retry_and_inflight_adoption_is_revoked_in_either_log_order() {
         for adopt_first in [false, true] {

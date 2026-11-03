@@ -7,7 +7,8 @@ pub(super) fn is_cluster_proc(proc: u64) -> bool {
     matches!(
         ProcId::from_u64(proc),
         Some(
-            ProcId::GetClusterRemovalProof
+            ProcId::GetClusterRevocationIssues
+                | ProcId::GetClusterRemovalProof
                 | ProcId::GetClusterPeerChallenge
                 | ProcId::ExecuteClusterPeerRequest
                 | ProcId::GetClusterState
@@ -114,7 +115,14 @@ impl HostRpcHandler {
         let forward_path = path.clone();
         let expires = auth.expires_at_unix;
         let result = tokio::task::spawn_blocking(move || {
+            let active: Vec<_> = records
+                .clients
+                .iter()
+                .filter(|r| r.expires_at_unix > now_unix())
+                .map(|r| r.client_id.clone())
+                .collect();
             let _credentials = records;
+            runtime::reconcile_pairing_revocations(&path, &active)?;
             runtime::execute(&path, &auth, request, &endpoint)
         })
         .await
@@ -193,6 +201,11 @@ handler!(
     get_cluster_removal_proof_rpc,
     GetClusterRemovalProof,
     ReadClusterHistoryReq
+);
+handler!(
+    get_cluster_revocation_issues_rpc,
+    GetClusterRevocationIssues,
+    ()
 );
 handler!(get_cluster_state_rpc, GetClusterState, ());
 handler!(create_cluster_rpc, CreateCluster, CreateClusterReq);
@@ -428,8 +441,18 @@ mod tests {
                 a.unary(ProcId::GetClusterState, None).await,
                 ReqResMessage::ResponseUnaryError { .. }
             ));
+            assert!(matches!(
+                a.unary(ProcId::GetClusterRevocationIssues, None).await,
+                ReqResMessage::ResponseUnaryError { .. }
+            ));
             a.authenticate().await;
             b.authenticate().await;
+            assert!(ClusterRevocationIssues::decode(
+                &ok(&a, ProcId::GetClusterRevocationIssues, None).await
+            )
+            .unwrap()
+            .issues
+            .is_empty());
             assert_eq!(get(&a).await, ClusterState::Unaffiliated);
             assert!(!path.exists());
             let create = CreateClusterReq {
@@ -1065,8 +1088,19 @@ impl HostRpcHandler {
             let path = self.config_path.with_extension("cluster.sqlite");
             let config = load_runtime_config(&self.config_path, &self.config_state).await?;
             let endpoint = format!("{}/rieul/rpc", pairing_daemon_url(&config));
+            load_runtime_client_credentials(&self.credentials_path, &self.client_credentials)
+                .await?;
+            let records = self.client_credentials.clone().lock_owned().await;
             let result = tokio::task::spawn_blocking(move || {
                 let auth = runtime::peer::authenticate(&path, &r)?;
+                let active: Vec<_> = records
+                    .clients
+                    .iter()
+                    .filter(|r| r.expires_at_unix > now_unix())
+                    .map(|r| r.client_id.clone())
+                    .collect();
+                let _credentials = records;
+                runtime::reconcile_pairing_revocations(&path, &active)?;
                 let request = RpcRequest::decode(inner.as_u64(), Some(&r.payload))
                     .map_err(|_| RuntimeError::InvalidProof)?;
                 runtime::execute(&path, &auth, request, &endpoint)

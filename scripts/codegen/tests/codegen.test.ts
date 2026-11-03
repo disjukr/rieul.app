@@ -75,7 +75,7 @@ const rustBaseline = {
   "socket-wire":
     "72af8be28ae16e56d51180ab97c92e6884d7f25a810570e02e7bacf8b3b61109",
   // Updater types moved to a shared module; public RPC tags stay unchanged.
-  rpc: "5058e4052b0068b4f681a5c598aff9b0903c4208ac719f9829e80556b1ba4bb9",
+  rpc: "7801a660b4d67bb8536d7a278de580dd872e9a9bc7e895376f9611dc7e50aaf4",
   // Fixed local updater status/check/install/restart operations 11–14.
   ipc: "5323404a948a4ed5a369551deba91e67bc3a1ce479dee038f1f6b81d1126a799",
 };

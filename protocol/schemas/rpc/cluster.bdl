@@ -372,6 +372,8 @@ struct RevokeClusterClientGrantReq {
   grantId: bytes,
 }
 union ClusterClientAdoptionState {
+  @ id - 3
+  CancellationNeedsActiveMember,
   @ id - 0
   Pending,
   @ id - 1
@@ -425,3 +427,22 @@ struct ClusterPeerResponse {
 @ id - 95
 @ stream - unary
 proc GetClusterRemovalProof = ReadClusterHistoryReq -> ClusterHistory throws ClusterError
+
+@ id - 97
+@ stream - unary
+proc GetClusterRevocationIssues = void -> ClusterRevocationIssues throws ClusterError
+struct ClusterRevocationIssue {
+  @ id - 1
+  clusterId: bytes,
+  @ id - 2
+  grantId: bytes,
+  @ id - 3
+  expiresAtUnix: i53,
+  @ id - 4
+  requiresActiveMember: bool,
+}
+
+struct ClusterRevocationIssues {
+  @ id - 1
+  issues: ClusterRevocationIssue[],
+}

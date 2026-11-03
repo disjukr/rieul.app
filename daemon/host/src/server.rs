@@ -1274,6 +1274,7 @@ fn build_rpc_handlers(
 
     if crate::cluster::runtime::ENROLLMENT_SUPPORTED {
         handlers = handlers
+            .get_cluster_revocation_issues(HostRpcHandler::get_cluster_revocation_issues_rpc)
             .get_cluster_removal_proof(HostRpcHandler::get_cluster_removal_proof_rpc)
             .get_cluster_peer_challenge(HostRpcHandler::get_cluster_peer_challenge_rpc)
             .execute_cluster_peer_request(HostRpcHandler::execute_cluster_peer_request_rpc)
@@ -5854,7 +5855,7 @@ mod tests {
     fn cluster_rpc_discovery_requires_supported_private_key_storage() {
         let handlers = build_rpc_handlers(None, None, None, None);
         let advertised = handlers.supported_procs();
-        for id in 76..=95 {
+        for id in (76..=95).chain(std::iter::once(97)) {
             assert_eq!(
                 advertised.iter().any(|proc| proc.as_u64() == id),
                 crate::cluster::runtime::ENROLLMENT_SUPPORTED

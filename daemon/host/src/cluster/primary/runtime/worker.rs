@@ -214,10 +214,50 @@ fn fallback_window(peers: &[(Id, String)], cursor: &mut usize) -> Vec<(Id, Strin
         .map(|i| peers[(start + i) % peers.len()].clone())
         .collect()
 }
+// Downloading happens outside the credential lock. The decision to cancel an
+// unresolved local owner and the acceptance import happen together under the
+// same lock used by local credential revocation, including during task abort.
+pub(crate) async fn apply_received(
+    path: &Path,
+    history: ClusterHistory,
+    removal: bool,
+    credentials: Option<(&Path, &SharedCredentials)>,
+) -> Result<(), RuntimeError> {
+    let p = path.to_owned();
+    let locked = if let Some((file, shared)) = credentials {
+        Some((file.to_owned(), shared.clone().lock_owned().await))
+    } else {
+        None
+    };
+    tokio::task::spawn_blocking(move || {
+        let _guard = if let Some((file, mut records)) = locked {
+            *records = rieul_daemon_core::config::load_client_credentials_or_default(&file)
+                .map_err(|_| RuntimeError::Storage)?;
+            let active: Vec<_> = records
+                .clients
+                .iter()
+                .filter(|r| r.expires_at_unix > now())
+                .map(|r| r.client_id.clone())
+                .collect();
+            adoption::cancel_inactive(&p, &active)?;
+            Some(records)
+        } else {
+            None
+        };
+        if removal {
+            apply_removal_proof(&p, &history)
+        } else {
+            apply_sync(&p, history)
+        }
+    })
+    .await
+    .map_err(|_| RuntimeError::Storage)?
+}
 async fn synchronize(
     path: &Path,
     client: &web_transport_quinn::Client,
     cursor: &mut usize,
+    credentials: Option<(&Path, &SharedCredentials)>,
 ) -> Result<(), RuntimeError> {
     let p = path.to_owned();
     let (_, _, cluster, _, local) = tokio::task::spawn_blocking(move || route(&p))
@@ -274,12 +314,7 @@ async fn synchronize(
                 .await
                 {
                     if let Ok(proof) = ClusterHistory::decode(&bytes) {
-                        let p = path.to_owned();
-                        if tokio::task::spawn_blocking(move || apply_removal_proof(&p, &proof))
-                            .await
-                            .map_err(|_| RuntimeError::Storage)?
-                            .is_ok()
-                        {
+                        if apply_received(path, proof, true, credentials).await.is_ok() {
                             return Ok(());
                         }
                     }
@@ -294,13 +329,15 @@ async fn synchronize(
                 continue;
             }
         };
-        let p = path.to_owned();
-        let applied = tokio::task::spawn_blocking(move || {
-            apply_sync(&p, history)?;
-            route(&p)
-        })
-        .await
-        .map_err(|_| RuntimeError::Storage)?;
+        let applied = match apply_received(path, history, false, credentials).await {
+            Ok(()) => {
+                let p = path.to_owned();
+                tokio::task::spawn_blocking(move || route(&p))
+                    .await
+                    .map_err(|_| RuntimeError::Storage)?
+            }
+            Err(e) => Err(e),
+        };
         match applied {
             Ok((primary, _, _, _, _)) if index == 0 || primary != previous_primary => return Ok(()),
             Ok(_) => {} // A stale but valid replica does not end discovery.
@@ -335,7 +372,7 @@ async fn tick_with_cursor(
     .await
     .map_err(|_| RuntimeError::Storage)??;
     if !local_primary {
-        synchronize(&path, client, cursor).await?;
+        synchronize(&path, client, cursor, credentials).await?;
         let p = path.clone();
         if tokio::task::spawn_blocking(move || opened(&p).map(|(n, _)| n.phase == 4))
             .await
@@ -385,7 +422,7 @@ async fn tick_with_cursor(
                 "node:cancel-pending-adoption".into(),
             )
             .await?;
-            synchronize(&path, client, cursor).await?;
+            synchronize(&path, client, cursor, credentials).await?;
         }
     }
     let p = path.clone();
@@ -465,10 +502,7 @@ async fn tick_with_cursor(
             )
             .await?;
             let h = ClusterHistory::decode(&bytes).map_err(|_| RuntimeError::InvalidProof)?;
-            let p = path.clone();
-            tokio::task::spawn_blocking(move || apply_sync(&p, h))
-                .await
-                .map_err(|_| RuntimeError::Storage)??;
+            apply_received(&path, h, false, credentials).await?;
         }
     }
     Ok(())
@@ -546,6 +580,121 @@ pub(crate) async fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(not(windows))]
+    #[tokio::test]
+    async fn revocation_during_history_download_cannot_be_archived_as_acceptance() {
+        use rieul_daemon_core::config::{
+            save_client_credentials, ClientCredentialRecord, ClientCredentials,
+        };
+        for removed in [false, true] {
+            let dir = tempfile::tempdir().unwrap();
+            let a = dir.path().join("a");
+            let bpath = dir.path().join("b");
+            let credentials_path = dir.path().join("clients.json");
+            initialize(&a, [1; 32], None, "https://a/rieul/rpc").unwrap();
+            let (an, mut ast) = opened(&a).unwrap();
+            initialize(&bpath, [2; 32], Some(an.g.clone()), "https://b/rieul/rpc").unwrap();
+            let (bn, _) = opened(&bpath).unwrap();
+            ast.commit(
+                &an.pair,
+                1,
+                [3; 32],
+                Mutation::Admit {
+                    id: bn.admission,
+                    key: key(&bn.pair),
+                    consent: [0; 32],
+                    endpoint: bn.endpoint.clone(),
+                },
+            )
+            .unwrap();
+            import(&bpath, &history(&ast).unwrap(), Some([2; 32]), None, None).unwrap();
+            let records = ClientCredentials {
+                clients: vec![ClientCredentialRecord {
+                    client_id: "owner".into(),
+                    label: "fixture".into(),
+                    secret_sha256_base64url: "fixture".into(),
+                    created_at_unix: now(),
+                    expires_at_unix: now() + 3600,
+                }],
+            };
+            save_client_credentials(&credentials_path, &records).unwrap();
+            let shared = Arc::new(tokio::sync::Mutex::new(records));
+            let auth = Authorized {
+                expires_at_unix: now() + 3600,
+                client_id: "owner".into(),
+                peer: None,
+            };
+            let client = Ed25519KeyPair::from_seed_unchecked(&[44; 32]).unwrap();
+            let challenge = adoption::begin(&bpath, &auth, &key(&client)).unwrap();
+            let grant = id(&challenge.grant_id).unwrap();
+            let proof = client.sign(&client_adoption_body(
+                an.g.cluster(),
+                grant,
+                bn.admission,
+                key(&client),
+                challenge.expires_at_unix as u64,
+            ));
+            assert!(matches!(
+                adoption::complete(
+                    &bpath,
+                    &auth,
+                    &CompleteClusterClientAdoptionReq {
+                        grant_id: grant.to_vec(),
+                        client_proof: proof.as_ref().to_vec()
+                    }
+                )
+                .unwrap(),
+                ClusterClientAdoptionState::Pending
+            ));
+            // Worker precheck succeeds; primary accepts, but B has not applied
+            // the response/history. This is the reviewed interleaving.
+            adoption::cancel_inactive(&bpath, &["owner".into()]).unwrap();
+            let intent = adoption::pending_intents(&bpath).unwrap().remove(0).1;
+            ast.commit(&an.pair, 1, grant, adoption::mutation(&intent).unwrap())
+                .unwrap();
+            if removed {
+                ast.commit(&an.pair, 1, [4; 32], Mutation::Remove { id: bn.admission })
+                    .unwrap();
+            }
+            let downloaded = if removed {
+                removal_proof(&ast, bn.admission, key(&bn.pair)).unwrap()
+            } else {
+                history(&ast).unwrap()
+            };
+            {
+                let mut lock = shared.lock().await;
+                *lock = ClientCredentials::default();
+                save_client_credentials(&credentials_path, &lock).unwrap();
+            }
+            apply_received(
+                &bpath,
+                downloaded,
+                removed,
+                Some((&credentials_path, &shared)),
+            )
+            .await
+            .unwrap();
+            let issues = adoption::issues(&bpath).unwrap();
+            assert_eq!(issues.len(), 1);
+            assert_eq!(issues[0].grant_id, grant);
+            assert_eq!(issues[0].requires_active_member, removed);
+            let result = adoption::get(&bpath, &auth, grant).unwrap();
+            if removed {
+                assert!(matches!(
+                    result,
+                    ClusterClientAdoptionState::CancellationNeedsActiveMember
+                ));
+                assert!(route(&bpath).is_err());
+                // Rejoining another cluster cannot silently erase the warning.
+                initialize(&bpath, [55; 32], None, "https://b/rieul/rpc").unwrap();
+                adoption::cancel_inactive(&bpath, &[]).unwrap();
+                assert!(adoption::issues(&bpath).unwrap()[0].requires_active_member);
+            } else {
+                assert!(matches!(result, ClusterClientAdoptionState::Rejected));
+                assert!(adoption::pending_intents(&bpath).unwrap().is_empty());
+            }
+        }
+    }
     #[tokio::test]
     async fn adoption_dispatch_reloads_owner_and_serializes_with_local_revocation() {
         use rieul_daemon_core::config::{

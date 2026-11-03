@@ -592,6 +592,15 @@ fn commit_authorized(
     tx.commit()?;
     Ok(e)
 }
+pub(crate) fn reconcile_pairing_revocations(
+    path: &Path,
+    active: &[String],
+) -> Result<(), RuntimeError> {
+    if path.exists() {
+        adoption::cancel_inactive(path, active)?;
+    }
+    Ok(())
+}
 pub(crate) fn execute(
     path: &Path,
     auth: &Authorized,
@@ -659,6 +668,11 @@ pub(crate) fn execute(
             RpcResponse::RevokeClusterClientGrant(wire_entry(&entry))
         }
         RpcRequest::GetClusterState(()) => RpcResponse::GetClusterState(state(path)?),
+        RpcRequest::GetClusterRevocationIssues(()) => {
+            RpcResponse::GetClusterRevocationIssues(ClusterRevocationIssues {
+                issues: adoption::issues(path)?,
+            })
+        }
         RpcRequest::CreateCluster(r) => {
             if !r.confirmed {
                 return Err(RuntimeError::InvalidState);

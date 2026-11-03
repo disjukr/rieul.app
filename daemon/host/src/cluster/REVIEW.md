@@ -152,3 +152,43 @@ The added Windows-specific test has not run on Windows in this local checkpoint;
 no Windows private-key-storage support is advertised. The existing Playwright
 executable absence and browser cluster-flow gap remain. No main push, CI run,
 release, host enrollment or actual pairing mutation was performed.
+
+## Adoption P2 follow-up (separate from Leave)
+
+Acceptance import now re-reads persisted local credentials under the same mutex
+as local credential removal. Under that lock it marks unresolved revoked owners
+cancelled before importing the downloaded history. The lock covers this local
+commit boundary, not history download. Ordinary paired and peer history RPCs
+likewise reconcile owner revocation while retaining that credential guard.
+The regression explicitly passes the worker precheck, accepts remotely, revokes
+locally while the history is in flight, then applies the acceptance; the pending
+row remains cancellation-marked instead of becoming a completed receipt.
+
+Cancellation is eventual only while the issuer retains member authority and
+can reach the primary. If the issuer is removed first, its ordinary authority is
+not restored: the cancellation remains unresolved. GetClusterClientAdoption
+reports CancellationNeedsActiveMember, and new paired-only read RPC 97
+GetClusterRevocationIssues returns the cluster ID, grant ID, expiration and
+requiresActiveMember flag. Another current member must explicitly revoke that
+grant in the primary log. These are local recorded issues, not fresh assertions
+about remote grant state; externally resolved issues may remain until expiry
+because a removed node cannot read newer history. No new cancellation-proof
+RPC or removed-member write permission was added.
+
+Unresolved rows survive rejoining another cluster/incarnation rather than being
+silently discarded. They share the bounded 128-entry outbox and expire with the
+grant. Retries only target the current cluster; cross-cluster unresolved issues
+remain visible. A same-cluster rejoin can retry using its new active membership.
+
+Begin skips revoked and cancellation-marked previous grants when looking for a
+same-owner/key retry, issuing a new grant ID. The old receipt/tombstone remains;
+late completion of the old grant does not reactivate it. Regression tests cover
+both revoked receipts and unresolved cancellation markers.
+
+Leave work is preserved separately in a local stash/patch and is not part of
+this follow-up. RPC 96 is reserved for that work; this checkpoint registers 97
+without claiming Leave support. Browser UI for these states is not implemented.
+
+P2 validation: host 158 passed / 3 ignored; web/codegen 112 passed; TypeScript
+check and web build passed. Windows runtime and browser cluster E2E remain
+unverified. No main push, release or actual host/pairing changes were made.
