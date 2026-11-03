@@ -736,13 +736,34 @@ pub(super) mod tests {
                 total_bitrate: 1000, viewports: vec![],
             }.encode())).await;
             assert!(matches!(denied, ReqResMessage::ResponseUnaryError { .. }));
-            f.control(&id, DesktopControlAction::Acquire).await;
+            let control = f.control(&id, DesktopControlAction::Acquire).await;
+            let (mut input, mut input_reply) = f.session.open_bi().await.unwrap();
+            let key = DesktopInputEvent::PhysicalKey { usage: 225, down: true, repeat: false };
+            input.write_all(&ReqResMessage::RequestStreamStart {
+                proc_id: ProcId::WriteDesktopInput.as_u64(),
+                payload: Some(DesktopInputFrame { attach_id: id.clone(), input_epoch: control.input_epoch,
+                    sequence: 1, layout_epoch: first.layout_epoch, event: key.clone() }.encode()),
+            }.encode()).await.unwrap();
+            loop {
+                let changed = f.backend.changed.notified();
+                if f.backend.inputs.lock().unwrap().contains(&key) { break; }
+                changed.await;
+            }
             f.backend.display_count.store(2, std::sync::atomic::Ordering::SeqCst);
             let second = configured_event(&mut events).await;
             assert_eq!(second.tracks.len(), 2);
             assert!(second.layout_epoch > first.layout_epoch);
             assert!(second.tracks[0].codec_epoch > first.tracks[0].codec_epoch);
-            assert!(f.runtime.control().unwrap().holder_attach_id.is_none());
+            assert_eq!(f.runtime.control().unwrap(), control);
+            assert_eq!(f.backend.inputs.lock().unwrap().last(), Some(&DesktopInputEvent::ReleaseAll));
+            // An old-geometry release remains valid and does not destroy the input stream.
+            input.write_all(&ReqResMessage::RequestStreamChunk { payload: DesktopInputFrame {
+                attach_id: id.clone(), input_epoch: control.input_epoch, sequence: 2,
+                layout_epoch: first.layout_epoch, event: DesktopInputEvent::ReleaseAll,
+            }.encode() }.encode()).await.unwrap();
+            input.finish().unwrap();
+            let reply = ReqResMessage::decode_sequence(&input_reply.read_to_end(65536).await.unwrap()).unwrap();
+            assert!(matches!(reply.as_slice(), [ReqResMessage::ResponseUnaryOk { .. }]));
             f.backend.display_count.store(usize::MAX, std::sync::atomic::Ordering::SeqCst);
             let empty = configured_event(&mut events).await;
             assert!(empty.tracks.is_empty());

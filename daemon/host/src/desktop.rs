@@ -156,6 +156,9 @@ impl<I: Input> Desktop<I> {
                 self.poisoned = true;
                 Error::Limit
             })?;
+        self.release_held()
+    }
+    fn release_held(&mut self) -> Result<(), Error> {
         if self.input.send(&DesktopInputEvent::ReleaseAll).is_err() {
             self.poisoned = true;
             return Err(Error::Backend);
@@ -1133,7 +1136,7 @@ impl Runtime {
                 return Ok(());
             }
             if previous.is_some() {
-                if d.holder.is_some() { d.release()?; }
+                if d.holder.is_some() { d.release_held()?; }
                 d.layout_changed()?;
                 self.configurations
                     .lock()

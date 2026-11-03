@@ -303,7 +303,7 @@ negotiation request. It sends Attached, Configured and video without requiring a
 ConfigureDesktopViewports request. It follows the current OS display set, including
 hotplug, removal and an empty desktop. Each configuration covers the backend-reported display set;
 existing platform exclusions (such as rotated Windows outputs) remain. More than eight reported displays fails explicitly rather than silently omitting a subset.
-A real topology change invalidates old coordinates, releases control/held input,
+A real topology change invalidates old coordinates, releases held input while preserving the controller/input epoch,
 and restarts video with new layout/codec epochs. It never changes OS configuration.
 An automatic attachment rejects legacy client viewport configuration. Closing its
 event stream tears down only that attachment; credentials and the shared connection
