@@ -1,0 +1,423 @@
+# standard - rieul-rpc
+# description
+| Explicit opt-in cluster management. Client grant expansion is not enabled.
+
+@ id - 76
+@ stream - unary
+proc GetClusterState = void -> ClusterState throws ClusterError
+
+@ id - 77
+@ stream - unary
+proc CreateCluster = CreateClusterReq -> ClusterState throws ClusterError
+
+@ id - 78
+@ stream - unary
+proc PrepareClusterJoin = PrepareClusterJoinReq -> ClusterJoinConsent throws ClusterError
+
+@ id - 79
+@ stream - unary
+proc AdmitClusterMember = AdmitClusterMemberReq -> ClusterJournalEntry throws ClusterError
+
+@ id - 80
+@ stream - unary
+proc FinishClusterJoin = FinishClusterJoinReq -> ClusterState throws ClusterError
+
+@ id - 81
+@ stream - unary
+proc CancelClusterJoin = CancelClusterJoinReq -> ClusterState throws ClusterError
+
+@ id - 82
+@ stream - unary
+proc RemoveClusterMember = RemoveClusterMemberReq -> ClusterJournalEntry throws ClusterError
+
+@ id - 83
+@ stream - unary
+proc ReadClusterHistory = ReadClusterHistoryReq -> ClusterHistory throws ClusterError
+
+@ id - 84
+@ stream - unary
+proc PreparePrimaryTransfer = PreparePrimaryTransferReq -> ClusterTransferAcceptance throws ClusterError
+
+@ id - 85
+@ stream - unary
+proc SealPrimaryTransfer = SealPrimaryTransferReq -> ClusterJournalEntry throws ClusterError
+
+@ id - 86
+@ stream - unary
+proc ActivateClusterPrimary = ActivateClusterPrimaryReq -> ClusterState throws ClusterError
+
+@ id - 87
+@ stream - unary
+proc ApplyClusterHistory = ApplyClusterHistoryReq -> ClusterState throws ClusterError
+
+struct ClusterGenesis {
+  @ id - 1
+  nonce: bytes,
+  @ id - 2
+  rootAdmissionId: bytes,
+  @ id - 3
+  rootPublicKey: bytes,
+  @ id - 4
+  rootEndpoint: string,
+}
+
+struct ClusterHead {
+  @ id - 1
+  clusterId: bytes,
+  @ id - 2
+  managementEpoch: i53,
+  @ id - 3
+  sequence: i53,
+  @ id - 4
+  entryHash: bytes,
+  @ id - 5
+  primaryAdmissionId: bytes,
+}
+
+struct ClusterMember {
+  @ id - 1
+  admissionId: bytes,
+  @ id - 2
+  nodePublicKey: bytes,
+  @ id - 3
+  endpoint: string,
+}
+
+struct ClusterJournalEntry {
+  @ id - 1
+  clusterId: bytes,
+  @ id - 2
+  managementEpoch: i53,
+  @ id - 3
+  sequence: i53,
+  @ id - 4
+  previousHash: bytes,
+  @ id - 5
+  operationId: bytes,
+  @ id - 6
+  requestHash: bytes,
+  @ id - 7
+  mutation: bytes,
+  @ id - 8
+  signature: bytes,
+}
+
+struct ClusterHistory {
+  @ id - 1
+  genesis: ClusterGenesis,
+  @ id - 2
+  entries: ClusterJournalEntry[],
+  @ id - 3
+  head: ClusterHead,
+}
+
+struct CreateClusterReq {
+  @ id - 1
+  operationId: bytes,
+  @ id - 2
+  confirmed: bool,
+}
+
+struct PrepareClusterJoinReq {
+  @ id - 1
+  operationId: bytes,
+  @ id - 2
+  genesis: ClusterGenesis,
+  @ id - 3
+  confirmed: bool,
+}
+
+struct ClusterJoinConsent {
+  @ id - 6
+  endpoint: string,
+  @ id - 1
+  genesis: ClusterGenesis,
+  @ id - 2
+  operationId: bytes,
+  @ id - 3
+  admissionId: bytes,
+  @ id - 4
+  nodePublicKey: bytes,
+  @ id - 5
+  signature: bytes,
+}
+
+struct AdmitClusterMemberReq {
+  @ id - 1
+  operationId: bytes,
+  @ id - 2
+  expectedManagementEpoch: i53,
+  @ id - 3
+  consent: ClusterJoinConsent,
+}
+
+struct FinishClusterJoinReq {
+  @ id - 1
+  operationId: bytes,
+  @ id - 2
+  history: ClusterHistory,
+}
+
+struct CancelClusterJoinReq {
+  @ id - 1
+  operationId: bytes,
+}
+
+struct RemoveClusterMemberReq {
+  @ id - 1
+  operationId: bytes,
+  @ id - 2
+  expectedManagementEpoch: i53,
+  @ id - 3
+  admissionId: bytes,
+}
+
+struct ReadClusterHistoryReq {
+  @ id - 1
+  clusterId: bytes,
+}
+
+struct PreparePrimaryTransferReq {
+  @ id - 1
+  operationId: bytes,
+  @ id - 2
+  expectedHead: ClusterHead,
+}
+
+struct ClusterTransferAcceptance {
+  @ id - 1
+  operationId: bytes,
+  @ id - 2
+  expectedHead: ClusterHead,
+  @ id - 3
+  targetAdmissionId: bytes,
+  @ id - 4
+  targetPublicKey: bytes,
+  @ id - 5
+  signature: bytes,
+}
+
+struct SealPrimaryTransferReq {
+  @ id - 1
+  acceptance: ClusterTransferAcceptance,
+}
+
+struct ActivateClusterPrimaryReq {
+  @ id - 1
+  operationId: bytes,
+  @ id - 2
+  history: ClusterHistory,
+}
+
+struct ApplyClusterHistoryReq {
+  @ id - 1
+  history: ClusterHistory,
+}
+
+union ClusterState {
+  @ id - 0
+  Unaffiliated,
+  @ id - 1
+  Joining(
+    @ id - 1
+    consent: ClusterJoinConsent,
+  ),
+  @ id - 2
+  Member(
+    @ id - 1
+    genesis: ClusterGenesis,
+    @ id - 2
+    head: ClusterHead,
+    @ id - 3
+    localAdmissionId: bytes,
+    @ id - 4
+    members: ClusterMember[],
+    @ id - 5
+    primaryTransition: ClusterPrimaryTransition,
+  ),
+  @ id - 3
+  RemovalPending(
+    @ id - 1
+    clusterId: bytes,
+    @ id - 2
+    admissionId: bytes,
+  ),
+  @ id - 4
+  Removed(
+    @ id - 1
+    clusterId: bytes,
+    @ id - 2
+    admissionId: bytes,
+  ),
+}
+union ClusterPrimaryTransition {
+  @ id - 0
+  Replica,
+  @ id - 1
+  Active,
+  @ id - 2
+  AwaitingActivation,
+  @ id - 3
+  Sealed,
+}
+union ClusterError {
+  @ id - 0
+  Unauthorized(
+    @ id - 1
+    message: string,
+  ),
+  @ id - 1
+  InvalidProof(
+    @ id - 1
+    message: string,
+  ),
+  @ id - 2
+  OperationConflict(
+    @ id - 1
+    message: string,
+  ),
+  @ id - 3
+  PrimaryUnavailable(
+    @ id - 1
+    message: string,
+  ),
+  @ id - 4
+  AlreadyAffiliated(
+    @ id - 1
+    message: string,
+  ),
+  @ id - 5
+  Retired(
+    @ id - 1
+    message: string,
+  ),
+  @ id - 6
+  LimitExceeded(
+    @ id - 1
+    message: string,
+  ),
+  @ id - 7
+  InvalidState(
+    @ id - 1
+    message: string,
+  ),
+  @ id - 8
+  Failed(
+    @ id - 1
+    message: string,
+  ),
+}
+
+@ id - 88
+@ stream - unary
+proc BeginClusterClientAdoption = BeginClusterClientAdoptionReq -> ClusterClientAdoptionChallenge throws ClusterError
+@ id - 89
+@ stream - unary
+proc CompleteClusterClientAdoption = CompleteClusterClientAdoptionReq -> ClusterClientAdoptionState throws ClusterError
+@ id - 90
+@ stream - unary
+proc GetClusterClientAdoption = GetClusterClientAdoptionReq -> ClusterClientAdoptionState throws ClusterError
+@ id - 91
+@ stream - unary
+proc AdoptClusterClient = AdoptClusterClientReq -> ClusterJournalEntry throws ClusterError
+@ id - 92
+@ stream - unary
+proc RevokeClusterClientGrant = RevokeClusterClientGrantReq -> ClusterJournalEntry throws ClusterError
+struct BeginClusterClientAdoptionReq {
+  @ id - 1
+  clientPublicKey: bytes,
+}
+struct ClusterClientAdoptionChallenge {
+  @ id - 1
+  clusterId: bytes,
+  @ id - 2
+  grantId: bytes,
+  @ id - 3
+  issuerAdmissionId: bytes,
+  @ id - 4
+  clientPublicKey: bytes,
+  @ id - 5
+  expiresAtUnix: i53,
+}
+struct CompleteClusterClientAdoptionReq {
+  @ id - 1
+  grantId: bytes,
+  @ id - 2
+  clientProof: bytes,
+}
+struct GetClusterClientAdoptionReq {
+  @ id - 1
+  grantId: bytes,
+}
+struct ClusterPairingIntent {
+  @ id - 1
+  challenge: ClusterClientAdoptionChallenge,
+  @ id - 2
+  clientProof: bytes,
+  @ id - 3
+  issuerProof: bytes,
+}
+struct AdoptClusterClientReq {
+  @ id - 1
+  expectedManagementEpoch: i53,
+  @ id - 2
+  intent: ClusterPairingIntent,
+}
+struct RevokeClusterClientGrantReq {
+  @ id - 1
+  operationId: bytes,
+  @ id - 2
+  expectedManagementEpoch: i53,
+  @ id - 3
+  grantId: bytes,
+}
+union ClusterClientAdoptionState {
+  @ id - 0
+  Pending,
+  @ id - 1
+  Accepted(
+    @ id - 1
+    history: ClusterHistory,
+  ),
+  @ id - 2
+  Rejected,
+}
+
+@ id - 93
+@ stream - unary
+proc GetClusterPeerChallenge = void -> ClusterPeerChallenge throws ClusterError
+@ id - 94
+@ stream - unary
+proc ExecuteClusterPeerRequest = ClusterPeerRequest -> ClusterPeerResponse throws ClusterError
+struct ClusterPeerChallenge {
+  @ id - 1
+  nonce: bytes,
+  @ id - 2
+  connectionId: i53,
+  @ id - 3
+  serverProof: bytes,
+}
+struct ClusterPeerRequest {
+  @ id - 1
+  clusterId: bytes,
+  @ id - 2
+  senderAdmissionId: bytes,
+  @ id - 3
+  senderPublicKey: bytes,
+  @ id - 4
+  nonce: bytes,
+  @ id - 5
+  connectionId: i53,
+  @ id - 6
+  procedureId: i53,
+  @ id - 7
+  payload: bytes,
+  @ id - 8
+  originalPrincipal: string,
+  @ id - 9
+  signature: bytes,
+}
+struct ClusterPeerResponse {
+  @ id - 1
+  payload: bytes,
+}

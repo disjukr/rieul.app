@@ -76,6 +76,25 @@ export enum ProcId {
   SubscribeUpdateStatus = 73,
   CheckForUpdates = 74,
   InstallUpdateConfirmed = 75,
+  GetClusterState = 76,
+  CreateCluster = 77,
+  PrepareClusterJoin = 78,
+  AdmitClusterMember = 79,
+  FinishClusterJoin = 80,
+  CancelClusterJoin = 81,
+  RemoveClusterMember = 82,
+  ReadClusterHistory = 83,
+  PreparePrimaryTransfer = 84,
+  SealPrimaryTransfer = 85,
+  ActivateClusterPrimary = 86,
+  ApplyClusterHistory = 87,
+  BeginClusterClientAdoption = 88,
+  CompleteClusterClientAdoption = 89,
+  GetClusterClientAdoption = 90,
+  AdoptClusterClient = 91,
+  RevokeClusterClientGrant = 92,
+  GetClusterPeerChallenge = 93,
+  ExecuteClusterPeerRequest = 94,
 }
 
 export interface SubscribeWindowDetailReq {
@@ -1320,6 +1339,208 @@ export type GetScheduleNextRunsError =
   | { type: "permissionDenied"; message: string }
   | { type: "invalidRruleSet"; message: string }
 ;
+
+export interface ClusterGenesis {
+  nonce: Uint8Array;
+  rootAdmissionId: Uint8Array;
+  rootPublicKey: Uint8Array;
+  rootEndpoint: string;
+}
+
+export interface ClusterHead {
+  clusterId: Uint8Array;
+  managementEpoch: number;
+  sequence: number;
+  entryHash: Uint8Array;
+  primaryAdmissionId: Uint8Array;
+}
+
+export interface ClusterMember {
+  admissionId: Uint8Array;
+  nodePublicKey: Uint8Array;
+  endpoint: string;
+}
+
+export interface ClusterJournalEntry {
+  clusterId: Uint8Array;
+  managementEpoch: number;
+  sequence: number;
+  previousHash: Uint8Array;
+  operationId: Uint8Array;
+  requestHash: Uint8Array;
+  mutation: Uint8Array;
+  signature: Uint8Array;
+}
+
+export interface ClusterHistory {
+  genesis: ClusterGenesis;
+  entries: ClusterJournalEntry[];
+  head: ClusterHead;
+}
+
+export interface CreateClusterReq {
+  operationId: Uint8Array;
+  confirmed: boolean;
+}
+
+export interface PrepareClusterJoinReq {
+  operationId: Uint8Array;
+  genesis: ClusterGenesis;
+  confirmed: boolean;
+}
+
+export interface ClusterJoinConsent {
+  endpoint: string;
+  genesis: ClusterGenesis;
+  operationId: Uint8Array;
+  admissionId: Uint8Array;
+  nodePublicKey: Uint8Array;
+  signature: Uint8Array;
+}
+
+export interface AdmitClusterMemberReq {
+  operationId: Uint8Array;
+  expectedManagementEpoch: number;
+  consent: ClusterJoinConsent;
+}
+
+export interface FinishClusterJoinReq {
+  operationId: Uint8Array;
+  history: ClusterHistory;
+}
+
+export interface CancelClusterJoinReq {
+  operationId: Uint8Array;
+}
+
+export interface RemoveClusterMemberReq {
+  operationId: Uint8Array;
+  expectedManagementEpoch: number;
+  admissionId: Uint8Array;
+}
+
+export interface ReadClusterHistoryReq {
+  clusterId: Uint8Array;
+}
+
+export interface PreparePrimaryTransferReq {
+  operationId: Uint8Array;
+  expectedHead: ClusterHead;
+}
+
+export interface ClusterTransferAcceptance {
+  operationId: Uint8Array;
+  expectedHead: ClusterHead;
+  targetAdmissionId: Uint8Array;
+  targetPublicKey: Uint8Array;
+  signature: Uint8Array;
+}
+
+export interface SealPrimaryTransferReq {
+  acceptance: ClusterTransferAcceptance;
+}
+
+export interface ActivateClusterPrimaryReq {
+  operationId: Uint8Array;
+  history: ClusterHistory;
+}
+
+export interface ApplyClusterHistoryReq {
+  history: ClusterHistory;
+}
+
+export type ClusterState =
+  | { type: "unaffiliated" }
+  | { type: "joining"; consent: ClusterJoinConsent }
+  | { type: "member"; genesis: ClusterGenesis; head: ClusterHead; localAdmissionId: Uint8Array; members: ClusterMember[]; primaryTransition: ClusterPrimaryTransition }
+  | { type: "removalPending"; clusterId: Uint8Array; admissionId: Uint8Array }
+  | { type: "removed"; clusterId: Uint8Array; admissionId: Uint8Array }
+;
+
+export type ClusterPrimaryTransition =
+  | { type: "replica" }
+  | { type: "active" }
+  | { type: "awaitingActivation" }
+  | { type: "sealed" }
+;
+
+export type ClusterError =
+  | { type: "unauthorized"; message: string }
+  | { type: "invalidProof"; message: string }
+  | { type: "operationConflict"; message: string }
+  | { type: "primaryUnavailable"; message: string }
+  | { type: "alreadyAffiliated"; message: string }
+  | { type: "retired"; message: string }
+  | { type: "limitExceeded"; message: string }
+  | { type: "invalidState"; message: string }
+  | { type: "failed"; message: string }
+;
+
+export interface BeginClusterClientAdoptionReq {
+  clientPublicKey: Uint8Array;
+}
+
+export interface ClusterClientAdoptionChallenge {
+  clusterId: Uint8Array;
+  grantId: Uint8Array;
+  issuerAdmissionId: Uint8Array;
+  clientPublicKey: Uint8Array;
+  expiresAtUnix: number;
+}
+
+export interface CompleteClusterClientAdoptionReq {
+  grantId: Uint8Array;
+  clientProof: Uint8Array;
+}
+
+export interface GetClusterClientAdoptionReq {
+  grantId: Uint8Array;
+}
+
+export interface ClusterPairingIntent {
+  challenge: ClusterClientAdoptionChallenge;
+  clientProof: Uint8Array;
+  issuerProof: Uint8Array;
+}
+
+export interface AdoptClusterClientReq {
+  expectedManagementEpoch: number;
+  intent: ClusterPairingIntent;
+}
+
+export interface RevokeClusterClientGrantReq {
+  operationId: Uint8Array;
+  expectedManagementEpoch: number;
+  grantId: Uint8Array;
+}
+
+export type ClusterClientAdoptionState =
+  | { type: "pending" }
+  | { type: "accepted"; history: ClusterHistory }
+  | { type: "rejected" }
+;
+
+export interface ClusterPeerChallenge {
+  nonce: Uint8Array;
+  connectionId: number;
+  serverProof: Uint8Array;
+}
+
+export interface ClusterPeerRequest {
+  clusterId: Uint8Array;
+  senderAdmissionId: Uint8Array;
+  senderPublicKey: Uint8Array;
+  nonce: Uint8Array;
+  connectionId: number;
+  procedureId: number;
+  payload: Uint8Array;
+  originalPrincipal: string;
+  signature: Uint8Array;
+}
+
+export interface ClusterPeerResponse {
+  payload: Uint8Array;
+}
 
 export interface CreateAgentProjectReq {
   rootPath: string;
@@ -2814,6 +3035,234 @@ export const installUpdateConfirmedProc: ProcCodec<undefined, UpdateStatus, Upda
   decodeError: decodeUpdateErrorValue,
 };
 
+export const getClusterStateProc: ProcCodec<undefined, ClusterState, ClusterError> = {
+  id: ProcId.GetClusterState,
+  name: "GetClusterState",
+  stream: "unary",
+  requestType: "void",
+  responseType: "ClusterState",
+  errorType: "ClusterError",
+  encodeRequest: encodeVoidValue,
+  decodeResponse: decodeClusterStateValue,
+  decodeError: decodeClusterErrorValue,
+};
+
+export const createClusterProc: ProcCodec<CreateClusterReq, ClusterState, ClusterError> = {
+  id: ProcId.CreateCluster,
+  name: "CreateCluster",
+  stream: "unary",
+  requestType: "CreateClusterReq",
+  responseType: "ClusterState",
+  errorType: "ClusterError",
+  encodeRequest: encodeCreateClusterReqValue,
+  decodeResponse: decodeClusterStateValue,
+  decodeError: decodeClusterErrorValue,
+};
+
+export const prepareClusterJoinProc: ProcCodec<PrepareClusterJoinReq, ClusterJoinConsent, ClusterError> = {
+  id: ProcId.PrepareClusterJoin,
+  name: "PrepareClusterJoin",
+  stream: "unary",
+  requestType: "PrepareClusterJoinReq",
+  responseType: "ClusterJoinConsent",
+  errorType: "ClusterError",
+  encodeRequest: encodePrepareClusterJoinReqValue,
+  decodeResponse: decodeClusterJoinConsentValue,
+  decodeError: decodeClusterErrorValue,
+};
+
+export const admitClusterMemberProc: ProcCodec<AdmitClusterMemberReq, ClusterJournalEntry, ClusterError> = {
+  id: ProcId.AdmitClusterMember,
+  name: "AdmitClusterMember",
+  stream: "unary",
+  requestType: "AdmitClusterMemberReq",
+  responseType: "ClusterJournalEntry",
+  errorType: "ClusterError",
+  encodeRequest: encodeAdmitClusterMemberReqValue,
+  decodeResponse: decodeClusterJournalEntryValue,
+  decodeError: decodeClusterErrorValue,
+};
+
+export const finishClusterJoinProc: ProcCodec<FinishClusterJoinReq, ClusterState, ClusterError> = {
+  id: ProcId.FinishClusterJoin,
+  name: "FinishClusterJoin",
+  stream: "unary",
+  requestType: "FinishClusterJoinReq",
+  responseType: "ClusterState",
+  errorType: "ClusterError",
+  encodeRequest: encodeFinishClusterJoinReqValue,
+  decodeResponse: decodeClusterStateValue,
+  decodeError: decodeClusterErrorValue,
+};
+
+export const cancelClusterJoinProc: ProcCodec<CancelClusterJoinReq, ClusterState, ClusterError> = {
+  id: ProcId.CancelClusterJoin,
+  name: "CancelClusterJoin",
+  stream: "unary",
+  requestType: "CancelClusterJoinReq",
+  responseType: "ClusterState",
+  errorType: "ClusterError",
+  encodeRequest: encodeCancelClusterJoinReqValue,
+  decodeResponse: decodeClusterStateValue,
+  decodeError: decodeClusterErrorValue,
+};
+
+export const removeClusterMemberProc: ProcCodec<RemoveClusterMemberReq, ClusterJournalEntry, ClusterError> = {
+  id: ProcId.RemoveClusterMember,
+  name: "RemoveClusterMember",
+  stream: "unary",
+  requestType: "RemoveClusterMemberReq",
+  responseType: "ClusterJournalEntry",
+  errorType: "ClusterError",
+  encodeRequest: encodeRemoveClusterMemberReqValue,
+  decodeResponse: decodeClusterJournalEntryValue,
+  decodeError: decodeClusterErrorValue,
+};
+
+export const readClusterHistoryProc: ProcCodec<ReadClusterHistoryReq, ClusterHistory, ClusterError> = {
+  id: ProcId.ReadClusterHistory,
+  name: "ReadClusterHistory",
+  stream: "unary",
+  requestType: "ReadClusterHistoryReq",
+  responseType: "ClusterHistory",
+  errorType: "ClusterError",
+  encodeRequest: encodeReadClusterHistoryReqValue,
+  decodeResponse: decodeClusterHistoryValue,
+  decodeError: decodeClusterErrorValue,
+};
+
+export const preparePrimaryTransferProc: ProcCodec<PreparePrimaryTransferReq, ClusterTransferAcceptance, ClusterError> = {
+  id: ProcId.PreparePrimaryTransfer,
+  name: "PreparePrimaryTransfer",
+  stream: "unary",
+  requestType: "PreparePrimaryTransferReq",
+  responseType: "ClusterTransferAcceptance",
+  errorType: "ClusterError",
+  encodeRequest: encodePreparePrimaryTransferReqValue,
+  decodeResponse: decodeClusterTransferAcceptanceValue,
+  decodeError: decodeClusterErrorValue,
+};
+
+export const sealPrimaryTransferProc: ProcCodec<SealPrimaryTransferReq, ClusterJournalEntry, ClusterError> = {
+  id: ProcId.SealPrimaryTransfer,
+  name: "SealPrimaryTransfer",
+  stream: "unary",
+  requestType: "SealPrimaryTransferReq",
+  responseType: "ClusterJournalEntry",
+  errorType: "ClusterError",
+  encodeRequest: encodeSealPrimaryTransferReqValue,
+  decodeResponse: decodeClusterJournalEntryValue,
+  decodeError: decodeClusterErrorValue,
+};
+
+export const activateClusterPrimaryProc: ProcCodec<ActivateClusterPrimaryReq, ClusterState, ClusterError> = {
+  id: ProcId.ActivateClusterPrimary,
+  name: "ActivateClusterPrimary",
+  stream: "unary",
+  requestType: "ActivateClusterPrimaryReq",
+  responseType: "ClusterState",
+  errorType: "ClusterError",
+  encodeRequest: encodeActivateClusterPrimaryReqValue,
+  decodeResponse: decodeClusterStateValue,
+  decodeError: decodeClusterErrorValue,
+};
+
+export const applyClusterHistoryProc: ProcCodec<ApplyClusterHistoryReq, ClusterState, ClusterError> = {
+  id: ProcId.ApplyClusterHistory,
+  name: "ApplyClusterHistory",
+  stream: "unary",
+  requestType: "ApplyClusterHistoryReq",
+  responseType: "ClusterState",
+  errorType: "ClusterError",
+  encodeRequest: encodeApplyClusterHistoryReqValue,
+  decodeResponse: decodeClusterStateValue,
+  decodeError: decodeClusterErrorValue,
+};
+
+export const beginClusterClientAdoptionProc: ProcCodec<BeginClusterClientAdoptionReq, ClusterClientAdoptionChallenge, ClusterError> = {
+  id: ProcId.BeginClusterClientAdoption,
+  name: "BeginClusterClientAdoption",
+  stream: "unary",
+  requestType: "BeginClusterClientAdoptionReq",
+  responseType: "ClusterClientAdoptionChallenge",
+  errorType: "ClusterError",
+  encodeRequest: encodeBeginClusterClientAdoptionReqValue,
+  decodeResponse: decodeClusterClientAdoptionChallengeValue,
+  decodeError: decodeClusterErrorValue,
+};
+
+export const completeClusterClientAdoptionProc: ProcCodec<CompleteClusterClientAdoptionReq, ClusterClientAdoptionState, ClusterError> = {
+  id: ProcId.CompleteClusterClientAdoption,
+  name: "CompleteClusterClientAdoption",
+  stream: "unary",
+  requestType: "CompleteClusterClientAdoptionReq",
+  responseType: "ClusterClientAdoptionState",
+  errorType: "ClusterError",
+  encodeRequest: encodeCompleteClusterClientAdoptionReqValue,
+  decodeResponse: decodeClusterClientAdoptionStateValue,
+  decodeError: decodeClusterErrorValue,
+};
+
+export const getClusterClientAdoptionProc: ProcCodec<GetClusterClientAdoptionReq, ClusterClientAdoptionState, ClusterError> = {
+  id: ProcId.GetClusterClientAdoption,
+  name: "GetClusterClientAdoption",
+  stream: "unary",
+  requestType: "GetClusterClientAdoptionReq",
+  responseType: "ClusterClientAdoptionState",
+  errorType: "ClusterError",
+  encodeRequest: encodeGetClusterClientAdoptionReqValue,
+  decodeResponse: decodeClusterClientAdoptionStateValue,
+  decodeError: decodeClusterErrorValue,
+};
+
+export const adoptClusterClientProc: ProcCodec<AdoptClusterClientReq, ClusterJournalEntry, ClusterError> = {
+  id: ProcId.AdoptClusterClient,
+  name: "AdoptClusterClient",
+  stream: "unary",
+  requestType: "AdoptClusterClientReq",
+  responseType: "ClusterJournalEntry",
+  errorType: "ClusterError",
+  encodeRequest: encodeAdoptClusterClientReqValue,
+  decodeResponse: decodeClusterJournalEntryValue,
+  decodeError: decodeClusterErrorValue,
+};
+
+export const revokeClusterClientGrantProc: ProcCodec<RevokeClusterClientGrantReq, ClusterJournalEntry, ClusterError> = {
+  id: ProcId.RevokeClusterClientGrant,
+  name: "RevokeClusterClientGrant",
+  stream: "unary",
+  requestType: "RevokeClusterClientGrantReq",
+  responseType: "ClusterJournalEntry",
+  errorType: "ClusterError",
+  encodeRequest: encodeRevokeClusterClientGrantReqValue,
+  decodeResponse: decodeClusterJournalEntryValue,
+  decodeError: decodeClusterErrorValue,
+};
+
+export const getClusterPeerChallengeProc: ProcCodec<undefined, ClusterPeerChallenge, ClusterError> = {
+  id: ProcId.GetClusterPeerChallenge,
+  name: "GetClusterPeerChallenge",
+  stream: "unary",
+  requestType: "void",
+  responseType: "ClusterPeerChallenge",
+  errorType: "ClusterError",
+  encodeRequest: encodeVoidValue,
+  decodeResponse: decodeClusterPeerChallengeValue,
+  decodeError: decodeClusterErrorValue,
+};
+
+export const executeClusterPeerRequestProc: ProcCodec<ClusterPeerRequest, ClusterPeerResponse, ClusterError> = {
+  id: ProcId.ExecuteClusterPeerRequest,
+  name: "ExecuteClusterPeerRequest",
+  stream: "unary",
+  requestType: "ClusterPeerRequest",
+  responseType: "ClusterPeerResponse",
+  errorType: "ClusterError",
+  encodeRequest: encodeClusterPeerRequestValue,
+  decodeResponse: decodeClusterPeerResponseValue,
+  decodeError: decodeClusterErrorValue,
+};
+
 export const procs = {
   [ProcId.GetDaemonInfo]: getDaemonInfoProc,
   [ProcId.StartPairing]: startPairingProc,
@@ -2888,6 +3337,25 @@ export const procs = {
   [ProcId.SubscribeUpdateStatus]: subscribeUpdateStatusProc,
   [ProcId.CheckForUpdates]: checkForUpdatesProc,
   [ProcId.InstallUpdateConfirmed]: installUpdateConfirmedProc,
+  [ProcId.GetClusterState]: getClusterStateProc,
+  [ProcId.CreateCluster]: createClusterProc,
+  [ProcId.PrepareClusterJoin]: prepareClusterJoinProc,
+  [ProcId.AdmitClusterMember]: admitClusterMemberProc,
+  [ProcId.FinishClusterJoin]: finishClusterJoinProc,
+  [ProcId.CancelClusterJoin]: cancelClusterJoinProc,
+  [ProcId.RemoveClusterMember]: removeClusterMemberProc,
+  [ProcId.ReadClusterHistory]: readClusterHistoryProc,
+  [ProcId.PreparePrimaryTransfer]: preparePrimaryTransferProc,
+  [ProcId.SealPrimaryTransfer]: sealPrimaryTransferProc,
+  [ProcId.ActivateClusterPrimary]: activateClusterPrimaryProc,
+  [ProcId.ApplyClusterHistory]: applyClusterHistoryProc,
+  [ProcId.BeginClusterClientAdoption]: beginClusterClientAdoptionProc,
+  [ProcId.CompleteClusterClientAdoption]: completeClusterClientAdoptionProc,
+  [ProcId.GetClusterClientAdoption]: getClusterClientAdoptionProc,
+  [ProcId.AdoptClusterClient]: adoptClusterClientProc,
+  [ProcId.RevokeClusterClientGrant]: revokeClusterClientGrantProc,
+  [ProcId.GetClusterPeerChallenge]: getClusterPeerChallengeProc,
+  [ProcId.ExecuteClusterPeerRequest]: executeClusterPeerRequestProc,
 } as const;
 
 export function encodeSubscribeWindowDetailReqValue(value: SubscribeWindowDetailReq): CborValue {
@@ -8541,6 +9009,740 @@ export function decodeGetScheduleNextRunsErrorValue(value: CborValue): GetSchedu
   throw new Error(`unknown GetScheduleNextRunsError variant ${variantId}`);
 }
 
+export function encodeClusterGenesisValue(value: ClusterGenesis): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, bytes(required(value.nonce, "ClusterGenesis.nonce")));
+  fields.set(2, bytes(required(value.rootAdmissionId, "ClusterGenesis.rootAdmissionId")));
+  fields.set(3, bytes(required(value.rootPublicKey, "ClusterGenesis.rootPublicKey")));
+  fields.set(4, text(required(value.rootEndpoint, "ClusterGenesis.rootEndpoint")));
+  return fields;
+}
+
+export function decodeClusterGenesisValue(value: CborValue): ClusterGenesis {
+  const fields = expectMap(value);
+  return {
+    nonce: fieldOrDefault(fields.get(1), (value) => bytesValue(value), () => new Uint8Array()),
+    rootAdmissionId: fieldOrDefault(fields.get(2), (value) => bytesValue(value), () => new Uint8Array()),
+    rootPublicKey: fieldOrDefault(fields.get(3), (value) => bytesValue(value), () => new Uint8Array()),
+    rootEndpoint: fieldOrDefault(fields.get(4), (value) => textValue(value), () => ""),
+  };
+}
+
+export function encodeClusterHeadValue(value: ClusterHead): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, bytes(required(value.clusterId, "ClusterHead.clusterId")));
+  fields.set(2, i53(required(value.managementEpoch, "ClusterHead.managementEpoch")));
+  fields.set(3, i53(required(value.sequence, "ClusterHead.sequence")));
+  fields.set(4, bytes(required(value.entryHash, "ClusterHead.entryHash")));
+  fields.set(5, bytes(required(value.primaryAdmissionId, "ClusterHead.primaryAdmissionId")));
+  return fields;
+}
+
+export function decodeClusterHeadValue(value: CborValue): ClusterHead {
+  const fields = expectMap(value);
+  return {
+    clusterId: fieldOrDefault(fields.get(1), (value) => bytesValue(value), () => new Uint8Array()),
+    managementEpoch: fieldOrDefault(fields.get(2), (value) => integer(value), () => 0),
+    sequence: fieldOrDefault(fields.get(3), (value) => integer(value), () => 0),
+    entryHash: fieldOrDefault(fields.get(4), (value) => bytesValue(value), () => new Uint8Array()),
+    primaryAdmissionId: fieldOrDefault(fields.get(5), (value) => bytesValue(value), () => new Uint8Array()),
+  };
+}
+
+export function encodeClusterMemberValue(value: ClusterMember): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, bytes(required(value.admissionId, "ClusterMember.admissionId")));
+  fields.set(2, bytes(required(value.nodePublicKey, "ClusterMember.nodePublicKey")));
+  fields.set(3, text(required(value.endpoint, "ClusterMember.endpoint")));
+  return fields;
+}
+
+export function decodeClusterMemberValue(value: CborValue): ClusterMember {
+  const fields = expectMap(value);
+  return {
+    admissionId: fieldOrDefault(fields.get(1), (value) => bytesValue(value), () => new Uint8Array()),
+    nodePublicKey: fieldOrDefault(fields.get(2), (value) => bytesValue(value), () => new Uint8Array()),
+    endpoint: fieldOrDefault(fields.get(3), (value) => textValue(value), () => ""),
+  };
+}
+
+export function encodeClusterJournalEntryValue(value: ClusterJournalEntry): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, bytes(required(value.clusterId, "ClusterJournalEntry.clusterId")));
+  fields.set(2, i53(required(value.managementEpoch, "ClusterJournalEntry.managementEpoch")));
+  fields.set(3, i53(required(value.sequence, "ClusterJournalEntry.sequence")));
+  fields.set(4, bytes(required(value.previousHash, "ClusterJournalEntry.previousHash")));
+  fields.set(5, bytes(required(value.operationId, "ClusterJournalEntry.operationId")));
+  fields.set(6, bytes(required(value.requestHash, "ClusterJournalEntry.requestHash")));
+  fields.set(7, bytes(required(value.mutation, "ClusterJournalEntry.mutation")));
+  fields.set(8, bytes(required(value.signature, "ClusterJournalEntry.signature")));
+  return fields;
+}
+
+export function decodeClusterJournalEntryValue(value: CborValue): ClusterJournalEntry {
+  const fields = expectMap(value);
+  return {
+    clusterId: fieldOrDefault(fields.get(1), (value) => bytesValue(value), () => new Uint8Array()),
+    managementEpoch: fieldOrDefault(fields.get(2), (value) => integer(value), () => 0),
+    sequence: fieldOrDefault(fields.get(3), (value) => integer(value), () => 0),
+    previousHash: fieldOrDefault(fields.get(4), (value) => bytesValue(value), () => new Uint8Array()),
+    operationId: fieldOrDefault(fields.get(5), (value) => bytesValue(value), () => new Uint8Array()),
+    requestHash: fieldOrDefault(fields.get(6), (value) => bytesValue(value), () => new Uint8Array()),
+    mutation: fieldOrDefault(fields.get(7), (value) => bytesValue(value), () => new Uint8Array()),
+    signature: fieldOrDefault(fields.get(8), (value) => bytesValue(value), () => new Uint8Array()),
+  };
+}
+
+export function encodeClusterHistoryValue(value: ClusterHistory): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, encodeClusterGenesisValue(required(value.genesis, "ClusterHistory.genesis")));
+  fields.set(2, required(value.entries, "ClusterHistory.entries").map((item) => encodeClusterJournalEntryValue(item)));
+  fields.set(3, encodeClusterHeadValue(required(value.head, "ClusterHistory.head")));
+  return fields;
+}
+
+export function decodeClusterHistoryValue(value: CborValue): ClusterHistory {
+  const fields = expectMap(value);
+  return {
+    genesis: fieldOrDefault(fields.get(1), (value) => decodeClusterGenesisValue(value), () => defaultClusterGenesis()),
+    entries: fieldOrDefault(fields.get(2), (value) => array(value).map((item) => decodeClusterJournalEntryValue(item)), () => []),
+    head: fieldOrDefault(fields.get(3), (value) => decodeClusterHeadValue(value), () => defaultClusterHead()),
+  };
+}
+
+export function encodeCreateClusterReqValue(value: CreateClusterReq): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, bytes(required(value.operationId, "CreateClusterReq.operationId")));
+  fields.set(2, bool(required(value.confirmed, "CreateClusterReq.confirmed")));
+  return fields;
+}
+
+export function decodeCreateClusterReqValue(value: CborValue): CreateClusterReq {
+  const fields = expectMap(value);
+  return {
+    operationId: fieldOrDefault(fields.get(1), (value) => bytesValue(value), () => new Uint8Array()),
+    confirmed: fieldOrDefault(fields.get(2), (value) => boolValue(value), () => false),
+  };
+}
+
+export function encodePrepareClusterJoinReqValue(value: PrepareClusterJoinReq): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, bytes(required(value.operationId, "PrepareClusterJoinReq.operationId")));
+  fields.set(2, encodeClusterGenesisValue(required(value.genesis, "PrepareClusterJoinReq.genesis")));
+  fields.set(3, bool(required(value.confirmed, "PrepareClusterJoinReq.confirmed")));
+  return fields;
+}
+
+export function decodePrepareClusterJoinReqValue(value: CborValue): PrepareClusterJoinReq {
+  const fields = expectMap(value);
+  return {
+    operationId: fieldOrDefault(fields.get(1), (value) => bytesValue(value), () => new Uint8Array()),
+    genesis: fieldOrDefault(fields.get(2), (value) => decodeClusterGenesisValue(value), () => defaultClusterGenesis()),
+    confirmed: fieldOrDefault(fields.get(3), (value) => boolValue(value), () => false),
+  };
+}
+
+export function encodeClusterJoinConsentValue(value: ClusterJoinConsent): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(6, text(required(value.endpoint, "ClusterJoinConsent.endpoint")));
+  fields.set(1, encodeClusterGenesisValue(required(value.genesis, "ClusterJoinConsent.genesis")));
+  fields.set(2, bytes(required(value.operationId, "ClusterJoinConsent.operationId")));
+  fields.set(3, bytes(required(value.admissionId, "ClusterJoinConsent.admissionId")));
+  fields.set(4, bytes(required(value.nodePublicKey, "ClusterJoinConsent.nodePublicKey")));
+  fields.set(5, bytes(required(value.signature, "ClusterJoinConsent.signature")));
+  return fields;
+}
+
+export function decodeClusterJoinConsentValue(value: CborValue): ClusterJoinConsent {
+  const fields = expectMap(value);
+  return {
+    endpoint: fieldOrDefault(fields.get(6), (value) => textValue(value), () => ""),
+    genesis: fieldOrDefault(fields.get(1), (value) => decodeClusterGenesisValue(value), () => defaultClusterGenesis()),
+    operationId: fieldOrDefault(fields.get(2), (value) => bytesValue(value), () => new Uint8Array()),
+    admissionId: fieldOrDefault(fields.get(3), (value) => bytesValue(value), () => new Uint8Array()),
+    nodePublicKey: fieldOrDefault(fields.get(4), (value) => bytesValue(value), () => new Uint8Array()),
+    signature: fieldOrDefault(fields.get(5), (value) => bytesValue(value), () => new Uint8Array()),
+  };
+}
+
+export function encodeAdmitClusterMemberReqValue(value: AdmitClusterMemberReq): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, bytes(required(value.operationId, "AdmitClusterMemberReq.operationId")));
+  fields.set(2, i53(required(value.expectedManagementEpoch, "AdmitClusterMemberReq.expectedManagementEpoch")));
+  fields.set(3, encodeClusterJoinConsentValue(required(value.consent, "AdmitClusterMemberReq.consent")));
+  return fields;
+}
+
+export function decodeAdmitClusterMemberReqValue(value: CborValue): AdmitClusterMemberReq {
+  const fields = expectMap(value);
+  return {
+    operationId: fieldOrDefault(fields.get(1), (value) => bytesValue(value), () => new Uint8Array()),
+    expectedManagementEpoch: fieldOrDefault(fields.get(2), (value) => integer(value), () => 0),
+    consent: fieldOrDefault(fields.get(3), (value) => decodeClusterJoinConsentValue(value), () => defaultClusterJoinConsent()),
+  };
+}
+
+export function encodeFinishClusterJoinReqValue(value: FinishClusterJoinReq): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, bytes(required(value.operationId, "FinishClusterJoinReq.operationId")));
+  fields.set(2, encodeClusterHistoryValue(required(value.history, "FinishClusterJoinReq.history")));
+  return fields;
+}
+
+export function decodeFinishClusterJoinReqValue(value: CborValue): FinishClusterJoinReq {
+  const fields = expectMap(value);
+  return {
+    operationId: fieldOrDefault(fields.get(1), (value) => bytesValue(value), () => new Uint8Array()),
+    history: fieldOrDefault(fields.get(2), (value) => decodeClusterHistoryValue(value), () => defaultClusterHistory()),
+  };
+}
+
+export function encodeCancelClusterJoinReqValue(value: CancelClusterJoinReq): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, bytes(required(value.operationId, "CancelClusterJoinReq.operationId")));
+  return fields;
+}
+
+export function decodeCancelClusterJoinReqValue(value: CborValue): CancelClusterJoinReq {
+  const fields = expectMap(value);
+  return {
+    operationId: fieldOrDefault(fields.get(1), (value) => bytesValue(value), () => new Uint8Array()),
+  };
+}
+
+export function encodeRemoveClusterMemberReqValue(value: RemoveClusterMemberReq): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, bytes(required(value.operationId, "RemoveClusterMemberReq.operationId")));
+  fields.set(2, i53(required(value.expectedManagementEpoch, "RemoveClusterMemberReq.expectedManagementEpoch")));
+  fields.set(3, bytes(required(value.admissionId, "RemoveClusterMemberReq.admissionId")));
+  return fields;
+}
+
+export function decodeRemoveClusterMemberReqValue(value: CborValue): RemoveClusterMemberReq {
+  const fields = expectMap(value);
+  return {
+    operationId: fieldOrDefault(fields.get(1), (value) => bytesValue(value), () => new Uint8Array()),
+    expectedManagementEpoch: fieldOrDefault(fields.get(2), (value) => integer(value), () => 0),
+    admissionId: fieldOrDefault(fields.get(3), (value) => bytesValue(value), () => new Uint8Array()),
+  };
+}
+
+export function encodeReadClusterHistoryReqValue(value: ReadClusterHistoryReq): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, bytes(required(value.clusterId, "ReadClusterHistoryReq.clusterId")));
+  return fields;
+}
+
+export function decodeReadClusterHistoryReqValue(value: CborValue): ReadClusterHistoryReq {
+  const fields = expectMap(value);
+  return {
+    clusterId: fieldOrDefault(fields.get(1), (value) => bytesValue(value), () => new Uint8Array()),
+  };
+}
+
+export function encodePreparePrimaryTransferReqValue(value: PreparePrimaryTransferReq): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, bytes(required(value.operationId, "PreparePrimaryTransferReq.operationId")));
+  fields.set(2, encodeClusterHeadValue(required(value.expectedHead, "PreparePrimaryTransferReq.expectedHead")));
+  return fields;
+}
+
+export function decodePreparePrimaryTransferReqValue(value: CborValue): PreparePrimaryTransferReq {
+  const fields = expectMap(value);
+  return {
+    operationId: fieldOrDefault(fields.get(1), (value) => bytesValue(value), () => new Uint8Array()),
+    expectedHead: fieldOrDefault(fields.get(2), (value) => decodeClusterHeadValue(value), () => defaultClusterHead()),
+  };
+}
+
+export function encodeClusterTransferAcceptanceValue(value: ClusterTransferAcceptance): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, bytes(required(value.operationId, "ClusterTransferAcceptance.operationId")));
+  fields.set(2, encodeClusterHeadValue(required(value.expectedHead, "ClusterTransferAcceptance.expectedHead")));
+  fields.set(3, bytes(required(value.targetAdmissionId, "ClusterTransferAcceptance.targetAdmissionId")));
+  fields.set(4, bytes(required(value.targetPublicKey, "ClusterTransferAcceptance.targetPublicKey")));
+  fields.set(5, bytes(required(value.signature, "ClusterTransferAcceptance.signature")));
+  return fields;
+}
+
+export function decodeClusterTransferAcceptanceValue(value: CborValue): ClusterTransferAcceptance {
+  const fields = expectMap(value);
+  return {
+    operationId: fieldOrDefault(fields.get(1), (value) => bytesValue(value), () => new Uint8Array()),
+    expectedHead: fieldOrDefault(fields.get(2), (value) => decodeClusterHeadValue(value), () => defaultClusterHead()),
+    targetAdmissionId: fieldOrDefault(fields.get(3), (value) => bytesValue(value), () => new Uint8Array()),
+    targetPublicKey: fieldOrDefault(fields.get(4), (value) => bytesValue(value), () => new Uint8Array()),
+    signature: fieldOrDefault(fields.get(5), (value) => bytesValue(value), () => new Uint8Array()),
+  };
+}
+
+export function encodeSealPrimaryTransferReqValue(value: SealPrimaryTransferReq): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, encodeClusterTransferAcceptanceValue(required(value.acceptance, "SealPrimaryTransferReq.acceptance")));
+  return fields;
+}
+
+export function decodeSealPrimaryTransferReqValue(value: CborValue): SealPrimaryTransferReq {
+  const fields = expectMap(value);
+  return {
+    acceptance: fieldOrDefault(fields.get(1), (value) => decodeClusterTransferAcceptanceValue(value), () => defaultClusterTransferAcceptance()),
+  };
+}
+
+export function encodeActivateClusterPrimaryReqValue(value: ActivateClusterPrimaryReq): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, bytes(required(value.operationId, "ActivateClusterPrimaryReq.operationId")));
+  fields.set(2, encodeClusterHistoryValue(required(value.history, "ActivateClusterPrimaryReq.history")));
+  return fields;
+}
+
+export function decodeActivateClusterPrimaryReqValue(value: CborValue): ActivateClusterPrimaryReq {
+  const fields = expectMap(value);
+  return {
+    operationId: fieldOrDefault(fields.get(1), (value) => bytesValue(value), () => new Uint8Array()),
+    history: fieldOrDefault(fields.get(2), (value) => decodeClusterHistoryValue(value), () => defaultClusterHistory()),
+  };
+}
+
+export function encodeApplyClusterHistoryReqValue(value: ApplyClusterHistoryReq): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, encodeClusterHistoryValue(required(value.history, "ApplyClusterHistoryReq.history")));
+  return fields;
+}
+
+export function decodeApplyClusterHistoryReqValue(value: CborValue): ApplyClusterHistoryReq {
+  const fields = expectMap(value);
+  return {
+    history: fieldOrDefault(fields.get(1), (value) => decodeClusterHistoryValue(value), () => defaultClusterHistory()),
+  };
+}
+
+export function encodeClusterStateValue(value: ClusterState): CborValue {
+  switch (value.type) {
+    case "unaffiliated": {
+      const fields = new Map<number, CborValue>();
+      return [0, fields];
+    }
+    case "joining": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, encodeClusterJoinConsentValue(required(value.consent, "ClusterState.Joining.consent")));
+      return [1, fields];
+    }
+    case "member": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, encodeClusterGenesisValue(required(value.genesis, "ClusterState.Member.genesis")));
+      fields.set(2, encodeClusterHeadValue(required(value.head, "ClusterState.Member.head")));
+      fields.set(3, bytes(required(value.localAdmissionId, "ClusterState.Member.localAdmissionId")));
+      fields.set(4, required(value.members, "ClusterState.Member.members").map((item) => encodeClusterMemberValue(item)));
+      fields.set(5, encodeClusterPrimaryTransitionValue(required(value.primaryTransition, "ClusterState.Member.primaryTransition")));
+      return [2, fields];
+    }
+    case "removalPending": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, bytes(required(value.clusterId, "ClusterState.RemovalPending.clusterId")));
+      fields.set(2, bytes(required(value.admissionId, "ClusterState.RemovalPending.admissionId")));
+      return [3, fields];
+    }
+    case "removed": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, bytes(required(value.clusterId, "ClusterState.Removed.clusterId")));
+      fields.set(2, bytes(required(value.admissionId, "ClusterState.Removed.admissionId")));
+      return [4, fields];
+    }
+  }
+}
+
+export function decodeClusterStateValue(value: CborValue): ClusterState {
+  const [variantId, fields] = expectUnion(value);
+  switch (variantId) {
+    case 0:
+      return {
+        type: "unaffiliated",
+      };
+    case 1:
+      return {
+        type: "joining",
+        consent: fieldOrDefault(fields.get(1), (value) => decodeClusterJoinConsentValue(value), () => defaultClusterJoinConsent()),
+      };
+    case 2:
+      return {
+        type: "member",
+        genesis: fieldOrDefault(fields.get(1), (value) => decodeClusterGenesisValue(value), () => defaultClusterGenesis()),
+        head: fieldOrDefault(fields.get(2), (value) => decodeClusterHeadValue(value), () => defaultClusterHead()),
+        localAdmissionId: fieldOrDefault(fields.get(3), (value) => bytesValue(value), () => new Uint8Array()),
+        members: fieldOrDefault(fields.get(4), (value) => array(value).map((item) => decodeClusterMemberValue(item)), () => []),
+        primaryTransition: fieldOrDefault(fields.get(5), (value) => decodeClusterPrimaryTransitionValue(value), () => defaultClusterPrimaryTransition()),
+      };
+    case 3:
+      return {
+        type: "removalPending",
+        clusterId: fieldOrDefault(fields.get(1), (value) => bytesValue(value), () => new Uint8Array()),
+        admissionId: fieldOrDefault(fields.get(2), (value) => bytesValue(value), () => new Uint8Array()),
+      };
+    case 4:
+      return {
+        type: "removed",
+        clusterId: fieldOrDefault(fields.get(1), (value) => bytesValue(value), () => new Uint8Array()),
+        admissionId: fieldOrDefault(fields.get(2), (value) => bytesValue(value), () => new Uint8Array()),
+      };
+  }
+  throw new Error(`unknown ClusterState variant ${variantId}`);
+}
+
+export function encodeClusterPrimaryTransitionValue(value: ClusterPrimaryTransition): CborValue {
+  switch (value.type) {
+    case "replica": {
+      const fields = new Map<number, CborValue>();
+      return [0, fields];
+    }
+    case "active": {
+      const fields = new Map<number, CborValue>();
+      return [1, fields];
+    }
+    case "awaitingActivation": {
+      const fields = new Map<number, CborValue>();
+      return [2, fields];
+    }
+    case "sealed": {
+      const fields = new Map<number, CborValue>();
+      return [3, fields];
+    }
+  }
+}
+
+export function decodeClusterPrimaryTransitionValue(value: CborValue): ClusterPrimaryTransition {
+  const [variantId, fields] = expectUnion(value);
+  switch (variantId) {
+    case 0:
+      return {
+        type: "replica",
+      };
+    case 1:
+      return {
+        type: "active",
+      };
+    case 2:
+      return {
+        type: "awaitingActivation",
+      };
+    case 3:
+      return {
+        type: "sealed",
+      };
+  }
+  throw new Error(`unknown ClusterPrimaryTransition variant ${variantId}`);
+}
+
+export function encodeClusterErrorValue(value: ClusterError): CborValue {
+  switch (value.type) {
+    case "unauthorized": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.message, "ClusterError.Unauthorized.message")));
+      return [0, fields];
+    }
+    case "invalidProof": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.message, "ClusterError.InvalidProof.message")));
+      return [1, fields];
+    }
+    case "operationConflict": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.message, "ClusterError.OperationConflict.message")));
+      return [2, fields];
+    }
+    case "primaryUnavailable": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.message, "ClusterError.PrimaryUnavailable.message")));
+      return [3, fields];
+    }
+    case "alreadyAffiliated": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.message, "ClusterError.AlreadyAffiliated.message")));
+      return [4, fields];
+    }
+    case "retired": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.message, "ClusterError.Retired.message")));
+      return [5, fields];
+    }
+    case "limitExceeded": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.message, "ClusterError.LimitExceeded.message")));
+      return [6, fields];
+    }
+    case "invalidState": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.message, "ClusterError.InvalidState.message")));
+      return [7, fields];
+    }
+    case "failed": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.message, "ClusterError.Failed.message")));
+      return [8, fields];
+    }
+  }
+}
+
+export function decodeClusterErrorValue(value: CborValue): ClusterError {
+  const [variantId, fields] = expectUnion(value);
+  switch (variantId) {
+    case 0:
+      return {
+        type: "unauthorized",
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+    case 1:
+      return {
+        type: "invalidProof",
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+    case 2:
+      return {
+        type: "operationConflict",
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+    case 3:
+      return {
+        type: "primaryUnavailable",
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+    case 4:
+      return {
+        type: "alreadyAffiliated",
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+    case 5:
+      return {
+        type: "retired",
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+    case 6:
+      return {
+        type: "limitExceeded",
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+    case 7:
+      return {
+        type: "invalidState",
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+    case 8:
+      return {
+        type: "failed",
+        message: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+  }
+  throw new Error(`unknown ClusterError variant ${variantId}`);
+}
+
+export function encodeBeginClusterClientAdoptionReqValue(value: BeginClusterClientAdoptionReq): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, bytes(required(value.clientPublicKey, "BeginClusterClientAdoptionReq.clientPublicKey")));
+  return fields;
+}
+
+export function decodeBeginClusterClientAdoptionReqValue(value: CborValue): BeginClusterClientAdoptionReq {
+  const fields = expectMap(value);
+  return {
+    clientPublicKey: fieldOrDefault(fields.get(1), (value) => bytesValue(value), () => new Uint8Array()),
+  };
+}
+
+export function encodeClusterClientAdoptionChallengeValue(value: ClusterClientAdoptionChallenge): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, bytes(required(value.clusterId, "ClusterClientAdoptionChallenge.clusterId")));
+  fields.set(2, bytes(required(value.grantId, "ClusterClientAdoptionChallenge.grantId")));
+  fields.set(3, bytes(required(value.issuerAdmissionId, "ClusterClientAdoptionChallenge.issuerAdmissionId")));
+  fields.set(4, bytes(required(value.clientPublicKey, "ClusterClientAdoptionChallenge.clientPublicKey")));
+  fields.set(5, i53(required(value.expiresAtUnix, "ClusterClientAdoptionChallenge.expiresAtUnix")));
+  return fields;
+}
+
+export function decodeClusterClientAdoptionChallengeValue(value: CborValue): ClusterClientAdoptionChallenge {
+  const fields = expectMap(value);
+  return {
+    clusterId: fieldOrDefault(fields.get(1), (value) => bytesValue(value), () => new Uint8Array()),
+    grantId: fieldOrDefault(fields.get(2), (value) => bytesValue(value), () => new Uint8Array()),
+    issuerAdmissionId: fieldOrDefault(fields.get(3), (value) => bytesValue(value), () => new Uint8Array()),
+    clientPublicKey: fieldOrDefault(fields.get(4), (value) => bytesValue(value), () => new Uint8Array()),
+    expiresAtUnix: fieldOrDefault(fields.get(5), (value) => integer(value), () => 0),
+  };
+}
+
+export function encodeCompleteClusterClientAdoptionReqValue(value: CompleteClusterClientAdoptionReq): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, bytes(required(value.grantId, "CompleteClusterClientAdoptionReq.grantId")));
+  fields.set(2, bytes(required(value.clientProof, "CompleteClusterClientAdoptionReq.clientProof")));
+  return fields;
+}
+
+export function decodeCompleteClusterClientAdoptionReqValue(value: CborValue): CompleteClusterClientAdoptionReq {
+  const fields = expectMap(value);
+  return {
+    grantId: fieldOrDefault(fields.get(1), (value) => bytesValue(value), () => new Uint8Array()),
+    clientProof: fieldOrDefault(fields.get(2), (value) => bytesValue(value), () => new Uint8Array()),
+  };
+}
+
+export function encodeGetClusterClientAdoptionReqValue(value: GetClusterClientAdoptionReq): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, bytes(required(value.grantId, "GetClusterClientAdoptionReq.grantId")));
+  return fields;
+}
+
+export function decodeGetClusterClientAdoptionReqValue(value: CborValue): GetClusterClientAdoptionReq {
+  const fields = expectMap(value);
+  return {
+    grantId: fieldOrDefault(fields.get(1), (value) => bytesValue(value), () => new Uint8Array()),
+  };
+}
+
+export function encodeClusterPairingIntentValue(value: ClusterPairingIntent): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, encodeClusterClientAdoptionChallengeValue(required(value.challenge, "ClusterPairingIntent.challenge")));
+  fields.set(2, bytes(required(value.clientProof, "ClusterPairingIntent.clientProof")));
+  fields.set(3, bytes(required(value.issuerProof, "ClusterPairingIntent.issuerProof")));
+  return fields;
+}
+
+export function decodeClusterPairingIntentValue(value: CborValue): ClusterPairingIntent {
+  const fields = expectMap(value);
+  return {
+    challenge: fieldOrDefault(fields.get(1), (value) => decodeClusterClientAdoptionChallengeValue(value), () => defaultClusterClientAdoptionChallenge()),
+    clientProof: fieldOrDefault(fields.get(2), (value) => bytesValue(value), () => new Uint8Array()),
+    issuerProof: fieldOrDefault(fields.get(3), (value) => bytesValue(value), () => new Uint8Array()),
+  };
+}
+
+export function encodeAdoptClusterClientReqValue(value: AdoptClusterClientReq): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, i53(required(value.expectedManagementEpoch, "AdoptClusterClientReq.expectedManagementEpoch")));
+  fields.set(2, encodeClusterPairingIntentValue(required(value.intent, "AdoptClusterClientReq.intent")));
+  return fields;
+}
+
+export function decodeAdoptClusterClientReqValue(value: CborValue): AdoptClusterClientReq {
+  const fields = expectMap(value);
+  return {
+    expectedManagementEpoch: fieldOrDefault(fields.get(1), (value) => integer(value), () => 0),
+    intent: fieldOrDefault(fields.get(2), (value) => decodeClusterPairingIntentValue(value), () => defaultClusterPairingIntent()),
+  };
+}
+
+export function encodeRevokeClusterClientGrantReqValue(value: RevokeClusterClientGrantReq): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, bytes(required(value.operationId, "RevokeClusterClientGrantReq.operationId")));
+  fields.set(2, i53(required(value.expectedManagementEpoch, "RevokeClusterClientGrantReq.expectedManagementEpoch")));
+  fields.set(3, bytes(required(value.grantId, "RevokeClusterClientGrantReq.grantId")));
+  return fields;
+}
+
+export function decodeRevokeClusterClientGrantReqValue(value: CborValue): RevokeClusterClientGrantReq {
+  const fields = expectMap(value);
+  return {
+    operationId: fieldOrDefault(fields.get(1), (value) => bytesValue(value), () => new Uint8Array()),
+    expectedManagementEpoch: fieldOrDefault(fields.get(2), (value) => integer(value), () => 0),
+    grantId: fieldOrDefault(fields.get(3), (value) => bytesValue(value), () => new Uint8Array()),
+  };
+}
+
+export function encodeClusterClientAdoptionStateValue(value: ClusterClientAdoptionState): CborValue {
+  switch (value.type) {
+    case "pending": {
+      const fields = new Map<number, CborValue>();
+      return [0, fields];
+    }
+    case "accepted": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, encodeClusterHistoryValue(required(value.history, "ClusterClientAdoptionState.Accepted.history")));
+      return [1, fields];
+    }
+    case "rejected": {
+      const fields = new Map<number, CborValue>();
+      return [2, fields];
+    }
+  }
+}
+
+export function decodeClusterClientAdoptionStateValue(value: CborValue): ClusterClientAdoptionState {
+  const [variantId, fields] = expectUnion(value);
+  switch (variantId) {
+    case 0:
+      return {
+        type: "pending",
+      };
+    case 1:
+      return {
+        type: "accepted",
+        history: fieldOrDefault(fields.get(1), (value) => decodeClusterHistoryValue(value), () => defaultClusterHistory()),
+      };
+    case 2:
+      return {
+        type: "rejected",
+      };
+  }
+  throw new Error(`unknown ClusterClientAdoptionState variant ${variantId}`);
+}
+
+export function encodeClusterPeerChallengeValue(value: ClusterPeerChallenge): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, bytes(required(value.nonce, "ClusterPeerChallenge.nonce")));
+  fields.set(2, i53(required(value.connectionId, "ClusterPeerChallenge.connectionId")));
+  fields.set(3, bytes(required(value.serverProof, "ClusterPeerChallenge.serverProof")));
+  return fields;
+}
+
+export function decodeClusterPeerChallengeValue(value: CborValue): ClusterPeerChallenge {
+  const fields = expectMap(value);
+  return {
+    nonce: fieldOrDefault(fields.get(1), (value) => bytesValue(value), () => new Uint8Array()),
+    connectionId: fieldOrDefault(fields.get(2), (value) => integer(value), () => 0),
+    serverProof: fieldOrDefault(fields.get(3), (value) => bytesValue(value), () => new Uint8Array()),
+  };
+}
+
+export function encodeClusterPeerRequestValue(value: ClusterPeerRequest): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, bytes(required(value.clusterId, "ClusterPeerRequest.clusterId")));
+  fields.set(2, bytes(required(value.senderAdmissionId, "ClusterPeerRequest.senderAdmissionId")));
+  fields.set(3, bytes(required(value.senderPublicKey, "ClusterPeerRequest.senderPublicKey")));
+  fields.set(4, bytes(required(value.nonce, "ClusterPeerRequest.nonce")));
+  fields.set(5, i53(required(value.connectionId, "ClusterPeerRequest.connectionId")));
+  fields.set(6, i53(required(value.procedureId, "ClusterPeerRequest.procedureId")));
+  fields.set(7, bytes(required(value.payload, "ClusterPeerRequest.payload")));
+  fields.set(8, text(required(value.originalPrincipal, "ClusterPeerRequest.originalPrincipal")));
+  fields.set(9, bytes(required(value.signature, "ClusterPeerRequest.signature")));
+  return fields;
+}
+
+export function decodeClusterPeerRequestValue(value: CborValue): ClusterPeerRequest {
+  const fields = expectMap(value);
+  return {
+    clusterId: fieldOrDefault(fields.get(1), (value) => bytesValue(value), () => new Uint8Array()),
+    senderAdmissionId: fieldOrDefault(fields.get(2), (value) => bytesValue(value), () => new Uint8Array()),
+    senderPublicKey: fieldOrDefault(fields.get(3), (value) => bytesValue(value), () => new Uint8Array()),
+    nonce: fieldOrDefault(fields.get(4), (value) => bytesValue(value), () => new Uint8Array()),
+    connectionId: fieldOrDefault(fields.get(5), (value) => integer(value), () => 0),
+    procedureId: fieldOrDefault(fields.get(6), (value) => integer(value), () => 0),
+    payload: fieldOrDefault(fields.get(7), (value) => bytesValue(value), () => new Uint8Array()),
+    originalPrincipal: fieldOrDefault(fields.get(8), (value) => textValue(value), () => ""),
+    signature: fieldOrDefault(fields.get(9), (value) => bytesValue(value), () => new Uint8Array()),
+  };
+}
+
+export function encodeClusterPeerResponseValue(value: ClusterPeerResponse): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, bytes(required(value.payload, "ClusterPeerResponse.payload")));
+  return fields;
+}
+
+export function decodeClusterPeerResponseValue(value: CborValue): ClusterPeerResponse {
+  const fields = expectMap(value);
+  return {
+    payload: fieldOrDefault(fields.get(1), (value) => bytesValue(value), () => new Uint8Array()),
+  };
+}
+
 export function encodeCreateAgentProjectReqValue(value: CreateAgentProjectReq): CborValue {
   const fields = new Map<number, CborValue>();
   fields.set(1, text(required(value.rootPath, "CreateAgentProjectReq.rootPath")));
@@ -12323,6 +13525,256 @@ function defaultGetScheduleNextRunsError(): GetScheduleNextRunsError {
   return {
     type: "failed",
     message: "",
+  };
+}
+
+function defaultClusterGenesis(): ClusterGenesis {
+  return {
+    nonce: new Uint8Array(),
+    rootAdmissionId: new Uint8Array(),
+    rootPublicKey: new Uint8Array(),
+    rootEndpoint: "",
+  };
+}
+
+function defaultClusterHead(): ClusterHead {
+  return {
+    clusterId: new Uint8Array(),
+    managementEpoch: 0,
+    sequence: 0,
+    entryHash: new Uint8Array(),
+    primaryAdmissionId: new Uint8Array(),
+  };
+}
+
+function defaultClusterMember(): ClusterMember {
+  return {
+    admissionId: new Uint8Array(),
+    nodePublicKey: new Uint8Array(),
+    endpoint: "",
+  };
+}
+
+function defaultClusterJournalEntry(): ClusterJournalEntry {
+  return {
+    clusterId: new Uint8Array(),
+    managementEpoch: 0,
+    sequence: 0,
+    previousHash: new Uint8Array(),
+    operationId: new Uint8Array(),
+    requestHash: new Uint8Array(),
+    mutation: new Uint8Array(),
+    signature: new Uint8Array(),
+  };
+}
+
+function defaultClusterHistory(): ClusterHistory {
+  return {
+    genesis: defaultClusterGenesis(),
+    entries: [],
+    head: defaultClusterHead(),
+  };
+}
+
+function defaultCreateClusterReq(): CreateClusterReq {
+  return {
+    operationId: new Uint8Array(),
+    confirmed: false,
+  };
+}
+
+function defaultPrepareClusterJoinReq(): PrepareClusterJoinReq {
+  return {
+    operationId: new Uint8Array(),
+    genesis: defaultClusterGenesis(),
+    confirmed: false,
+  };
+}
+
+function defaultClusterJoinConsent(): ClusterJoinConsent {
+  return {
+    endpoint: "",
+    genesis: defaultClusterGenesis(),
+    operationId: new Uint8Array(),
+    admissionId: new Uint8Array(),
+    nodePublicKey: new Uint8Array(),
+    signature: new Uint8Array(),
+  };
+}
+
+function defaultAdmitClusterMemberReq(): AdmitClusterMemberReq {
+  return {
+    operationId: new Uint8Array(),
+    expectedManagementEpoch: 0,
+    consent: defaultClusterJoinConsent(),
+  };
+}
+
+function defaultFinishClusterJoinReq(): FinishClusterJoinReq {
+  return {
+    operationId: new Uint8Array(),
+    history: defaultClusterHistory(),
+  };
+}
+
+function defaultCancelClusterJoinReq(): CancelClusterJoinReq {
+  return {
+    operationId: new Uint8Array(),
+  };
+}
+
+function defaultRemoveClusterMemberReq(): RemoveClusterMemberReq {
+  return {
+    operationId: new Uint8Array(),
+    expectedManagementEpoch: 0,
+    admissionId: new Uint8Array(),
+  };
+}
+
+function defaultReadClusterHistoryReq(): ReadClusterHistoryReq {
+  return {
+    clusterId: new Uint8Array(),
+  };
+}
+
+function defaultPreparePrimaryTransferReq(): PreparePrimaryTransferReq {
+  return {
+    operationId: new Uint8Array(),
+    expectedHead: defaultClusterHead(),
+  };
+}
+
+function defaultClusterTransferAcceptance(): ClusterTransferAcceptance {
+  return {
+    operationId: new Uint8Array(),
+    expectedHead: defaultClusterHead(),
+    targetAdmissionId: new Uint8Array(),
+    targetPublicKey: new Uint8Array(),
+    signature: new Uint8Array(),
+  };
+}
+
+function defaultSealPrimaryTransferReq(): SealPrimaryTransferReq {
+  return {
+    acceptance: defaultClusterTransferAcceptance(),
+  };
+}
+
+function defaultActivateClusterPrimaryReq(): ActivateClusterPrimaryReq {
+  return {
+    operationId: new Uint8Array(),
+    history: defaultClusterHistory(),
+  };
+}
+
+function defaultApplyClusterHistoryReq(): ApplyClusterHistoryReq {
+  return {
+    history: defaultClusterHistory(),
+  };
+}
+
+function defaultClusterState(): ClusterState {
+  return {
+    type: "unaffiliated",
+  };
+}
+
+function defaultClusterPrimaryTransition(): ClusterPrimaryTransition {
+  return {
+    type: "replica",
+  };
+}
+
+function defaultClusterError(): ClusterError {
+  return {
+    type: "unauthorized",
+    message: "",
+  };
+}
+
+function defaultBeginClusterClientAdoptionReq(): BeginClusterClientAdoptionReq {
+  return {
+    clientPublicKey: new Uint8Array(),
+  };
+}
+
+function defaultClusterClientAdoptionChallenge(): ClusterClientAdoptionChallenge {
+  return {
+    clusterId: new Uint8Array(),
+    grantId: new Uint8Array(),
+    issuerAdmissionId: new Uint8Array(),
+    clientPublicKey: new Uint8Array(),
+    expiresAtUnix: 0,
+  };
+}
+
+function defaultCompleteClusterClientAdoptionReq(): CompleteClusterClientAdoptionReq {
+  return {
+    grantId: new Uint8Array(),
+    clientProof: new Uint8Array(),
+  };
+}
+
+function defaultGetClusterClientAdoptionReq(): GetClusterClientAdoptionReq {
+  return {
+    grantId: new Uint8Array(),
+  };
+}
+
+function defaultClusterPairingIntent(): ClusterPairingIntent {
+  return {
+    challenge: defaultClusterClientAdoptionChallenge(),
+    clientProof: new Uint8Array(),
+    issuerProof: new Uint8Array(),
+  };
+}
+
+function defaultAdoptClusterClientReq(): AdoptClusterClientReq {
+  return {
+    expectedManagementEpoch: 0,
+    intent: defaultClusterPairingIntent(),
+  };
+}
+
+function defaultRevokeClusterClientGrantReq(): RevokeClusterClientGrantReq {
+  return {
+    operationId: new Uint8Array(),
+    expectedManagementEpoch: 0,
+    grantId: new Uint8Array(),
+  };
+}
+
+function defaultClusterClientAdoptionState(): ClusterClientAdoptionState {
+  return {
+    type: "pending",
+  };
+}
+
+function defaultClusterPeerChallenge(): ClusterPeerChallenge {
+  return {
+    nonce: new Uint8Array(),
+    connectionId: 0,
+    serverProof: new Uint8Array(),
+  };
+}
+
+function defaultClusterPeerRequest(): ClusterPeerRequest {
+  return {
+    clusterId: new Uint8Array(),
+    senderAdmissionId: new Uint8Array(),
+    senderPublicKey: new Uint8Array(),
+    nonce: new Uint8Array(),
+    connectionId: 0,
+    procedureId: 0,
+    payload: new Uint8Array(),
+    originalPrincipal: "",
+    signature: new Uint8Array(),
+  };
+}
+
+function defaultClusterPeerResponse(): ClusterPeerResponse {
+  return {
+    payload: new Uint8Array(),
   };
 }
 

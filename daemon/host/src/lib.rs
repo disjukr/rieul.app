@@ -17,6 +17,5 @@ pub mod desktop;
 
 pub mod desktop_ipc;
 
-// Unregistered, fixture-only foundations pending membership policy review.
-#[cfg(test)]
-mod cluster;
+// Opt-in cluster management; keys and membership require explicit RPC actions.
+pub mod cluster;

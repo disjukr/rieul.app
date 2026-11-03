@@ -1,3 +1,4 @@
+mod cluster_rpc;
 mod desktop_rpc;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
@@ -9,8 +10,8 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
-use anyhow::{bail, Context, Result};
 use crate::updates::UpdateCommand;
+use anyhow::{bail, Context, Result};
 type SharedUpdater = Option<Arc<dyn crate::updates::UpdateService>>;
 use notify::{Event, RecursiveMode, Watcher};
 use rieul_daemon_core::config::{
@@ -361,6 +362,10 @@ async fn run_system_server_once(
     let connections = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let mut maintenance_tick = tokio::time::interval(std::time::Duration::from_millis(250));
     let admission = Arc::new(crate::maintenance::WorkGate::default());
+    let _cluster_worker = AbortTaskOnDrop(tokio::spawn(crate::cluster::runtime::worker::run(
+        config_path.with_extension("cluster.sqlite"),
+        admission.clone(),
+    )));
     let desktop = crate::desktop::Runtime::new(admission.clone(), desktop_backend);
     let (disconnect_tx, _) = watch::channel(0u64);
     let mut drain: Option<(
@@ -1095,6 +1100,7 @@ async fn run_rpc_session(
         session_id: next_rpc_session_id(),
         authenticated_client_id: None,
     }));
+    let _cluster_cleanup = cluster_rpc::ConnectionCleanup(rpc_session_id(&session_state).await);
     let mut desktop_tick = tokio::time::interval(Duration::from_millis(100));
     let _desktop_cleanup = desktop_rpc::ConnectionCleanup {
         runtime: desktop.clone(),
@@ -1203,6 +1209,25 @@ fn build_rpc_handlers(
 ) -> HostRpcHandlers {
     let mut handlers = RpcHandlers::new()
         .get_daemon_info(HostRpcHandler::get_daemon_info_rpc)
+        .get_cluster_peer_challenge(HostRpcHandler::get_cluster_peer_challenge_rpc)
+        .execute_cluster_peer_request(HostRpcHandler::execute_cluster_peer_request_rpc)
+        .get_cluster_state(HostRpcHandler::get_cluster_state_rpc)
+        .begin_cluster_client_adoption(HostRpcHandler::begin_cluster_client_adoption_rpc)
+        .complete_cluster_client_adoption(HostRpcHandler::complete_cluster_client_adoption_rpc)
+        .get_cluster_client_adoption(HostRpcHandler::get_cluster_client_adoption_rpc)
+        .adopt_cluster_client(HostRpcHandler::adopt_cluster_client_rpc)
+        .revoke_cluster_client_grant(HostRpcHandler::revoke_cluster_client_grant_rpc)
+        .create_cluster(HostRpcHandler::create_cluster_rpc)
+        .prepare_cluster_join(HostRpcHandler::prepare_cluster_join_rpc)
+        .admit_cluster_member(HostRpcHandler::admit_cluster_member_rpc)
+        .finish_cluster_join(HostRpcHandler::finish_cluster_join_rpc)
+        .cancel_cluster_join(HostRpcHandler::cancel_cluster_join_rpc)
+        .remove_cluster_member(HostRpcHandler::remove_cluster_member_rpc)
+        .read_cluster_history(HostRpcHandler::read_cluster_history_rpc)
+        .prepare_primary_transfer(HostRpcHandler::prepare_primary_transfer_rpc)
+        .seal_primary_transfer(HostRpcHandler::seal_primary_transfer_rpc)
+        .activate_cluster_primary(HostRpcHandler::activate_cluster_primary_rpc)
+        .apply_cluster_history(HostRpcHandler::apply_cluster_history_rpc)
         .get_desktop_capabilities(HostRpcHandler::get_desktop_capabilities_rpc)
         .attach_desktop(HostRpcHandler::attach_desktop_rpc)
         .configure_desktop_viewports(HostRpcHandler::configure_desktop_viewports_rpc)
@@ -1341,8 +1366,13 @@ impl ReqResMessageReader {
 
     async fn read_more(&mut self) -> Result<()> {
         let mut chunk = [0u8; 8192];
-        let capacity = self.max_buffer.saturating_sub(self.buffer.len()).min(chunk.len());
-        if capacity == 0 { bail!("reqres frame exceeds implementation limit"); }
+        let capacity = self
+            .max_buffer
+            .saturating_sub(self.buffer.len())
+            .min(chunk.len());
+        if capacity == 0 {
+            bail!("reqres frame exceeds implementation limit");
+        }
         let Some(len) = self.recv.read(&mut chunk[..capacity]).await? else {
             self.finished = true;
             return Ok(());
@@ -1430,7 +1460,10 @@ async fn handle_reqres_messages_with_events(
     let rpc_handlers = Arc::new(build_rpc_handlers(windows.as_ref(), None, None, None));
     let context = HostRpcContext {
         updates: None,
-        desktop: crate::desktop::Runtime::new(Arc::new(crate::maintenance::WorkGate::default()), None),
+        desktop: crate::desktop::Runtime::new(
+            Arc::new(crate::maintenance::WorkGate::default()),
+            None,
+        ),
         session: None,
         config_path: config_path.to_path_buf(),
         credentials_path: credentials_path.to_path_buf(),
@@ -1833,9 +1866,15 @@ async fn dispatch_client_stream_rpc(
     // Check raw payload bytes as well as the incremental reader. Unknown fields
     // disappear when decoding/re-encoding a typed frame and must not bypass bounds.
     if proc_id == ProcId::WriteDesktopInput.as_u64()
-        && payload.as_ref().map_or(true, |bytes| bytes.len() > crate::desktop::MAX_FRAME)
+        && payload
+            .as_ref()
+            .map_or(true, |bytes| bytes.len() > crate::desktop::MAX_FRAME)
     {
-        return Ok(vec![error_message(proc_id, "limit_exceeded", "Desktop input frame exceeds its negotiated limit")]);
+        return Ok(vec![error_message(
+            proc_id,
+            "limit_exceeded",
+            "Desktop input frame exceeds its negotiated limit",
+        )]);
     }
     let request = match RpcRequest::decode(proc_id, payload.as_deref()) {
         Ok(request) => request,
@@ -4125,7 +4164,10 @@ async fn handle_rpc_messages_with_events(
     let rpc_handlers = Arc::new(build_rpc_handlers(None, None, None, None));
     let context = HostRpcContext {
         updates: None,
-        desktop: crate::desktop::Runtime::new(Arc::new(crate::maintenance::WorkGate::default()), None),
+        desktop: crate::desktop::Runtime::new(
+            Arc::new(crate::maintenance::WorkGate::default()),
+            None,
+        ),
         session: None,
         config_path: config_path.to_path_buf(),
         credentials_path: credentials_path.to_path_buf(),
@@ -4154,6 +4196,17 @@ async fn dispatch_unary_rpc(
     payload: Option<Vec<u8>>,
     context: HostRpcContext,
 ) -> Result<Vec<ReqResMessage>> {
+    if cluster_rpc::is_cluster_proc(proc_id)
+        && payload
+            .as_ref()
+            .is_some_and(|bytes| !cluster_rpc::bounded_payload(bytes))
+    {
+        return Ok(vec![error_message(
+            proc_id,
+            "limit_exceeded",
+            "Cluster request exceeds byte, item or nesting limits",
+        )]);
+    }
     if requires_authentication(proc_id) && !is_authenticated(&context.session_state).await {
         return Ok(vec![unauthorized_message(proc_id)]);
     }
@@ -4212,8 +4265,14 @@ impl HostRpcHandler {
 
     async fn get_daemon_environment(&mut self, _: ()) -> Result<UnaryRpcOutcome> {
         match self.files.home_directory().await {
-            Ok(home_directory) => Ok(RpcResponse::GetDaemonEnvironment(DaemonEnvironment { home_directory }).into()),
-            Err(error) => Ok(UnaryRpcOutcome::Message(error_message(ProcId::GetDaemonEnvironment.as_u64(), service_error_code(&error), &error.to_string()))),
+            Ok(home_directory) => {
+                Ok(RpcResponse::GetDaemonEnvironment(DaemonEnvironment { home_directory }).into())
+            }
+            Err(error) => Ok(UnaryRpcOutcome::Message(error_message(
+                ProcId::GetDaemonEnvironment.as_u64(),
+                service_error_code(&error),
+                &error.to_string(),
+            ))),
         }
     }
 
@@ -5171,6 +5230,8 @@ impl HostRpcHandler {
 
 fn requires_authentication(proc_id: u64) -> bool {
     proc_id != ProcId::GetDaemonInfo.as_u64()
+        && proc_id != ProcId::GetClusterPeerChallenge.as_u64()
+        && proc_id != ProcId::ExecuteClusterPeerRequest.as_u64()
         && proc_id != ProcId::StartPairing.as_u64()
         && proc_id != ProcId::CompletePairing.as_u64()
 }
@@ -6004,10 +6065,7 @@ mod tests {
 
         assert_eq!(responses.len(), 1);
         let environment = DaemonEnvironment::decode(payload(&responses[0])).unwrap();
-        assert_eq!(
-            environment.home_directory,
-            "/fixture/logged-in-user"
-        );
+        assert_eq!(environment.home_directory, "/fixture/logged-in-user");
     }
 
     #[tokio::test]

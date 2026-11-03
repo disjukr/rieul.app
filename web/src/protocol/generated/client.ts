@@ -80,9 +80,31 @@ import {
   subscribeUpdateStatusProc,
   checkForUpdatesProc,
   installUpdateConfirmedProc,
+  getClusterStateProc,
+  createClusterProc,
+  prepareClusterJoinProc,
+  admitClusterMemberProc,
+  finishClusterJoinProc,
+  cancelClusterJoinProc,
+  removeClusterMemberProc,
+  readClusterHistoryProc,
+  preparePrimaryTransferProc,
+  sealPrimaryTransferProc,
+  activateClusterPrimaryProc,
+  applyClusterHistoryProc,
+  beginClusterClientAdoptionProc,
+  completeClusterClientAdoptionProc,
+  getClusterClientAdoptionProc,
+  adoptClusterClientProc,
+  revokeClusterClientGrantProc,
+  getClusterPeerChallengeProc,
+  executeClusterPeerRequestProc,
 } from "./rpc.ts";
 import type {
+  ActivateClusterPrimaryReq,
   ActiveAgentSessionsTableEvent,
+  AdmitClusterMemberReq,
+  AdoptClusterClientReq,
   AgentProjectInfo,
   AgentProjectsTableEvent,
   AgentProvidersTableEvent,
@@ -91,24 +113,39 @@ import type {
   AgentSessionInfo,
   AgentTerminalOutputEvent,
   AgentTurnInfo,
+  ApplyClusterHistoryReq,
   AttachAgentSessionReq,
   AttachDesktopReq,
   AttachTerminalSessionReq,
   AvailableShellsTableEvent,
+  BeginClusterClientAdoptionReq,
   BulkJobMutationRes,
   BulkMutationRes,
   BulkScheduleMutationRes,
   CancelAgentTurnReq,
+  CancelClusterJoinReq,
   ClearJobsReq,
   ClientsTableEvent,
   CloseAgentSessionReq,
   CloseTerminalSessionReq,
+  ClusterClientAdoptionChallenge,
+  ClusterClientAdoptionState,
+  ClusterHistory,
+  ClusterJoinConsent,
+  ClusterJournalEntry,
+  ClusterPeerChallenge,
+  ClusterPeerRequest,
+  ClusterPeerResponse,
+  ClusterState,
+  ClusterTransferAcceptance,
+  CompleteClusterClientAdoptionReq,
   CompletePairingReq,
   CompletePairingRes,
   ConfigureDesktopViewportsReq,
   CreateAgentProjectReq,
   CreateAgentSessionReq,
   CreateAgentTurnReq,
+  CreateClusterReq,
   CreateJobReq,
   CreateNodesReq,
   CreateScheduleReq,
@@ -128,6 +165,8 @@ import type {
   DesktopInputReceipt,
   DesktopLease,
   DirectoryTableEvent,
+  FinishClusterJoinReq,
+  GetClusterClientAdoptionReq,
   GetScheduleNextRunsReq,
   GetScheduleNextRunsRes,
   JobInfo,
@@ -139,6 +178,8 @@ import type {
   ListAgentSessionsRes,
   ListAgentSessionTurnsReq,
   ListAgentSessionTurnsRes,
+  PrepareClusterJoinReq,
+  PreparePrimaryTransferReq,
   ProcessDetailEvent,
   ProcessesTableEvent,
   ProcessModulesTableEvent,
@@ -146,19 +187,23 @@ import type {
   ProcessSocketsInUseTableEvent,
   PurgeTrashItemsReq,
   ReadAgentTerminalOutputReq,
+  ReadClusterHistoryReq,
   ReadFileChunk,
   ReadFileReq,
   RemoveAgentProjectReq,
   RemoveClientReq,
+  RemoveClusterMemberReq,
   RenamePathsReq,
   RenewClientCredentialRes,
   RespondAgentPermissionReq,
   RestoreTrashItemsReq,
+  RevokeClusterClientGrantReq,
   RootsTableEvent,
   RunCommandReq,
   RunCommandRes,
   ScheduleInfo,
   SchedulesTableEvent,
+  SealPrimaryTransferReq,
   SetAgentSessionConfigReq,
   SetAgentSessionConfigRes,
   SetDesktopControlReq,
@@ -481,4 +526,80 @@ export function checkForUpdates(transport: WebTransport): Promise<UpdateStatus> 
 
 export function installUpdateConfirmed(transport: WebTransport): Promise<UpdateStatus> {
   return callUnary(transport, installUpdateConfirmedProc, undefined);
+}
+
+export function getClusterState(transport: WebTransport): Promise<ClusterState> {
+  return callUnary(transport, getClusterStateProc, undefined);
+}
+
+export function createCluster(transport: WebTransport, request: CreateClusterReq): Promise<ClusterState> {
+  return callUnary(transport, createClusterProc, request);
+}
+
+export function prepareClusterJoin(transport: WebTransport, request: PrepareClusterJoinReq): Promise<ClusterJoinConsent> {
+  return callUnary(transport, prepareClusterJoinProc, request);
+}
+
+export function admitClusterMember(transport: WebTransport, request: AdmitClusterMemberReq): Promise<ClusterJournalEntry> {
+  return callUnary(transport, admitClusterMemberProc, request);
+}
+
+export function finishClusterJoin(transport: WebTransport, request: FinishClusterJoinReq): Promise<ClusterState> {
+  return callUnary(transport, finishClusterJoinProc, request);
+}
+
+export function cancelClusterJoin(transport: WebTransport, request: CancelClusterJoinReq): Promise<ClusterState> {
+  return callUnary(transport, cancelClusterJoinProc, request);
+}
+
+export function removeClusterMember(transport: WebTransport, request: RemoveClusterMemberReq): Promise<ClusterJournalEntry> {
+  return callUnary(transport, removeClusterMemberProc, request);
+}
+
+export function readClusterHistory(transport: WebTransport, request: ReadClusterHistoryReq): Promise<ClusterHistory> {
+  return callUnary(transport, readClusterHistoryProc, request);
+}
+
+export function preparePrimaryTransfer(transport: WebTransport, request: PreparePrimaryTransferReq): Promise<ClusterTransferAcceptance> {
+  return callUnary(transport, preparePrimaryTransferProc, request);
+}
+
+export function sealPrimaryTransfer(transport: WebTransport, request: SealPrimaryTransferReq): Promise<ClusterJournalEntry> {
+  return callUnary(transport, sealPrimaryTransferProc, request);
+}
+
+export function activateClusterPrimary(transport: WebTransport, request: ActivateClusterPrimaryReq): Promise<ClusterState> {
+  return callUnary(transport, activateClusterPrimaryProc, request);
+}
+
+export function applyClusterHistory(transport: WebTransport, request: ApplyClusterHistoryReq): Promise<ClusterState> {
+  return callUnary(transport, applyClusterHistoryProc, request);
+}
+
+export function beginClusterClientAdoption(transport: WebTransport, request: BeginClusterClientAdoptionReq): Promise<ClusterClientAdoptionChallenge> {
+  return callUnary(transport, beginClusterClientAdoptionProc, request);
+}
+
+export function completeClusterClientAdoption(transport: WebTransport, request: CompleteClusterClientAdoptionReq): Promise<ClusterClientAdoptionState> {
+  return callUnary(transport, completeClusterClientAdoptionProc, request);
+}
+
+export function getClusterClientAdoption(transport: WebTransport, request: GetClusterClientAdoptionReq): Promise<ClusterClientAdoptionState> {
+  return callUnary(transport, getClusterClientAdoptionProc, request);
+}
+
+export function adoptClusterClient(transport: WebTransport, request: AdoptClusterClientReq): Promise<ClusterJournalEntry> {
+  return callUnary(transport, adoptClusterClientProc, request);
+}
+
+export function revokeClusterClientGrant(transport: WebTransport, request: RevokeClusterClientGrantReq): Promise<ClusterJournalEntry> {
+  return callUnary(transport, revokeClusterClientGrantProc, request);
+}
+
+export function getClusterPeerChallenge(transport: WebTransport): Promise<ClusterPeerChallenge> {
+  return callUnary(transport, getClusterPeerChallengeProc, undefined);
+}
+
+export function executeClusterPeerRequest(transport: WebTransport, request: ClusterPeerRequest): Promise<ClusterPeerResponse> {
+  return callUnary(transport, executeClusterPeerRequestProc, request);
 }

@@ -1,0 +1,78 @@
+# Opt-in management RPC review checkpoint
+
+This local checkpoint extends e431f1a1. It is not approved for main or deployment.
+The unpublished union experiment 98f52280 is excluded. No real host, pairing,
+credentials, service or OS permissions were changed by this work.
+
+## Activation and authentication
+
+There is no build flag hiding these RPCs: compiled handlers advertise them in
+supportedProcIds. Enrollment is opt-in: authenticated CreateCluster or
+PrepareClusterJoin must carry confirmed=true. Startup and GetClusterState do
+not create a node key or database. The background worker starts with the server,
+but only works on an existing enrolled database. Existing pairing and ordinary
+Screen/files authentication remain unchanged. A recorded cluster client grant
+does NOT yet authorize those ordinary RPCs.
+
+| IDs / procedures | Authority |
+| --- | --- |
+| 76 GetClusterState; 77 CreateCluster; 78 PrepareClusterJoin; 80 FinishClusterJoin; 81 CancelClusterJoin | Existing unexpired local paired client. Create/join additionally require explicit confirmation. Finish requires pinned genesis, local reservation and verified history. |
+| 79 AdmitClusterMember; 82 RemoveClusterMember; 83 ReadClusterHistory; 84 PreparePrimaryTransfer; 85 SealPrimaryTransfer; 86 ActivateClusterPrimary; 87 ApplyClusterHistory | Local paired client, or active node proof through the peer envelope. Runtime enforces primary/head/consent/transfer requirements. |
+| 88 BeginClusterClientAdoption; 89 CompleteClusterClientAdoption; 90 GetClusterClientAdoption | Local paired client; outbox ownership binds its client ID. Complete requires client key possession proof. |
+| 91 AdoptClusterClient; 92 RevokeClusterClientGrant | Local paired client or active node proof; primary log orders adoption/revocation. Adoption verifies issuer membership and both proofs. |
+| 93 GetClusterPeerChallenge | No paired session required. Bounded short-lived challenge and server signature; requires an enrolled server. No key/address/history returned. |
+| 94 ExecuteClusterPeerRequest | No paired session required, but consumes a connection-bound nonce and verifies current cached sender admission/key and signed request before invoking the explicit inner whitelist. Not a general authenticated session. |
+
+Local credentials are reloaded and checked before runtime execution/receipt
+lookup; their guard is held through the transaction. Peer proofs bind cluster,
+target key, sender admission/key, nonce, connection, procedure, payload hash and
+original principal. The fully trusted member attests that original principal;
+it is not an independently verified end-client signature. Peer writes recheck
+membership in the transaction. Offline replicas cannot promise fresh revocation.
+
+Admit, Remove, Seal, Adopt and Revoke may forward to the cached primary using
+that signed envelope. Other operations remain local. Public requests are bounded
+to 512 KiB / depth 16 / 24,000 CBOR items before generic decoding. Log history is
+bounded to 512 entries and 240 KiB of stored entry bodies plus overhead. No log
+compaction or forced authority recovery is implemented.
+
+## Preserved endpoint validation / denied edit
+
+An optional edit would have removed initialize's `old.endpoint != endpoint`
+conflict check, to allow retrying an existing operation after the daemon's
+configured endpoint changed. Automatic approval review rejected this as an
+unauthorized weakening of endpoint validation. That command did not execute.
+The exact equality check remains, alongside HTTPS/origin/path validation and
+signed endpoint binding in genesis/join consent. No alternate path was added
+to bypass it. Endpoint migration is unsupported; configuration drift produces
+Conflict rather than silently accepting a different endpoint.
+
+## Evidence and remaining boundaries
+
+The latest pre-checkpoint cargo check passed. Cluster tests passed 24/24,
+including three actual localhost WebTransport scenarios: opt-in join/handoff
+and revoked credential denial; cancelled admission/removal; node nonce replay
+denial and automatic adoption retry after a TLS trust failure. Tests use temp
+SQLite files, synthetic keys and fixture TLS roots; no user screen or input.
+Transaction rollback/reopen tests are not power-loss or forced-kill durability
+evidence. Full host regression passed 147 tests (3 ignored); TypeScript codegen,
+`pnpm check`, `pnpm test` (112 tests) and `pnpm build` passed. The Rust
+codegen baseline and exhaustive RPC category count were updated for 19 new
+procedures. `pnpm test:ui` could not launch any browser: the configured
+Playwright chromium_headless_shell-1194 executable is absent. No UI pass is
+claimed. Logs are in repository-local tmp/cluster-review-*.log (not committed).
+
+The browser has not been integrated or tested for cluster operations. There is
+no browser key persistence, automatic adoption initiation, cluster-grant session
+authentication, automatic member connection or cluster UI. The outbox worker
+and adoption RPCs are early backend work included for review, not a completed
+pairing user flow. Real production CA routing has not been exercised by the
+fixture tests. Foreground forwarding has compile coverage but no dedicated E2E.
+
+Still required: restricted pre-admission synchronization (current bootstrap
+requires existing local pairings); normal Leave orchestration; primary
+rediscovery after the old primary becomes unreachable; more negative peer and
+adoption ordering tests; Windows key-file ACL validation; cancellation/drain
+lifetime review; local credential removal versus pending/adopted grants.
+Admission/history validation must not be replaced by old success receipts.
+Existing TLS verification, endpoint equality and local file protections remain.

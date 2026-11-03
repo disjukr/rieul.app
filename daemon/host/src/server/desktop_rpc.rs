@@ -493,16 +493,27 @@ fn finish_capture(
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use super::super::tests::{test_files, test_terminals};
     use super::*;
     #[test]
     fn helper_failures_have_truthful_method_errors() {
-        for (cause, auth) in [(desktop::Error::HelperAuthentication, true), (desktop::Error::HelperUnavailable, false)] {
-            let ReqResMessage::ResponseUnaryError { error, .. } = failure(ProcId::GetDesktopCapabilities, cause, false) else { panic!() };
+        for (cause, auth) in [
+            (desktop::Error::HelperAuthentication, true),
+            (desktop::Error::HelperUnavailable, false),
+        ] {
+            let ReqResMessage::ResponseUnaryError { error, .. } =
+                failure(ProcId::GetDesktopCapabilities, cause, false)
+            else {
+                panic!()
+            };
             match DesktopError::decode(&error).unwrap() {
-                DesktopError::PermissionDenied { message } if auth => assert!(message.contains("helper authentication failed")),
-                DesktopError::Failed { message } if !auth => assert!(message.contains("helper is unavailable")),
+                DesktopError::PermissionDenied { message } if auth => {
+                    assert!(message.contains("helper authentication failed"))
+                }
+                DesktopError::Failed { message } if !auth => {
+                    assert!(message.contains("helper is unavailable"))
+                }
                 other => panic!("unexpected error: {other:?}"),
             }
         }
@@ -524,8 +535,22 @@ mod tests {
     }
     impl desktop::Backend for FakeBackend {
         fn recover_input(&self, keys: &[u64], buttons: &[u64]) -> Result<(), desktop::Error> {
-            for usage in keys { self.input(&DesktopInputEvent::PhysicalKey { usage:*usage,down:false,repeat:false })?; }
-            for button in buttons { self.input(&DesktopInputEvent::Button { viewport_id:String::new(),x:0.0,y:0.0,button:*button,down:false })?; }
+            for usage in keys {
+                self.input(&DesktopInputEvent::PhysicalKey {
+                    usage: *usage,
+                    down: false,
+                    repeat: false,
+                })?;
+            }
+            for button in buttons {
+                self.input(&DesktopInputEvent::Button {
+                    viewport_id: String::new(),
+                    x: 0.0,
+                    y: 0.0,
+                    button: *button,
+                    down: false,
+                })?;
+            }
             Ok(())
         }
 
@@ -718,8 +743,12 @@ mod tests {
     }
     struct FixtureUpdater(crate::updates::StatusFeed);
     impl crate::updates::UpdateService for FixtureUpdater {
-        fn status(&self) -> Result<UpdateStatus> { Ok(self.0.subscribe().borrow().clone()) }
-        fn subscribe(&self) -> Result<watch::Receiver<UpdateStatus>> { Ok(self.0.subscribe()) }
+        fn status(&self) -> Result<UpdateStatus> {
+            Ok(self.0.subscribe().borrow().clone())
+        }
+        fn subscribe(&self) -> Result<watch::Receiver<UpdateStatus>> {
+            Ok(self.0.subscribe())
+        }
         fn request(&self, _: crate::updates::UpdateCommand) -> crate::updates::UpdateRequest<'_> {
             Box::pin(async move { self.status() })
         }
@@ -734,46 +763,63 @@ mod tests {
             f.authenticate().await;
             async fn subscribe(f: &Fixture) -> ReqResMessageReader {
                 let (mut send, recv) = f.session.open_bi().await.unwrap();
-                send.write_all(&ReqResMessage::RequestUnary {
-                    proc_id: ProcId::SubscribeUpdateStatus.as_u64(), payload: None,
-                }.encode()).await.unwrap();
+                send.write_all(
+                    &ReqResMessage::RequestUnary {
+                        proc_id: ProcId::SubscribeUpdateStatus.as_u64(),
+                        payload: None,
+                    }
+                    .encode(),
+                )
+                .await
+                .unwrap();
                 send.finish().unwrap();
                 ReqResMessageReader::new(recv)
             }
             async fn snapshot(reader: &mut ReqResMessageReader) -> UpdateStatus {
                 match reader.next().await.unwrap().unwrap() {
-                    ReqResMessage::ResponseStreamStart { payload: Some(bytes) } |
-                    ReqResMessage::ResponseStreamChunk { payload: bytes } => UpdateStatus::decode(&bytes).unwrap(),
+                    ReqResMessage::ResponseStreamStart {
+                        payload: Some(bytes),
+                    }
+                    | ReqResMessage::ResponseStreamChunk { payload: bytes } => {
+                        UpdateStatus::decode(&bytes).unwrap()
+                    }
                     other => panic!("{other:?}"),
                 }
             }
             let mut stream = subscribe(&f).await;
             let first = snapshot(&mut stream).await;
-            let mut next = first.clone(); next.phase = UpdatePhase::Downloading;
+            let mut next = first.clone();
+            next.phase = UpdatePhase::Downloading;
             let sent = updater.0.publish(next);
             assert_eq!(snapshot(&mut stream).await, sent);
             assert!(sent.ordering.revision > first.ordering.revision);
             stream.recv.stop(0).unwrap();
-            while updater.0.receivers() != 0 { tokio::task::yield_now().await; }
+            while updater.0.receivers() != 0 {
+                tokio::task::yield_now().await;
+            }
             let mut stream = subscribe(&f).await;
             assert_eq!(snapshot(&mut stream).await, sent);
             save_client_credentials(&f.credentials_path, &ClientCredentials::default()).unwrap();
-            let mut next = sent; next.phase = UpdatePhase::Ready; updater.0.publish(next);
+            let mut next = sent;
+            next.phase = UpdatePhase::Ready;
+            updater.0.publish(next);
             assert!(stream.next().await.unwrap().is_none());
             assert_eq!(updater.0.receivers(), 0);
             let denied = f.unary(ProcId::InstallUpdateConfirmed, None).await;
             assert!(matches!(denied, ReqResMessage::ResponseUnaryError { .. }));
-        }).await.unwrap();
+        })
+        .await
+        .unwrap();
     }
-    struct Fixture {
-        _dir: tempfile::TempDir,
-        credentials_path: PathBuf,
+    pub(in crate::server) struct Fixture {
+        pub(in crate::server) _dir: tempfile::TempDir,
+        pub(in crate::server) credentials_path: PathBuf,
         session: web_transport_quinn::Session,
         backend: Arc<FakeBackend>,
         runtime: Arc<desktop::Runtime>,
         gate: Arc<crate::maintenance::WorkGate>,
         server: tokio::task::JoinHandle<()>,
-        _client: web_transport_quinn::Client,
+        pub(in crate::server) _client: web_transport_quinn::Client,
         client_id: String,
         secret: String,
         helper_tasks: Arc<std::sync::Mutex<Vec<tokio::task::AbortHandle>>>,
@@ -785,7 +831,7 @@ mod tests {
         }
     }
     impl Fixture {
-        async fn new() -> Self {
+        pub(in crate::server) async fn new() -> Self {
             Self::with_ipc(false).await
         }
         async fn with_ipc(use_ipc: bool) -> Self {
@@ -805,17 +851,21 @@ mod tests {
             let gate = Arc::new(crate::maintenance::WorkGate::default());
             let helper_tasks = Arc::new(std::sync::Mutex::new(Vec::new()));
             let adapter: Arc<dyn desktop::Backend> = if use_ipc {
-                let native = backend.clone(); let helpers = helper_tasks.clone();
+                let native = backend.clone();
+                let helpers = helper_tasks.clone();
                 Arc::new(crate::desktop_ipc::Proxy::new(Arc::new(move || {
-                    let native=native.clone(); let helpers=helpers.clone();
+                    let native = native.clone();
+                    let helpers = helpers.clone();
                     Box::pin(async move {
-                        let (client,server)=tokio::io::duplex(65536);
-                        let task=tokio::spawn(crate::desktop_ipc::serve(server,native));
+                        let (client, server) = tokio::io::duplex(65536);
+                        let task = tokio::spawn(crate::desktop_ipc::serve(server, native));
                         helpers.lock().unwrap().push(task.abort_handle());
                         Ok(Box::new(client) as crate::desktop_ipc::Connection)
                     })
                 })))
-            } else { backend.clone() };
+            } else {
+                backend.clone()
+            };
             let runtime = desktop::Runtime::new(gate.clone(), Some(adapter));
             let cert = rcgen::generate_simple_self_signed(vec!["127.0.0.1".into()]).unwrap();
             let der = cert.cert.der().clone();
@@ -825,6 +875,15 @@ mod tests {
                 .with_certificate(vec![der.clone()], key.into())
                 .unwrap();
             let address = server.local_addr().unwrap();
+            save(
+                &path,
+                &SystemConfig {
+                    listen_addr: address.to_string(),
+                    domain: Some("127.0.0.1".into()),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
             let credentials = Arc::new(Mutex::new(records.clone()));
             let (events, _) = watch::channel(records);
             let (disconnect, _) = watch::channel(0);
@@ -832,34 +891,46 @@ mod tests {
             let admission = gate.clone();
             let cp = credentials_path.clone();
             let task = tokio::spawn(async move {
-                let request = server.accept().await.unwrap();
-                let session = request.respond(ConnectResponse::OK).await.unwrap();
-                let _ = run_rpc_session(
-                    session,
-                    path,
-                    cp,
-                    Arc::new(Mutex::new(SystemConfig::default())),
-                    credentials,
-                    events,
-                    Arc::new(Mutex::new(PairingState::default())),
-                    test_files(),
-                    None,
-                    None,
-                    None,
-                    None,
-                    Arc::new(build_rpc_handlers(None, None, None, None)),
-                    test_terminals(),
-                    test_commands(),
-                    test_agents(),
-                    watch::channel(0).0,
-                    None,
-                    Arc::new(std::sync::atomic::AtomicUsize::new(0)),
-                    updates,
-                    admission,
-                    rt,
-                    disconnect.subscribe(),
-                )
-                .await;
+                let mut connections = tokio::task::JoinSet::new();
+                while let Some(request) = server.accept().await {
+                    let session = request.respond(ConnectResponse::OK).await.unwrap();
+                    let path = path.clone();
+                    let cp = cp.clone();
+                    let credentials = credentials.clone();
+                    let events = events.clone();
+                    let updates = updates.clone();
+                    let admission = admission.clone();
+                    let rt = rt.clone();
+                    let disconnect = disconnect.clone();
+                    connections.spawn(async move {
+                        let _ = run_rpc_session(
+                            session,
+                            path,
+                            cp,
+                            Arc::new(Mutex::new(SystemConfig::default())),
+                            credentials,
+                            events,
+                            Arc::new(Mutex::new(PairingState::default())),
+                            test_files(),
+                            None,
+                            None,
+                            None,
+                            None,
+                            Arc::new(build_rpc_handlers(None, None, None, None)),
+                            test_terminals(),
+                            test_commands(),
+                            test_agents(),
+                            watch::channel(0).0,
+                            None,
+                            Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+                            updates,
+                            admission,
+                            rt,
+                            disconnect.subscribe(),
+                        )
+                        .await;
+                    });
+                }
                 drop(server);
             });
             let client = web_transport_quinn::ClientBuilder::new()
@@ -893,14 +964,18 @@ mod tests {
             let bytes = recv.read_to_end(64 * 1024).await.unwrap();
             ReqResMessage::decode_sequence(&bytes).unwrap().remove(0)
         }
-        async fn unary(&self, proc: ProcId, payload: Option<Vec<u8>>) -> ReqResMessage {
+        pub(in crate::server) async fn unary(
+            &self,
+            proc: ProcId,
+            payload: Option<Vec<u8>>,
+        ) -> ReqResMessage {
             self.request(ReqResMessage::RequestUnary {
                 proc_id: proc.as_u64(),
                 payload,
             })
             .await
         }
-        async fn authenticate(&self) {
+        pub(in crate::server) async fn authenticate(&self) {
             let response = self
                 .request(ReqResMessage::SessionAuthenticate {
                     mechanism: PAIRED_SECRET_AUTH_MECHANISM.into(),
@@ -978,32 +1053,66 @@ mod tests {
             }
         }
     }
-    #[tokio::test(flavor="multi_thread",worker_threads=4)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn authenticated_rpc_recovers_helper_before_expiring_old_generation() {
         tokio::time::timeout(Duration::from_secs(10), async {
-            let f=Fixture::with_ipc(true).await; f.authenticate().await;
-            let (old,_events)=f.attach().await;
-            let control=f.control(&old,DesktopControlAction::Acquire).await;
-            let response=f.request(ReqResMessage::RequestStreamStart {
-                proc_id:ProcId::WriteDesktopInput.as_u64(),
-                payload:Some(DesktopInputFrame {attach_id:old.clone(),input_epoch:control.input_epoch,layout_epoch:1,sequence:1,
-                    event:DesktopInputEvent::PhysicalKey{usage:4,down:true,repeat:false}}.encode()),
-            }).await;
+            let f = Fixture::with_ipc(true).await;
+            f.authenticate().await;
+            let (old, _events) = f.attach().await;
+            let control = f.control(&old, DesktopControlAction::Acquire).await;
+            let response = f
+                .request(ReqResMessage::RequestStreamStart {
+                    proc_id: ProcId::WriteDesktopInput.as_u64(),
+                    payload: Some(
+                        DesktopInputFrame {
+                            attach_id: old.clone(),
+                            input_epoch: control.input_epoch,
+                            layout_epoch: 1,
+                            sequence: 1,
+                            event: DesktopInputEvent::PhysicalKey {
+                                usage: 4,
+                                down: true,
+                                repeat: false,
+                            },
+                        }
+                        .encode(),
+                    ),
+                })
+                .await;
             assert!(matches!(response, ReqResMessage::ResponseUnaryOk { .. }));
             // Clean half-close acknowledges the down event but retains held input.
             f.helper_tasks.lock().unwrap().last().unwrap().abort();
             loop {
-                let response=f.unary(ProcId::GetDesktopCapabilities,None).await;
-                if matches!(response,ReqResMessage::ResponseUnaryOk{..}) && f.helper_tasks.lock().unwrap().len()>1 {break;}
+                let response = f.unary(ProcId::GetDesktopCapabilities, None).await;
+                if matches!(response, ReqResMessage::ResponseUnaryOk { .. })
+                    && f.helper_tasks.lock().unwrap().len() > 1
+                {
+                    break;
+                }
                 tokio::time::sleep(Duration::from_millis(10)).await;
             }
-            let (new,_events)=f.attach().await;assert_ne!(old,new);
+            let (new, _events) = f.attach().await;
+            assert_ne!(old, new);
             assert!(f.runtime.control().unwrap().holder_attach_id.is_none());
-            assert!(f.runtime.control().unwrap().input_epoch>control.input_epoch);
-            f.wait_input(&DesktopInputEvent::PhysicalKey{usage:4,down:false,repeat:false}).await;
-            assert!(matches!(f.unary(ProcId::RenewDesktopLease,Some(DesktopAttachRef{attach_id:old}.encode())).await,ReqResMessage::ResponseUnaryError{..}));
-            f.control(&new,DesktopControlAction::Acquire).await;
-        }).await.unwrap();
+            assert!(f.runtime.control().unwrap().input_epoch > control.input_epoch);
+            f.wait_input(&DesktopInputEvent::PhysicalKey {
+                usage: 4,
+                down: false,
+                repeat: false,
+            })
+            .await;
+            assert!(matches!(
+                f.unary(
+                    ProcId::RenewDesktopLease,
+                    Some(DesktopAttachRef { attach_id: old }.encode())
+                )
+                .await,
+                ReqResMessage::ResponseUnaryError { .. }
+            ));
+            f.control(&new, DesktopControlAction::Acquire).await;
+        })
+        .await
+        .unwrap();
     }
     #[tokio::test]
     async fn native_encoder_failure_through_ipc_closes_attachment_and_releases_control() {
@@ -1054,13 +1163,11 @@ mod tests {
                 tokio::time::sleep(Duration::from_millis(5)).await;
             }
             f.wait_input(&DesktopInputEvent::ReleaseAll).await;
-            assert!(
-                blocking(f.runtime.clone(), |r| r.control())
-                    .await
-                    .unwrap()
-                    .holder_attach_id
-                    .is_none()
-            );
+            assert!(blocking(f.runtime.clone(), |r| r.control())
+                .await
+                .unwrap()
+                .holder_attach_id
+                .is_none());
         })
         .await
         .unwrap();
@@ -1395,14 +1502,13 @@ mod tests {
                 DesktopError::decode(&error).unwrap(),
                 DesktopError::LimitExceeded { .. }
             ));
-            assert!(
-                !f.backend
-                    .inputs
-                    .lock()
-                    .unwrap()
-                    .iter()
-                    .any(|e| matches!(e, DesktopInputEvent::PhysicalKey { .. }))
-            );
+            assert!(!f
+                .backend
+                .inputs
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|e| matches!(e, DesktopInputEvent::PhysicalKey { .. })));
         })
         .await
         .unwrap();

@@ -1,4 +1,8 @@
-# Primary-managed membership draft (not registered or activated)
+# Primary-managed membership design
+
+Implementation status: see [REVIEW.md](REVIEW.md). RPC registration is now present
+in the unpublished checkpoint; sections below retain design requirements, not
+a claim that all runtime/client paths are complete.
 
 Base: published 3351b600. The unpublished 98f52280 union experiment remains on
 cluster-membership-model and local main; cluster-primary-management branches

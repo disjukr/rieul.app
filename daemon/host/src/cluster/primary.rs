@@ -1,17 +1,19 @@
-//! Test-only durable management model. No RPC/auth integration or production keys.
-//! The explicit typed admission input stands for a future validated target consent.
+//! Durable primary journal; callers must authenticate before invoking operations.
+//! Target consent is verified by the runtime before journal admission.
+pub mod runtime;
 use rieul_daemon_core::cbor::Value;
 use ring::{
     digest,
     signature::{self, Ed25519KeyPair, KeyPair},
 };
-use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
+use rusqlite::{params, Connection, OptionalExtension, Transaction, TransactionBehavior};
 use std::{
     collections::{BTreeMap, BTreeSet},
     path::Path,
     time::Duration,
 };
 type Id = [u8; 32];
+const MAX_HISTORY: usize = 512;
 const MAX_COUNTER: u64 = (1 << 53) - 1;
 fn hash(bytes: &[u8]) -> Id {
     digest::digest(&digest::SHA256, bytes)
@@ -30,6 +32,7 @@ struct Genesis {
     nonce: Id,
     root: Id,
     root_key: Id,
+    root_endpoint: String,
 }
 impl Genesis {
     fn cluster(&self) -> Id {
@@ -39,6 +42,7 @@ impl Genesis {
                 b(self.nonce),
                 b(self.root),
                 b(self.root_key),
+                Value::Text(self.root_endpoint.clone()),
             ])
             .encode(),
         )
@@ -49,9 +53,22 @@ enum Mutation {
     Admit {
         id: Id,
         key: Id,
+        consent: Id,
+        endpoint: String,
     },
     Remove {
         id: Id,
+    },
+    Adopt {
+        grant: Id,
+        issuer: Id,
+        client: Id,
+        expires: u64,
+        client_proof: [u8; 64],
+        issuer_proof: [u8; 64],
+    },
+    Revoke {
+        grant: Id,
     },
     Transfer {
         id: Id,
@@ -64,8 +81,36 @@ enum Mutation {
 impl Mutation {
     fn values(&self) -> Value {
         Value::Array(match self {
-            Self::Admit { id, key } => vec![Value::U64(0), b(id), b(key)],
+            Self::Admit {
+                id,
+                key,
+                consent,
+                endpoint,
+            } => vec![
+                Value::U64(0),
+                b(id),
+                b(key),
+                b(consent),
+                Value::Text(endpoint.clone()),
+            ],
             Self::Remove { id } => vec![Value::U64(1), b(id)],
+            Self::Adopt {
+                grant,
+                issuer,
+                client,
+                expires,
+                client_proof,
+                issuer_proof,
+            } => vec![
+                Value::U64(3),
+                b(grant),
+                b(issuer),
+                b(client),
+                Value::U64(*expires),
+                b(client_proof),
+                b(issuer_proof),
+            ],
+            Self::Revoke { grant } => vec![Value::U64(4), b(grant)],
             Self::Transfer {
                 id,
                 key,
@@ -85,8 +130,38 @@ impl Mutation {
     // Fixed-size fixture storage codec; no general untrusted CBOR decoder.
     fn storage(&self) -> Vec<u8> {
         match self {
-            Self::Admit { id, key } => [&[0][..], &id[..], &key[..]].concat(),
+            Self::Admit {
+                id,
+                key,
+                consent,
+                endpoint,
+            } => [
+                &[0][..],
+                &id[..],
+                &key[..],
+                &consent[..],
+                endpoint.as_bytes(),
+            ]
+            .concat(),
             Self::Remove { id } => [&[1][..], &id[..]].concat(),
+            Self::Adopt {
+                grant,
+                issuer,
+                client,
+                expires,
+                client_proof,
+                issuer_proof,
+            } => [
+                &[3][..],
+                &grant[..],
+                &issuer[..],
+                &client[..],
+                &expires.to_be_bytes()[..],
+                &client_proof[..],
+                &issuer_proof[..],
+            ]
+            .concat(),
+            Self::Revoke { grant } => [&[4][..], &grant[..]].concat(),
             Self::Transfer {
                 id,
                 key,
@@ -106,9 +181,13 @@ impl Mutation {
     }
     fn load(bytes: &[u8]) -> Result<Self, Error> {
         match (bytes.first(), bytes.len()) {
-            (Some(0), 65) => Ok(Self::Admit {
+            (Some(0), 98..=2145) => Ok(Self::Admit {
                 id: bytes[1..33].try_into().unwrap(),
                 key: bytes[33..65].try_into().unwrap(),
+                consent: bytes[65..97].try_into().unwrap(),
+                endpoint: std::str::from_utf8(&bytes[97..])
+                    .map_err(|_| Error::Invalid)?
+                    .to_owned(),
             }),
             (Some(1), 33) => Ok(Self::Remove {
                 id: bytes[1..33].try_into().unwrap(),
@@ -119,6 +198,17 @@ impl Mutation {
                 prefix_sequence: u64::from_be_bytes(bytes[65..73].try_into().unwrap()),
                 prefix_hash: bytes[73..105].try_into().unwrap(),
                 acceptance: bytes[105..169].try_into().unwrap(),
+            }),
+            (Some(3), 233) => Ok(Self::Adopt {
+                grant: bytes[1..33].try_into().unwrap(),
+                issuer: bytes[33..65].try_into().unwrap(),
+                client: bytes[65..97].try_into().unwrap(),
+                expires: u64::from_be_bytes(bytes[97..105].try_into().unwrap()),
+                client_proof: bytes[105..169].try_into().unwrap(),
+                issuer_proof: bytes[169..233].try_into().unwrap(),
+            }),
+            (Some(4), 33) => Ok(Self::Revoke {
+                grant: bytes[1..33].try_into().unwrap(),
             }),
             _ => Err(Error::Invalid),
         }
@@ -165,6 +255,23 @@ impl Entry {
         hash(&Value::Array(vec![b(self.body()), b(self.signature)]).encode())
     }
 }
+fn validate_endpoint(endpoint: &str) -> Result<(), Error> {
+    if endpoint.len() > 2048 {
+        return Err(Error::Limit);
+    }
+    let url = url::Url::parse(endpoint).map_err(|_| Error::Invalid)?;
+    if url.scheme() != "https"
+        || url.host_str().is_none()
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.fragment().is_some()
+        || url.query().is_some()
+        || url.path() != "/rieul/rpc"
+    {
+        return Err(Error::Invalid);
+    }
+    Ok(())
+}
 fn acceptance_body(
     cluster: Id,
     epoch: u64,
@@ -187,6 +294,39 @@ fn acceptance_body(
     ])
     .encode()
 }
+fn client_adoption_body(cluster: Id, grant: Id, issuer: Id, client: Id, expires: u64) -> Vec<u8> {
+    Value::Array(vec![
+        Value::Text("rieul.cluster.client-possession.v1".into()),
+        b(cluster),
+        b(grant),
+        b(issuer),
+        b(client),
+        Value::U64(expires),
+    ])
+    .encode()
+}
+fn issuer_adoption_body(
+    cluster: Id,
+    grant: Id,
+    issuer: Id,
+    client: Id,
+    expires: u64,
+    client_proof: &[u8; 64],
+) -> Vec<u8> {
+    Value::Array(vec![
+        Value::Text("rieul.cluster.pairing-adoption.v1".into()),
+        b(client_adoption_body(
+            cluster, grant, issuer, client, expires,
+        )),
+        b(client_proof),
+    ])
+    .encode()
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Grant {
+    client: Id,
+    expires: u64,
+}
 fn verify(public: Id, body: &[u8], sig: &[u8]) -> Result<(), Error> {
     signature::UnparsedPublicKey::new(&signature::ED25519, public)
         .verify(body, sig)
@@ -200,6 +340,7 @@ enum Error {
     NotPrimary,
     Unprepared,
     Exhausted,
+    Limit,
 }
 impl From<rusqlite::Error> for Error {
     fn from(e: rusqlite::Error) -> Self {
@@ -214,8 +355,11 @@ struct State {
     head: Id,
     primary: Id,
     members: BTreeMap<Id, Id>,
+    endpoints: BTreeMap<Id, String>,
     seen: BTreeSet<Id>,
     operations: BTreeSet<Id>,
+    grants: BTreeMap<Id, Grant>,
+    revoked: BTreeSet<Id>,
 }
 impl State {
     fn genesis(g: &Genesis) -> Self {
@@ -226,8 +370,11 @@ impl State {
             head: g.cluster(),
             primary: g.root,
             members: BTreeMap::from([(g.root, g.root_key)]),
+            endpoints: BTreeMap::from([(g.root, g.root_endpoint.clone())]),
             seen: BTreeSet::from([g.root]),
             operations: BTreeSet::new(),
+            grants: BTreeMap::new(),
+            revoked: BTreeSet::new(),
         }
     }
     fn apply(&mut self, e: &Entry) -> Result<(), Error> {
@@ -244,11 +391,15 @@ impl State {
         let primary_key = *self.members.get(&self.primary).ok_or(Error::Invalid)?;
         verify(primary_key, &e.body(), &e.signature)?;
         match &e.mutation {
-            Mutation::Admit { id, key } => {
+            Mutation::Admit {
+                id, key, endpoint, ..
+            } => {
+                validate_endpoint(endpoint)?;
                 if self.seen.contains(id) || self.members.values().any(|k| k == key) {
                     return Err(Error::Invalid);
                 }
                 self.members.insert(*id, *key);
+                self.endpoints.insert(*id, endpoint.clone());
                 self.seen.insert(*id);
             }
             Mutation::Remove { id } => {
@@ -256,7 +407,52 @@ impl State {
                     return Err(Error::Invalid);
                 }
                 self.members.remove(id);
+                self.endpoints.remove(id);
                 self.seen.insert(*id);
+            }
+            Mutation::Adopt {
+                grant,
+                issuer,
+                client,
+                expires,
+                client_proof,
+                issuer_proof,
+            } => {
+                let issuer_key = *self.members.get(issuer).ok_or(Error::Invalid)?;
+                if self.grants.contains_key(grant)
+                    || self.revoked.contains(grant)
+                    || *expires > MAX_COUNTER
+                {
+                    return Err(Error::Invalid);
+                }
+                verify(
+                    *client,
+                    &client_adoption_body(self.cluster, *grant, *issuer, *client, *expires),
+                    client_proof,
+                )?;
+                verify(
+                    issuer_key,
+                    &issuer_adoption_body(
+                        self.cluster,
+                        *grant,
+                        *issuer,
+                        *client,
+                        *expires,
+                        client_proof,
+                    ),
+                    issuer_proof,
+                )?;
+                self.grants.insert(
+                    *grant,
+                    Grant {
+                        client: *client,
+                        expires: *expires,
+                    },
+                );
+            }
+            Mutation::Revoke { grant } => {
+                self.revoked.insert(*grant);
+                self.grants.remove(grant);
             }
             Mutation::Transfer {
                 id,
@@ -308,7 +504,7 @@ impl Store {
         db.execute_batch("PRAGMA synchronous=FULL;
             CREATE TABLE IF NOT EXISTS identity(id INTEGER PRIMARY KEY CHECK(id=1),cluster BLOB NOT NULL,local BLOB NOT NULL,sealed INTEGER NOT NULL);
             CREATE TABLE IF NOT EXISTS log(sequence INTEGER PRIMARY KEY,epoch INTEGER NOT NULL,previous BLOB NOT NULL,operation BLOB UNIQUE NOT NULL,request BLOB NOT NULL,payload BLOB NOT NULL,signature BLOB NOT NULL);
-            CREATE TABLE IF NOT EXISTS prepared(operation BLOB PRIMARY KEY,epoch INTEGER NOT NULL,target BLOB NOT NULL,acceptance BLOB NOT NULL);")?;
+            CREATE TABLE IF NOT EXISTS prepared(operation BLOB PRIMARY KEY,epoch INTEGER NOT NULL,target BLOB NOT NULL,acceptance BLOB NOT NULL,prefix_sequence INTEGER NOT NULL,prefix_hash BLOB NOT NULL);")?;
         db.execute(
             "INSERT OR IGNORE INTO identity VALUES(1,?1,?2,0)",
             params![g.cluster(), local],
@@ -356,68 +552,22 @@ impl Store {
         tx.commit()?;
         Ok(result) // Only this boundary exposes the signed response.
     }
+    #[cfg(test)]
     fn prepare_transfer(
         &mut self,
         pair: &Ed25519KeyPair,
         operation: Id,
     ) -> Result<Mutation, Error> {
-        if key(pair) != self.local {
-            return Err(Error::Invalid);
-        }
         let tx = self
             .db
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let state = replay(&self.genesis, &load(&tx, self.genesis.cluster())?)?;
-        let target = *state
-            .members
-            .iter()
-            .find(|(_, k)| **k == self.local)
-            .map(|(id, _)| id)
-            .ok_or(Error::Invalid)?;
-        if target == state.primary || state.epoch >= MAX_COUNTER {
-            return Err(Error::Invalid);
-        }
-        let signature: [u8; 64] = pair
-            .sign(&acceptance_body(
-                state.cluster,
-                state.epoch,
-                operation,
-                target,
-                self.local,
-                state.sequence,
-                state.head,
-            ))
-            .as_ref()
-            .try_into()
-            .unwrap();
-        let old: Option<(u64, Vec<u8>, Vec<u8>)> = tx
-            .query_row(
-                "SELECT epoch,target,acceptance FROM prepared WHERE operation=?1",
-                params![operation],
-                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
-            )
-            .optional()?;
-        if let Some((epoch, id, sig)) = old {
-            if epoch != state.epoch || id != target || sig != signature {
-                return Err(Error::Conflict);
-            }
-        } else {
-            tx.execute(
-                "INSERT INTO prepared VALUES(?1,?2,?3,?4)",
-                params![operation, state.epoch, target, signature],
-            )?;
-        }
+        let result = prepare(&tx, &self.genesis, self.local, pair, operation)?;
         tx.commit()?;
-        Ok(Mutation::Transfer {
-            id: target,
-            key: self.local,
-            prefix_sequence: state.sequence,
-            prefix_hash: state.head,
-            acceptance: signature,
-        })
+        Ok(result)
     }
     // Complete-history fixture synchronization; no network parser or compaction.
     // Never replace a local prefix with a remote snapshot.
+    #[cfg(test)]
     fn install_history(&mut self, entries: &[Entry]) -> Result<(), Error> {
         let tx = self
             .db
@@ -427,6 +577,82 @@ impl Store {
         Ok(())
     }
 }
+fn check_identity(db: &Connection, g: &Genesis, local: Id) -> Result<(), Error> {
+    let identity: (Vec<u8>, Vec<u8>) =
+        db.query_row("SELECT cluster,local FROM identity WHERE id=1", [], |r| {
+            Ok((r.get(0)?, r.get(1)?))
+        })?;
+    if identity.0 != g.cluster() || identity.1 != local {
+        return Err(Error::Invalid);
+    }
+    Ok(())
+}
+fn prepare(
+    tx: &Transaction<'_>,
+    g: &Genesis,
+    local: Id,
+    pair: &Ed25519KeyPair,
+    operation: Id,
+) -> Result<Mutation, Error> {
+    check_identity(tx, g, local)?;
+    if key(pair) != local {
+        return Err(Error::Invalid);
+    }
+    let state = replay(g, &load(tx, g.cluster())?)?;
+    let target = *state
+        .members
+        .iter()
+        .find(|(_, k)| **k == local)
+        .map(|(id, _)| id)
+        .ok_or(Error::Invalid)?;
+    if target == state.primary || state.epoch >= MAX_COUNTER {
+        return Err(Error::Invalid);
+    }
+    let signature: [u8; 64] = pair
+        .sign(&acceptance_body(
+            state.cluster,
+            state.epoch,
+            operation,
+            target,
+            local,
+            state.sequence,
+            state.head,
+        ))
+        .as_ref()
+        .try_into()
+        .unwrap();
+    let old: Option<(u64, Vec<u8>, Vec<u8>)> = tx
+        .query_row(
+            "SELECT epoch,target,acceptance FROM prepared WHERE operation=?1",
+            params![operation],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .optional()?;
+    if let Some((epoch, id, sig)) = old {
+        if epoch != state.epoch || id != target || sig != signature {
+            return Err(Error::Conflict);
+        }
+    } else {
+        tx.execute(
+            "INSERT INTO prepared VALUES(?1,?2,?3,?4,?5,?6)",
+            params![
+                operation,
+                state.epoch,
+                target,
+                signature,
+                state.sequence,
+                state.head
+            ],
+        )?;
+    }
+    Ok(Mutation::Transfer {
+        id: target,
+        key: local,
+        prefix_sequence: state.sequence,
+        prefix_hash: state.head,
+        acceptance: signature,
+    })
+}
 fn replay(g: &Genesis, entries: &[Entry]) -> Result<State, Error> {
     let mut s = State::genesis(g);
     for e in entries {
@@ -435,6 +661,10 @@ fn replay(g: &Genesis, entries: &[Entry]) -> Result<State, Error> {
     Ok(s)
 }
 fn load(db: &Connection, cluster: Id) -> Result<Vec<Entry>, Error> {
+    let count: i64 = db.query_row("SELECT COUNT(*) FROM log", [], |r| r.get(0))?;
+    if count < 0 || count as usize > MAX_HISTORY {
+        return Err(Error::Limit);
+    }
     let mut stmt=db.prepare("SELECT sequence,epoch,previous,operation,request,payload,signature FROM log ORDER BY sequence")?;
     let rows = stmt.query_map([], |r| {
         Ok((
@@ -486,6 +716,7 @@ fn append(
     operation: Id,
     mutation: Mutation,
 ) -> Result<Entry, Error> {
+    check_identity(tx, g, local)?;
     if key(pair) != local {
         return Err(Error::Invalid);
     }
@@ -502,6 +733,9 @@ fn append(
     let sealed: bool = tx.query_row("SELECT sealed FROM identity WHERE id=1", [], |r| r.get(0))?;
     if sealed || state.members.get(&state.primary) != Some(&local) || state.epoch != epoch {
         return Err(Error::NotPrimary);
+    }
+    if history.len() >= MAX_HISTORY {
+        return Err(Error::Limit);
     }
     let sequence = state
         .sequence
@@ -521,6 +755,11 @@ fn append(
     entry.signature = pair.sign(&entry.body()).as_ref().try_into().unwrap();
     let mut after = state;
     after.apply(&entry)?;
+    if history.iter().map(|e| e.body().len() + 128).sum::<usize>() + entry.body().len() + 128
+        > 240 * 1024
+    {
+        return Err(Error::Limit);
+    }
     insert(tx, &entry)?;
     if matches!(entry.mutation, Mutation::Transfer { .. }) {
         tx.execute("UPDATE identity SET sealed=1 WHERE id=1", [])?;
@@ -528,9 +767,16 @@ fn append(
     Ok(entry)
 }
 fn install(tx: &Transaction<'_>, g: &Genesis, local: Id, entries: &[Entry]) -> Result<(), Error> {
+    check_identity(tx, g, local)?;
+    if entries.len() > MAX_HISTORY {
+        return Err(Error::Limit);
+    }
     let existing = load(tx, g.cluster())?;
     if entries.len() < existing.len() || entries[..existing.len()] != existing {
         return Err(Error::Invalid);
+    }
+    if entries.iter().map(|e| e.body().len() + 128).sum::<usize>() > 240 * 1024 {
+        return Err(Error::Limit);
     }
     replay(g, entries)?;
     for e in &entries[existing.len()..] {
@@ -573,6 +819,7 @@ mod tests {
             nonce: [9; 32],
             root: [1; 32],
             root_key: key(&pair(1)),
+            root_endpoint: "https://fixture.invalid/rieul/rpc".into(),
         }
     }
     fn open(path: &Path, n: u8) -> Store {
@@ -582,6 +829,8 @@ mod tests {
         Mutation::Admit {
             id: [n; 32],
             key: key(&pair(n)),
+            consent: [0; 32],
+            endpoint: format!("https://node{n}.invalid/rieul/rpc"),
         }
     }
     fn setup() -> (tempfile::TempDir, Store, Store) {
@@ -749,6 +998,38 @@ mod tests {
         assert_eq!(b.state().unwrap(), a.state().unwrap());
     }
     #[test]
+    fn invalid_new_suffix_fails_verification_without_changing_local_database() {
+        let (dir, mut source, _) = setup();
+        let prefix = source.entries().unwrap();
+        source.commit(&pair(1), 1, [40; 32], admit(3)).unwrap();
+        let complete = source.entries().unwrap();
+        for field in 0..4 {
+            let path = dir.path().join(format!("suffix-{field}"));
+            let mut replica = open(&path, 4);
+            replica.install_history(&prefix).unwrap();
+            let before = replica.state().unwrap();
+            let mut tampered = complete.clone();
+            let suffix = tampered.last_mut().unwrap();
+            match field {
+                0 => suffix.signature[0] ^= 1,
+                1 => suffix.request[0] ^= 1,
+                2 => suffix.epoch += 1,
+                _ => suffix.previous[0] ^= 1,
+            }
+            assert_eq!(&tampered[..prefix.len()], prefix.as_slice());
+            assert!(matches!(
+                replica.install_history(&tampered),
+                Err(Error::Invalid)
+            ));
+            drop(replica);
+            let mut replica = open(&path, 4);
+            assert_eq!(replica.entries().unwrap(), prefix);
+            assert_eq!(replica.state().unwrap(), before);
+            replica.install_history(&complete).unwrap();
+            assert_eq!(replica.state().unwrap(), source.state().unwrap());
+        }
+    }
+    #[test]
     fn cancellation_tombstone_blocks_late_admission_and_primary_cannot_leave() {
         let (dir, mut a, _) = setup();
         a.commit(&pair(1), 1, [30; 32], Mutation::Remove { id: [3; 32] })
@@ -756,10 +1037,9 @@ mod tests {
         drop(a);
         let mut a = open(&dir.path().join("a"), 1);
         assert!(a.commit(&pair(1), 1, [31; 32], admit(3)).is_err());
-        assert!(
-            a.commit(&pair(1), 1, [32; 32], Mutation::Remove { id: [1; 32] })
-                .is_err()
-        );
+        assert!(a
+            .commit(&pair(1), 1, [32; 32], Mutation::Remove { id: [1; 32] })
+            .is_err());
         a.commit(&pair(1), 1, [33; 32], Mutation::Remove { id: [2; 32] })
             .unwrap();
         let old_receipt = a.commit(&pair(1), 1, [11; 32], admit(2)).unwrap();
@@ -772,6 +1052,8 @@ mod tests {
             Mutation::Admit {
                 id: [4; 32],
                 key: key(&pair(2)),
+                consent: [0; 32],
+                endpoint: "https://node2.invalid/rieul/rpc".into(),
             },
         )
         .unwrap();

@@ -1,9 +1,11 @@
-# Cluster foundations (test-only)
+# Cluster foundations and opt-in runtime
 
-This module is compiled only under `cfg(test)`. It registers no RPC, changes no
-pairing or authentication decision, creates no production keys, and opens no
-production database. The SQLite files in its tests are disposable fixtures.
-These are executable models for review, not an available cluster feature.
+The `proof` and `slot` modules below remain test-only foundations. The primary
+log and runtime now compile in production and register management RPCs. This is
+an unpublished implementation checkpoint, not a released cluster feature.
+See [REVIEW.md](REVIEW.md) for the actual authentication mapping, activation
+conditions, tested boundaries and incomplete integrations. The older foundation
+transcript described below is not the production peer transcript.
 
 ## Proof transcript
 
@@ -77,8 +79,7 @@ with no automatic promotion. Data-plane services remain independent peers. See
 normal handoff seal algorithm and outstanding authentication/grant boundaries.
 The separate unpublished union experiment is not included on this branch.
 
-`primary.rs` is also test-only. No admission RPC, authentication integration,
-automatic connection or live cluster state is introduced. Client grant policy,
-issuer-removal behavior and existing pairing expansion remain undecided. Partition
-revocation freshness and old-backup split-brain recovery are not solved by a local
-seal or management epoch.
+`primary.rs` now backs the opt-in runtime. Client grants can be recorded but do
+not yet authorize ordinary Screen/files RPCs. Automatic browser adoption and
+member connections are not implemented. Partition revocation freshness and
+old-backup fencing are not guaranteed.

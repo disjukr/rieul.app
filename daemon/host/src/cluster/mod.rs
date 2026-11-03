@@ -1,6 +1,7 @@
-//! Cluster protocol experiments. Compiled ONLY by unit tests.
-//! No RPC registration, trust decisions, production persistence or key creation.
-mod proof;
-mod slot;
-
+//! Explicit cluster management. No startup key generation or automatic admission.
 mod primary;
+#[cfg(test)]
+mod proof;
+#[cfg(test)]
+mod slot;
+pub use primary::runtime;
