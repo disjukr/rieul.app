@@ -163,7 +163,10 @@ for (const failure of ["configure", "decode", "encoder"]) {
                 os: "windows",
                 startedAtMs: 0,
                 serverTimeMs: 0,
-                supportedProcIds: [ProcId.GetDesktopCapabilities],
+                supportedProcIds: [
+                  ProcId.GetDesktopCapabilities,
+                  ProcId.AttachDesktop,
+                ],
               },
             })[0],
             webTransport: async () => ({}) as WebTransport,

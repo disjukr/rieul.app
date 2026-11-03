@@ -78,6 +78,12 @@ export function DesktopTool() {
           Release control
         </Button>
       </header>
+      <p {...styles.help()}>
+        Existing displays: uses the daemon’s current OS display configuration.
+        {desktop().modes().custom
+          ? " Custom layout is advertised by this daemon; this client does not yet configure it."
+          : " Custom layout is not offered by this daemon."}
+      </p>
       <p
         {...styles.status({ className: "rieul-desktop-status" })}
         role="status"
@@ -117,7 +123,8 @@ export function DesktopTool() {
           <option value="1080">1920 × 1080</option>
           <option value="2160">3840 × 2160</option>
         </select>{" "}
-        Shared across selected displays; changing size releases held inputs.
+        Video size only; OS display resolution is unchanged. Changing size
+        releases held inputs.
       </label>
       <fieldset
         {...styles.displays({ className: "rieul-desktop-displays" })}

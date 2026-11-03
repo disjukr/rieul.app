@@ -101,6 +101,9 @@ export enum ProcId {
   ReadClusterJoinHistory = 98,
   ConfigureClusterJoinSync = 99,
   AuthenticateClusterClient = 100,
+  GetDesktopLayoutCapabilities = 101,
+  AttachDesktopWithLayout = 102,
+  ConfigureDesktopLayout = 103,
 }
 
 export interface SubscribeWindowDetailReq {
@@ -966,6 +969,53 @@ export type DesktopError =
   | { type: "staleEpoch"; message: string }
   | { type: "limitExceeded"; message: string }
 ;
+
+export enum DesktopPhysicalDisplayPolicy {
+  Keep = 0,
+  Disable = 1,
+}
+
+export interface DesktopRequestedDisplay {
+  key: string;
+  bounds: DesktopRect;
+  scale: number;
+  refreshMilliHz: number;
+}
+
+export interface DesktopLayoutRequest {
+  displays: DesktopRequestedDisplay[];
+  primaryDisplayKey: string;
+  physicalDisplays: DesktopPhysicalDisplayPolicy;
+}
+
+export interface DesktopLayoutCapabilities {
+  availability: DesktopAvailability;
+  reason?: string;
+  maxDisplays: number;
+  maxPixelWidth: number;
+  maxPixelHeight: number;
+  scales: number[];
+  refreshMilliHz: number[];
+  physicalDisplayPolicies: DesktopPhysicalDisplayPolicy[];
+}
+
+export interface AttachDesktopWithLayoutReq {
+  operationId: string;
+  connection: AttachDesktopReq;
+  layout: DesktopLayoutRequest;
+}
+
+export interface ConfigureDesktopLayoutReq {
+  attachId: string;
+  operationId: string;
+  expectedLayoutEpoch: number;
+  layout: DesktopLayoutRequest;
+}
+
+export interface DesktopLayout {
+  layoutEpoch: number;
+  displays: DesktopDisplay[];
+}
 
 export interface DaemonInfo {
   supportedProcIds: number[];
@@ -3388,6 +3438,42 @@ export const authenticateClusterClientProc: ProcCodec<AuthenticateClusterClientR
   decodeError: decodeClusterErrorValue,
 };
 
+export const getDesktopLayoutCapabilitiesProc: ProcCodec<undefined, DesktopLayoutCapabilities, DesktopError> = {
+  id: ProcId.GetDesktopLayoutCapabilities,
+  name: "GetDesktopLayoutCapabilities",
+  stream: "unary",
+  requestType: "void",
+  responseType: "DesktopLayoutCapabilities",
+  errorType: "DesktopError",
+  encodeRequest: encodeVoidValue,
+  decodeResponse: decodeDesktopLayoutCapabilitiesValue,
+  decodeError: decodeDesktopErrorValue,
+};
+
+export const attachDesktopWithLayoutProc: ProcCodec<AttachDesktopWithLayoutReq, DesktopEvent, DesktopError> = {
+  id: ProcId.AttachDesktopWithLayout,
+  name: "AttachDesktopWithLayout",
+  stream: "server",
+  requestType: "AttachDesktopWithLayoutReq",
+  responseType: "DesktopEvent",
+  errorType: "DesktopError",
+  encodeRequest: encodeAttachDesktopWithLayoutReqValue,
+  decodeResponse: decodeDesktopEventValue,
+  decodeError: decodeDesktopErrorValue,
+};
+
+export const configureDesktopLayoutProc: ProcCodec<ConfigureDesktopLayoutReq, DesktopLayout, DesktopError> = {
+  id: ProcId.ConfigureDesktopLayout,
+  name: "ConfigureDesktopLayout",
+  stream: "unary",
+  requestType: "ConfigureDesktopLayoutReq",
+  responseType: "DesktopLayout",
+  errorType: "DesktopError",
+  encodeRequest: encodeConfigureDesktopLayoutReqValue,
+  decodeResponse: decodeDesktopLayoutValue,
+  decodeError: decodeDesktopErrorValue,
+};
+
 export const procs = {
   [ProcId.GetDaemonInfo]: getDaemonInfoProc,
   [ProcId.StartPairing]: startPairingProc,
@@ -3487,6 +3573,9 @@ export const procs = {
   [ProcId.ReadClusterJoinHistory]: readClusterJoinHistoryProc,
   [ProcId.ConfigureClusterJoinSync]: configureClusterJoinSyncProc,
   [ProcId.AuthenticateClusterClient]: authenticateClusterClientProc,
+  [ProcId.GetDesktopLayoutCapabilities]: getDesktopLayoutCapabilitiesProc,
+  [ProcId.AttachDesktopWithLayout]: attachDesktopWithLayoutProc,
+  [ProcId.ConfigureDesktopLayout]: configureDesktopLayoutProc,
 } as const;
 
 export function encodeSubscribeWindowDetailReqValue(value: SubscribeWindowDetailReq): CborValue {
@@ -7516,6 +7605,130 @@ export function decodeDesktopErrorValue(value: CborValue): DesktopError {
       };
   }
   throw new Error(`unknown DesktopError variant ${variantId}`);
+}
+
+export function encodeDesktopPhysicalDisplayPolicyValue(value: DesktopPhysicalDisplayPolicy): CborValue {
+  return integer(value);
+}
+
+export function decodeDesktopPhysicalDisplayPolicyValue(value: CborValue): DesktopPhysicalDisplayPolicy {
+  const id = integer(value);
+  if (![0, 1].includes(id)) throw new Error(`unknown DesktopPhysicalDisplayPolicy variant ${id}`);
+  return id as DesktopPhysicalDisplayPolicy;
+}
+
+export function encodeDesktopRequestedDisplayValue(value: DesktopRequestedDisplay): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, text(required(value.key, "DesktopRequestedDisplay.key")));
+  fields.set(2, encodeDesktopRectValue(required(value.bounds, "DesktopRequestedDisplay.bounds")));
+  fields.set(3, f64(required(value.scale, "DesktopRequestedDisplay.scale")));
+  fields.set(4, u53(required(value.refreshMilliHz, "DesktopRequestedDisplay.refreshMilliHz")));
+  return fields;
+}
+
+export function decodeDesktopRequestedDisplayValue(value: CborValue): DesktopRequestedDisplay {
+  const fields = expectMap(value);
+  return {
+    key: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+    bounds: fieldOrDefault(fields.get(2), (value) => decodeDesktopRectValue(value), () => defaultDesktopRect()),
+    scale: fieldOrDefault(fields.get(3), (value) => f64Value(value), () => 0),
+    refreshMilliHz: fieldOrDefault(fields.get(4), (value) => integer(value), () => 0),
+  };
+}
+
+export function encodeDesktopLayoutRequestValue(value: DesktopLayoutRequest): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, required(value.displays, "DesktopLayoutRequest.displays").map((item) => encodeDesktopRequestedDisplayValue(item)));
+  fields.set(2, text(required(value.primaryDisplayKey, "DesktopLayoutRequest.primaryDisplayKey")));
+  fields.set(3, encodeDesktopPhysicalDisplayPolicyValue(required(value.physicalDisplays, "DesktopLayoutRequest.physicalDisplays")));
+  return fields;
+}
+
+export function decodeDesktopLayoutRequestValue(value: CborValue): DesktopLayoutRequest {
+  const fields = expectMap(value);
+  return {
+    displays: fieldOrDefault(fields.get(1), (value) => array(value).map((item) => decodeDesktopRequestedDisplayValue(item)), () => []),
+    primaryDisplayKey: fieldOrDefault(fields.get(2), (value) => textValue(value), () => ""),
+    physicalDisplays: fieldOrDefault(fields.get(3), (value) => decodeDesktopPhysicalDisplayPolicyValue(value), () => DesktopPhysicalDisplayPolicy.Keep),
+  };
+}
+
+export function encodeDesktopLayoutCapabilitiesValue(value: DesktopLayoutCapabilities): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, encodeDesktopAvailabilityValue(required(value.availability, "DesktopLayoutCapabilities.availability")));
+  if (value.reason !== undefined) fields.set(2, text(value.reason));
+  fields.set(3, u53(required(value.maxDisplays, "DesktopLayoutCapabilities.maxDisplays")));
+  fields.set(4, u53(required(value.maxPixelWidth, "DesktopLayoutCapabilities.maxPixelWidth")));
+  fields.set(5, u53(required(value.maxPixelHeight, "DesktopLayoutCapabilities.maxPixelHeight")));
+  fields.set(6, required(value.scales, "DesktopLayoutCapabilities.scales").map((item) => f64(item)));
+  fields.set(7, required(value.refreshMilliHz, "DesktopLayoutCapabilities.refreshMilliHz").map((item) => u53(item)));
+  fields.set(8, required(value.physicalDisplayPolicies, "DesktopLayoutCapabilities.physicalDisplayPolicies").map((item) => encodeDesktopPhysicalDisplayPolicyValue(item)));
+  return fields;
+}
+
+export function decodeDesktopLayoutCapabilitiesValue(value: CborValue): DesktopLayoutCapabilities {
+  const fields = expectMap(value);
+  return {
+    availability: fieldOrDefault(fields.get(1), (value) => decodeDesktopAvailabilityValue(value), () => DesktopAvailability.Unsupported),
+    reason: optionalField(fields.get(2), (value) => textValue(value)),
+    maxDisplays: fieldOrDefault(fields.get(3), (value) => integer(value), () => 0),
+    maxPixelWidth: fieldOrDefault(fields.get(4), (value) => integer(value), () => 0),
+    maxPixelHeight: fieldOrDefault(fields.get(5), (value) => integer(value), () => 0),
+    scales: fieldOrDefault(fields.get(6), (value) => array(value).map((item) => f64Value(item)), () => []),
+    refreshMilliHz: fieldOrDefault(fields.get(7), (value) => array(value).map((item) => integer(item)), () => []),
+    physicalDisplayPolicies: fieldOrDefault(fields.get(8), (value) => array(value).map((item) => decodeDesktopPhysicalDisplayPolicyValue(item)), () => []),
+  };
+}
+
+export function encodeAttachDesktopWithLayoutReqValue(value: AttachDesktopWithLayoutReq): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, text(required(value.operationId, "AttachDesktopWithLayoutReq.operationId")));
+  fields.set(2, encodeAttachDesktopReqValue(required(value.connection, "AttachDesktopWithLayoutReq.connection")));
+  fields.set(3, encodeDesktopLayoutRequestValue(required(value.layout, "AttachDesktopWithLayoutReq.layout")));
+  return fields;
+}
+
+export function decodeAttachDesktopWithLayoutReqValue(value: CborValue): AttachDesktopWithLayoutReq {
+  const fields = expectMap(value);
+  return {
+    operationId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+    connection: fieldOrDefault(fields.get(2), (value) => decodeAttachDesktopReqValue(value), () => defaultAttachDesktopReq()),
+    layout: fieldOrDefault(fields.get(3), (value) => decodeDesktopLayoutRequestValue(value), () => defaultDesktopLayoutRequest()),
+  };
+}
+
+export function encodeConfigureDesktopLayoutReqValue(value: ConfigureDesktopLayoutReq): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, text(required(value.attachId, "ConfigureDesktopLayoutReq.attachId")));
+  fields.set(2, text(required(value.operationId, "ConfigureDesktopLayoutReq.operationId")));
+  fields.set(3, u53(required(value.expectedLayoutEpoch, "ConfigureDesktopLayoutReq.expectedLayoutEpoch")));
+  fields.set(4, encodeDesktopLayoutRequestValue(required(value.layout, "ConfigureDesktopLayoutReq.layout")));
+  return fields;
+}
+
+export function decodeConfigureDesktopLayoutReqValue(value: CborValue): ConfigureDesktopLayoutReq {
+  const fields = expectMap(value);
+  return {
+    attachId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+    operationId: fieldOrDefault(fields.get(2), (value) => textValue(value), () => ""),
+    expectedLayoutEpoch: fieldOrDefault(fields.get(3), (value) => integer(value), () => 0),
+    layout: fieldOrDefault(fields.get(4), (value) => decodeDesktopLayoutRequestValue(value), () => defaultDesktopLayoutRequest()),
+  };
+}
+
+export function encodeDesktopLayoutValue(value: DesktopLayout): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, u53(required(value.layoutEpoch, "DesktopLayout.layoutEpoch")));
+  fields.set(2, required(value.displays, "DesktopLayout.displays").map((item) => encodeDesktopDisplayValue(item)));
+  return fields;
+}
+
+export function decodeDesktopLayoutValue(value: CborValue): DesktopLayout {
+  const fields = expectMap(value);
+  return {
+    layoutEpoch: fieldOrDefault(fields.get(1), (value) => integer(value), () => 0),
+    displays: fieldOrDefault(fields.get(2), (value) => array(value).map((item) => decodeDesktopDisplayValue(item)), () => []),
+  };
 }
 
 export function encodeDaemonInfoValue(value: DaemonInfo): CborValue {
@@ -13416,6 +13629,59 @@ function defaultDesktopError(): DesktopError {
   return {
     type: "failed",
     message: "",
+  };
+}
+
+function defaultDesktopRequestedDisplay(): DesktopRequestedDisplay {
+  return {
+    key: "",
+    bounds: defaultDesktopRect(),
+    scale: 0,
+    refreshMilliHz: 0,
+  };
+}
+
+function defaultDesktopLayoutRequest(): DesktopLayoutRequest {
+  return {
+    displays: [],
+    primaryDisplayKey: "",
+    physicalDisplays: DesktopPhysicalDisplayPolicy.Keep,
+  };
+}
+
+function defaultDesktopLayoutCapabilities(): DesktopLayoutCapabilities {
+  return {
+    availability: DesktopAvailability.Unsupported,
+    maxDisplays: 0,
+    maxPixelWidth: 0,
+    maxPixelHeight: 0,
+    scales: [],
+    refreshMilliHz: [],
+    physicalDisplayPolicies: [],
+  };
+}
+
+function defaultAttachDesktopWithLayoutReq(): AttachDesktopWithLayoutReq {
+  return {
+    operationId: "",
+    connection: defaultAttachDesktopReq(),
+    layout: defaultDesktopLayoutRequest(),
+  };
+}
+
+function defaultConfigureDesktopLayoutReq(): ConfigureDesktopLayoutReq {
+  return {
+    attachId: "",
+    operationId: "",
+    expectedLayoutEpoch: 0,
+    layout: defaultDesktopLayoutRequest(),
+  };
+}
+
+function defaultDesktopLayout(): DesktopLayout {
+  return {
+    layoutEpoch: 0,
+    displays: [],
   };
 }
 

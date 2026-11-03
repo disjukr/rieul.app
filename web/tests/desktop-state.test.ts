@@ -28,7 +28,7 @@ const ready = (instanceId: string) => ({
     os: "macos",
     startedAtMs: 0,
     serverTimeMs: 0,
-    supportedProcIds: [ProcId.GetDesktopCapabilities],
+    supportedProcIds: [ProcId.GetDesktopCapabilities, ProcId.AttachDesktop],
   },
 });
 async function flush() {
@@ -176,6 +176,29 @@ test("disconnect cancels capability negotiation and permits a fresh explicit ret
     assert.match(f.value.message()!, /screen recording/);
     assert.equal(f.value.maxViewports(), 1);
     assert.equal(f.value.controlling(), false);
+  } finally {
+    f.close();
+  }
+});
+
+test("custom-only discovery cannot silently open existing displays", async () => {
+  const f = fixture();
+  try {
+    f.setInfo({
+      ...ready("custom-only"),
+      daemonInfo: {
+        ...ready("custom-only").daemonInfo,
+        supportedProcIds: [
+          ProcId.GetDesktopLayoutCapabilities,
+          ProcId.AttachDesktopWithLayout,
+        ],
+      },
+    });
+    await flush();
+    assert.deepEqual(f.value.modes(), { existing: false, custom: true });
+    await f.value.connect();
+    assert.equal(f.opens(), 0);
+    assert.equal(f.value.phase(), "idle");
   } finally {
     f.close();
   }

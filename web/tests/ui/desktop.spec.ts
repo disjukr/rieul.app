@@ -63,6 +63,16 @@ test("viewer settings remain usable at a narrow viewport without taking control"
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/tests/fixtures/desktop.html");
+  await expect(
+    page.getByText("Custom layout is not offered by this daemon.", {
+      exact: false,
+    }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Video size only; OS display resolution is unchanged.", {
+      exact: false,
+    }),
+  ).toBeVisible();
   const size = page.getByRole("combobox", { name: "Maximum video size" });
   await size.selectOption("720");
   await expect(size).toHaveValue("720");

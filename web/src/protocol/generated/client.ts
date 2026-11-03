@@ -105,6 +105,9 @@ import {
   readClusterJoinHistoryProc,
   configureClusterJoinSyncProc,
   authenticateClusterClientProc,
+  getDesktopLayoutCapabilitiesProc,
+  attachDesktopWithLayoutProc,
+  configureDesktopLayoutProc,
 } from "./rpc.ts";
 import type {
   ActivateClusterPrimaryReq,
@@ -122,6 +125,7 @@ import type {
   ApplyClusterHistoryReq,
   AttachAgentSessionReq,
   AttachDesktopReq,
+  AttachDesktopWithLayoutReq,
   AttachTerminalSessionReq,
   AuthenticateClusterClientReq,
   AvailableShellsTableEvent,
@@ -150,6 +154,7 @@ import type {
   CompletePairingReq,
   CompletePairingRes,
   ConfigureClusterJoinSyncReq,
+  ConfigureDesktopLayoutReq,
   ConfigureDesktopViewportsReq,
   CreateAgentProjectReq,
   CreateAgentSessionReq,
@@ -172,6 +177,8 @@ import type {
   DesktopEvent,
   DesktopInputFrame,
   DesktopInputReceipt,
+  DesktopLayout,
+  DesktopLayoutCapabilities,
   DesktopLease,
   DirectoryTableEvent,
   FinishClusterJoinReq,
@@ -637,4 +644,16 @@ export function configureClusterJoinSync(transport: WebTransport, request: Confi
 
 export function authenticateClusterClient(transport: WebTransport, request: AuthenticateClusterClientReq): Promise<ClusterHistory> {
   return callUnary(transport, authenticateClusterClientProc, request);
+}
+
+export function getDesktopLayoutCapabilities(transport: WebTransport): Promise<DesktopLayoutCapabilities> {
+  return callUnary(transport, getDesktopLayoutCapabilitiesProc, undefined);
+}
+
+export function attachDesktopWithLayout(transport: WebTransport, request: AttachDesktopWithLayoutReq): AsyncGenerator<DesktopEvent> {
+  return callServerStream(transport, attachDesktopWithLayoutProc, request);
+}
+
+export function configureDesktopLayout(transport: WebTransport, request: ConfigureDesktopLayoutReq): Promise<DesktopLayout> {
+  return callUnary(transport, configureDesktopLayoutProc, request);
 }

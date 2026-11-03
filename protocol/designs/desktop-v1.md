@@ -257,3 +257,40 @@ Guest creation/installation/permission execution remains pending; no OS image or
 license has been downloaded or accepted. There is no current auto-review denial
 for these unattempted actions. The remaining blocker is an approved, isolated
 interactive fixture with the required OS permissions and actual GPU capability.
+
+## Existing displays and custom OS layouts (contract foundation)
+
+`AttachDesktop` (67) continues to attach to existing OS displays without changing
+OS topology. `ConfigureDesktopViewports` remains crop/video output configuration,
+not an OS display mode change. Existing request/response fields are unchanged.
+
+The additive procedures 101–103 reserve `GetDesktopLayoutCapabilities`,
+`AttachDesktopWithLayout`, and `ConfigureDesktopLayout`. **No handler is registered**:
+there is no virtual display backend in this change. Clients discover each attach
+mode independently through supportedProcIds, then check runtime capabilities.
+The current viewer only opens existing displays, even if a future daemon advertises
+custom layout. No custom request may fall back to an existing-display attachment.
+Older clients ignore these absent/new procedure IDs; older Screen daemons continue
+to use procedures 66–72 without a protocol version change.
+
+Requested bounds are logical desktop coordinates; pixel dimensions are logical
+size times scale (must be integral). Refresh is OS milliHz, independent of video
+FPS. Keep retains physical displays and adds the requested virtual displays;
+Disable makes only the requested displays active. Unsupported combinations must
+fail, never silently resize video or alter the requested policy. Capability limits
+are necessary constraints, not a promise every combination works.
+
+Before registering these handlers, a backend must implement exclusive per-attach
+layout ownership, authenticated idempotent operation IDs (same ID/different payload
+conflicts), validation and actual-layout readback, bounded resource allocation,
+layout epoch changes and input release, keyframe recovery, lease cleanup, and
+conditional restoration that does not overwrite external OS changes. Attach must
+not emit Attached before OS layout and capture are ready. Failed apply/restore
+must report the actual outcome rather than pretend OS operations are atomic.
+Configuration and restoration must participate in updater workload protection.
+No automatic input-control restoration is permitted on reconnect. The mode shares
+the logged-in desktop; it is not a separate OS login session.
+
+Windows requires a real IDD/IddCx backend and its packaging/validation. macOS public
+virtual-display creation support remains unconfirmed; existing display mode APIs
+are insufficient evidence. Neither drivers nor OS configuration are changed here.

@@ -5904,6 +5904,16 @@ mod tests {
     }
 
     #[test]
+    fn custom_desktop_layout_is_not_advertised_without_backend() {
+        let handlers = build_rpc_handlers(None, None, None, None);
+        let advertised = handlers.supported_procs();
+        assert!(advertised.iter().any(|proc| proc.as_u64() == 67));
+        for id in 101..=103 {
+            assert!(!advertised.iter().any(|proc| proc.as_u64() == id));
+        }
+    }
+
+    #[test]
     fn cluster_rpc_discovery_requires_supported_private_key_storage() {
         let handlers = build_rpc_handlers(None, None, None, None);
         let advertised = handlers.supported_procs();

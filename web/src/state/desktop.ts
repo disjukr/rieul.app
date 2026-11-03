@@ -1,3 +1,4 @@
+import { desktopModes } from "../protocol/desktop-support.ts";
 import { desktopCursorPng } from "../protocol/desktop-cursor.ts";
 import { copyDocumentStyles } from "../solid/popup-styles.ts";
 import { desktopEvents } from "../protocol/desktop-session.ts";
@@ -23,7 +24,6 @@ import {
   DesktopAvailability,
   DesktopControlAction,
   DesktopKeyboardMode,
-  ProcId,
   type DesktopConfiguration,
   type DesktopCapabilities,
   type DesktopControl,
@@ -60,13 +60,13 @@ export const desktopBunja = bunja(() => {
   const [inputReady, setInputReady] = createSignal(false);
   const [cursor, setCursor] =
     createSignal<Extract<DesktopEvent, { type: "cursor" }>>();
-  const supported = createMemo(() => {
+  const modes = createMemo(() => {
     const info = rpc.daemonInfo();
-    return (
-      info.phase === "ready" &&
-      info.daemonInfo.supportedProcIds.includes(ProcId.GetDesktopCapabilities)
+    return desktopModes(
+      info.phase === "ready" ? info.daemonInfo.supportedProcIds : [],
     );
   });
+  const supported = createMemo(() => modes().existing);
   const availabilityMessage = createMemo(() => {
     const info = rpc.daemonInfo();
     if (info.phase === "loading") return "Checking daemon support…";
@@ -417,9 +417,7 @@ export const desktopBunja = bunja(() => {
             else if (event.type === "closed") throw new Error(event.reason);
           }
           if (token === generation)
-            failed(
-              new Error("Screen session ended. Reconnect to view again."),
-            );
+            failed(new Error("Screen session ended. Reconnect to view again."));
         } catch (error) {
           if (token === generation) failed(error);
         }
@@ -483,10 +481,7 @@ export const desktopBunja = bunja(() => {
     canvas.width = track.viewport.width;
     canvas.height = track.viewport.height;
     canvas.tabIndex = 0;
-    canvas.setAttribute(
-      "aria-label",
-      `Display ${track.viewport.displayId}`,
-    );
+    canvas.setAttribute("aria-label", `Display ${track.viewport.displayId}`);
     const frame = popup.document.createElement("div");
     frame.className = "rieul-desktop-frame";
     frame.style.position = "relative";
@@ -600,6 +595,7 @@ export const desktopBunja = bunja(() => {
     stats,
     busy,
     supported,
+    modes,
     availabilityMessage,
     outputHeight,
     maxViewports,

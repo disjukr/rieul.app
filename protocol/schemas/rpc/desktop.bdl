@@ -438,3 +438,91 @@ union DesktopError {
     message: string,
   ),
 }
+
+# description
+| Reserved custom OS-layout contract. No daemon handler is registered until
+| a real layout backend exists. Never substitute AttachDesktop for this RPC.
+@ id - 101
+@ stream - unary
+proc GetDesktopLayoutCapabilities = void -> DesktopLayoutCapabilities throws DesktopError
+
+@ id - 102
+@ stream - server
+proc AttachDesktopWithLayout = AttachDesktopWithLayoutReq -> DesktopEvent throws DesktopError
+
+@ id - 103
+@ stream - unary
+proc ConfigureDesktopLayout = ConfigureDesktopLayoutReq -> DesktopLayout throws DesktopError
+
+enum DesktopPhysicalDisplayPolicy {
+  @ id - 0
+  Keep,
+  @ id - 1
+  Disable,
+}
+
+struct DesktopRequestedDisplay {
+  @ id - 1
+  key: string,
+  @ id - 2
+  bounds: DesktopRect,
+  @ id - 3
+  scale: f64,
+  @ id - 4
+  refreshMilliHz: u53,
+}
+
+struct DesktopLayoutRequest {
+  @ id - 1
+  displays: DesktopRequestedDisplay[],
+  @ id - 2
+  primaryDisplayKey: string,
+  @ id - 3
+  physicalDisplays: DesktopPhysicalDisplayPolicy,
+}
+
+struct DesktopLayoutCapabilities {
+  @ id - 1
+  availability: DesktopAvailability,
+  @ id - 2
+  reason?: string,
+  @ id - 3
+  maxDisplays: u53,
+  @ id - 4
+  maxPixelWidth: u53,
+  @ id - 5
+  maxPixelHeight: u53,
+  @ id - 6
+  scales: f64[],
+  @ id - 7
+  refreshMilliHz: u53[],
+  @ id - 8
+  physicalDisplayPolicies: DesktopPhysicalDisplayPolicy[],
+}
+
+struct AttachDesktopWithLayoutReq {
+  @ id - 1
+  operationId: string,
+  @ id - 2
+  connection: AttachDesktopReq,
+  @ id - 3
+  layout: DesktopLayoutRequest,
+}
+
+struct ConfigureDesktopLayoutReq {
+  @ id - 1
+  attachId: string,
+  @ id - 2
+  operationId: string,
+  @ id - 3
+  expectedLayoutEpoch: u53,
+  @ id - 4
+  layout: DesktopLayoutRequest,
+}
+
+struct DesktopLayout {
+  @ id - 1
+  layoutEpoch: u53,
+  @ id - 2
+  displays: DesktopDisplay[],
+}

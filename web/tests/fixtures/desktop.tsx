@@ -39,6 +39,7 @@ function Fixture() {
     attachId: createSignal<string | undefined>("fixture")[0],
     displays: createSignal([display])[0],
     supported: createMemo(() => true),
+    modes: createMemo(() => ({ existing: true, custom: false })),
     inputReady,
     busy: createSignal(false)[0],
     message: createSignal<string>()[0],
