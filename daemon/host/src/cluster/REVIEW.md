@@ -433,3 +433,32 @@ web/codegen 116 passed; type check and web build passed; existing UI suite 43 pa
 using installed Chrome plus the new cluster UI test passed. Screenshot inspected:
 `tmp/cluster-browser-narrow.png`. Browser fixture log: `tmp/cluster-browser-e2e.log`.
 No main push, CI publication, release or deployment. Independent review required.
+
+### Browser review follow-up: renewal and epoch-changing retries
+
+Automatic expiry renewal now verifies the record returned by storeHistory (which
+may be newer than the caller's fetched history), then atomically compares both
+its exact verified head and grant ID before clearing it. A changed head leaves
+the grant intact and defers to the next status refresh. Explicit user re-pairing
+remains a separate operation allowed to replace a revoked approval. The real
+Chromium two-tab regression stores a signed revoke between expiry decision and
+CAS, then also supplies the stale history to storeHistory; neither path renews.
+
+Join and cancellation retries inspect verified signed history for the exact
+consent-bound admission or admission-specific removal. An existing result skips
+the mutation and resumes Finish/scoped synchronization or local cleanup. This
+avoids changing expected epoch for an already committed operation after primary
+handoff. Admission evidence includes target key, endpoint and digest of the
+complete consent transcript + signature, and must still be a current member.
+The regression performs signed handoffs between commit and retry for both paths,
+asserts no second mutation, rejects changed consent, and confirms a removed
+admission no longer qualifies for Finish recovery.
+
+Validation: web/codegen 117 passed; type check and production build passed;
+Chromium cross-tab test passed; real two-node browser WebTransport fixture passed
+(20.35s). Full UI run had 44 passes and a production-preview HTTP failure while
+build output was being replaced; production styling rerun after build passed all 3 tests.
+No backend or protocol mutation, actual host access, publication or deployment.
+Primary transfer/grant management UI work is preserved separately in stash
+`primary transfer and grant management UI in progress`; it is not part of this
+review fix. Actual synthetic node process restart E2E remains outstanding.

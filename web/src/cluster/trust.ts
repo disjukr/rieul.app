@@ -1,6 +1,7 @@
 import { encodeCbor, type CborValue } from "../protocol/cbor.ts";
 import type {
   ClusterHistory,
+  ClusterJoinConsent,
   ClusterHead,
   ClusterMember,
   AuthenticateClusterClientReq,
@@ -323,5 +324,47 @@ export function equalHead(a: ClusterHead, b: ClusterHead) {
     same(a.clusterId, b.clusterId) &&
     same(a.entryHash, b.entryHash) &&
     same(a.primaryAdmissionId, b.primaryAdmissionId)
+  );
+}
+
+/** Verified exact evidence permits recovery without changing a request's epoch. */
+export async function hasAdmission(
+  history: ClusterHistory,
+  consent: ClusterJoinConsent,
+) {
+  const verified = await verifyHistory(history);
+  if (!verified.members.has(hex(consent.admissionId))) return false;
+  const digest = await hash([
+    encodeCbor([
+      "rieul.cluster.target-consent.v2",
+      verified.head.clusterId,
+      consent.operationId,
+      consent.admissionId,
+      consent.nodePublicKey,
+      true,
+      consent.endpoint,
+      consent.expiresAtUnix,
+    ]),
+    consent.signature,
+  ]);
+  return history.entries.some((entry) => {
+    const value = mutation(entry.mutation);
+    return (
+      value[0] === 0 &&
+      same(value[1] as Uint8Array, consent.admissionId) &&
+      same(value[2] as Uint8Array, consent.nodePublicKey) &&
+      same(value[3] as Uint8Array, digest) &&
+      value[4] === consent.endpoint
+    );
+  });
+}
+export async function hasRemoval(
+  history: ClusterHistory,
+  admissionId: Uint8Array,
+) {
+  await verifyHistory(history);
+  return history.entries.some(
+    (entry) =>
+      entry.mutation[0] === 1 && same(entry.mutation.slice(1), admissionId),
   );
 }

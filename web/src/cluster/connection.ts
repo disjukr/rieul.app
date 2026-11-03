@@ -10,6 +10,7 @@ import {
   readCluster,
   storeHistory,
   resetGrantAfterPairing,
+  resetExpiredGrant,
   type ClusterRecord,
 } from "./storage.ts";
 import {
@@ -107,8 +108,8 @@ export async function synchronizeCluster(
   const history = await rpc.readClusterHistory(transport, {
     clusterId: state.head.clusterId,
   });
-  const verified = await verifyHistory(history),
-    id = hex(verified.head.clusterId);
+  let verified = await verifyHistory(history);
+  const id = hex(verified.head.clusterId);
   if (machine.cluster && machine.cluster.id !== id)
     throw new Error(
       "Daemon cluster changed. Existing cluster trust was not transferred.",
@@ -116,6 +117,8 @@ export async function synchronizeCluster(
   let saved = await clusterKey(id);
   if (saved.history) await verifyHistory(history, saved.history);
   saved = await storeHistory(history);
+  // storeHistory may return a newer head saved concurrently by another tab.
+  verified = await verifyHistory(saved.history!);
   if (saved.grantId) {
     const grant = verified.grants.get(hex(saved.grantId));
     if (
@@ -137,7 +140,18 @@ export async function synchronizeCluster(
           message:
             "Cluster grant was revoked or expired. Local pairing remains available; pair again to request new cluster access.",
         };
-      await resetGrantAfterPairing(id, saved.grantId);
+      if (newPairing) await resetGrantAfterPairing(id, saved.grantId);
+      else if (!(await resetExpiredGrant(saved))) {
+        // A concurrent tab changed the decision's history. Do not use the stale
+        // expiry decision to clear a revoked grant. Next sync re-evaluates it.
+        return {
+          supported: true,
+          state,
+          record: await readCluster(id),
+          message:
+            "Cluster approval changed in another tab. Refreshing its status.",
+        };
+      }
       saved = await clusterKey(id);
     }
   }

@@ -5,7 +5,13 @@ import {
 } from "../protocol/client.ts";
 import type { Machine } from "../state/machines.ts";
 import { authenticateCluster } from "./connection.ts";
-import { hash, same, verifyHistory } from "./trust.ts";
+import {
+  hash,
+  same,
+  verifyHistory,
+  hasAdmission,
+  hasRemoval,
+} from "./trust.ts";
 const operation = () => crypto.getRandomValues(new Uint8Array(32));
 export async function createCluster(transport: WebTransport) {
   return rpc.createCluster(transport, {
@@ -60,15 +66,16 @@ export async function joinCluster(target: WebTransport, source: Machine) {
       )
     )
       throw new Error("Pending join belongs to a different cluster");
-    await rpc.admitClusterMember(transport, {
-      operationId: await hash([
-        "rieul.cluster.browser-admit.v1",
-        history.head.clusterId,
-        consent.operationId,
-      ]),
-      expectedManagementEpoch: history.head.managementEpoch,
-      consent,
-    });
+    if (!(await hasAdmission(history, consent)))
+      await rpc.admitClusterMember(transport, {
+        operationId: await hash([
+          "rieul.cluster.browser-admit.v1",
+          history.head.clusterId,
+          consent.operationId,
+        ]),
+        expectedManagementEpoch: history.head.managementEpoch,
+        consent,
+      });
     const accepted = await rpc.readClusterHistory(transport, {
       clusterId: history.head.clusterId,
     });
@@ -127,15 +134,16 @@ export async function cancelJoin(target: WebTransport, source: Machine) {
     await verifyHistory(history);
     if (!same(history.head.clusterId, clusterId))
       throw new Error("Cleanup source belongs to a different cluster");
-    await rpc.removeClusterMember(transport, {
-      operationId: await hash([
-        "rieul.cluster.browser-cancel.v1",
-        clusterId,
+    if (!(await hasRemoval(history, admissionId)))
+      await rpc.removeClusterMember(transport, {
+        operationId: await hash([
+          "rieul.cluster.browser-cancel.v1",
+          clusterId,
+          admissionId,
+        ]),
+        expectedManagementEpoch: history.head.managementEpoch,
         admissionId,
-      ]),
-      expectedManagementEpoch: history.head.managementEpoch,
-      admissionId,
-    });
+      });
     const removed = await rpc.readClusterHistory(transport, { clusterId });
     await verifyHistory(removed, history);
     return rpc.applyClusterHistory(target, { history: removed });

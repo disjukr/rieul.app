@@ -1,5 +1,5 @@
 import type { ClusterHistory } from "../protocol/generated/rpc.ts";
-import { hex, same, verifyHistory } from "./trust.ts";
+import { hex, same, equalHead, verifyHistory } from "./trust.ts";
 export interface ClusterRecord {
   id: string;
   privateKey: CryptoKey;
@@ -128,8 +128,8 @@ export async function storeHistory(
     return [next, next];
   });
 }
-// Clear only the expected grant: explicit re-pairing, or expiry while a valid
-// local pairing remains. Revocation is never a periodic re-adoption trigger.
+// Explicit user re-pairing may replace a revoked grant. Automatic renewal must
+// instead use resetExpiredGrant with a verified history + grant compare-and-swap.
 export async function resetGrantAfterPairing(
   id: string,
   expected: Uint8Array,
@@ -140,4 +140,28 @@ export async function resetGrantAfterPairing(
       : undefined,
     undefined,
   ]);
+}
+
+export async function resetExpiredGrant(
+  expected: ClusterRecord,
+): Promise<boolean> {
+  if (!expected.history || !expected.grantId) return false;
+  const verified = await verifyHistory(expected.history);
+  const grant = verified.grants.get(hex(expected.grantId));
+  if (
+    !grant ||
+    !same(grant.client, expected.publicKey) ||
+    grant.expires * 1000 > Date.now()
+  )
+    return false;
+  return transaction(expected.id, (current) => {
+    if (
+      !current?.history ||
+      !current.grantId ||
+      !same(current.grantId, expected.grantId!) ||
+      !equalHead(current.history.head, verified.head)
+    )
+      return [undefined, false];
+    return [{ ...current, grantId: undefined }, true];
+  });
 }
