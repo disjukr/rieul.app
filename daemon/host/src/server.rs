@@ -1275,6 +1275,8 @@ fn build_rpc_handlers(
     if crate::cluster::runtime::ENROLLMENT_SUPPORTED {
         handlers = handlers
             .get_cluster_revocation_issues(HostRpcHandler::get_cluster_revocation_issues_rpc)
+            .read_cluster_join_history(HostRpcHandler::read_cluster_join_history_rpc)
+            .configure_cluster_join_sync(HostRpcHandler::configure_cluster_join_sync_rpc)
             .leave_cluster(HostRpcHandler::leave_cluster_rpc)
             .get_cluster_removal_proof(HostRpcHandler::get_cluster_removal_proof_rpc)
             .get_cluster_peer_challenge(HostRpcHandler::get_cluster_peer_challenge_rpc)
@@ -5241,6 +5243,7 @@ fn requires_authentication(proc_id: u64) -> bool {
     proc_id != ProcId::GetDaemonInfo.as_u64()
         && proc_id != ProcId::GetClusterPeerChallenge.as_u64()
         && proc_id != ProcId::ExecuteClusterPeerRequest.as_u64()
+        && proc_id != ProcId::ReadClusterJoinHistory.as_u64()
         && proc_id != ProcId::StartPairing.as_u64()
         && proc_id != ProcId::CompletePairing.as_u64()
 }
@@ -5856,7 +5859,7 @@ mod tests {
     fn cluster_rpc_discovery_requires_supported_private_key_storage() {
         let handlers = build_rpc_handlers(None, None, None, None);
         let advertised = handlers.supported_procs();
-        for id in 76..=97 {
+        for id in 76..=99 {
             assert_eq!(
                 advertised.iter().any(|proc| proc.as_u64() == id),
                 crate::cluster::runtime::ENROLLMENT_SUPPORTED

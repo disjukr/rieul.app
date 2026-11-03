@@ -228,3 +228,57 @@ Leave after a new cluster is created. This is not a process-kill/power-loss test
 The durable transfer-target rejection also has regression coverage. Host tests
 passed 159 / 3 ignored; browser cluster UI and restricted join sync remain
 unfinished. Windows enrollment stays disabled. No main push or deployment.
+
+## Consent-scoped join synchronization
+
+RPC 99 ConfigureClusterJoinSync is paired-only. It binds the existing local
+reservation operation to a continuous, verified bootstrap history under the
+already pinned genesis. Bootstrap peers/endpoints come only from that signed
+history. It enables a bounded background bootstrap read without activating the
+node; a bootstrap already containing its removal instead retires the reservation.
+There is no key creation or network bootstrap solely from server startup.
+
+PrepareClusterJoin now durably fixes a five-minute consent deadline. The v2
+consent transcript signs that deadline in addition to the original cluster,
+operation, admission, key, confirmation and endpoint fields. Retrying Prepare
+never silently extends it. Old prototype reservations with no stored deadline
+fail closed. This is an unreleased schema change, not a migration of real nodes.
+
+RPC 98 ReadClusterJoinHistory is a dedicated public transport endpoint, not a
+session authentication RPC. It consumes the existing bounded connection nonce,
+verifies a distinct join-read signature binding server key, cluster, exact
+consent digest, connection and nonce, and validates the target consent. The
+server returns its current signed history only if its locally known log still
+contains that exact active admission/key and consent digest. Not-yet-admitted,
+removed, expired, wrong-consent, replayed and unsigned requests are denied.
+The consent alone is not a bearer credential; the target private key must sign
+the fresh connection challenge. A join-read proof cannot be reused as a peer
+management proof, and the session remains unauthenticated for ordinary RPCs.
+
+The worker verifies the responder against bootstrap keys, reads over normal TLS,
+then verifies the latest history and exact admission consent before Finish.
+Expiry and cancellation are rechecked at the local write transaction. Fresh
+credential reconciliation at history application is retained. At most four
+bootstrap peers are probed per tick, each with an eight-second timeout. Expired
+reservations stop retrying successfully; expiry does not implicitly free the
+local membership slot or remove a remote admission.
+
+Limitations are explicit: cached replicas cannot guarantee revocation freshness
+across a partition. Local cancellation prevents Finish, but remote removal still
+uses the primary Remove operation; this scoped read does not grant anonymous
+cancellation/tombstone writes. A client must orchestrate cancel/remove cleanup
+before a new reservation after expiry. Browser orchestration and UI are still
+pending. Existing paired manual Finish remains supported with the same expiry,
+consent and retirement checks. No general capability-based management session or
+removed-member write permission was added.
+
+Localhost E2E covers bootstrap genesis mismatch, denial before Admit, successful
+read after approval, nonce replay rejection, ordinary RPC denial on the same
+connection, background Finish, and cancellation between response and Finish.
+Separate fixtures verify expiry at Admit/read/sign/Finish, altered signed consent
+against the committed digest, removal denial and signature-domain separation.
+Windows enrollment remains disabled; no real host or pairing was changed.
+
+Join-sync validation: host 162 passed / 3 ignored; web/codegen 112 passed;
+TypeScript check and web build passed. Browser cluster flow and Windows execution
+remain unverified. No main push, release or actual environment changes.

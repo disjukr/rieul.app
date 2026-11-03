@@ -7,7 +7,9 @@ pub(super) fn is_cluster_proc(proc: u64) -> bool {
     matches!(
         ProcId::from_u64(proc),
         Some(
-            ProcId::GetClusterRevocationIssues
+            ProcId::ReadClusterJoinHistory
+                | ProcId::ConfigureClusterJoinSync
+                | ProcId::GetClusterRevocationIssues
                 | ProcId::LeaveCluster
                 | ProcId::GetClusterRemovalProof
                 | ProcId::GetClusterPeerChallenge
@@ -209,6 +211,11 @@ handler!(
     ()
 );
 handler!(leave_cluster_rpc, LeaveCluster, LeaveClusterReq);
+handler!(
+    configure_cluster_join_sync_rpc,
+    ConfigureClusterJoinSync,
+    ConfigureClusterJoinSyncReq
+);
 handler!(get_cluster_state_rpc, GetClusterState, ());
 handler!(create_cluster_rpc, CreateCluster, CreateClusterReq);
 handler!(
@@ -303,6 +310,219 @@ mod tests {
             } => (genesis, head, local_admission_id),
             other => panic!("{other:?}"),
         }
+    }
+    async fn raw_join_call(
+        session: &web_transport_quinn::Session,
+        proc: ProcId,
+        payload: Option<Vec<u8>>,
+    ) -> ReqResMessage {
+        let (mut send, mut recv) = session.open_bi().await.unwrap();
+        send.write_all(
+            &ReqResMessage::RequestUnary {
+                proc_id: proc.as_u64(),
+                payload,
+            }
+            .encode(),
+        )
+        .await
+        .unwrap();
+        send.finish().unwrap();
+        ReqResMessage::decode_sequence(
+            &recv
+                .read_to_end(runtime::MAX_RPC_BYTES + 4096)
+                .await
+                .unwrap(),
+        )
+        .unwrap()
+        .remove(0)
+    }
+    #[tokio::test]
+    async fn actual_webtransport_join_sync_is_consent_bound_and_never_authenticates_session() {
+        tokio::time::timeout(Duration::from_secs(25), async {
+            for cancel in [false, true] {
+                let a = Fixture::new().await;
+                let b = Fixture::new().await;
+                a.authenticate().await;
+                b.authenticate().await;
+                let initial = ClusterState::decode(
+                    &ok(
+                        &a,
+                        ProcId::CreateCluster,
+                        Some(
+                            CreateClusterReq {
+                                operation_id: vec![1; 32],
+                                confirmed: true,
+                            }
+                            .encode(),
+                        ),
+                    )
+                    .await,
+                )
+                .unwrap();
+                let (g, head, _) = member(initial);
+                let c = ClusterJoinConsent::decode(
+                    &ok(
+                        &b,
+                        ProcId::PrepareClusterJoin,
+                        Some(
+                            PrepareClusterJoinReq {
+                                operation_id: vec![2; 32],
+                                genesis: g.clone(),
+                                confirmed: true,
+                            }
+                            .encode(),
+                        ),
+                    )
+                    .await,
+                )
+                .unwrap();
+                let bootstrap = history(&a, head.cluster_id.clone()).await;
+                let mut wrong = bootstrap.clone();
+                wrong.genesis.nonce[0] ^= 1;
+                assert!(matches!(
+                    b.unary(
+                        ProcId::ConfigureClusterJoinSync,
+                        Some(
+                            ConfigureClusterJoinSyncReq {
+                                operation_id: vec![2; 32],
+                                bootstrap_history: wrong
+                            }
+                            .encode()
+                        )
+                    )
+                    .await,
+                    ReqResMessage::ResponseUnaryError { .. }
+                ));
+                ok(
+                    &b,
+                    ProcId::ConfigureClusterJoinSync,
+                    Some(
+                        ConfigureClusterJoinSyncReq {
+                            operation_id: vec![2; 32],
+                            bootstrap_history: bootstrap,
+                        }
+                        .encode(),
+                    ),
+                )
+                .await;
+                let path = b._dir.path().join("rieul.cluster.sqlite");
+                let public: [u8; 32] = g.root_public_key.clone().try_into().unwrap();
+                assert!(runtime::worker::join_exchange(
+                    &a._client,
+                    &path,
+                    public,
+                    &g.root_endpoint
+                )
+                .await
+                .is_err());
+                assert!(matches!(get(&b).await, ClusterState::Joining { .. }));
+                ok(
+                    &a,
+                    ProcId::AdmitClusterMember,
+                    Some(
+                        AdmitClusterMemberReq {
+                            operation_id: vec![3; 32],
+                            expected_management_epoch: 1,
+                            consent: c,
+                        }
+                        .encode(),
+                    ),
+                )
+                .await;
+                let session = a
+                    ._client
+                    .connect(web_transport_quinn::proto::ConnectRequest::new(
+                        url::Url::parse(&g.root_endpoint).unwrap(),
+                    ))
+                    .await
+                    .unwrap();
+                let challenge =
+                    match raw_join_call(&session, ProcId::GetClusterPeerChallenge, None).await {
+                        ReqResMessage::ResponseUnaryOk {
+                            payload: Some(bytes),
+                        } => ClusterPeerChallenge::decode(&bytes).unwrap(),
+                        x => panic!("{x:?}"),
+                    };
+                let request = runtime::join::sign(&path, public, &challenge).unwrap();
+                let response = raw_join_call(
+                    &session,
+                    ProcId::ReadClusterJoinHistory,
+                    Some(request.encode()),
+                )
+                .await;
+                let h = match response {
+                    ReqResMessage::ResponseUnaryOk {
+                        payload: Some(bytes),
+                    } => ClusterHistory::decode(&bytes).unwrap(),
+                    x => panic!("{x:?}"),
+                };
+                assert!(matches!(
+                    raw_join_call(
+                        &session,
+                        ProcId::ReadClusterJoinHistory,
+                        Some(request.encode())
+                    )
+                    .await,
+                    ReqResMessage::ResponseUnaryError { .. }
+                ));
+                assert!(matches!(
+                    raw_join_call(
+                        &session,
+                        ProcId::ReadClusterHistory,
+                        Some(
+                            ReadClusterHistoryReq {
+                                cluster_id: head.cluster_id
+                            }
+                            .encode()
+                        )
+                    )
+                    .await,
+                    ReqResMessage::ResponseUnaryError { .. }
+                ));
+                session.close(0, b"fixture complete");
+                if cancel {
+                    ok(
+                        &b,
+                        ProcId::CancelClusterJoin,
+                        Some(
+                            CancelClusterJoinReq {
+                                operation_id: vec![2; 32],
+                            }
+                            .encode(),
+                        ),
+                    )
+                    .await;
+                    assert!(matches!(
+                        b.unary(
+                            ProcId::FinishClusterJoin,
+                            Some(
+                                FinishClusterJoinReq {
+                                    operation_id: vec![2; 32],
+                                    history: h
+                                }
+                                .encode()
+                            )
+                        )
+                        .await,
+                        ReqResMessage::ResponseUnaryError { .. }
+                    ));
+                    assert!(runtime::worker::join_exchange(
+                        &a._client,
+                        &path,
+                        public,
+                        &g.root_endpoint
+                    )
+                    .await
+                    .is_err());
+                    assert!(matches!(get(&b).await, ClusterState::RemovalPending { .. }));
+                } else {
+                    runtime::worker::tick(&path, &a._client).await.unwrap();
+                    assert!(matches!(get(&b).await, ClusterState::Member { .. }));
+                }
+            }
+        })
+        .await
+        .unwrap();
     }
     #[tokio::test]
     async fn actual_webtransport_leave_waits_for_primary_and_recovers_lost_remove_response() {
@@ -1272,6 +1492,28 @@ impl HostRpcHandler {
                 ))),
                 Err(_) => Ok(UnaryRpcOutcome::Message(unauthorized_message(proc))),
             }
+        })
+    }
+}
+
+impl HostRpcHandler {
+    pub(super) fn read_cluster_join_history_rpc<'a>(
+        &'a mut self,
+        r: ReadClusterJoinHistoryReq,
+    ) -> RpcHandlerFuture<'a, Result<UnaryRpcOutcome>> {
+        Box::pin(async move {
+            let proc = ProcId::ReadClusterJoinHistory.as_u64();
+            let connection = self.session_state.lock().await.session_id;
+            if r.connection_id != connection as i64 || !consume_peer_challenge(connection, &r.nonce)
+            {
+                return Ok(UnaryRpcOutcome::Message(unauthorized_message(proc)));
+            }
+            let path = self.config_path.with_extension("cluster.sqlite");
+            let result = tokio::task::spawn_blocking(move || runtime::join::read(&path, r)).await?;
+            Ok(match result {
+                Ok(history) => RpcResponse::ReadClusterJoinHistory(history).into(),
+                Err(_) => UnaryRpcOutcome::Message(unauthorized_message(proc)),
+            })
         })
     }
 }

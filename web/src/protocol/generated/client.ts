@@ -102,6 +102,8 @@ import {
   getClusterRemovalProofProc,
   leaveClusterProc,
   getClusterRevocationIssuesProc,
+  readClusterJoinHistoryProc,
+  configureClusterJoinSyncProc,
 } from "./rpc.ts";
 import type {
   ActivateClusterPrimaryReq,
@@ -145,6 +147,7 @@ import type {
   CompleteClusterClientAdoptionReq,
   CompletePairingReq,
   CompletePairingRes,
+  ConfigureClusterJoinSyncReq,
   ConfigureDesktopViewportsReq,
   CreateAgentProjectReq,
   CreateAgentSessionReq,
@@ -193,6 +196,7 @@ import type {
   PurgeTrashItemsReq,
   ReadAgentTerminalOutputReq,
   ReadClusterHistoryReq,
+  ReadClusterJoinHistoryReq,
   ReadFileChunk,
   ReadFileReq,
   RemoveAgentProjectReq,
@@ -619,4 +623,12 @@ export function leaveCluster(transport: WebTransport, request: LeaveClusterReq):
 
 export function getClusterRevocationIssues(transport: WebTransport): Promise<ClusterRevocationIssues> {
   return callUnary(transport, getClusterRevocationIssuesProc, undefined);
+}
+
+export function readClusterJoinHistory(transport: WebTransport, request: ReadClusterJoinHistoryReq): Promise<ClusterHistory> {
+  return callUnary(transport, readClusterJoinHistoryProc, request);
+}
+
+export function configureClusterJoinSync(transport: WebTransport, request: ConfigureClusterJoinSyncReq): Promise<ClusterState> {
+  return callUnary(transport, configureClusterJoinSyncProc, request);
 }

@@ -128,6 +128,8 @@ struct PrepareClusterJoinReq {
 }
 
 struct ClusterJoinConsent {
+  @ id - 7
+  expiresAtUnix: i53,
   @ id - 6
   endpoint: string,
   @ id - 1
@@ -460,4 +462,27 @@ proc LeaveCluster = LeaveClusterReq -> ClusterState throws ClusterError
 struct LeaveClusterReq {
   @ id - 1
   operationId: bytes,
+}
+
+@ id - 98
+@ stream - unary
+proc ReadClusterJoinHistory = ReadClusterJoinHistoryReq -> ClusterHistory throws ClusterError
+struct ReadClusterJoinHistoryReq {
+  @ id - 1
+  consent: ClusterJoinConsent,
+  @ id - 2
+  nonce: bytes,
+  @ id - 3
+  connectionId: i53,
+  @ id - 4
+  signature: bytes,
+}
+@ id - 99
+@ stream - unary
+proc ConfigureClusterJoinSync = ConfigureClusterJoinSyncReq -> ClusterState throws ClusterError
+struct ConfigureClusterJoinSyncReq {
+  @ id - 1
+  operationId: bytes,
+  @ id - 2
+  bootstrapHistory: ClusterHistory,
 }

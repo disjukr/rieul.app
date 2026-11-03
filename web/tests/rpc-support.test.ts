@@ -29,7 +29,7 @@ test("every current schema RPC belongs to exactly one stable category", () => {
       ["schedules", 5],
       ["agents", 19],
       ["updates", 3],
-      ["daemon", 29],
+      ["daemon", 31],
     ],
   );
   assert.equal(rpcCategoryById[ProcId.GetDaemonEnvironment], "daemon");

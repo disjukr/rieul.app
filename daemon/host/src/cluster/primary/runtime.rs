@@ -1,5 +1,6 @@
 //! Opt-in management and primary-adopted client grants.
 mod adoption;
+pub(crate) mod join;
 pub(crate) mod peer;
 pub(crate) mod worker;
 use super::*;
@@ -143,22 +144,32 @@ struct Node {
     operation: Id,
     phase: i64,
     endpoint: String,
+    consent_expires: i64,
 }
-fn consent_body(g: &Genesis, operation: Id, admission: Id, public: Id, endpoint: &str) -> Vec<u8> {
+fn consent_body(
+    g: &Genesis,
+    operation: Id,
+    admission: Id,
+    public: Id,
+    endpoint: &str,
+    expires: i64,
+) -> Vec<u8> {
     Value::Array(vec![
-        Value::Text("rieul.cluster.target-consent.v1".into()),
+        Value::Text("rieul.cluster.target-consent.v2".into()),
         b(g.cluster()),
         b(operation),
         b(admission),
         b(public),
         Value::Bool(true),
         Value::Text(endpoint.to_owned()),
+        Value::I64(expires),
     ])
     .encode()
 }
 fn consent(n: &Node) -> ClusterJoinConsent {
     let public = key(&n.pair);
     ClusterJoinConsent {
+        expires_at_unix: n.consent_expires,
         genesis: wire_genesis(&n.g),
         endpoint: n.endpoint.clone(),
         operation_id: n.operation.to_vec(),
@@ -172,6 +183,7 @@ fn consent(n: &Node) -> ClusterJoinConsent {
                 n.admission,
                 public,
                 &n.endpoint,
+                n.consent_expires,
             ))
             .as_ref()
             .to_vec(),
@@ -219,6 +231,7 @@ fn database(path: &Path, create: bool) -> Result<Connection, RuntimeError> {
     db.busy_timeout(Duration::from_secs(5))?;
     db.execute_batch("PRAGMA synchronous=FULL;
     CREATE TABLE IF NOT EXISTS node(id INTEGER PRIMARY KEY CHECK(id=1),pkcs8 BLOB NOT NULL,nonce BLOB NOT NULL,root BLOB NOT NULL,root_key BLOB NOT NULL,admission BLOB NOT NULL,operation BLOB NOT NULL,phase INTEGER NOT NULL);
+    CREATE TABLE IF NOT EXISTS node_join_scope(id INTEGER PRIMARY KEY CHECK(id=1),expires INTEGER NOT NULL,sync_enabled INTEGER NOT NULL DEFAULT 0);
     CREATE TABLE IF NOT EXISTS node_endpoint(id INTEGER PRIMARY KEY CHECK(id=1),local TEXT NOT NULL,root TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS leaving(operation BLOB PRIMARY KEY,cluster BLOB NOT NULL,admission BLOB NOT NULL,UNIQUE(cluster,admission));
     CREATE TABLE IF NOT EXISTS retired_local(operation BLOB PRIMARY KEY,cluster BLOB NOT NULL,admission BLOB NOT NULL);")?;
@@ -247,12 +260,19 @@ fn load_node(db: &Connection) -> Result<Option<Node>, RuntimeError> {
             Ok((r.get(0)?, r.get(1)?))
         })
         .optional()?;
+    let consent_expires: i64 = db
+        .query_row("SELECT expires FROM node_join_scope WHERE id=1", [], |r| {
+            r.get(0)
+        })
+        .optional()?
+        .unwrap_or(0);
     raw.map(
         |(pkcs8, nonce, root, root_key, admission, operation, phase)| {
             let (endpoint, root_endpoint) = endpoints.clone().ok_or(RuntimeError::Storage)?;
             validate_endpoint(&endpoint)?;
             validate_endpoint(&root_endpoint)?;
             Ok(Node {
+                consent_expires,
                 endpoint,
                 pair: Ed25519KeyPair::from_pkcs8(&pkcs8).map_err(|_| RuntimeError::Storage)?,
                 g: Genesis {
@@ -323,6 +343,10 @@ fn initialize(
                 2,
             ),
         };
+        tx.execute(
+            "INSERT OR REPLACE INTO node_join_scope VALUES(1,?1,0)",
+            [if phase == 1 { now() + 300 } else { 0 }],
+        )?;
         tx.execute("UPDATE node SET nonce=?1,root=?2,root_key=?3,admission=?4,operation=?5,phase=?6 WHERE id=1",params![g.nonce,g.root,g.root_key,admission,operation,phase])?;
         tx.execute(
             "UPDATE node_endpoint SET local=?1,root=?2 WHERE id=1",
@@ -348,6 +372,10 @@ fn initialize(
             2,
         ),
     };
+    tx.execute(
+        "INSERT INTO node_join_scope VALUES(1,?1,0)",
+        [if phase == 1 { now() + 300 } else { 0 }],
+    )?;
     tx.execute(
         "INSERT INTO node VALUES(1,?1,?2,?3,?4,?5,?6,?7)",
         params![
@@ -604,6 +632,9 @@ fn import(
         return Err(RuntimeError::Retired);
     }
     if let Some(op) = finish {
+        if n.phase == 1 && n.consent_expires <= now() {
+            return Err(RuntimeError::Retired);
+        }
         if n.operation != op || n.phase != 1 && n.phase != 2 {
             return Err(RuntimeError::InvalidState);
         }
@@ -614,6 +645,9 @@ fn import(
     let next = replay(&n.g, &entries)?;
     if finish.is_some() && next.members.get(&n.admission) != Some(&key(&n.pair)) {
         return Err(RuntimeError::Retired);
+    }
+    if finish.is_some() && n.phase == 1 {
+        join::verify_admission(&n, &entries)?;
     }
     let before = store.state()?;
     if activation.is_none() && next.primary == n.admission && before.primary != n.admission {
@@ -635,6 +669,9 @@ fn import(
     let current = load_node(&tx)?.ok_or(RuntimeError::InvalidState)?;
     if current.g != n.g || current.admission != n.admission || current.operation != n.operation {
         return Err(RuntimeError::Conflict);
+    }
+    if finish.is_some() && current.phase == 1 && current.consent_expires <= now() {
+        return Err(RuntimeError::Retired);
     }
     if (current.phase == 3 || current.phase == 4) && (finish.is_some() || activation.is_some()) {
         return Err(RuntimeError::Retired);
@@ -765,6 +802,9 @@ pub(crate) fn execute(
             )?;
             RpcResponse::RevokeClusterClientGrant(wire_entry(&entry))
         }
+        RpcRequest::ConfigureClusterJoinSync(r) => {
+            RpcResponse::ConfigureClusterJoinSync(join::configure(path, auth, r)?)
+        }
         RpcRequest::GetClusterState(()) => RpcResponse::GetClusterState(state(path)?),
         RpcRequest::GetClusterRevocationIssues(()) => {
             RpcResponse::GetClusterRevocationIssues(ClusterRevocationIssues {
@@ -808,9 +848,22 @@ pub(crate) fn execute(
             let public = id(&c.node_public_key)?;
             verify(
                 public,
-                &consent_body(&n.g, id(&c.operation_id)?, admission, public, &c.endpoint),
+                &consent_body(
+                    &n.g,
+                    id(&c.operation_id)?,
+                    admission,
+                    public,
+                    &c.endpoint,
+                    c.expires_at_unix,
+                ),
                 &c.signature,
             )?;
+            let operation = id(&r.operation_id)?;
+            if c.expires_at_unix <= now()
+                && !store.entries()?.iter().any(|e| e.operation == operation)
+            {
+                return Err(RuntimeError::Retired);
+            }
             let e = commit_authorized(
                 &mut store,
                 &n,
@@ -829,6 +882,7 @@ pub(crate) fn execute(
                                 admission,
                                 public,
                                 &c.endpoint,
+                                c.expires_at_unix,
                             )),
                             b(&c.signature),
                         ])
@@ -1091,7 +1145,7 @@ mod auth_regression_tests {
             Mutation::Admit {
                 id: bn.admission,
                 key: key(&bn.pair),
-                consent: [0; 32],
+                consent: join::consent_digest(&consent(&bn)).unwrap(),
                 endpoint: bn.endpoint.clone(),
             },
         )

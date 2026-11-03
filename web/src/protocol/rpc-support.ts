@@ -93,6 +93,8 @@ export const rpcCategoryById: Record<ProcId, CategoryId> = {
   [ProcId.GetClusterRemovalProof]: "daemon",
   [ProcId.GetClusterRevocationIssues]: "daemon",
   [ProcId.LeaveCluster]: "daemon",
+  [ProcId.ReadClusterJoinHistory]: "daemon",
+  [ProcId.ConfigureClusterJoinSync]: "daemon",
   [ProcId.CreateCluster]: "daemon",
   [ProcId.PrepareClusterJoin]: "daemon",
   [ProcId.AdmitClusterMember]: "daemon",

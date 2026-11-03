@@ -112,6 +112,98 @@ pub(crate) async fn call(
     .await
     .map_err(|_| RuntimeError::PrimaryUnavailable)?
 }
+pub(crate) async fn join_exchange(
+    client: &web_transport_quinn::Client,
+    path: &Path,
+    server: Id,
+    url: &str,
+) -> Result<ClusterHistory, RuntimeError> {
+    validate_endpoint(url)?;
+    tokio::time::timeout(Duration::from_secs(8), async {
+        let session = Session(
+            client
+                .connect(web_transport_quinn::proto::ConnectRequest::new(
+                    url::Url::parse(url).map_err(|_| RuntimeError::InvalidProof)?,
+                ))
+                .await
+                .map_err(|_| RuntimeError::PrimaryUnavailable)?,
+        );
+        let challenge = ClusterPeerChallenge::decode(
+            &unary(&session.0, ProcId::GetClusterPeerChallenge, None).await?,
+        )
+        .map_err(|_| RuntimeError::InvalidProof)?;
+        let p = path.to_owned();
+        let request = tokio::task::spawn_blocking(move || join::sign(&p, server, &challenge))
+            .await
+            .map_err(|_| RuntimeError::Storage)??;
+        let response = unary(
+            &session.0,
+            ProcId::ReadClusterJoinHistory,
+            Some(request.encode()),
+        )
+        .await?;
+        ClusterHistory::decode(&response).map_err(|_| RuntimeError::InvalidProof)
+    })
+    .await
+    .map_err(|_| RuntimeError::PrimaryUnavailable)?
+}
+async fn join_tick(
+    path: &Path,
+    client: &web_transport_quinn::Client,
+    cursor: &mut usize,
+    credentials: Option<(&Path, &SharedCredentials)>,
+) -> Result<(), RuntimeError> {
+    let p = path.to_owned();
+    let mut next = *cursor;
+    let (routes, advanced) = tokio::task::spawn_blocking(move || {
+        let r = join::routes(&p, &mut next)?;
+        Ok::<_, RuntimeError>((r, next))
+    })
+    .await
+    .map_err(|_| RuntimeError::Storage)??;
+    *cursor = advanced;
+    let mut error = RuntimeError::PrimaryUnavailable;
+    for (server, url) in routes {
+        let history = match join_exchange(client, path, server, &url).await {
+            Ok(h) => h,
+            Err(e) => {
+                error = e;
+                continue;
+            }
+        };
+        let p = path.to_owned();
+        let locked = if let Some((file, shared)) = credentials {
+            Some((file.to_owned(), shared.clone().lock_owned().await))
+        } else {
+            None
+        };
+        let applied = tokio::task::spawn_blocking(move || {
+            let _guard = if let Some((file, mut records)) = locked {
+                *records = rieul_daemon_core::config::load_client_credentials_or_default(&file)
+                    .map_err(|_| RuntimeError::Storage)?;
+                let active: Vec<_> = records
+                    .clients
+                    .iter()
+                    .filter(|r| r.expires_at_unix > now())
+                    .map(|r| r.client_id.clone())
+                    .collect();
+                adoption::cancel_inactive(&p, &active)?;
+                Some(records)
+            } else {
+                None
+            };
+            let (n, _) = opened(&p)?;
+            import(&p, &history, Some(n.operation), None, None)
+        })
+        .await
+        .map_err(|_| RuntimeError::Storage)?;
+        match applied {
+            Ok(_) => return Ok(()),
+            Err(e) => error = e,
+        }
+    }
+    Err(error)
+}
 fn route(path: &Path) -> Result<(Id, String, Id, i64, Id), RuntimeError> {
     let (n, store) = opened(path)?;
     require_member(&n)?;
@@ -360,6 +452,13 @@ async fn tick_with_cursor(
     credentials: Option<(&Path, &SharedCredentials)>,
 ) -> Result<(), RuntimeError> {
     let path = path.to_owned();
+    let p = path.clone();
+    if tokio::task::spawn_blocking(move || join::configured(&p))
+        .await
+        .map_err(|_| RuntimeError::Storage)??
+    {
+        return join_tick(&path, client, cursor, credentials).await;
+    }
     let p = path.clone();
     let (_, _, cluster, _, local) = tokio::task::spawn_blocking(move || route(&p))
         .await
@@ -631,7 +730,7 @@ mod tests {
                 Mutation::Admit {
                     id: bn.admission,
                     key: key(&bn.pair),
-                    consent: [0; 32],
+                    consent: join::consent_digest(&consent(&bn)).unwrap(),
                     endpoint: bn.endpoint.clone(),
                 },
             )

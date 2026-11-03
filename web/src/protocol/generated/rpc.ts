@@ -98,6 +98,8 @@ export enum ProcId {
   GetClusterRemovalProof = 95,
   LeaveCluster = 96,
   GetClusterRevocationIssues = 97,
+  ReadClusterJoinHistory = 98,
+  ConfigureClusterJoinSync = 99,
 }
 
 export interface SubscribeWindowDetailReq {
@@ -1393,6 +1395,7 @@ export interface PrepareClusterJoinReq {
 }
 
 export interface ClusterJoinConsent {
+  expiresAtUnix: number;
   endpoint: string;
   genesis: ClusterGenesis;
   operationId: Uint8Array;
@@ -1560,6 +1563,18 @@ export interface ClusterRevocationIssues {
 
 export interface LeaveClusterReq {
   operationId: Uint8Array;
+}
+
+export interface ReadClusterJoinHistoryReq {
+  consent: ClusterJoinConsent;
+  nonce: Uint8Array;
+  connectionId: number;
+  signature: Uint8Array;
+}
+
+export interface ConfigureClusterJoinSyncReq {
+  operationId: Uint8Array;
+  bootstrapHistory: ClusterHistory;
 }
 
 export interface CreateAgentProjectReq {
@@ -3319,6 +3334,30 @@ export const getClusterRevocationIssuesProc: ProcCodec<undefined, ClusterRevocat
   decodeError: decodeClusterErrorValue,
 };
 
+export const readClusterJoinHistoryProc: ProcCodec<ReadClusterJoinHistoryReq, ClusterHistory, ClusterError> = {
+  id: ProcId.ReadClusterJoinHistory,
+  name: "ReadClusterJoinHistory",
+  stream: "unary",
+  requestType: "ReadClusterJoinHistoryReq",
+  responseType: "ClusterHistory",
+  errorType: "ClusterError",
+  encodeRequest: encodeReadClusterJoinHistoryReqValue,
+  decodeResponse: decodeClusterHistoryValue,
+  decodeError: decodeClusterErrorValue,
+};
+
+export const configureClusterJoinSyncProc: ProcCodec<ConfigureClusterJoinSyncReq, ClusterState, ClusterError> = {
+  id: ProcId.ConfigureClusterJoinSync,
+  name: "ConfigureClusterJoinSync",
+  stream: "unary",
+  requestType: "ConfigureClusterJoinSyncReq",
+  responseType: "ClusterState",
+  errorType: "ClusterError",
+  encodeRequest: encodeConfigureClusterJoinSyncReqValue,
+  decodeResponse: decodeClusterStateValue,
+  decodeError: decodeClusterErrorValue,
+};
+
 export const procs = {
   [ProcId.GetDaemonInfo]: getDaemonInfoProc,
   [ProcId.StartPairing]: startPairingProc,
@@ -3415,6 +3454,8 @@ export const procs = {
   [ProcId.GetClusterRemovalProof]: getClusterRemovalProofProc,
   [ProcId.LeaveCluster]: leaveClusterProc,
   [ProcId.GetClusterRevocationIssues]: getClusterRevocationIssuesProc,
+  [ProcId.ReadClusterJoinHistory]: readClusterJoinHistoryProc,
+  [ProcId.ConfigureClusterJoinSync]: configureClusterJoinSyncProc,
 } as const;
 
 export function encodeSubscribeWindowDetailReqValue(value: SubscribeWindowDetailReq): CborValue {
@@ -9203,6 +9244,7 @@ export function decodePrepareClusterJoinReqValue(value: CborValue): PrepareClust
 
 export function encodeClusterJoinConsentValue(value: ClusterJoinConsent): CborValue {
   const fields = new Map<number, CborValue>();
+  fields.set(7, i53(required(value.expiresAtUnix, "ClusterJoinConsent.expiresAtUnix")));
   fields.set(6, text(required(value.endpoint, "ClusterJoinConsent.endpoint")));
   fields.set(1, encodeClusterGenesisValue(required(value.genesis, "ClusterJoinConsent.genesis")));
   fields.set(2, bytes(required(value.operationId, "ClusterJoinConsent.operationId")));
@@ -9215,6 +9257,7 @@ export function encodeClusterJoinConsentValue(value: ClusterJoinConsent): CborVa
 export function decodeClusterJoinConsentValue(value: CborValue): ClusterJoinConsent {
   const fields = expectMap(value);
   return {
+    expiresAtUnix: fieldOrDefault(fields.get(7), (value) => integer(value), () => 0),
     endpoint: fieldOrDefault(fields.get(6), (value) => textValue(value), () => ""),
     genesis: fieldOrDefault(fields.get(1), (value) => decodeClusterGenesisValue(value), () => defaultClusterGenesis()),
     operationId: fieldOrDefault(fields.get(2), (value) => bytesValue(value), () => new Uint8Array()),
@@ -9864,6 +9907,40 @@ export function decodeLeaveClusterReqValue(value: CborValue): LeaveClusterReq {
   const fields = expectMap(value);
   return {
     operationId: fieldOrDefault(fields.get(1), (value) => bytesValue(value), () => new Uint8Array()),
+  };
+}
+
+export function encodeReadClusterJoinHistoryReqValue(value: ReadClusterJoinHistoryReq): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, encodeClusterJoinConsentValue(required(value.consent, "ReadClusterJoinHistoryReq.consent")));
+  fields.set(2, bytes(required(value.nonce, "ReadClusterJoinHistoryReq.nonce")));
+  fields.set(3, i53(required(value.connectionId, "ReadClusterJoinHistoryReq.connectionId")));
+  fields.set(4, bytes(required(value.signature, "ReadClusterJoinHistoryReq.signature")));
+  return fields;
+}
+
+export function decodeReadClusterJoinHistoryReqValue(value: CborValue): ReadClusterJoinHistoryReq {
+  const fields = expectMap(value);
+  return {
+    consent: fieldOrDefault(fields.get(1), (value) => decodeClusterJoinConsentValue(value), () => defaultClusterJoinConsent()),
+    nonce: fieldOrDefault(fields.get(2), (value) => bytesValue(value), () => new Uint8Array()),
+    connectionId: fieldOrDefault(fields.get(3), (value) => integer(value), () => 0),
+    signature: fieldOrDefault(fields.get(4), (value) => bytesValue(value), () => new Uint8Array()),
+  };
+}
+
+export function encodeConfigureClusterJoinSyncReqValue(value: ConfigureClusterJoinSyncReq): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, bytes(required(value.operationId, "ConfigureClusterJoinSyncReq.operationId")));
+  fields.set(2, encodeClusterHistoryValue(required(value.bootstrapHistory, "ConfigureClusterJoinSyncReq.bootstrapHistory")));
+  return fields;
+}
+
+export function decodeConfigureClusterJoinSyncReqValue(value: CborValue): ConfigureClusterJoinSyncReq {
+  const fields = expectMap(value);
+  return {
+    operationId: fieldOrDefault(fields.get(1), (value) => bytesValue(value), () => new Uint8Array()),
+    bootstrapHistory: fieldOrDefault(fields.get(2), (value) => decodeClusterHistoryValue(value), () => defaultClusterHistory()),
   };
 }
 
@@ -13717,6 +13794,7 @@ function defaultPrepareClusterJoinReq(): PrepareClusterJoinReq {
 
 function defaultClusterJoinConsent(): ClusterJoinConsent {
   return {
+    expiresAtUnix: 0,
     endpoint: "",
     genesis: defaultClusterGenesis(),
     operationId: new Uint8Array(),
@@ -13922,6 +14000,22 @@ function defaultClusterRevocationIssues(): ClusterRevocationIssues {
 function defaultLeaveClusterReq(): LeaveClusterReq {
   return {
     operationId: new Uint8Array(),
+  };
+}
+
+function defaultReadClusterJoinHistoryReq(): ReadClusterJoinHistoryReq {
+  return {
+    consent: defaultClusterJoinConsent(),
+    nonce: new Uint8Array(),
+    connectionId: 0,
+    signature: new Uint8Array(),
+  };
+}
+
+function defaultConfigureClusterJoinSyncReq(): ConfigureClusterJoinSyncReq {
+  return {
+    operationId: new Uint8Array(),
+    bootstrapHistory: defaultClusterHistory(),
   };
 }
 
