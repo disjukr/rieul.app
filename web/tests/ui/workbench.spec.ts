@@ -1,3 +1,4 @@
+import type {} from "../fixtures/cluster-lifetime.tsx";
 import { expect, test, type Page } from "@playwright/test";
 const key = "rieul.workbench.A.v1";
 test.beforeEach(async ({ page }) => {
@@ -292,4 +293,47 @@ test("saved agent tabs remain readable and closable without agent entry points",
     ),
   ).toHaveCount(0);
   expect(errors).toEqual([]);
+});
+
+test("cluster refresh and machine metadata preserve selected workbench DOM and focus", async ({
+  page,
+}) => {
+  await page.goto("/tests/fixtures/cluster-lifetime.html");
+  const tab = page.locator('[data-tab-id="t1"] [role="tab"]');
+  await expect(tab).toBeVisible();
+  await tab.evaluate(
+    (el) => ((el as HTMLElement).dataset.identity = "retained"),
+  );
+  await tab.focus();
+  for (let i = 0; i < 3; i++) {
+    await page.evaluate(async () => {
+      await window.clusterFixture.poll();
+      await new Promise(requestAnimationFrame);
+    });
+    await expect(tab).toHaveAttribute("data-identity", "retained");
+    await expect(tab).toBeFocused();
+  }
+  const hidden = page.locator("main > div[hidden] span");
+  await expect(hidden).toHaveCount(2);
+  await hidden
+    .first()
+    .evaluate((el) => ((el as HTMLElement).dataset.identity = "connection"));
+  // An unsubmitted path is component-local state, not restored from storage.
+  const path = page.locator('[data-pane-id="p1"] div[aria-label="Path"]');
+  await path.dispatchEvent("mousedown", { button: 0 });
+  const draft = page.locator('[data-pane-id="p1"] input[aria-label="Path"]');
+  await draft.fill("/unsubmitted-fixture-path");
+  await page.evaluate(() => window.clusterFixture.rename());
+  await expect(tab).toHaveAttribute("data-identity", "retained");
+  await expect(draft).toBeFocused();
+  await expect(draft).toHaveValue("/unsubmitted-fixture-path");
+  await expect(hidden.first()).toHaveAttribute("data-identity", "connection");
+  await page.evaluate(async () => {
+    await window.clusterFixture.removeMember();
+    await window.clusterFixture.poll();
+  });
+  await expect(hidden).toHaveCount(1);
+  await expect(draft).toHaveValue("/unsubmitted-fixture-path");
+  await expect(hidden.first()).toHaveAttribute("data-identity", "connection");
+  await expect(tab).toHaveAttribute("data-identity", "retained");
 });

@@ -198,3 +198,90 @@ test("deleting the selected machine publishes one coherent selection transition"
   stop();
   bunjas.dispose();
 });
+
+test("cluster refresh preserves identity while still applying expiry, revocation and new local binding", async () => {
+  const { fixture, id, concat } = await import("./helpers/cluster-history.ts");
+  const { hex } = await import("../src/cluster/trust.ts");
+  const f = await fixture();
+  await f.admit();
+  await f.adopt();
+  const persistence = memoryStorage();
+  const bunjas = createBunjaStore({ wrapInstance: (init) => createRoot(init) });
+  const owner = bunjas.get(
+    machineStoreBunja,
+    readScopes([[MachineStorageScope, persistence.storage]]),
+  );
+  const stop = owner.mount();
+  const state = owner.value;
+  const record = () => ({
+    id: hex(f.history.head.clusterId),
+    privateKey: f.client.private,
+    publicKey: f.client.public,
+    grantId: id(5),
+    history: f.history,
+  });
+  try {
+    state.addMachine({
+      id: "local",
+      name: "Local",
+      baseUrl: "https://root.test",
+      clientSecret: "fixture",
+    });
+    await state.applyCluster(record(), "local", hex(id(2)));
+    flushSolid();
+    const first = state.machines(),
+      selected = state.selected(),
+      writes = persistence.writes();
+    assert(first.length === 2 && selected?.cluster?.admissionId === hex(id(2)));
+    await state.applyCluster(record(), "local", hex(id(2)));
+    flushSolid();
+    assert(
+      state.machines() === first && state.selected() === selected,
+      "identical poll must retain machine and list identity",
+    );
+    assert(
+      persistence.writes() === writes,
+      "identical poll must not persist again",
+    );
+    // An unchanged journal must still bind a newly paired source.
+    state.addMachine({
+      id: "second",
+      name: "Second",
+      baseUrl: "https://member.test",
+      clientSecret: "fixture",
+    });
+    await state.applyCluster(record(), "second", hex(id(3)));
+    flushSolid();
+    assert(state.findMachine("second")?.cluster?.admissionId === hex(id(3)));
+    // Expiry changes authorization without changing the journal head.
+    const now = Date.now;
+    try {
+      Date.now = () => 2_000_000_001_000;
+      await state.applyCluster(record(), "local", hex(id(2)));
+      flushSolid();
+      assert(
+        state.machines().length === 2,
+        "expired grant removes discovered-only member",
+      );
+      const expired = state.machines();
+      await state.applyCluster(record(), "local", hex(id(2)));
+      flushSolid();
+      assert(
+        state.machines() === expired,
+        "unchanged unauthorized poll is also a no-op",
+      );
+    } finally {
+      Date.now = now;
+    }
+    await f.append([4, id(5)], concat(new Uint8Array([4]), id(5)));
+    await state.applyCluster(record());
+    flushSolid();
+    assert(
+      state.machines().every((m) => m.clientSecret),
+      "revocation preserves only local pairing access",
+    );
+  } finally {
+    stop();
+    bunjas.dispose();
+  }
+});

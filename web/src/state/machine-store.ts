@@ -147,7 +147,8 @@ export const machineStoreBunja = bunja(() => {
         new URL(m.baseUrl).pathname === "/" &&
         endpoint(verified.members.get(sourceAdmission)!.endpoint) ===
           new URL(m.baseUrl).origin &&
-        (!m.cluster || m.cluster.id === record.id)
+        (!m.cluster || m.cluster.id === record.id) &&
+        m.cluster?.admissionId !== sourceAdmission
           ? { ...m, cluster: { id: record.id, admissionId: sourceAdmission } }
           : m,
       );
@@ -162,7 +163,10 @@ export const machineStoreBunja = bunja(() => {
         setSelectedId((id) =>
           id && !next.some((m) => m.id === id) ? next[0]?.id : id,
         );
-        return next;
+        return next.length === current.length &&
+          next.every((m, i) => m === current[i])
+          ? current
+          : next;
       }
       for (const member of verified.members.values()) {
         const baseUrl = endpoint(member.endpoint),

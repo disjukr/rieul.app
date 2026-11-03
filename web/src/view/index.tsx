@@ -1,7 +1,7 @@
 import { ClusterConnections } from "./cluster-connections.tsx";
 import { style, theme } from "../zyzz.config.ts";
 import type { JSX } from "@solidjs/web";
-import { createEffect } from "solid-js";
+import { createEffect, createMemo } from "solid-js";
 
 import { useBunja } from "bunja/solid";
 
@@ -95,10 +95,12 @@ function Layout(componentProps: LayoutProps) {
 
 function SelectedMachineIdProvider(componentProps: { children?: JSX.Element }) {
   const machineStore = useBunja(machineStoreBunja);
-  const selected = () => machineStore().selected();
+  // Scope identity changes only when the selected ID or endpoint changes.
+  const selectedId = createMemo(() => machineStore().selected()?.id);
+  const selectedUrl = createMemo(() => machineStore().selected()?.baseUrl);
   return (
-    <MachineIdContext value={() => selected()?.id}>
-      <MachineBaseUrlContext value={() => selected()?.baseUrl}>
+    <MachineIdContext value={selectedId}>
+      <MachineBaseUrlContext value={selectedUrl}>
         {componentProps.children}
       </MachineBaseUrlContext>
     </MachineIdContext>
