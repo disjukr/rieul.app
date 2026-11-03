@@ -12,6 +12,13 @@ pub(crate) struct Principal {
     sequence: u64,
 }
 impl Principal {
+    pub(crate) fn origin(&self) -> ClusterOriginalPrincipal {
+        ClusterOriginalPrincipal::ClusterGrant {
+            cluster_id: self.cluster.to_vec(),
+            grant_id: self.grant.to_vec(),
+            client_public_key: self.client.to_vec(),
+        }
+    }
     pub(crate) fn subject(&self) -> String {
         fn hex(id: Id) -> String {
             id.iter().map(|b| format!("{b:02x}")).collect()
@@ -269,6 +276,107 @@ mod tests {
         assert_eq!(before, store.entries().unwrap());
     }
     #[test]
+    fn revoked_grant_cannot_be_laundered_through_stale_member_envelope() {
+        let (dir, path, r, pair) = fixture();
+        let bpath = dir.path().join("replica.sqlite");
+        let (n, mut a) = opened(&path).unwrap();
+        initialize(
+            &bpath,
+            [10; 32],
+            Some(n.g.clone()),
+            "https://replica/rieul/rpc",
+        )
+        .unwrap();
+        let (bn, mut replica) = opened(&bpath).unwrap();
+        let paired = Authorized {
+            expires_at_unix: now() + 3600,
+            client_id: "paired".into(),
+            peer: None,
+            grant: None,
+        };
+        commit_authorized(
+            &mut a,
+            &n,
+            &paired,
+            1,
+            [11; 32],
+            Mutation::Admit {
+                id: bn.admission,
+                key: key(&bn.pair),
+                consent: [12; 32],
+                endpoint: bn.endpoint.clone(),
+            },
+        )
+        .unwrap();
+        replica.install_history(&a.entries().unwrap()).unwrap();
+        replica
+            .db
+            .execute("UPDATE node SET phase=2 WHERE id=1", [])
+            .unwrap();
+        let challenge = peer::challenge(&path, 1, [13; 32]).unwrap();
+        let original = ClusterOriginalPrincipal::ClusterGrant {
+            cluster_id: n.g.cluster().to_vec(),
+            grant_id: r.grant_id.clone(),
+            client_public_key: r.client_public_key.clone(),
+        };
+        let request = peer::sign(
+            &bpath,
+            key(&n.pair),
+            &challenge,
+            ProcId::RemoveClusterMember,
+            RemoveClusterMemberReq {
+                operation_id: vec![14; 32],
+                expected_management_epoch: 1,
+                admission_id: vec![15; 32],
+            }
+            .encode(),
+            original,
+        )
+        .unwrap();
+        let authorized_before_revoke = peer::authenticate(&path, &request).unwrap();
+        assert!(authorized_before_revoke.grant.is_some());
+        let mut tampered = request.clone();
+        tampered.original_principal = ClusterOriginalPrincipal::LocalPairing {
+            client_id: "paired".into(),
+        };
+        assert!(peer::authenticate(&path, &tampered).is_err());
+        commit_authorized(
+            &mut a,
+            &n,
+            &paired,
+            1,
+            [16; 32],
+            Mutation::Revoke { grant: [2; 32] },
+        )
+        .unwrap();
+        let mut stale = r;
+        stale.known_head = head(&replica.state().unwrap());
+        stale.server_admission_id = bn.admission.to_vec();
+        stale.server_public_key = key(&bn.pair).to_vec();
+        stale.signature = pair.sign(&proof_body(&stale).unwrap()).as_ref().to_vec();
+        assert!(
+            authenticate(&bpath, &stale).is_ok(),
+            "replica has not learned revocation"
+        );
+        assert!(matches!(
+            peer::authenticate(&path, &request),
+            Err(RuntimeError::Unauthorized)
+        ));
+        let before = a.entries().unwrap();
+        assert!(matches!(
+            commit_authorized(
+                &mut a,
+                &n,
+                &authorized_before_revoke,
+                1,
+                [14; 32],
+                Mutation::Remove { id: [15; 32] }
+            ),
+            Err(RuntimeError::Unauthorized)
+        ));
+        assert_eq!(before, a.entries().unwrap());
+    }
+    #[test]
     fn changed_incarnation_removed_node_expiry_and_rollback_fail_closed() {
         let (_d, path, r, _) = fixture();
         let (principal, _) = authenticate(&path, &r).unwrap();
@@ -283,5 +391,17 @@ mod tests {
         state.grants.get_mut(&[2; 32]).unwrap().expires = now() as u64;
         assert!(principal.check(&n, &state).is_err());
         assert!(principal.check(&n, &State::genesis(&n.g)).is_err());
+    }
+}
+
+pub(super) fn forwarded(n: &Node, cluster: Id, grant: Id, client: Id) -> Principal {
+    Principal {
+        cluster,
+        grant,
+        client,
+        node: n.admission,
+        node_key: key(&n.pair),
+        epoch: 1,
+        sequence: 0,
     }
 }

@@ -165,7 +165,12 @@ impl HostRpcHandler {
                     forward_path,
                     inner,
                     payload,
-                    format!("paired:{client}"),
+                    principal
+                        .as_ref()
+                        .map(|(_, grant)| grant.origin())
+                        .unwrap_or_else(|| ClusterOriginalPrincipal::LocalPairing {
+                            client_id: client.clone(),
+                        }),
                 )
                 .await;
                 drop(records);
@@ -351,6 +356,81 @@ mod tests {
         )
         .unwrap()
         .remove(0)
+    }
+    async fn blocked_import_survives_disconnect(
+        f: &Fixture,
+        session: &web_transport_quinn::Session,
+        history: ClusterHistory,
+    ) {
+        let path = f._dir.path().join("rieul.cluster.sqlite");
+        let mut writer = rusqlite::Connection::open(path).unwrap();
+        let held = writer
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .unwrap();
+        let baseline = f.gate.active();
+        let (mut send, recv) = session.open_bi().await.unwrap();
+        send.write_all(
+            &ReqResMessage::RequestUnary {
+                proc_id: ProcId::ApplyClusterHistory.as_u64(),
+                payload: Some(ApplyClusterHistoryReq { history }.encode()),
+            }
+            .encode(),
+        )
+        .await
+        .unwrap();
+        send.finish().unwrap();
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while f.gate.active() <= baseline {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        session.close(0, b"disconnect during blocked mutation");
+        tokio::time::sleep(Duration::from_millis(150)).await;
+        assert!(
+            f.gate.active() > 0,
+            "admitted blocking operation retains its guard"
+        );
+        assert!(f.gate.begin_drain().is_none());
+        held.rollback().unwrap();
+        drop(recv);
+        tokio::time::timeout(Duration::from_secs(3), async {
+            while f.gate.active() != 0 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        assert!(f.gate.begin_drain().is_some());
+    }
+    #[tokio::test]
+    async fn paired_disconnect_does_not_release_drain_before_blocking_operation_finishes() {
+        tokio::time::timeout(Duration::from_secs(10), async {
+            let f = Fixture::new().await;
+            f.authenticate().await;
+            let state = ClusterState::decode(
+                &ok(
+                    &f,
+                    ProcId::CreateCluster,
+                    Some(
+                        CreateClusterReq {
+                            operation_id: vec![1; 32],
+                            confirmed: true,
+                        }
+                        .encode(),
+                    ),
+                )
+                .await,
+            )
+            .unwrap();
+            let (_, head, _) = member(state);
+            let history = history(&f, head.cluster_id).await;
+            blocked_import_survives_disconnect(&f, &f.session, history).await;
+        })
+        .await
+        .unwrap();
     }
     #[tokio::test]
     async fn actual_webtransport_join_sync_is_consent_bound_and_never_authenticates_session() {
@@ -1162,7 +1242,9 @@ mod tests {
                     cluster_id: head.cluster_id,
                 }
                 .encode(),
-                "paired:fixture".into(),
+                ClusterOriginalPrincipal::LocalPairing {
+                    client_id: "fixture".into(),
+                },
             )
             .unwrap();
             ok(&a, ProcId::ExecuteClusterPeerRequest, Some(proof.encode())).await;
@@ -1338,6 +1420,61 @@ mod tests {
                 held_streams.push(fixture.hold_key_on(&session).await);
                 grant_sessions.push(session);
             }
+            // Grant-authenticated connection cancellation has the same drain boundary.
+            let latest = history(&b, challenge.cluster_id.clone()).await;
+            blocked_import_survives_disconnect(&b, &grant_sessions[1], latest).await;
+            b.assert_control_released().await;
+            // Reconnect explicitly so later removal still tests a live grant session.
+            let ClusterState::Member {
+                head,
+                local_admission_id,
+                members,
+                ..
+            } = get(&b).await
+            else {
+                panic!()
+            };
+            let target = members
+                .iter()
+                .find(|m| m.admission_id == local_admission_id)
+                .unwrap();
+            let reconnected = b
+                ._client
+                .connect(url::Url::parse(&target.endpoint).unwrap())
+                .await
+                .unwrap();
+            let ReqResMessage::ResponseUnaryOk {
+                payload: Some(bytes),
+            } = raw_join_call(&reconnected, ProcId::GetClusterPeerChallenge, None).await
+            else {
+                panic!()
+            };
+            let nonce = ClusterPeerChallenge::decode(&bytes).unwrap();
+            let mut request = AuthenticateClusterClientReq {
+                known_head: head,
+                server_admission_id: local_admission_id,
+                server_public_key: target.node_public_key.clone(),
+                grant_id: challenge.grant_id.clone(),
+                client_public_key: pair.public_key().as_ref().to_vec(),
+                nonce: nonce.nonce,
+                connection_id: nonce.connection_id,
+                signature: vec![],
+            };
+            request.signature = pair
+                .sign(&runtime::client::proof_body(&request).unwrap())
+                .as_ref()
+                .to_vec();
+            assert!(matches!(
+                raw_join_call(
+                    &reconnected,
+                    ProcId::AuthenticateClusterClient,
+                    Some(request.encode())
+                )
+                .await,
+                ReqResMessage::ResponseUnaryOk { .. }
+            ));
+            held_streams.push(b.hold_key_on(&reconnected).await);
+            grant_sessions[1] = reconnected;
             let before = member(get(&a).await).1.sequence;
             runtime::worker::tick(&path, &a._client).await.unwrap();
             assert_eq!(member(get(&a).await).1.sequence, before);
@@ -1380,7 +1517,7 @@ mod tests {
                     cluster_id: head.cluster_id.clone()
                 }
                 .encode(),
-                "node:fixture".into()
+                ClusterOriginalPrincipal::Node
             )
             .await
             .is_err());
@@ -1394,7 +1531,7 @@ mod tests {
                     cluster_id: head.cluster_id,
                 }
                 .encode(),
-                "node:fixture".into(),
+                ClusterOriginalPrincipal::Node,
             )
             .await
             .unwrap();

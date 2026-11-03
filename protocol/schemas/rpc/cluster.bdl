@@ -424,7 +424,7 @@ struct ClusterPeerRequest {
   @ id - 7
   payload: bytes,
   @ id - 8
-  originalPrincipal: string,
+  originalPrincipal: ClusterOriginalPrincipal,
   @ id - 9
   signature: bytes,
 }
@@ -508,4 +508,23 @@ struct AuthenticateClusterClientReq {
   connectionId: i53,
   @ id - 8
   signature: bytes,
+}
+
+union ClusterOriginalPrincipal {
+  @ id - 1
+  LocalPairing(
+    @ id - 1
+    clientId: string,
+  ),
+  @ id - 2
+  ClusterGrant(
+    @ id - 1
+    clusterId: bytes,
+    @ id - 2
+    grantId: bytes,
+    @ id - 3
+    clientPublicKey: bytes,
+  ),
+  @ id - 3
+  Node,
 }

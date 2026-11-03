@@ -346,3 +346,37 @@ Validation: full host 167 passed / 3 ignored; web/codegen 112 passed; TypeScript
 check and production web build passed. No actual host, credential, permission,
 main push or deployment changes. Independent auth review is required before
 publication; Windows enrollment remains disabled.
+
+## Follow-up: typed forwarding and admitted-operation drain lifetime
+
+The prior server checkpoint had two review blockers, now corrected separately
+from the stashed browser work:
+
+* Peer envelopes carry ClusterOriginalPrincipal: LocalPairing(client ID),
+  ClusterGrant(cluster ID, grant ID, client public key), or Node. The explicit
+  canonical peer-request transcript is now v2 and signs that tagged identity.
+  No paired-prefix string parsing or implicit grant-to-node downgrade remains.
+  The primary checks the grant on receipt and retains a typed Principal for a
+  fresh check inside the write transaction. A trusted member's local pairing
+  attestation remains distinct from a cluster grant and background node work.
+* Protected RPC operations own their existing WorkGuard in an independently
+  running task. Canceling the connection's response task therefore cannot drop
+  admission while spawn_blocking work remains live. Unprotected subscriptions
+  still cancel with the connection; protected input/file streams terminate on
+  transport closure, while already admitted mutations finish before releasing
+  drain protection. This preserves existing accepted-operation semantics and
+  does not add a force-cancel/update path.
+
+Regression: a replica with stale history still accepts G locally after primary
+revocation, but its signed grant envelope is rejected at the primary. An envelope
+authenticated before revocation also fails the transaction recheck without log
+change; altering the identity mode without resigning fails verification.
+Transport regressions hold a real SQLite writer lock while ApplyClusterHistory
+is admitted, disconnect paired and grant sessions, assert WorkGate stays busy
+and drain denied, then release the writer and assert the gate/drain recover.
+The grant session reconnects with a fresh proof and explicitly reacquires input;
+subsequent removal/revocation still closes live sessions and releases keys.
+
+Validation: cluster subset 46 passed; full host 169 passed / 3 ignored;
+web/codegen 112 passed, TypeScript check and production build passed. Browser
+work remains stashed and unconnected. No main push or real environment changes.

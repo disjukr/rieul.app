@@ -827,10 +827,10 @@ pub(super) mod tests {
     pub(in crate::server) struct Fixture {
         pub(in crate::server) _dir: tempfile::TempDir,
         pub(in crate::server) credentials_path: PathBuf,
-        session: web_transport_quinn::Session,
+        pub(in crate::server) session: web_transport_quinn::Session,
         backend: Arc<FakeBackend>,
         runtime: Arc<desktop::Runtime>,
-        gate: Arc<crate::maintenance::WorkGate>,
+        pub(in crate::server) gate: Arc<crate::maintenance::WorkGate>,
         server: tokio::task::JoinHandle<()>,
         pub(in crate::server) _client: web_transport_quinn::Client,
         client_id: String,
@@ -1125,6 +1125,14 @@ pub(super) mod tests {
                 down: true,
                 repeat: false,
             };
+            let previous_keys = self
+                .backend
+                .inputs
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|event| *event == &key)
+                .count();
             let frame = DesktopInputFrame {
                 attach_id,
                 input_epoch: control.input_epoch,
@@ -1142,7 +1150,22 @@ pub(super) mod tests {
             )
             .await
             .unwrap();
-            self.wait_input(&key).await;
+            loop {
+                let changed = self.backend.changed.notified();
+                if self
+                    .backend
+                    .inputs
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .filter(|event| *event == &key)
+                    .count()
+                    > previous_keys
+                {
+                    break;
+                }
+                changed.await;
+            }
             (send, recv, events)
         }
         pub(in crate::server) async fn assert_control_released(&self) {

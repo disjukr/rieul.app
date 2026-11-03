@@ -1599,83 +1599,95 @@ async fn handle_reqres_stream(
     } else {
         None
     };
-    match first {
-        message if message.is_session_control() => {
-            let mut messages = vec![message];
-            messages.extend(read_remaining_reqres_messages(&mut reader).await?);
-            let responses = handle_session_control_messages(
-                messages,
-                context.client_credentials,
-                context.session_state,
-            )
-            .await?;
-            write_reqres_messages(&mut send, &responses).await
-        }
-        ReqResMessage::RequestUnary { proc_id, payload } if is_server_stream_proc(proc_id) => {
-            if reader.next().await?.is_some() {
+    let operation = async move {
+        let _work_guard = _work_guard;
+        match first {
+            message if message.is_session_control() => {
+                let mut messages = vec![message];
+                messages.extend(read_remaining_reqres_messages(&mut reader).await?);
+                let responses = handle_session_control_messages(
+                    messages,
+                    context.client_credentials,
+                    context.session_state,
+                )
+                .await?;
+                write_reqres_messages(&mut send, &responses).await
+            }
+            ReqResMessage::RequestUnary { proc_id, payload } if is_server_stream_proc(proc_id) => {
+                if reader.next().await?.is_some() {
+                    write_reqres_message(
+                        &mut send,
+                        stream_generic_error_message(
+                            proc_id,
+                            RpcErrorCode::BadMessage,
+                            "server-stream request sequence may contain only one message",
+                        ),
+                    )
+                    .await?;
+                    send.finish()?;
+                    return Ok(());
+                }
+                let shared_send = Arc::new(Mutex::new(send));
+                dispatch_server_stream_rpc(proc_id, payload, shared_send.clone(), context).await?;
+                shared_send.lock().await.finish()?;
+                Ok(())
+            }
+            ReqResMessage::RequestUnary { proc_id, payload } => {
+                if reader.next().await?.is_some() {
+                    write_reqres_message(
+                        &mut send,
+                        generic_error_message(
+                            proc_id,
+                            RpcErrorCode::BadMessage,
+                            "unary request sequence may contain only one message",
+                        ),
+                    )
+                    .await?;
+                    return Ok(());
+                }
+                let responses = dispatch_unary_rpc(proc_id, payload, context).await?;
+                write_reqres_messages(&mut send, &responses).await?;
+                send.finish()?;
+                Ok(())
+            }
+            ReqResMessage::RequestStreamStart { proc_id, payload } => {
+                if proc_id == ProcId::WriteDesktopInput.as_u64() {
+                    reader.desktop_limits()?;
+                }
+                let responses = dispatch_client_stream_rpc(
+                    proc_id,
+                    payload,
+                    RequestStreamSource::Live(reader),
+                    context,
+                )
+                .await?;
+                write_reqres_messages(&mut send, &responses).await?;
+                send.finish()?;
+                Ok(())
+            }
+            _ => {
                 write_reqres_message(
                     &mut send,
-                    stream_generic_error_message(
-                        proc_id,
+                    generic_error_message(
+                        0,
                         RpcErrorCode::BadMessage,
-                        "server-stream request sequence may contain only one message",
+                        "reqres stream must start with a request message",
                     ),
                 )
                 .await?;
                 send.finish()?;
-                return Ok(());
+                Ok(())
             }
-            let shared_send = Arc::new(Mutex::new(send));
-            dispatch_server_stream_rpc(proc_id, payload, shared_send.clone(), context).await?;
-            shared_send.lock().await.finish()?;
-            Ok(())
         }
-        ReqResMessage::RequestUnary { proc_id, payload } => {
-            if reader.next().await?.is_some() {
-                write_reqres_message(
-                    &mut send,
-                    generic_error_message(
-                        proc_id,
-                        RpcErrorCode::BadMessage,
-                        "unary request sequence may contain only one message",
-                    ),
-                )
-                .await?;
-                return Ok(());
-            }
-            let responses = dispatch_unary_rpc(proc_id, payload, context).await?;
-            write_reqres_messages(&mut send, &responses).await?;
-            send.finish()?;
-            Ok(())
-        }
-        ReqResMessage::RequestStreamStart { proc_id, payload } => {
-            if proc_id == ProcId::WriteDesktopInput.as_u64() {
-                reader.desktop_limits()?;
-            }
-            let responses = dispatch_client_stream_rpc(
-                proc_id,
-                payload,
-                RequestStreamSource::Live(reader),
-                context,
-            )
-            .await?;
-            write_reqres_messages(&mut send, &responses).await?;
-            send.finish()?;
-            Ok(())
-        }
-        _ => {
-            write_reqres_message(
-                &mut send,
-                generic_error_message(
-                    0,
-                    RpcErrorCode::BadMessage,
-                    "reqres stream must start with a request message",
-                ),
-            )
-            .await?;
-            send.finish()?;
-            Ok(())
-        }
+    };
+    if protected_work {
+        // Aborting the response task must not drop admission while a blocking
+        // operation already dispatched by this request can still mutate state.
+        tokio::spawn(operation)
+            .await
+            .context("admitted RPC operation failed")?
+    } else {
+        operation.await
     }
 }
 

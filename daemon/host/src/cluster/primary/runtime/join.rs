@@ -295,7 +295,7 @@ mod tests {
                 cluster_id: an.g.cluster().to_vec(),
             }
             .encode(),
-            original_principal: "joining".into(),
+            original_principal: ClusterOriginalPrincipal::Node,
             signature: valid.signature.clone(),
         };
         assert!(peer::authenticate(&a, &peer_request).is_err());

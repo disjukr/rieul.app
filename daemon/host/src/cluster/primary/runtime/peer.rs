@@ -11,14 +11,11 @@ pub(crate) fn server_body(cluster: Id, server: Id, connection: u64, nonce: Id) -
     .encode()
 }
 fn request_body(r: &ClusterPeerRequest, server: Id) -> Result<Vec<u8>, RuntimeError> {
-    if r.original_principal.is_empty()
-        || r.original_principal.len() > 256
-        || r.payload.len() > MAX_RPC_BYTES
-    {
+    if r.payload.len() > MAX_RPC_BYTES {
         return Err(RuntimeError::Limit);
     }
     Ok(Value::Array(vec![
-        Value::Text("rieul.cluster.peer-request.v1".into()),
+        Value::Text("rieul.cluster.peer-request.v2".into()),
         b(id(&r.cluster_id)?),
         b(server),
         b(id(&r.sender_admission_id)?),
@@ -27,7 +24,7 @@ fn request_body(r: &ClusterPeerRequest, server: Id) -> Result<Vec<u8>, RuntimeEr
         Value::U64(counter(r.connection_id)?),
         Value::U64(counter(r.procedure_id)?),
         b(hash(&r.payload)),
-        Value::Text(r.original_principal.clone()),
+        original_body(&r.original_principal)?,
     ])
     .encode())
 }
@@ -67,10 +64,24 @@ pub(crate) fn authenticate(
         removal_proof(&store, sender, public)?;
     }
     verify(public, &request_body(r, key(&n.pair))?, &r.signature)?;
+    let (client_id, grant) = match &r.original_principal {
+        ClusterOriginalPrincipal::LocalPairing { client_id } => (client_id.clone(), None),
+        ClusterOriginalPrincipal::Node => ("cluster-node".into(), None),
+        ClusterOriginalPrincipal::ClusterGrant {
+            cluster_id,
+            grant_id,
+            client_public_key,
+        } => {
+            let principal =
+                client::forwarded(&n, id(cluster_id)?, id(grant_id)?, id(client_public_key)?);
+            principal.check(&n, &store.state()?)?;
+            (principal.subject(), Some(principal))
+        }
+    };
     Ok(Authorized {
         expires_at_unix: now() + 10,
-        client_id: r.original_principal.clone(),
-        grant: None,
+        client_id,
+        grant,
         peer: Some((sender, public)),
     })
 }
@@ -80,7 +91,7 @@ pub(crate) fn sign(
     challenge: &ClusterPeerChallenge,
     proc: ProcId,
     payload: Vec<u8>,
-    original: String,
+    original: ClusterOriginalPrincipal,
 ) -> Result<ClusterPeerRequest, RuntimeError> {
     let (n, store) = opened(path)?;
     require_member(&n)?;
@@ -139,4 +150,26 @@ pub(crate) fn forwarding_payload(request: &RpcRequest) -> Option<(ProcId, Vec<u8
         RpcRequest::RevokeClusterClientGrant(r) => (ProcId::RevokeClusterClientGrant, r.encode()),
         _ => return None,
     })
+}
+
+fn original_body(original: &ClusterOriginalPrincipal) -> Result<Value, RuntimeError> {
+    Ok(Value::Array(match original {
+        ClusterOriginalPrincipal::LocalPairing { client_id } => {
+            if client_id.is_empty() || client_id.len() > 256 {
+                return Err(RuntimeError::InvalidProof);
+            }
+            vec![Value::U64(0), Value::Text(client_id.clone())]
+        }
+        ClusterOriginalPrincipal::ClusterGrant {
+            cluster_id,
+            grant_id,
+            client_public_key,
+        } => vec![
+            Value::U64(1),
+            b(id(cluster_id)?),
+            b(id(grant_id)?),
+            b(id(client_public_key)?),
+        ],
+        ClusterOriginalPrincipal::Node => vec![Value::U64(2)],
+    }))
 }

@@ -75,7 +75,7 @@ pub(crate) async fn call(
     url: &str,
     proc: ProcId,
     payload: Vec<u8>,
-    original: String,
+    original: ClusterOriginalPrincipal,
 ) -> Result<Vec<u8>, RuntimeError> {
     validate_endpoint(url)?;
     tokio::time::timeout(Duration::from_secs(8), async {
@@ -225,7 +225,7 @@ pub(crate) async fn forward(
     path: PathBuf,
     proc: ProcId,
     payload: Vec<u8>,
-    original: String,
+    original: ClusterOriginalPrincipal,
 ) -> Result<Vec<u8>, RuntimeError> {
     let p = path.clone();
     let (server, url, _, _, _) = tokio::task::spawn_blocking(move || route(&p))
@@ -352,7 +352,7 @@ async fn synchronize(
     credentials: Option<(&Path, &SharedCredentials)>,
 ) -> Result<(), RuntimeError> {
     let p = path.to_owned();
-    let (_, _, cluster, _, local) = tokio::task::spawn_blocking(move || route(&p))
+    let (_, _, cluster, _, _local) = tokio::task::spawn_blocking(move || route(&p))
         .await
         .map_err(|_| RuntimeError::Storage)??;
     let p = path.to_owned();
@@ -377,7 +377,7 @@ async fn synchronize(
                 cluster_id: cluster.to_vec(),
             }
             .encode(),
-            format!("node:{local:?}"),
+            ClusterOriginalPrincipal::Node,
         )
         .await;
         let bytes = match received {
@@ -401,7 +401,7 @@ async fn synchronize(
                         cluster_id: cluster.to_vec(),
                     }
                     .encode(),
-                    format!("node:{local:?}"),
+                    ClusterOriginalPrincipal::Node,
                 )
                 .await
                 {
@@ -460,7 +460,7 @@ async fn tick_with_cursor(
         return join_tick(&path, client, cursor, credentials).await;
     }
     let p = path.clone();
-    let (_, _, cluster, _, local) = tokio::task::spawn_blocking(move || route(&p))
+    let (_, _, cluster, _, _local) = tokio::task::spawn_blocking(move || route(&p))
         .await
         .map_err(|_| RuntimeError::Storage)??;
     let p = path.clone();
@@ -519,7 +519,7 @@ async fn tick_with_cursor(
                 &url,
                 ProcId::RevokeClusterClientGrant,
                 request.encode(),
-                "node:cancel-pending-adoption".into(),
+                ClusterOriginalPrincipal::Node,
             )
             .await?;
             synchronize(&path, client, cursor, credentials).await?;
@@ -544,7 +544,7 @@ async fn tick_with_cursor(
             &url,
             ProcId::RemoveClusterMember,
             request.encode(),
-            format!("node:leave:{local:?}"),
+            ClusterOriginalPrincipal::Node,
         )
         .await;
         let synced = synchronize(&path, client, cursor, credentials).await;
@@ -614,7 +614,7 @@ async fn tick_with_cursor(
                     intent,
                 }
                 .encode(),
-                format!("paired:{owner}"),
+                ClusterOriginalPrincipal::LocalPairing { client_id: owner },
             )
             .await?;
             drop(guard);
@@ -628,7 +628,7 @@ async fn tick_with_cursor(
                     cluster_id: cluster.to_vec(),
                 }
                 .encode(),
-                format!("node:{local:?}"),
+                ClusterOriginalPrincipal::Node,
             )
             .await?;
             let h = ClusterHistory::decode(&bytes).map_err(|_| RuntimeError::InvalidProof)?;

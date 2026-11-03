@@ -1543,7 +1543,7 @@ export interface ClusterPeerRequest {
   connectionId: number;
   procedureId: number;
   payload: Uint8Array;
-  originalPrincipal: string;
+  originalPrincipal: ClusterOriginalPrincipal;
   signature: Uint8Array;
 }
 
@@ -1588,6 +1588,12 @@ export interface AuthenticateClusterClientReq {
   connectionId: number;
   signature: Uint8Array;
 }
+
+export type ClusterOriginalPrincipal =
+  | { type: "localPairing"; clientId: string }
+  | { type: "clusterGrant"; clusterId: Uint8Array; grantId: Uint8Array; clientPublicKey: Uint8Array }
+  | { type: "node" }
+;
 
 export interface CreateAgentProjectReq {
   rootPath: string;
@@ -9857,7 +9863,7 @@ export function encodeClusterPeerRequestValue(value: ClusterPeerRequest): CborVa
   fields.set(5, i53(required(value.connectionId, "ClusterPeerRequest.connectionId")));
   fields.set(6, i53(required(value.procedureId, "ClusterPeerRequest.procedureId")));
   fields.set(7, bytes(required(value.payload, "ClusterPeerRequest.payload")));
-  fields.set(8, text(required(value.originalPrincipal, "ClusterPeerRequest.originalPrincipal")));
+  fields.set(8, encodeClusterOriginalPrincipalValue(required(value.originalPrincipal, "ClusterPeerRequest.originalPrincipal")));
   fields.set(9, bytes(required(value.signature, "ClusterPeerRequest.signature")));
   return fields;
 }
@@ -9872,7 +9878,7 @@ export function decodeClusterPeerRequestValue(value: CborValue): ClusterPeerRequ
     connectionId: fieldOrDefault(fields.get(5), (value) => integer(value), () => 0),
     procedureId: fieldOrDefault(fields.get(6), (value) => integer(value), () => 0),
     payload: fieldOrDefault(fields.get(7), (value) => bytesValue(value), () => new Uint8Array()),
-    originalPrincipal: fieldOrDefault(fields.get(8), (value) => textValue(value), () => ""),
+    originalPrincipal: fieldOrDefault(fields.get(8), (value) => decodeClusterOriginalPrincipalValue(value), () => defaultClusterOriginalPrincipal()),
     signature: fieldOrDefault(fields.get(9), (value) => bytesValue(value), () => new Uint8Array()),
   };
 }
@@ -9994,6 +10000,50 @@ export function decodeAuthenticateClusterClientReqValue(value: CborValue): Authe
     connectionId: fieldOrDefault(fields.get(7), (value) => integer(value), () => 0),
     signature: fieldOrDefault(fields.get(8), (value) => bytesValue(value), () => new Uint8Array()),
   };
+}
+
+export function encodeClusterOriginalPrincipalValue(value: ClusterOriginalPrincipal): CborValue {
+  switch (value.type) {
+    case "localPairing": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.clientId, "ClusterOriginalPrincipal.LocalPairing.clientId")));
+      return [1, fields];
+    }
+    case "clusterGrant": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, bytes(required(value.clusterId, "ClusterOriginalPrincipal.ClusterGrant.clusterId")));
+      fields.set(2, bytes(required(value.grantId, "ClusterOriginalPrincipal.ClusterGrant.grantId")));
+      fields.set(3, bytes(required(value.clientPublicKey, "ClusterOriginalPrincipal.ClusterGrant.clientPublicKey")));
+      return [2, fields];
+    }
+    case "node": {
+      const fields = new Map<number, CborValue>();
+      return [3, fields];
+    }
+  }
+}
+
+export function decodeClusterOriginalPrincipalValue(value: CborValue): ClusterOriginalPrincipal {
+  const [variantId, fields] = expectUnion(value);
+  switch (variantId) {
+    case 1:
+      return {
+        type: "localPairing",
+        clientId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+    case 2:
+      return {
+        type: "clusterGrant",
+        clusterId: fieldOrDefault(fields.get(1), (value) => bytesValue(value), () => new Uint8Array()),
+        grantId: fieldOrDefault(fields.get(2), (value) => bytesValue(value), () => new Uint8Array()),
+        clientPublicKey: fieldOrDefault(fields.get(3), (value) => bytesValue(value), () => new Uint8Array()),
+      };
+    case 3:
+      return {
+        type: "node",
+      };
+  }
+  throw new Error(`unknown ClusterOriginalPrincipal variant ${variantId}`);
 }
 
 export function encodeCreateAgentProjectReqValue(value: CreateAgentProjectReq): CborValue {
@@ -14023,7 +14073,7 @@ function defaultClusterPeerRequest(): ClusterPeerRequest {
     connectionId: 0,
     procedureId: 0,
     payload: new Uint8Array(),
-    originalPrincipal: "",
+    originalPrincipal: defaultClusterOriginalPrincipal(),
     signature: new Uint8Array(),
   };
 }
@@ -14081,6 +14131,13 @@ function defaultAuthenticateClusterClientReq(): AuthenticateClusterClientReq {
     nonce: new Uint8Array(),
     connectionId: 0,
     signature: new Uint8Array(),
+  };
+}
+
+function defaultClusterOriginalPrincipal(): ClusterOriginalPrincipal {
+  return {
+    type: "localPairing",
+    clientId: "",
   };
 }
 
