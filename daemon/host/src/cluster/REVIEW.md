@@ -481,3 +481,56 @@ transaction. A same-thread held BEGIN IMMEDIATE regression verifies committed
 snapshot reads do not secretly request a writer lock, then corrupts identity and
 verifies rejection. Full host suite: 170 passed / 5 ignored.
 These changes require focused review before deployment; no runtime host modified.
+
+### Primary transfer and cluster approval management UI
+
+The daemon Cluster section now lists verified cluster approvals (grant ID, issuer,
+expiry, this-browser marker) separately from local pairings and confirms the
+cluster-wide effect before revocation. Unresolved cancellation issues remain
+visible even on a removed issuer; the UI explicitly requires an active member
+rather than promising eventual cancellation. Unsupported enrollment explicitly
+mentions the current Windows limitation and exposes no cluster actions.
+
+Normal handoff identifies the selected member and endpoint, explains irreversible
+sealing, and uses Prepare -> Seal -> Activate. Preparation operation IDs are bound
+to cluster/head/target for exact retries. After sealing, recovery uses only the
+verified transfer entry's operation and selected target; there is no unseal,
+replacement target, timeout promotion or success without an Active response.
+Sealed, AwaitingActivation, replica/primary availability and access status remain
+separate. A signed-history mock regression loses the activation response, rejects
+a changed endpoint and resumes without a second seal. Revocation also detects
+an already recorded tombstone before attempting an epoch-changing retry.
+
+The ignored browser E2E now runs both localhost synthetic servers in a child test
+process. The parent kills/waits that actual process and restarts it with the same
+private temporary fixture directories, TLS certificate/port, node keys, pairing
+records and signed logs. A new PID and unchanged certificate/endpoints are checked;
+the existing browser key subsequently authenticates and performs ordinary RPC.
+This is a real process restart of the process hosting both nodes, not independent
+per-node OS services or a power-loss test. The browser then uses the product
+helper to transfer A -> B, the actual B UI to transfer B -> A, and the actual A UI
+to revoke its own cluster approval. Removed discovered nodes remain removed on a
+later refresh, while the original local pairing survives.
+
+Fixture TLS is pinned only in the fresh browser profile and the synthetic worker.
+System trust was not changed. Peer-forwarding from replica UI is consequently not
+covered end-to-end by this certificate fixture: approval revocation is performed
+on the primary. The existing signed-peer runtime tests cover forwarding identity
+and revocation checks. No production verification bypass was introduced.
+
+Final validation: host 170 passed / 5 ignored; production cargo check passed;
+web/codegen 118 passed; TypeScript check and production build passed; all 46 UI
+tests passed after the build finished; final real browser/process restart E2E
+passed separately. Focus/hover/narrow layout and dynamic management phases were
+checked. Screenshots inspected: tmp/cluster-browser-narrow.png and
+ tmp/cluster-management-narrow.png. Logs: tmp/cluster-management-{host,production,
+check,build,test,ui,browser-final}.log.
+
+The drain regression helper now waits for the scenario's known persistent guard
+count (zero or desktop+input) before measuring new admission; a preceding response
+may arrive before its operation guard drops. This accompanies, and does not
+substitute for, the read-only authorization fix described above.
+No main push, CI publication, release, installation or actual host state changes.
+Independent review remains required, especially for bcc9906's authorization read
+path. Windows enrollment, automatic promotion, forced primary recovery and
+partition-wide immediate revocation remain unsupported.

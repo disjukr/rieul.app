@@ -128,3 +128,49 @@ test("another tab's revocation fences automatic expired-grant renewal", async ({
   });
   await other.close();
 });
+
+test("management phases, approval scope, and unresolved removal remain distinct", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/tests/fixtures/cluster.html");
+  const region = page.getByRole("region", { name: "Cluster", exact: true });
+  for (const [phase, message] of [
+    ["active", "This daemon is the primary"],
+    ["sealed", "Management is sealed"],
+    ["awaitingActivation", "Management is not ready"],
+    ["replica", "cached access can continue while it is offline"],
+  ] as const) {
+    await page.evaluate(async (phase) => {
+      await (
+        window as unknown as {
+          clusterFixture: { management(p: string): Promise<void> };
+        }
+      ).clusterFixture.management(phase);
+    }, phase);
+    await expect(region).toContainText(message);
+    await expect(region).toContainText("(this browser)");
+    await expect(region).toContainText("Local pairings are managed separately");
+  }
+  const revoke = region.getByRole("button", {
+    name: "Revoke cluster approval…",
+  });
+  await revoke.focus();
+  await expect(revoke).toBeFocused();
+  await revoke.hover();
+  await revoke.click();
+  await expect(region).toContainText("This does not remove a local pairing");
+  await region.getByRole("button", { name: "Cancel", exact: true }).click();
+  await page.evaluate(() =>
+    (
+      window as unknown as { clusterFixture: { unresolved(): void } }
+    ).clusterFixture.unresolved(),
+  );
+  await expect(region.getByRole("alert")).toContainText(
+    "removed issuer cannot finish cancellation automatically",
+  );
+  expect(
+    await region.evaluate((node) => node.scrollWidth <= node.clientWidth),
+  ).toBe(true);
+  await page.screenshot({ path: "tmp/cluster-management-narrow.png" });
+});

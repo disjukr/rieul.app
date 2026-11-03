@@ -1,6 +1,6 @@
 # standard - rieul-rpc
 # description
-| Explicit opt-in cluster management. Client grant expansion is not enabled.
+| Explicit opt-in cluster management and primary-adopted client grants.
 
 @ id - 76
 @ stream - unary

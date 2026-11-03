@@ -79,7 +79,15 @@ with no automatic promotion. Data-plane services remain independent peers. See
 normal handoff seal algorithm and outstanding authentication/grant boundaries.
 The separate unpublished union experiment is not included on this branch.
 
-`primary.rs` now backs the opt-in runtime. Client grants can be recorded but do
-not yet authorize ordinary Screen/files RPCs. Automatic browser adoption and
-member connections are not implemented. Partition revocation freshness and
-old-backup fencing are not guaranteed.
+`primary.rs` backs the opt-in runtime. A locally approved pairing is automatically
+adopted by the primary before it grants access across members. Browser keys remain
+nonextractable and local; verified history drives member discovery and ordinary
+RPC grant authentication. The client exposes explicit create/join/leave, normal
+primary handoff, and a cluster approval list with revocation, separate from local
+pairings. Pending activation and unresolved cancellation remain visible.
+
+Windows enrollment is unavailable pending private-DACL implementation and review.
+There is no automatic promotion or forced recovery, and partition revocation
+freshness and old-backup fencing are not guaranteed. This implementation remains
+unpublished pending independent review; see REVIEW.md for current evidence and
+exact test limitations.

@@ -824,8 +824,17 @@ pub(super) mod tests {
         .await
         .unwrap();
     }
+    pub(in crate::server) struct FixtureDirectory {
+        path: PathBuf,
+        _temporary: Option<tempfile::TempDir>,
+    }
+    impl FixtureDirectory {
+        pub(in crate::server) fn path(&self) -> &std::path::Path {
+            &self.path
+        }
+    }
     pub(in crate::server) struct Fixture {
-        pub(in crate::server) _dir: tempfile::TempDir,
+        pub(in crate::server) _dir: FixtureDirectory,
         pub(in crate::server) credentials_path: PathBuf,
         pub(in crate::server) session: web_transport_quinn::Session,
         backend: Arc<FakeBackend>,
@@ -854,23 +863,63 @@ pub(super) mod tests {
         async fn with_updates(use_ipc: bool, updates: SharedUpdater) -> Self {
             Self::with_options(use_ipc, updates, None).await
         }
-        pub(in crate::server) async fn with_pairing(notifier: SharedPairingNotifier) -> Self {
-            Self::with_options(false, None, Some(notifier)).await
-        }
         async fn with_options(
             use_ipc: bool,
             updates: SharedUpdater,
             pairing_notifier: Option<SharedPairingNotifier>,
         ) -> Self {
-            let dir = tempfile::tempdir().unwrap();
+            Self::with_storage(use_ipc, updates, pairing_notifier, None).await
+        }
+        pub(in crate::server) async fn persistent(
+            path: PathBuf,
+            notifier: SharedPairingNotifier,
+        ) -> Self {
+            Self::with_storage(false, None, Some(notifier), Some(path)).await
+        }
+        async fn with_storage(
+            use_ipc: bool,
+            updates: SharedUpdater,
+            pairing_notifier: Option<SharedPairingNotifier>,
+            persistent: Option<PathBuf>,
+        ) -> Self {
+            let dir = if let Some(path) = persistent {
+                std::fs::create_dir_all(&path).unwrap();
+                FixtureDirectory {
+                    path,
+                    _temporary: None,
+                }
+            } else {
+                let temporary = tempfile::tempdir().unwrap();
+                FixtureDirectory {
+                    path: temporary.path().to_owned(),
+                    _temporary: Some(temporary),
+                }
+            };
             let path = dir.path().join("rieul.yaml");
             let credentials_path = client_credentials_path(&path);
-            let issued = issue_client_secret("fixture", now_unix());
-            let records = ClientCredentials {
-                clients: vec![issued.record],
-                ..Default::default()
+            let admin_path = dir.path().join("synthetic-admin.json");
+            let (client_id, secret, records) = if admin_path.exists() {
+                let (id, secret): (String, String) =
+                    serde_json::from_slice(&std::fs::read(&admin_path).unwrap()).unwrap();
+                (
+                    id,
+                    secret,
+                    load_client_credentials_or_default(&credentials_path).unwrap(),
+                )
+            } else {
+                let issued = issue_client_secret("fixture", now_unix());
+                let records = ClientCredentials {
+                    clients: vec![issued.record],
+                    ..Default::default()
+                };
+                save_client_credentials(&credentials_path, &records).unwrap();
+                std::fs::write(
+                    &admin_path,
+                    serde_json::to_vec(&(&issued.client_id, &issued.client_secret)).unwrap(),
+                )
+                .unwrap();
+                (issued.client_id, issued.client_secret, records)
             };
-            save_client_credentials(&credentials_path, &records).unwrap();
             let backend = Arc::new(FakeBackend::default());
             let gate = Arc::new(crate::maintenance::WorkGate::default());
             let helper_tasks = Arc::new(std::sync::Mutex::new(Vec::new()));
@@ -891,16 +940,37 @@ pub(super) mod tests {
                 backend.clone()
             };
             let runtime = desktop::Runtime::new(gate.clone(), Some(adapter));
-            let signing_key = rcgen::KeyPair::generate().unwrap();
-            let mut params = rcgen::CertificateParams::new(vec!["127.0.0.1".into()]).unwrap();
-            params.not_before = time::OffsetDateTime::now_utc() - time::Duration::minutes(1);
-            params.not_after = time::OffsetDateTime::now_utc() + time::Duration::hours(1);
-            let cert = rcgen::CertifiedKey { cert:params.self_signed(&signing_key).unwrap(),signing_key };
-            let der = cert.cert.der().clone();
-            let certificate_hash = ring::digest::digest(&ring::digest::SHA256, &der).as_ref().iter().map(|byte|format!("{byte:02x}")).collect();
-            let key = rustls::pki_types::PrivatePkcs8KeyDer::from(cert.signing_key.serialize_der());
+            let cert_path = dir.path().join("synthetic-cert.der");
+            let key_path = dir.path().join("synthetic-key.der");
+            let (der, key_bytes) = if cert_path.exists() {
+                (
+                    rustls::pki_types::CertificateDer::from(std::fs::read(&cert_path).unwrap()),
+                    std::fs::read(&key_path).unwrap(),
+                )
+            } else {
+                let signing_key = rcgen::KeyPair::generate().unwrap();
+                let mut params = rcgen::CertificateParams::new(vec!["127.0.0.1".into()]).unwrap();
+                params.not_before = time::OffsetDateTime::now_utc() - time::Duration::minutes(1);
+                params.not_after = time::OffsetDateTime::now_utc() + time::Duration::hours(1);
+                let der = params.self_signed(&signing_key).unwrap().der().clone();
+                let key = signing_key.serialize_der();
+                std::fs::write(&cert_path, &der).unwrap();
+                std::fs::write(&key_path, &key).unwrap();
+                (der, key)
+            };
+            let certificate_hash = ring::digest::digest(&ring::digest::SHA256, &der)
+                .as_ref()
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect();
+            let key = rustls::pki_types::PrivatePkcs8KeyDer::from(key_bytes);
+            let address = if path.exists() {
+                load_or_default(&path).unwrap().listen_addr
+            } else {
+                "127.0.0.1:0".into()
+            };
             let mut server = web_transport_quinn::ServerBuilder::new()
-                .with_addr("127.0.0.1:0".parse().unwrap())
+                .with_addr(address.parse().unwrap())
                 .with_certificate(vec![der.clone()], key.into())
                 .unwrap();
             let address = server.local_addr().unwrap();
@@ -983,8 +1053,8 @@ pub(super) mod tests {
                 server: task,
                 _client: client,
                 certificate_hash,
-                client_id: issued.client_id,
-                secret: issued.client_secret,
+                client_id,
+                secret,
                 helper_tasks,
             }
         }

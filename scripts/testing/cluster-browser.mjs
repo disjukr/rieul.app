@@ -1,6 +1,6 @@
 // Only invoked by the ignored Rust test: synthetic fixture keys, fresh Chrome profile.
 import { chromium, expect } from "@playwright/test";
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import assert from "node:assert/strict";
 import { fileURLToPath } from "node:url";
@@ -166,6 +166,48 @@ try {
   assert.equal(outcome.exported, false);
   assert.ok(outcome.discovered >= 2);
   assert.ok(outcome.home);
+  // Actual server-process restart with persisted certificate/key/database.
+  await writeFile(fixture.restartRequest, "restart");
+  let restarted;
+  for (let i = 0; i < 200; i++) {
+    try {
+      const next = JSON.parse(await readFile(fixture.readyFile, "utf8"));
+      if (next.pid !== fixture.pid) {
+        restarted = next;
+        break;
+      }
+    } catch {}
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  assert.ok(restarted, "synthetic server process did not restart");
+  assert.deepEqual(restarted.certificateHashes, fixture.certificateHashes);
+  assert.equal(restarted.a, fixture.a);
+  assert.equal(restarted.b, fixture.b);
+  await expect
+    .poll(
+      async () =>
+        page.evaluate(async (a) => {
+          const machine = JSON.parse(
+            localStorage.getItem("rieul.machines.v1"),
+          ).find((m) => m.cluster && m.baseUrl === a.replace("/rieul/rpc", ""));
+          const p = await import("/src/protocol/client.ts"),
+            c = await import("/src/cluster/connection.ts"),
+            r = await import("/src/protocol/generated/client.ts");
+          let transport;
+          try {
+            transport = await p.openWebTransport(machine);
+            const record = await c.authenticateCluster(transport, machine);
+            await r.getDaemonEnvironment(transport);
+            return Array.from(record.publicKey);
+          } catch {
+            return null;
+          } finally {
+            transport?.close();
+          }
+        }, fixture.a),
+      { timeout: 20000 },
+    )
+    .toEqual(outcome.public);
   await page.getByRole("button", { name: "Daemon", exact: true }).click();
   await expect(
     page.getByRole("region", { name: "Cluster", exact: true }),
@@ -285,30 +327,108 @@ try {
       target.close();
     }
   }, fixture.a);
+  // Move management to B through the product helper, then exercise the actual
+  // B UI to transfer it back to A. Ordinary member access remains independent.
   await page.evaluate(async (a) => {
-    const m = JSON.parse(localStorage.getItem("rieul.machines.v1")).find(
-      (m) => m.cluster && m.baseUrl === a.replace("/rieul/rpc", ""),
-    );
+    const list = JSON.parse(localStorage.getItem("rieul.machines.v1"));
+    const source = list.find((m) => m.baseUrl === a.replace("/rieul/rpc", ""));
+    const local = list.find((m) => m.clientSecret);
     const p = await import("/src/protocol/client.ts"),
       c = await import("/src/cluster/connection.ts"),
-      r = await import("/src/protocol/generated/client.ts");
-    const t = await p.openWebTransport(m),
-      record = await c.authenticateCluster(t, m);
-    await r.revokeClusterClientGrant(t, {
-      operationId: crypto.getRandomValues(new Uint8Array(32)),
-      expectedManagementEpoch: record.history.head.managementEpoch,
-      grantId: record.grantId,
-    });
-    t.close();
+      r = await import("/src/protocol/generated/client.ts"),
+      manage = await import("/src/cluster/manage.ts"),
+      trust = await import("/src/cluster/trust.ts");
+    const target = await p.openWebTransport(local);
+    await p.authenticateWebTransport(
+      target,
+      local.clientId,
+      local.clientSecret,
+    );
+    const state = await r.getClusterState(target);
+    target.close();
+    local.cluster = {
+      id: trust.hex(state.head.clusterId),
+      admissionId: trust.hex(state.localAdmissionId),
+    };
+    const transport = await p.openWebTransport(source);
+    try {
+      await c.authenticateCluster(transport, source);
+      await manage.transferPrimary(transport, local);
+    } finally {
+      transport.close();
+    }
   }, fixture.a);
-  await page.waitForFunction(
-    () =>
-      !JSON.parse(localStorage.getItem("rieul.machines.v1")).some(
-        (m) => m.cluster && !m.clientSecret,
-      ),
-    null,
-    { timeout: 15000 },
-  );
+  const region = page.getByRole("region", { name: "Cluster", exact: true });
+  await expect(region).toContainText("This daemon is the primary", {
+    timeout: 15000,
+  });
+  await page
+    .getByRole("button", { name: "Transfer primary…", exact: true })
+    .click();
+  await region
+    .getByRole("combobox", { name: "Cluster member" })
+    .selectOption({ index: 1 });
+  await expect(region).toContainText("Once sealed");
+  await region.getByRole("button", { name: "Confirm", exact: true }).click();
+  await expect(
+    region.getByRole("button", { name: "Confirm", exact: true }),
+  ).toHaveCount(0, { timeout: 15000 });
+  await expect(region).toContainText("Management is sealed");
+  await expect(region).toContainText("Local pairings are managed separately");
+  // Fixture certificates are intentionally not system-trusted. Use the current
+  // primary's browser-authenticated session for revocation; production peer
+  // forwarding still uses system roots and is not weakened for this test.
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page
+    .getByRole("button", { name: new URL(fixture.a).host, exact: true })
+    .click();
+  await page.getByRole("button", { name: "Daemon", exact: true }).click();
+  await expect(region).toContainText("This daemon is the primary", {
+    timeout: 15000,
+  });
+  await region
+    .getByRole("button", { name: "Revoke cluster approval…" })
+    .first()
+    .click();
+  await expect(region).toContainText("This does not remove a local pairing");
+  await region.getByRole("button", { name: "Confirm", exact: true }).click();
+  try {
+    await page.waitForFunction(
+      () =>
+        !JSON.parse(localStorage.getItem("rieul.machines.v1")).some(
+          (m) => m.cluster && !m.clientSecret,
+        ),
+      null,
+      { timeout: 15000 },
+    );
+  } catch (error) {
+    console.error(
+      "post-revoke UI:",
+      (await page.locator("body").innerText()).slice(-6000),
+    );
+    console.error(
+      "post-revoke state:",
+      await page.evaluate(async (id) => {
+        const s = await import("/src/cluster/storage.ts"),
+          t = await import("/src/cluster/trust.ts");
+        const record = await s.readCluster(id),
+          verified = await t.verifyHistory(record.history);
+        return {
+          grant: t.hex(record.grantId),
+          grants: Array.from(verified.grants.keys()),
+          head: verified.head.sequence,
+          machines: JSON.parse(localStorage.getItem("rieul.machines.v1")).map(
+            (m) => ({
+              id: m.id,
+              cluster: m.cluster,
+              local: Boolean(m.clientSecret),
+            }),
+          ),
+        };
+      }, outcome.cluster),
+    );
+    throw error;
+  }
   await page.waitForTimeout(5500);
   assert.equal(
     await page.evaluate(
@@ -320,7 +440,7 @@ try {
     0,
   );
   console.log(
-    "PASS: browser pairing → automatic adoption/discovery → second-node RPC; nonextractable key, concurrent tabs, reload, narrow UI, storage failure, leave, cancel/rejoin, revocation without automatic re-adoption",
+    "PASS: browser pairing → automatic adoption/discovery → second-node RPC; nonextractable key, concurrent tabs, reload, actual synthetic process restart, narrow UI, storage failure, leave, cancel/rejoin, primary transfer UI, approval revocation UI without automatic re-adoption",
   );
 } finally {
   await browser?.close();

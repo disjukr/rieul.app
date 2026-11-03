@@ -99,7 +99,10 @@ export function sessionBody(r: AuthenticateClusterClientReq): CborValue[] {
 export interface VerifiedCluster {
   head: ClusterHead;
   members: Map<string, ClusterMember>;
-  grants: Map<string, { client: Uint8Array; expires: number }>;
+  grants: Map<
+    string,
+    { client: Uint8Array; expires: number; issuer: Uint8Array }
+  >;
   hashes: Uint8Array[];
 }
 function mutation(raw: Uint8Array): CborValue[] {
@@ -174,7 +177,10 @@ export async function verifyHistory(
       },
     ],
   ]);
-  const grants = new Map<string, { client: Uint8Array; expires: number }>();
+  const grants = new Map<
+    string,
+    { client: Uint8Array; expires: number; issuer: Uint8Array }
+  >();
   const seen = new Set([hex(g.rootAdmissionId)]),
     revoked = new Set<string>(),
     operations = new Set<string>();
@@ -285,7 +291,7 @@ export async function verifyHistory(
           ["rieul.cluster.pairing-adoption.v1", encodeCbor(possession), proof],
           m[6] as Uint8Array,
         );
-        grants.set(hex(target), { client, expires });
+        grants.set(hex(target), { client, expires, issuer: key });
         break;
       }
       case 4:

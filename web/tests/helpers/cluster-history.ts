@@ -64,9 +64,10 @@ export async function fixture() {
     values: CborValue[],
     mutation: Uint8Array,
     signer = root.private,
+    explicitOperation?: Uint8Array,
   ) {
     const h = history.head,
-      operationId = id(operation++);
+      operationId = explicitOperation ?? id(operation++);
     const requestHash = await hash([
       "rieul.cluster.management-request.v1",
       clusterId,

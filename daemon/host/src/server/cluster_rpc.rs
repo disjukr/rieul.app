@@ -350,72 +350,105 @@ mod tests {
             })
         }
     }
+    struct FixtureProcess(std::process::Child);
+    impl Drop for FixtureProcess {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+    fn spawn_browser_fixture(root: &std::path::Path) -> FixtureProcess {
+        FixtureProcess(
+            std::process::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "browser_cluster_fixture_process",
+                    "--ignored",
+                    "--nocapture",
+                ])
+                .env("RIEUL_CLUSTER_FIXTURE_ROOT", root)
+                .spawn()
+                .unwrap(),
+        )
+    }
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    #[ignore = "requires installed Chrome and isolated Vite/browser fixture"]
-    async fn browser_cluster_pairing_adoption_and_second_node_access() {
-        let dir = tempfile::tempdir().unwrap();
-        let code = dir.path().join("pairing-code");
-        let a = Fixture::new().await;
-        let b = Fixture::with_pairing(Arc::new(BrowserPairingNotifier(code.clone()))).await;
+    #[ignore = "child process for isolated browser fixture only"]
+    async fn browser_cluster_fixture_process() {
+        let root = PathBuf::from(
+            std::env::var_os("RIEUL_CLUSTER_FIXTURE_ROOT").expect("fixture root required"),
+        );
+        let code = root.join("pairing-code");
+        let a = Fixture::persistent(
+            root.join("a"),
+            Arc::new(BrowserPairingNotifier(code.clone())),
+        )
+        .await;
+        let b = Fixture::persistent(
+            root.join("b"),
+            Arc::new(BrowserPairingNotifier(code.clone())),
+        )
+        .await;
         a.authenticate().await;
         b.authenticate().await;
-        let state = ClusterState::decode(
-            &ok(
+        if matches!(get(&a).await, ClusterState::Unaffiliated) {
+            let state = ClusterState::decode(
+                &ok(
+                    &a,
+                    ProcId::CreateCluster,
+                    Some(
+                        CreateClusterReq {
+                            operation_id: vec![1; 32],
+                            confirmed: true,
+                        }
+                        .encode(),
+                    ),
+                )
+                .await,
+            )
+            .unwrap();
+            let (genesis, head, _) = member(state);
+            let consent = ClusterJoinConsent::decode(
+                &ok(
+                    &b,
+                    ProcId::PrepareClusterJoin,
+                    Some(
+                        PrepareClusterJoinReq {
+                            operation_id: vec![2; 32],
+                            genesis: genesis.clone(),
+                            confirmed: true,
+                        }
+                        .encode(),
+                    ),
+                )
+                .await,
+            )
+            .unwrap();
+            ok(
                 &a,
-                ProcId::CreateCluster,
+                ProcId::AdmitClusterMember,
                 Some(
-                    CreateClusterReq {
-                        operation_id: vec![1; 32],
-                        confirmed: true,
+                    AdmitClusterMemberReq {
+                        operation_id: vec![3; 32],
+                        expected_management_epoch: 1,
+                        consent,
                     }
                     .encode(),
                 ),
             )
-            .await,
-        )
-        .unwrap();
-        let (genesis, head, _) = member(state);
-        let consent = ClusterJoinConsent::decode(
-            &ok(
+            .await;
+            ok(
                 &b,
-                ProcId::PrepareClusterJoin,
+                ProcId::FinishClusterJoin,
                 Some(
-                    PrepareClusterJoinReq {
+                    FinishClusterJoinReq {
                         operation_id: vec![2; 32],
-                        genesis: genesis.clone(),
-                        confirmed: true,
+                        history: history(&a, head.cluster_id).await,
                     }
                     .encode(),
                 ),
             )
-            .await,
-        )
-        .unwrap();
-        ok(
-            &a,
-            ProcId::AdmitClusterMember,
-            Some(
-                AdmitClusterMemberReq {
-                    operation_id: vec![3; 32],
-                    expected_management_epoch: 1,
-                    consent,
-                }
-                .encode(),
-            ),
-        )
-        .await;
-        ok(
-            &b,
-            ProcId::FinishClusterJoin,
-            Some(
-                FinishClusterJoinReq {
-                    operation_id: vec![2; 32],
-                    history: history(&a, head.cluster_id).await,
-                }
-                .encode(),
-            ),
-        )
-        .await;
+            .await;
+        }
+        let (genesis, _, _) = member(get(&a).await);
         let ClusterState::Member {
             members,
             local_admission_id,
@@ -430,27 +463,80 @@ mod tests {
             .unwrap()
             .endpoint
             .clone();
+        let metadata = serde_json::to_vec(&serde_json::json!({
+            "a":genesis.root_endpoint, "b":endpoint,
+            "certificateHashes":[a.certificate_hash,b.certificate_hash],
+            "codeFile":code, "pid":std::process::id(),
+            "restartRequest":root.join("restart-request"), "readyFile":root.join("browser.json")
+        }))
+        .unwrap();
+        std::fs::write(root.join("browser-next.json"), metadata).unwrap();
+        std::fs::rename(root.join("browser-next.json"), root.join("browser.json")).unwrap();
+        // The child owns both synthetic servers. Restart kills actual processes,
+        // not just a WebTransport object; persisted keys/log/port survive.
+        let trust = web_transport_quinn::ClientBuilder::new()
+            .with_server_certificates(vec![
+                rustls::pki_types::CertificateDer::from(
+                    std::fs::read(root.join("a/synthetic-cert.der")).unwrap(),
+                ),
+                rustls::pki_types::CertificateDer::from(
+                    std::fs::read(root.join("b/synthetic-cert.der")).unwrap(),
+                ),
+            ])
+            .unwrap();
+        loop {
+            for node in [&a, &b] {
+                let _ =
+                    runtime::worker::tick(&node._dir.path().join("rieul.cluster.sqlite"), &trust)
+                        .await;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    }
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    #[ignore = "requires installed Chrome and isolated Vite/browser fixture"]
+    async fn browser_cluster_pairing_adoption_and_second_node_access() {
+        let dir = tempfile::tempdir().unwrap();
         let fixture = dir.path().join("browser.json");
-        std::fs::write(&fixture,serde_json::to_vec(&serde_json::json!({"a":genesis.root_endpoint,"b":endpoint,"certificateHashes":[a.certificate_hash,b.certificate_hash],"codeFile":code})).unwrap()).unwrap();
+        let mut child = spawn_browser_fixture(dir.path());
+        tokio::time::timeout(Duration::from_secs(20), async {
+            while !fixture.exists() {
+                assert!(
+                    child.0.try_wait().unwrap().is_none(),
+                    "fixture exited before ready"
+                );
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+        })
+        .await
+        .unwrap();
         let script = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../scripts/testing/cluster-browser.mjs");
-        let run = tokio::task::spawn_blocking(move || {
+        let mut browser = FixtureProcess(
             std::process::Command::new("node")
                 .arg(script)
-                .arg(fixture)
-                .status()
-                .unwrap()
-        });
-        let path = b._dir.path().join("rieul.cluster.sqlite");
-        tokio::pin!(run);
-        let result=tokio::time::timeout(Duration::from_secs(90),async {
+                .arg(&fixture)
+                .spawn()
+                .unwrap(),
+        );
+        let result = tokio::time::timeout(Duration::from_secs(120), async {
             loop {
-                tokio::select! {
-                    result=&mut run=>break result.unwrap(),
-                    _=tokio::time::sleep(Duration::from_millis(100))=>{ let _=runtime::worker::tick(&path,&a._client).await; }
+                if let Some(status) = browser.0.try_wait().unwrap() {
+                    break status;
                 }
+                let request = dir.path().join("restart-request");
+                if request.exists() {
+                    std::fs::remove_file(&request).unwrap();
+                    child.0.kill().unwrap();
+                    child.0.wait().unwrap();
+                    std::fs::remove_file(&fixture).unwrap();
+                    child = spawn_browser_fixture(dir.path());
+                }
+                tokio::time::sleep(Duration::from_millis(50)).await;
             }
-        }).await.unwrap();
+        })
+        .await
+        .unwrap();
         assert!(result.success());
     }
     async fn raw_join_call(
@@ -482,7 +568,17 @@ mod tests {
         f: &Fixture,
         session: &web_transport_quinn::Session,
         history: ClusterHistory,
+        expected_baseline: usize,
     ) {
+        // The preceding response can arrive before its detached operation drops
+        // its guard. Wait for the scenario's known persistent guards first.
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while f.gate.active() != expected_baseline {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
         let path = f._dir.path().join("rieul.cluster.sqlite");
         let mut writer = rusqlite::Connection::open(path).unwrap();
         let held = writer
@@ -548,7 +644,7 @@ mod tests {
             .unwrap();
             let (_, head, _) = member(state);
             let history = history(&f, head.cluster_id).await;
-            blocked_import_survives_disconnect(&f, &f.session, history).await;
+            blocked_import_survives_disconnect(&f, &f.session, history, 0).await;
         })
         .await
         .unwrap();
@@ -1543,7 +1639,8 @@ mod tests {
             }
             // Grant-authenticated connection cancellation has the same drain boundary.
             let latest = history(&b, challenge.cluster_id.clone()).await;
-            blocked_import_survives_disconnect(&b, &grant_sessions[1], latest).await;
+            // One desktop attachment and one ordered input stream remain open.
+            blocked_import_survives_disconnect(&b, &grant_sessions[1], latest, 2).await;
             b.assert_control_released().await;
             // Reconnect explicitly so later removal still tests a live grant session.
             let ClusterState::Member {

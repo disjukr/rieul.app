@@ -2,6 +2,7 @@ import * as rpc from "../protocol/generated/client.ts";
 import {
   ProcId,
   type ClusterState,
+  type ClusterRevocationIssue,
   type AuthenticateClusterClientReq,
 } from "../protocol/generated/rpc.ts";
 import type { Machine } from "../state/machines.ts";
@@ -28,6 +29,7 @@ export interface ClusterStatus {
   supported: boolean;
   state?: ClusterState;
   record?: ClusterRecord;
+  issues?: ClusterRevocationIssue[];
 }
 export async function authenticateCluster(
   transport: WebTransport,
@@ -87,13 +89,16 @@ export async function synchronizeCluster(
   if (!supportedProcIds.includes(ProcId.AuthenticateClusterClient))
     return {
       supported: false,
-      message: "Cluster enrollment is not supported by this daemon.",
+      message:
+        "Cluster enrollment is not supported by this daemon. Windows enrollment is currently unavailable.",
     };
   const state = await rpc.getClusterState(transport);
+  const issues = await rpc.getClusterRevocationIssues(transport);
   if (state.type !== "member")
     return {
       supported: true,
       state,
+      issues: issues.issues,
       message:
         state.type === "unaffiliated"
           ? "Not in a cluster."
@@ -136,6 +141,7 @@ export async function synchronizeCluster(
         return {
           supported: true,
           state,
+          issues: issues.issues,
           record: saved,
           message:
             "Cluster grant was revoked or expired. Local pairing remains available; pair again to request new cluster access.",
@@ -147,6 +153,7 @@ export async function synchronizeCluster(
         return {
           supported: true,
           state,
+          issues: issues.issues,
           record: await readCluster(id),
           message:
             "Cluster approval changed in another tab. Refreshing its status.",
@@ -177,6 +184,7 @@ export async function synchronizeCluster(
       return {
         supported: true,
         state,
+        issues: issues.issues,
         message:
           result.type === "pending"
             ? "Local pairing is ready. Cluster access is waiting for the primary."
@@ -186,11 +194,11 @@ export async function synchronizeCluster(
       };
     }
   }
-  const issues = await rpc.getClusterRevocationIssues(transport);
   return {
     supported: true,
     state,
     record: saved,
+    issues: issues.issues,
     message: issues.issues.length
       ? "Cluster access is ready. A grant cancellation still needs an active member."
       : "Cluster access is ready.",
