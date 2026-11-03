@@ -534,3 +534,34 @@ No main push, CI publication, release, installation or actual host state changes
 Independent review remains required, especially for bcc9906's authorization read
 path. Windows enrollment, automatic promotion, forced primary recovery and
 partition-wide immediate revocation remain unsupported.
+
+### Replica-to-primary real TLS coverage follow-up
+
+The prior browser forwarding limitation is now covered without changing system
+trust or production verification. The installed web-transport-quinn 0.11.9
+with_system_roots implementation uses rustls-native-certs 0.8.3, which loads only
+SSL_CERT_FILE / SSL_CERT_DIR when specified. The Rust test parent sets these only
+on its spawned fixture child, pointing to that test's private temporary directory.
+No environment mutation occurs in the parent or shared test process; no Keychain,
+OS certificate store, real daemon, membership or pairing is modified.
+
+Each child startup/restart verifies that an empty trust file rejects A with
+UnknownIssuer, the A/B fixture PEM enables a real TLS connection to A, and an
+unrelated synthetic certificate is rejected with a certificate-specific error
+(BadSignature for the shared fixture issuer name, or UnknownIssuer). A timeout
+alone cannot satisfy these negative assertions. Browser TLS remains pinned to
+exact synthetic certificate hashes in its fresh profile.
+
+After A -> B -> A management handoff, the browser stays on B's local-pairing UI
+and revokes its grant. This executes the unchanged production RPC forwarding
+path, including worker::forward's with_system_roots TLS connection, to primary A.
+A separate browser connection authenticated with the existing cluster grant also
+revokes a disposable synthetic grant through B; the signed primary tombstone is
+observed after synchronization back to B. Both typed forwarded principal modes
+are therefore exercised over real TLS. No product auth/transport code changed.
+
+The full synthetic browser/process-restart test passes with both forwarding
+paths, final grant invalidation and no automatic re-adoption. This is not a test
+of public-CA issuance, OS-wide trust installation, or real user machines. Windows
+enrollment and forced primary recovery remain unsupported.
+Evidence: tmp/cluster-peer-tls-browser-final.log and tmp/cluster-peer-tls-host.log.

@@ -375,17 +375,103 @@ try {
   ).toHaveCount(0, { timeout: 15000 });
   await expect(region).toContainText("Management is sealed");
   await expect(region).toContainText("Local pairings are managed separately");
-  // Fixture certificates are intentionally not system-trusted. Use the current
-  // primary's browser-authenticated session for revocation; production peer
-  // forwarding still uses system roots and is not weakened for this test.
-  await page.setViewportSize({ width: 1280, height: 900 });
-  await page
-    .getByRole("button", { name: new URL(fixture.a).host, exact: true })
-    .click();
-  await page.getByRole("button", { name: "Daemon", exact: true }).click();
-  await expect(region).toContainText("This daemon is the primary", {
-    timeout: 15000,
+  // Also cover the typed ClusterGrant forwarding principal, separately from
+  // the locally paired UI request below. Approve a disposable synthetic key,
+  // then revoke it using the existing cluster grant on a fresh B connection.
+  await page.evaluate(async () => {
+    const local = JSON.parse(localStorage.getItem("rieul.machines.v1")).find(
+      (m) => m.clientSecret,
+    );
+    const p = await import("/src/protocol/client.ts"),
+      r = await import("/src/protocol/generated/client.ts"),
+      c = await import("/src/cluster/connection.ts"),
+      trust = await import("/src/cluster/trust.ts");
+    const paired = await p.openWebTransport(local);
+    let granted;
+    try {
+      await p.authenticateWebTransport(
+        paired,
+        local.clientId,
+        local.clientSecret,
+      );
+      const key = await crypto.subtle.generateKey("Ed25519", false, [
+        "sign",
+        "verify",
+      ]);
+      const publicKey = new Uint8Array(
+        await crypto.subtle.exportKey("raw", key.publicKey),
+      );
+      const challenge = await r.beginClusterClientAdoption(paired, {
+        clientPublicKey: publicKey,
+      });
+      await r.completeClusterClientAdoption(paired, {
+        grantId: challenge.grantId,
+        clientProof: await trust.sign(
+          key.privateKey,
+          trust.adoptionBody(challenge),
+        ),
+      });
+      let accepted = false;
+      for (let i = 0; i < 100; i++) {
+        const adoption = await r.getClusterClientAdoption(paired, {
+          grantId: challenge.grantId,
+        });
+        if (adoption.type === "accepted") {
+          accepted = true;
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      if (!accepted)
+        throw new Error("disposable fixture grant was not adopted");
+      granted = await p.openWebTransport(local);
+      // This explicitly uses grant proof, never the local credential on paired.
+      await c.authenticateCluster(granted, local);
+      const state = await r.getClusterState(granted);
+      if (state.primaryTransition.type === "active")
+        throw new Error("forwarding fixture must be replica");
+      await r.revokeClusterClientGrant(granted, {
+        operationId: crypto.getRandomValues(new Uint8Array(32)),
+        expectedManagementEpoch: state.head.managementEpoch,
+        grantId: challenge.grantId,
+      });
+      let revoked = false;
+      for (let i = 0; i < 100; i++) {
+        const history = await r.readClusterHistory(paired, {
+          clusterId: state.head.clusterId,
+        });
+        const verified = await trust.verifyHistory(history);
+        if (
+          history.entries.some(
+            (entry) =>
+              entry.mutation[0] === 4 &&
+              trust.same(entry.mutation.slice(1), challenge.grantId),
+          )
+        ) {
+          if (verified.grants.has(trust.hex(challenge.grantId)))
+            throw new Error("revoked fixture grant remained active");
+          revoked = true;
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      if (!revoked)
+        throw new Error("primary revocation did not synchronize to replica");
+    } finally {
+      granted?.close();
+      paired.close();
+    }
   });
+  await region
+    .getByRole("button", { name: "Refresh cluster status", exact: true })
+    .click();
+  await expect(
+    region.getByRole("button", { name: "Revoke cluster approval…" }),
+  ).toHaveCount(1);
+  // Stay on B: after handoff its local UI must forward Revoke over the real
+  // production with_system_roots TLS path to A. Only the child process trusts
+  // the fixture PEM; the browser never sends this mutation directly to A.
+  await expect(region).toContainText("Management is sealed");
   await region
     .getByRole("button", { name: "Revoke cluster approval…" })
     .first()
@@ -440,7 +526,7 @@ try {
     0,
   );
   console.log(
-    "PASS: browser pairing → automatic adoption/discovery → second-node RPC; nonextractable key, concurrent tabs, reload, actual synthetic process restart, narrow UI, storage failure, leave, cancel/rejoin, primary transfer UI, approval revocation UI without automatic re-adoption",
+    "PASS: browser pairing → automatic adoption/discovery → second-node RPC; nonextractable key, concurrent tabs, reload, actual synthetic process restart, narrow UI, storage failure, leave, cancel/rejoin, primary transfer UI, grant-authenticated and local-pairing replica → primary TLS approval revocation without automatic re-adoption",
   );
 } finally {
   await browser?.close();

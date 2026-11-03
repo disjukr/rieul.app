@@ -952,7 +952,9 @@ pub(super) mod tests {
                 let mut params = rcgen::CertificateParams::new(vec!["127.0.0.1".into()]).unwrap();
                 params.not_before = time::OffsetDateTime::now_utc() - time::Duration::minutes(1);
                 params.not_after = time::OffsetDateTime::now_utc() + time::Duration::hours(1);
-                let der = params.self_signed(&signing_key).unwrap().der().clone();
+                let certificate = params.self_signed(&signing_key).unwrap();
+                let der = certificate.der().clone();
+                std::fs::write(dir.path().join("synthetic-cert.pem"), certificate.pem()).unwrap();
                 let key = signing_key.serialize_der();
                 std::fs::write(&cert_path, &der).unwrap();
                 std::fs::write(&key_path, &key).unwrap();

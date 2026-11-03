@@ -366,6 +366,8 @@ mod tests {
                     "--nocapture",
                 ])
                 .env("RIEUL_CLUSTER_FIXTURE_ROOT", root)
+                .env("SSL_CERT_FILE", root.join("peer-roots.pem"))
+                .env("SSL_CERT_DIR", root.join("empty-roots"))
                 .spawn()
                 .unwrap(),
         )
@@ -463,6 +465,56 @@ mod tests {
             .unwrap()
             .endpoint
             .clone();
+        // rustls-native-certs scopes this override to the child; it never reads
+        // or modifies the user's keychain/system trust with these variables set.
+        std::fs::create_dir_all(root.join("empty-roots")).unwrap();
+        let roots = root.join("peer-roots.pem");
+        assert_eq!(
+            std::env::var_os("SSL_CERT_FILE").unwrap(),
+            roots.as_os_str()
+        );
+        std::fs::write(&roots, "").unwrap();
+        async fn tls_probe(url: &str) -> Result<web_transport_quinn::Session> {
+            let client = web_transport_quinn::ClientBuilder::new().with_system_roots()?;
+            Ok(tokio::time::timeout(
+                Duration::from_secs(5),
+                client.connect(web_transport_quinn::proto::ConnectRequest::new(
+                    url::Url::parse(url)?,
+                )),
+            )
+            .await??)
+        }
+        let rejected = tls_probe(&genesis.root_endpoint).await.unwrap_err();
+        assert!(
+            format!("{rejected:?}").contains("UnknownIssuer"),
+            "expected certificate rejection, got {rejected:?}"
+        );
+        let pem = ["a", "b"]
+            .iter()
+            .map(|node| {
+                std::fs::read_to_string(root.join(node).join("synthetic-cert.pem")).unwrap()
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        std::fs::write(&roots, pem).unwrap();
+        tls_probe(&genesis.root_endpoint)
+            .await
+            .unwrap()
+            .close(0, b"trusted TLS probe complete");
+        let unrelated = Fixture::new().await;
+        let address = load_or_default(&unrelated._dir.path().join("rieul.yaml"))
+            .unwrap()
+            .listen_addr;
+        let rejected = tls_probe(&format!("https://{address}/rieul/rpc"))
+            .await
+            .unwrap_err();
+        assert!(
+            format!("{rejected:?}").contains("invalid peer certificate")
+                && (format!("{rejected:?}").contains("UnknownIssuer")
+                    || format!("{rejected:?}").contains("BadSignature")),
+            "expected unrelated certificate rejection, got {rejected:?}"
+        );
+        drop(unrelated);
         let metadata = serde_json::to_vec(&serde_json::json!({
             "a":genesis.root_endpoint, "b":endpoint,
             "certificateHashes":[a.certificate_hash,b.certificate_hash],
