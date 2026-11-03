@@ -284,6 +284,134 @@ mod tests {
         }
     }
     #[tokio::test]
+    async fn actual_webtransport_discovers_transferred_primary_after_old_primary_stops() {
+        tokio::time::timeout(Duration::from_secs(25), async {
+            let a = Fixture::new().await;
+            let b = Fixture::new().await;
+            let c = Fixture::new().await;
+            for f in [&a, &b, &c] {
+                f.authenticate().await;
+            }
+            let initial = ClusterState::decode(
+                &ok(
+                    &a,
+                    ProcId::CreateCluster,
+                    Some(
+                        CreateClusterReq {
+                            operation_id: vec![101; 32],
+                            confirmed: true,
+                        }
+                        .encode(),
+                    ),
+                )
+                .await,
+            )
+            .unwrap();
+            let (genesis, head, _) = member(initial);
+            for (f, operation) in [(&b, 102), (&c, 104)] {
+                let consent = ClusterJoinConsent::decode(
+                    &ok(
+                        f,
+                        ProcId::PrepareClusterJoin,
+                        Some(
+                            PrepareClusterJoinReq {
+                                operation_id: vec![operation; 32],
+                                genesis: genesis.clone(),
+                                confirmed: true,
+                            }
+                            .encode(),
+                        ),
+                    )
+                    .await,
+                )
+                .unwrap();
+                ok(
+                    &a,
+                    ProcId::AdmitClusterMember,
+                    Some(
+                        AdmitClusterMemberReq {
+                            operation_id: vec![operation + 1; 32],
+                            expected_management_epoch: 1,
+                            consent,
+                        }
+                        .encode(),
+                    ),
+                )
+                .await;
+                ok(
+                    f,
+                    ProcId::FinishClusterJoin,
+                    Some(
+                        FinishClusterJoinReq {
+                            operation_id: vec![operation; 32],
+                            history: history(&a, head.cluster_id.clone()).await,
+                        }
+                        .encode(),
+                    ),
+                )
+                .await;
+            }
+            let before = history(&a, head.cluster_id.clone()).await;
+            ok(
+                &b,
+                ProcId::ApplyClusterHistory,
+                Some(
+                    ApplyClusterHistoryReq {
+                        history: before.clone(),
+                    }
+                    .encode(),
+                ),
+            )
+            .await;
+            let acceptance = ClusterTransferAcceptance::decode(
+                &ok(
+                    &b,
+                    ProcId::PreparePrimaryTransfer,
+                    Some(
+                        PreparePrimaryTransferReq {
+                            operation_id: vec![106; 32],
+                            expected_head: before.head.clone(),
+                        }
+                        .encode(),
+                    ),
+                )
+                .await,
+            )
+            .unwrap();
+            ok(
+                &a,
+                ProcId::SealPrimaryTransfer,
+                Some(SealPrimaryTransferReq { acceptance }.encode()),
+            )
+            .await;
+            let transferred = history(&a, head.cluster_id).await;
+            ok(
+                &b,
+                ProcId::ActivateClusterPrimary,
+                Some(
+                    ActivateClusterPrimaryReq {
+                        operation_id: vec![106; 32],
+                        history: transferred.clone(),
+                    }
+                    .encode(),
+                ),
+            )
+            .await;
+            // C only knows A as primary. The newly active B is one of its
+            // already authenticated cached members, not an external hint.
+            assert_eq!(member(get(&c).await).1.management_epoch, 1);
+            drop(a);
+            let path = c._dir.path().join("rieul.cluster.sqlite");
+            runtime::worker::tick(&path, &b._client).await.unwrap();
+            assert_eq!(member(get(&c).await).1, transferred.head);
+            // Repeat remains idempotent and cannot elect or manufacture a log.
+            runtime::worker::tick(&path, &b._client).await.unwrap();
+            assert_eq!(member(get(&c).await).1, transferred.head);
+        })
+        .await
+        .unwrap();
+    }
+    #[tokio::test]
     async fn actual_webtransport_opt_in_join_transfer_and_revoked_receipt_access() {
         tokio::time::timeout(Duration::from_secs(20), async {
             let a = Fixture::new().await;

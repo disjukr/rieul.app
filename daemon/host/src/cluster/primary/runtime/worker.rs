@@ -146,13 +146,129 @@ fn apply_sync(path: &Path, h: ClusterHistory) -> Result<(), RuntimeError> {
     import(path, &h, None, activation)?;
     Ok(())
 }
+// Try the cached primary first, then at most three distinct cached peers.
+// Rotate the fallback window across ticks so an unreachable early peer cannot
+// permanently hide a live successor. Discovery never elects a primary: only a
+// verified, continuous signed transfer history can change the local route.
+fn candidates(path: &Path, cursor: &mut usize) -> Result<Vec<(Id, String)>, RuntimeError> {
+    let (n, store) = opened(path)?;
+    require_member(&n)?;
+    let s = store.state()?;
+    let peers: Vec<_> = s
+        .members
+        .iter()
+        .filter(|(id, _)| **id != n.admission && **id != s.primary)
+        .map(|(id, key)| {
+            Ok((
+                *key,
+                s.endpoints
+                    .get(id)
+                    .cloned()
+                    .ok_or(RuntimeError::InvalidProof)?,
+            ))
+        })
+        .collect::<Result<_, RuntimeError>>()?;
+    let mut result = vec![(
+        *s.members
+            .get(&s.primary)
+            .ok_or(RuntimeError::InvalidProof)?,
+        s.endpoints
+            .get(&s.primary)
+            .cloned()
+            .ok_or(RuntimeError::InvalidProof)?,
+    )];
+    result.extend(fallback_window(&peers, cursor));
+    Ok(result)
+}
+fn fallback_window(peers: &[(Id, String)], cursor: &mut usize) -> Vec<(Id, String)> {
+    if peers.is_empty() {
+        return Vec::new();
+    }
+    let start = *cursor % peers.len();
+    let count = peers.len().min(3);
+    *cursor = (start + count) % peers.len();
+    (0..count)
+        .map(|i| peers[(start + i) % peers.len()].clone())
+        .collect()
+}
+async fn synchronize(
+    path: &Path,
+    client: &web_transport_quinn::Client,
+    cursor: &mut usize,
+) -> Result<(), RuntimeError> {
+    let p = path.to_owned();
+    let (_, _, cluster, _, local) = tokio::task::spawn_blocking(move || route(&p))
+        .await
+        .map_err(|_| RuntimeError::Storage)??;
+    let p = path.to_owned();
+    let mut next_cursor = *cursor;
+    let (routes, advanced) = tokio::task::spawn_blocking(move || {
+        let routes = candidates(&p, &mut next_cursor)?;
+        Ok::<_, RuntimeError>((routes, next_cursor))
+    })
+    .await
+    .map_err(|_| RuntimeError::Storage)??;
+    *cursor = advanced;
+    let previous_primary = routes[0].0;
+    let mut error = RuntimeError::PrimaryUnavailable;
+    for (index, (server, url)) in routes.into_iter().enumerate() {
+        let received = call(
+            client,
+            path,
+            server,
+            &url,
+            ProcId::ReadClusterHistory,
+            ReadClusterHistoryReq {
+                cluster_id: cluster.to_vec(),
+            }
+            .encode(),
+            format!("node:{local:?}"),
+        )
+        .await;
+        let bytes = match received {
+            Ok(bytes) => bytes,
+            Err(e) => {
+                error = e;
+                continue;
+            }
+        };
+        let history = match ClusterHistory::decode(&bytes) {
+            Ok(history) => history,
+            Err(_) => {
+                error = RuntimeError::InvalidProof;
+                continue;
+            }
+        };
+        let p = path.to_owned();
+        let applied = tokio::task::spawn_blocking(move || {
+            apply_sync(&p, history)?;
+            route(&p)
+        })
+        .await
+        .map_err(|_| RuntimeError::Storage)?;
+        match applied {
+            Ok((primary, _, _, _, _)) if index == 0 || primary != previous_primary => return Ok(()),
+            Ok(_) => {} // A stale but valid replica does not end discovery.
+            Err(e) => error = e,
+        }
+    }
+    Err(error)
+}
+#[cfg(test)]
 pub(crate) async fn tick(
     path: &Path,
     client: &web_transport_quinn::Client,
 ) -> Result<(), RuntimeError> {
+    tick_with_cursor(path, client, &mut 0).await
+}
+async fn tick_with_cursor(
+    path: &Path,
+    client: &web_transport_quinn::Client,
+    cursor: &mut usize,
+) -> Result<(), RuntimeError> {
     let path = path.to_owned();
     let p = path.clone();
-    let (server, url, cluster, _, local) = tokio::task::spawn_blocking(move || route(&p))
+    let (_, _, cluster, _, local) = tokio::task::spawn_blocking(move || route(&p))
         .await
         .map_err(|_| RuntimeError::Storage)??;
     let p = path.clone();
@@ -163,24 +279,7 @@ pub(crate) async fn tick(
     .await
     .map_err(|_| RuntimeError::Storage)??;
     if !local_primary {
-        let bytes = call(
-            client,
-            &path,
-            server,
-            &url,
-            ProcId::ReadClusterHistory,
-            ReadClusterHistoryReq {
-                cluster_id: cluster.to_vec(),
-            }
-            .encode(),
-            format!("node:{local:?}"),
-        )
-        .await?;
-        let h = ClusterHistory::decode(&bytes).map_err(|_| RuntimeError::InvalidProof)?;
-        let p = path.clone();
-        tokio::task::spawn_blocking(move || apply_sync(&p, h))
-            .await
-            .map_err(|_| RuntimeError::Storage)??;
+        synchronize(&path, client, cursor).await?;
     }
     let p = path.clone();
     let intents = tokio::task::spawn_blocking(move || adoption::pending_intents(&p))
@@ -253,6 +352,7 @@ pub(crate) async fn tick(
 }
 pub(crate) async fn run(path: PathBuf, gate: Arc<WorkGate>) {
     let mut client = None;
+    let mut discovery_cursor = 0;
     let mut delay = Duration::from_secs(2);
     loop {
         tokio::time::sleep(delay).await;
@@ -269,9 +369,33 @@ pub(crate) async fn run(path: PathBuf, gate: Arc<WorkGate>) {
             delay = Duration::from_secs(30);
             continue;
         };
-        match tick(&path, client).await {
+        match tick_with_cursor(&path, client, &mut discovery_cursor).await {
             Ok(()) => delay = Duration::from_secs(2),
             Err(_) => delay = (delay * 2).min(Duration::from_secs(30)),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn fallback_probe_budget_rotates_without_duplicates_or_starvation() {
+        for count in 0..16 {
+            let peers: Vec<_> = (0..count)
+                .map(|n| ([n as u8; 32], format!("https://node{n}/rieul/rpc")))
+                .collect();
+            let mut cursor = usize::MAX;
+            let mut seen = std::collections::BTreeSet::new();
+            for _ in 0..count.max(1) {
+                let batch = fallback_window(&peers, &mut cursor);
+                assert_eq!(batch.len(), count.min(3));
+                let unique: std::collections::BTreeSet<_> =
+                    batch.iter().map(|(key, _)| *key).collect();
+                assert_eq!(unique.len(), batch.len());
+                seen.extend(unique);
+            }
+            assert_eq!(seen.len(), count);
         }
     }
 }

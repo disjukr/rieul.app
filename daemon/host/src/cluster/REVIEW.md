@@ -76,3 +76,20 @@ adoption ordering tests; Windows key-file ACL validation; cancellation/drain
 lifetime review; local credential removal versus pending/adopted grants.
 Admission/history validation must not be replaced by old success receipts.
 Existing TLS verification, endpoint equality and local file protections remain.
+
+## Follow-up: cached-peer primary rediscovery
+
+The replication worker now probes the cached primary and at most three distinct
+cached peers per tick, rotating the fallback window. Each exchange retains its
+8-second timeout; a tick therefore has at most four such network exchanges for
+discovery. Only a verified continuous signed history changes the primary route;
+there is no election, new authority, endpoint rewrite or external discovery hint.
+A stale replica response does not prematurely stop fallback discovery.
+
+An actual three-node localhost test transfers A to B, leaves C on A's old head,
+stops A's fixture server, and verifies C learns the signed transfer from B and
+can repeat synchronization without changing the head. A deterministic unit test
+checks probe budgets, uniqueness and eventual candidate coverage. This does not
+solve permanent authority loss, old-backup rollback, restricted join sync or
+normal Leave. Foreground forwarding still uses its cached route; background
+replication must refresh it before a subsequent forwarded request can succeed.
