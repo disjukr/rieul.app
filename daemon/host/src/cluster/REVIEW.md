@@ -380,3 +380,56 @@ subsequent removal/revocation still closes live sessions and releases keys.
 Validation: cluster subset 46 passed; full host 169 passed / 3 ignored;
 web/codegen 112 passed, TypeScript check and production build passed. Browser
 work remains stashed and unconnected. No main push or real environment changes.
+
+## Browser automatic adoption, discovery and opt-in UI checkpoint
+
+Browser code is separate from the server-auth follow-ups. `web/src/cluster`
+implements explicit canonical transcripts and bounded signed journal verification
+(genesis, request digest, previous hash, primary signature, admission tombstones,
+transfer acceptance, client/issuer adoption proofs and grant revocation). It
+checks the saved prefix and uses an IndexedDB transaction to prevent concurrent
+responses from replacing newer history. Discovery also fences older results
+before publishing machine state. Endpoints remain tied to cluster/admission/key;
+an address match alone never transfers an existing machine's credentials.
+Signed HTTPS/443 origins bypass the manual machine-entry default port 9012.
+
+Per-cluster Ed25519 private CryptoKeys are nonextractable and structured-cloned
+into IndexedDB. Concurrent tabs generate candidates outside the transaction and
+atomically get-or-add one winner; keys and paired secrets are never forwarded.
+Storage/crypto failures only affect cluster sync, preserving the existing local
+paired session. Pairing adoption starts automatically on an authenticated member,
+without an extra upgrade button. Pending operations retry on reconnect and the
+five-second background refresh; accepted grants automatically add and connect
+members through the same scoped session machinery. Local pairing sessions remain
+available for normal credential renewal. Explicitly revoked grants do not cause
+automatic re-adoption; fresh local pairing may request new access. Expired grants
+can renew through a still-valid local pairing, distinct from a revoke tombstone.
+
+Daemon UI exposes create, join/resume, leave, cancel-join and pending cleanup.
+Create/join confirmation explicitly states full member trust, cluster-wide client
+access and adoption of existing local pairings. Unsupported enrollment exposes no
+actions (including current Windows builds). Cancel retires locally before remote
+cleanup and labels unresolved cleanup accurately; no forced detach or promotion.
+An explicit successful create/join updates the machine's cluster binding rather
+than silently carrying trust across clusters. Primary transfer and explicit
+cluster-grant administration remain RPC-level operations: this checkpoint does
+not yet provide their dedicated UI. Forced primary recovery remains unsupported.
+
+Real browser evidence: ignored host test
+`browser_cluster_pairing_adoption_and_second_node_access` starts two localhost
+fixture daemons, uses a new headless Chrome profile, and pins only their short-lived
+synthetic certificates in a test-only WebTransport constructor. Rust setup enrolls
+the two nodes; the browser then performs StartPairing/CompletePairing once, reloads
+the actual app, observes automatic adoption/discovery, and accesses the other node
+with the product grant-auth code. Additional browser steps cover nonextractability,
+concurrent-tab key creation, reload/reconnect, narrow UI, IndexedDB failure with
+local RPC still working, leave, cancel cleanup, fresh-incarnation rejoin, late
+Finish rejection, and revoke without automatic re-adoption. Browser tests do not
+restart an OS service; daemon crash/reopen coverage remains the existing runtime
+suite. No actual host screen, input, credentials, ACLs or membership were used.
+
+Validation: full host 169 passed / 4 ignored (browser test separately passed);
+web/codegen 116 passed; type check and web build passed; existing UI suite 43 passed
+using installed Chrome plus the new cluster UI test passed. Screenshot inspected:
+`tmp/cluster-browser-narrow.png`. Browser fixture log: `tmp/cluster-browser-e2e.log`.
+No main push, CI publication, release or deployment. Independent review required.

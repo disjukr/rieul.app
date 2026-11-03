@@ -10,6 +10,8 @@ export function rpcSessionStub(values: Partial<RpcSession>): RpcSession {
     throw new Error("Unexpected RPC method");
   }
   return {
+    cluster: () => ({ supported: false, message: "fixture" }),
+    refreshCluster: async () => {},
     closeRpcSession: unused,
     reconnect: unused,
     resetController: unused,

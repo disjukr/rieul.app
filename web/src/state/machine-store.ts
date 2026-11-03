@@ -1,3 +1,5 @@
+import { endpoint, hex, verifyHistory } from "../cluster/trust.ts";
+import type { ClusterRecord } from "../cluster/storage.ts";
 import {
   createSignal,
   createMemo,
@@ -108,7 +110,88 @@ export const machineStoreBunja = bunja(() => {
       }),
     ),
   );
+  const appliedClusterHeads = new Map<
+    string,
+    { sequence: number; hash: string }
+  >();
+  async function applyCluster(
+    record: ClusterRecord,
+    sourceId?: string,
+    sourceAdmission?: string,
+  ) {
+    if (!record.history || !record.grantId) return;
+    const verified = await verifyHistory(record.history);
+    setMachines((current) => {
+      const prior = appliedClusterHeads.get(record.id),
+        nextHash = hex(verified.head.entryHash);
+      if (prior && prior.sequence > verified.head.sequence) return current;
+      if (
+        prior &&
+        prior.sequence === verified.head.sequence &&
+        prior.hash !== nextHash
+      )
+        return current; // Fail closed without throwing from a deferred signal updater.
+      appliedClusterHeads.set(record.id, {
+        sequence: verified.head.sequence,
+        hash: nextHash,
+      });
+      const valid = verified.grants.get(hex(record.grantId!));
+      const authorized =
+        valid &&
+        valid.expires * 1000 > Date.now() &&
+        hex(valid.client) === hex(record.publicKey);
+      const bound = current.map((m) =>
+        m.id === sourceId &&
+        sourceAdmission &&
+        verified.members.has(sourceAdmission) &&
+        new URL(m.baseUrl).pathname === "/" &&
+        endpoint(verified.members.get(sourceAdmission)!.endpoint) ===
+          new URL(m.baseUrl).origin &&
+        (!m.cluster || m.cluster.id === record.id)
+          ? { ...m, cluster: { id: record.id, admissionId: sourceAdmission } }
+          : m,
+      );
+      const next = bound.filter(
+        (m) =>
+          !m.cluster ||
+          m.cluster.id !== record.id ||
+          (authorized && verified.members.has(m.cluster.admissionId)) ||
+          Boolean(m.clientSecret),
+      );
+      if (!authorized) {
+        setSelectedId((id) =>
+          id && !next.some((m) => m.id === id) ? next[0]?.id : id,
+        );
+        return next;
+      }
+      for (const member of verified.members.values()) {
+        const baseUrl = endpoint(member.endpoint),
+          admissionId = hex(member.admissionId);
+        const existing = next.find(
+          (m) =>
+            m.cluster?.id === record.id &&
+            m.cluster.admissionId === admissionId,
+        );
+        if (existing) continue;
+        // An address match alone never transfers an existing machine's trust.
+        next.push({
+          id: `cluster:${record.id}:${admissionId}`,
+          name: new URL(baseUrl).host,
+          baseUrl,
+          cluster: { id: record.id, admissionId },
+        });
+      }
+      setSelectedId((id) =>
+        id && !next.some((m) => m.id === id) ? next[0]?.id : id,
+      );
+      return next.length === current.length &&
+        next.every((m, i) => m === current[i])
+        ? current
+        : next;
+    });
+  }
   return {
+    applyCluster,
     machines,
     selectedId,
     selected,
@@ -162,5 +245,7 @@ function saveSelectedMachineId(
   }
 }
 export function isPaired(machine?: Machine): boolean {
-  return Boolean(machine?.clientId && machine?.clientSecret);
+  return Boolean(
+    machine?.cluster || (machine?.clientId && machine?.clientSecret),
+  );
 }

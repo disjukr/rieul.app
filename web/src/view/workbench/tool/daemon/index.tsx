@@ -1,3 +1,4 @@
+import { ClusterSection } from "./cluster.tsx";
 import { style } from "../../../../zyzz.config.ts";
 import { DaemonUpdateSection } from "./updates.tsx";
 import type {
@@ -601,6 +602,7 @@ function DaemonInfoView(props: DaemonInfoViewProps) {
             </PropertyList>
 
             <DaemonUpdateSection />
+            <ClusterSection />
 
             <ClientsOverviewSection
               clientsState={props.clientsState}

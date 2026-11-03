@@ -97,6 +97,8 @@ function fixture() {
       string | undefined
     >("daemon");
     return {
+      cluster: () => ({ supported: false, message: "fixture" }),
+      refreshCluster: async () => {},
       closeRpcSession: unused,
       reconnect: unused,
       resetController: unused,

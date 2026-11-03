@@ -25,6 +25,8 @@ const overrides = [
   override(rpcSessionBunja, () => {
     const id = bunja.use(MachineScope);
     return {
+      cluster: () => ({ supported: false, message: "fixture" }),
+      refreshCluster: async () => {},
       closeRpcSession: unused,
       reconnect: unused,
       resetController: unused,

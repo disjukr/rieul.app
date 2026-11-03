@@ -5,6 +5,7 @@ export interface Machine {
   name: string;
   baseUrl: string;
   icon?: MachineIconName;
+  cluster?: { id: string; admissionId: string };
   clientId?: string;
   clientSecret?: string;
   clientCredentialExpiresAtUnix?: number;
@@ -21,7 +22,7 @@ export const machineIconNames = [
   "pc-case",
 ] as const;
 
-export type MachineIconName = typeof machineIconNames[number];
+export type MachineIconName = (typeof machineIconNames)[number];
 
 const STORAGE_KEY = "rieul.machines.v1";
 const DEFAULT_MACHINE_PORT = "9012";
@@ -71,8 +72,7 @@ export function normalizeMachineUrl(raw: string): string {
 
 function hasExplicitPort(rawUrl: string): boolean {
   const authority =
-    rawUrl.slice(rawUrl.indexOf("://") + 3).split(/[/?#]/, 1)[0] ??
-      "";
+    rawUrl.slice(rawUrl.indexOf("://") + 3).split(/[/?#]/, 1)[0] ?? "";
   if (authority.startsWith("[")) {
     return /^\[[^\]]+\]:\d+$/.test(authority);
   }
@@ -86,23 +86,28 @@ function normalizeMachine(item: unknown): Machine | undefined {
     return undefined;
   }
   try {
+    const cluster = normalizeClusterBinding(record.cluster);
+    const baseUrl = cluster
+      ? normalizeClusterBaseUrl(record.baseUrl)
+      : normalizeMachineUrl(record.baseUrl);
     return {
       id: record.id,
-      name: typeof record.name === "string" && record.name.trim()
-        ? record.name
-        : new URL(normalizeMachineUrl(record.baseUrl)).hostname,
-      baseUrl: normalizeMachineUrl(record.baseUrl),
+      name:
+        typeof record.name === "string" && record.name.trim()
+          ? record.name
+          : new URL(baseUrl).hostname,
+      baseUrl,
       icon: normalizeMachineIcon(record.icon),
-      clientId: typeof record.clientId === "string"
-        ? record.clientId
-        : undefined,
-      clientSecret: typeof record.clientSecret === "string"
-        ? record.clientSecret
-        : undefined,
+      cluster,
+      clientId:
+        typeof record.clientId === "string" ? record.clientId : undefined,
+      clientSecret:
+        typeof record.clientSecret === "string"
+          ? record.clientSecret
+          : undefined,
       clientCredentialExpiresAtUnix:
-        typeof record.clientCredentialExpiresAtUnix ===
-            "number" &&
-          Number.isSafeInteger(record.clientCredentialExpiresAtUnix)
+        typeof record.clientCredentialExpiresAtUnix === "number" &&
+        Number.isSafeInteger(record.clientCredentialExpiresAtUnix)
           ? record.clientCredentialExpiresAtUnix
           : undefined,
     };
@@ -113,14 +118,43 @@ function normalizeMachine(item: unknown): Machine | undefined {
 
 function normalizeMachineIcon(value: unknown): MachineIconName | undefined {
   return typeof value === "string" &&
-      machineIconNames.includes(value as MachineIconName)
-    ? value as MachineIconName
+    machineIconNames.includes(value as MachineIconName)
+    ? (value as MachineIconName)
     : undefined;
 }
 
 function normalizeStoredMachine(machine: Machine): Machine {
   return {
     ...machine,
-    baseUrl: normalizeMachineUrl(machine.baseUrl),
+    baseUrl: machine.cluster
+      ? normalizeClusterBaseUrl(machine.baseUrl)
+      : normalizeMachineUrl(machine.baseUrl),
   };
+}
+
+function normalizeClusterBinding(value: unknown): Machine["cluster"] {
+  if (!value || typeof value !== "object") return undefined;
+  const v = value as Record<string, unknown>;
+  return typeof v.id === "string" &&
+    typeof v.admissionId === "string" &&
+    /^[a-f0-9]{64}$/.test(v.id) &&
+    /^[a-f0-9]{64}$/.test(v.admissionId)
+    ? { id: v.id, admissionId: v.admissionId }
+    : undefined;
+}
+
+// Signed cluster endpoints already specify their effective port. Do not apply
+// the manual-add convenience default (9012) to an advertised HTTPS/443 origin.
+export function normalizeClusterBaseUrl(raw: string): string {
+  const url = new URL(raw);
+  if (
+    url.protocol !== "https:" ||
+    url.username ||
+    url.password ||
+    url.pathname !== "/" ||
+    url.search ||
+    url.hash
+  )
+    throw new Error("Invalid cluster base URL");
+  return url.origin;
 }

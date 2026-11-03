@@ -833,6 +833,7 @@ pub(super) mod tests {
         pub(in crate::server) gate: Arc<crate::maintenance::WorkGate>,
         server: tokio::task::JoinHandle<()>,
         pub(in crate::server) _client: web_transport_quinn::Client,
+        pub(in crate::server) certificate_hash: String,
         client_id: String,
         secret: String,
         helper_tasks: Arc<std::sync::Mutex<Vec<tokio::task::AbortHandle>>>,
@@ -851,6 +852,16 @@ pub(super) mod tests {
             Self::with_updates(use_ipc, None).await
         }
         async fn with_updates(use_ipc: bool, updates: SharedUpdater) -> Self {
+            Self::with_options(use_ipc, updates, None).await
+        }
+        pub(in crate::server) async fn with_pairing(notifier: SharedPairingNotifier) -> Self {
+            Self::with_options(false, None, Some(notifier)).await
+        }
+        async fn with_options(
+            use_ipc: bool,
+            updates: SharedUpdater,
+            pairing_notifier: Option<SharedPairingNotifier>,
+        ) -> Self {
             let dir = tempfile::tempdir().unwrap();
             let path = dir.path().join("rieul.yaml");
             let credentials_path = client_credentials_path(&path);
@@ -880,8 +891,13 @@ pub(super) mod tests {
                 backend.clone()
             };
             let runtime = desktop::Runtime::new(gate.clone(), Some(adapter));
-            let cert = rcgen::generate_simple_self_signed(vec!["127.0.0.1".into()]).unwrap();
+            let signing_key = rcgen::KeyPair::generate().unwrap();
+            let mut params = rcgen::CertificateParams::new(vec!["127.0.0.1".into()]).unwrap();
+            params.not_before = time::OffsetDateTime::now_utc() - time::Duration::minutes(1);
+            params.not_after = time::OffsetDateTime::now_utc() + time::Duration::hours(1);
+            let cert = rcgen::CertifiedKey { cert:params.self_signed(&signing_key).unwrap(),signing_key };
             let der = cert.cert.der().clone();
+            let certificate_hash = ring::digest::digest(&ring::digest::SHA256, &der).as_ref().iter().map(|byte|format!("{byte:02x}")).collect();
             let key = rustls::pki_types::PrivatePkcs8KeyDer::from(cert.signing_key.serialize_der());
             let mut server = web_transport_quinn::ServerBuilder::new()
                 .with_addr("127.0.0.1:0".parse().unwrap())
@@ -915,6 +931,7 @@ pub(super) mod tests {
                     let admission = admission.clone();
                     let rt = rt.clone();
                     let disconnect = disconnect.clone();
+                    let pairing_notifier = pairing_notifier.clone();
                     connections.spawn(async move {
                         let _ = run_rpc_session(
                             session,
@@ -934,7 +951,7 @@ pub(super) mod tests {
                             test_commands(),
                             test_agents(),
                             watch::channel(0).0,
-                            None,
+                            pairing_notifier,
                             Arc::new(std::sync::atomic::AtomicUsize::new(0)),
                             updates,
                             admission,
@@ -965,6 +982,7 @@ pub(super) mod tests {
                 gate,
                 server: task,
                 _client: client,
+                certificate_hash,
                 client_id: issued.client_id,
                 secret: issued.client_secret,
                 helper_tasks,

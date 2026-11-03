@@ -1,4 +1,10 @@
 import {
+  authenticateCluster,
+  synchronizeCluster,
+  type ClusterStatus,
+} from "../cluster/connection.ts";
+import type { ClusterRecord } from "../cluster/storage.ts";
+import {
   createSignal,
   createMemo,
   createRoot,
@@ -56,6 +62,9 @@ interface ManagedRpcSession {
   datagrams: DatagramRuntime;
   credentialRenewalStarted: boolean;
   renewalTimer?: ReturnType<typeof setInterval>;
+  clusterTimer?: ReturnType<typeof setTimeout>;
+  clusterSyncing?: boolean;
+  newPairing?: boolean;
   transport: WebTransport;
 }
 interface IdleDaemonInfoState {
@@ -81,8 +90,10 @@ export type DaemonInfoState =
 interface RpcSessionState {
   connection: ConnectionState;
   daemonInfo: DaemonInfoState;
+  cluster: ClusterStatus;
 }
 interface RpcSessionController {
+  refreshCluster: () => Promise<void>;
   close: () => void;
   closeRpcSession: () => void;
   completePairingSession: (code: string) => ReturnType<typeof completePairing>;
@@ -95,6 +106,11 @@ interface RpcSessionController {
   webTransport: () => Promise<WebTransport>;
 }
 interface RpcSessionControllerEnv {
+  applyCluster: (
+    record: ClusterRecord,
+    sourceId?: string,
+    sourceAdmission?: string,
+  ) => Promise<void>;
   getMachine: () => Machine | undefined;
   machineId: string;
   onAuthenticatedSessionInvalidated: () => void;
@@ -107,6 +123,7 @@ function initialRpcSessionState(): RpcSessionState {
   return {
     connection: { phase: "idle" },
     daemonInfo: { phase: "idle" },
+    cluster: { supported: false, message: "Connect to read cluster status." },
   };
 }
 export const rpcSessionBunja = bunja(() => {
@@ -208,6 +225,7 @@ export const rpcSessionBunja = bunja(() => {
     onAuthenticatedSessionInvalidated: () => void,
   ): RpcSessionControllerEnv {
     return {
+      applyCluster: machines.applyCluster,
       getMachine: () => machines.findMachine(machineId),
       machineId,
       onAuthenticatedSessionInvalidated,
@@ -233,6 +251,8 @@ export const rpcSessionBunja = bunja(() => {
     return controller().webTransport();
   }
   return {
+    cluster: () => rpcSession().cluster,
+    refreshCluster: () => controller().refreshCluster(),
     closeRpcSession,
     connection,
     daemonInfo,
@@ -308,6 +328,7 @@ function createRpcSessionController(
     initialRpcSessionState(),
   );
   const rpcController: RpcSessionController = {
+    refreshCluster,
     close,
     closeRpcSession,
     completePairingSession,
@@ -409,7 +430,7 @@ function createRpcSessionController(
       throw new Error("RPC session was closed");
     }
     managed = session;
-    if (machine.clientId && machine.clientSecret) {
+    if (machine.cluster || (machine.clientId && machine.clientSecret)) {
       try {
         await authenticateManagedSession(session, machine);
       } catch (err) {
@@ -512,6 +533,7 @@ function createRpcSessionController(
       completePairing(session.transport, { code }),
     );
     const session = await rpcSession;
+    session.newPairing = true;
     await authenticateManagedSessionWithCredential(
       session,
       credentials.clientId,
@@ -542,6 +564,16 @@ function createRpcSessionController(
     session: ManagedRpcSession,
     machine: Machine,
   ): Promise<void> {
+    if ((!machine.clientId || !machine.clientSecret) && machine.cluster) {
+      const identity = `cluster:${machine.cluster.id}:${machine.cluster.admissionId}`;
+      if (session.authenticatedClientId === identity) return;
+      const record = await authenticateCluster(session.transport, machine);
+      if (closed || session.closed || session.generation !== sessionGeneration)
+        throw new Error("RPC session was closed");
+      session.authenticatedClientId = identity;
+      await env.applyCluster(record);
+      return;
+    }
     if (!machine.clientId || !machine.clientSecret) {
       throw new Error("missing paired client credentials");
     }
@@ -564,6 +596,7 @@ function createRpcSessionController(
       throw new Error("RPC session was closed");
     session.authenticatedClientId = clientId;
     startCredentialRenewalLoop(session);
+    void refreshCluster();
   }
   async function refreshDaemonInfoForCurrentMachine(
     options: {
@@ -590,6 +623,7 @@ function createRpcSessionController(
           receivedAtMs: Date.now(),
         },
       }));
+      void refreshCluster(daemonInfo);
     } catch (err) {
       if (closed || generation !== sessionGeneration) return;
       setState((state) => ({
@@ -599,6 +633,73 @@ function createRpcSessionController(
           message: err instanceof Error ? err.message : String(err),
         },
       }));
+    }
+  }
+  async function refreshCluster(
+    daemonInfoOverride?: DaemonInfo,
+  ): Promise<void> {
+    const current = state().daemonInfo;
+    const session = managed,
+      machine = currentMachine(),
+      info =
+        daemonInfoOverride ??
+        (current.phase === "ready" ? current.daemonInfo : undefined);
+    if (
+      !session ||
+      session.closed ||
+      closed ||
+      session.clusterSyncing ||
+      !session.authenticatedClientId ||
+      !machine ||
+      !info
+    )
+      return;
+    clearTimeout(session.clusterTimer);
+    session.clusterSyncing = true;
+    try {
+      const status = await synchronizeCluster(
+        session.transport,
+        machine,
+        info.supportedProcIds,
+        session.newPairing,
+      );
+      if (closed || session.closed || session.generation !== sessionGeneration)
+        return;
+      if (status.record) session.newPairing = false;
+      if (status.record)
+        await env.applyCluster(
+          status.record,
+          machine.clientSecret ? machine.id : undefined,
+          status.state?.type === "member"
+            ? Array.from(status.state.localAdmissionId, (b) =>
+                b.toString(16).padStart(2, "0"),
+              ).join("")
+            : undefined,
+        );
+      if (closed || session.closed || session.generation !== sessionGeneration)
+        return;
+      setState((current) => ({ ...current, cluster: status }));
+    } catch (error) {
+      if (
+        !closed &&
+        !session.closed &&
+        session.generation === sessionGeneration
+      )
+        setState((current) => ({
+          ...current,
+          cluster: {
+            ...current.cluster,
+            message: `Cluster sync: ${error instanceof Error ? error.message : String(error)}. Local pairing is unchanged.`,
+          },
+        }));
+    } finally {
+      session.clusterSyncing = false;
+      if (
+        !closed &&
+        !session.closed &&
+        session.generation === sessionGeneration
+      )
+        session.clusterTimer = setTimeout(() => void refreshCluster(), 5000);
     }
   }
   function setConnectionOffline() {
@@ -647,6 +748,7 @@ function closeManagedRpcSession(session: ManagedRpcSession): void {
   if (session.closed) return;
   session.closed = true;
   clearInterval(session.renewalTimer);
+  clearTimeout(session.clusterTimer);
   closeDatagramRuntime(session.datagrams);
   closeProtocolWebTransport(session.transport);
 }

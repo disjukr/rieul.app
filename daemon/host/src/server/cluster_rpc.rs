@@ -332,6 +332,127 @@ mod tests {
             other => panic!("{other:?}"),
         }
     }
+    struct BrowserPairingNotifier(PathBuf);
+    impl PairingNotifier for BrowserPairingNotifier {
+        fn confirm_pairing_request(
+            &self,
+            _: PairingConfirmationRequest,
+        ) -> Pin<Box<dyn Future<Output = Result<()>> + Send + '_>> {
+            Box::pin(async { Ok(()) })
+        }
+        fn notify_pairing_code(
+            &self,
+            n: PairingCodeNotification,
+        ) -> Pin<Box<dyn Future<Output = Result<()>> + Send + '_>> {
+            Box::pin(async move {
+                std::fs::write(&self.0, n.pairing_code)?;
+                Ok(())
+            })
+        }
+    }
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    #[ignore = "requires installed Chrome and isolated Vite/browser fixture"]
+    async fn browser_cluster_pairing_adoption_and_second_node_access() {
+        let dir = tempfile::tempdir().unwrap();
+        let code = dir.path().join("pairing-code");
+        let a = Fixture::new().await;
+        let b = Fixture::with_pairing(Arc::new(BrowserPairingNotifier(code.clone()))).await;
+        a.authenticate().await;
+        b.authenticate().await;
+        let state = ClusterState::decode(
+            &ok(
+                &a,
+                ProcId::CreateCluster,
+                Some(
+                    CreateClusterReq {
+                        operation_id: vec![1; 32],
+                        confirmed: true,
+                    }
+                    .encode(),
+                ),
+            )
+            .await,
+        )
+        .unwrap();
+        let (genesis, head, _) = member(state);
+        let consent = ClusterJoinConsent::decode(
+            &ok(
+                &b,
+                ProcId::PrepareClusterJoin,
+                Some(
+                    PrepareClusterJoinReq {
+                        operation_id: vec![2; 32],
+                        genesis: genesis.clone(),
+                        confirmed: true,
+                    }
+                    .encode(),
+                ),
+            )
+            .await,
+        )
+        .unwrap();
+        ok(
+            &a,
+            ProcId::AdmitClusterMember,
+            Some(
+                AdmitClusterMemberReq {
+                    operation_id: vec![3; 32],
+                    expected_management_epoch: 1,
+                    consent,
+                }
+                .encode(),
+            ),
+        )
+        .await;
+        ok(
+            &b,
+            ProcId::FinishClusterJoin,
+            Some(
+                FinishClusterJoinReq {
+                    operation_id: vec![2; 32],
+                    history: history(&a, head.cluster_id).await,
+                }
+                .encode(),
+            ),
+        )
+        .await;
+        let ClusterState::Member {
+            members,
+            local_admission_id,
+            ..
+        } = get(&b).await
+        else {
+            panic!()
+        };
+        let endpoint = members
+            .iter()
+            .find(|m| m.admission_id == local_admission_id)
+            .unwrap()
+            .endpoint
+            .clone();
+        let fixture = dir.path().join("browser.json");
+        std::fs::write(&fixture,serde_json::to_vec(&serde_json::json!({"a":genesis.root_endpoint,"b":endpoint,"certificateHashes":[a.certificate_hash,b.certificate_hash],"codeFile":code})).unwrap()).unwrap();
+        let script = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../scripts/testing/cluster-browser.mjs");
+        let run = tokio::task::spawn_blocking(move || {
+            std::process::Command::new("node")
+                .arg(script)
+                .arg(fixture)
+                .status()
+                .unwrap()
+        });
+        let path = b._dir.path().join("rieul.cluster.sqlite");
+        tokio::pin!(run);
+        let result=tokio::time::timeout(Duration::from_secs(90),async {
+            loop {
+                tokio::select! {
+                    result=&mut run=>break result.unwrap(),
+                    _=tokio::time::sleep(Duration::from_millis(100))=>{ let _=runtime::worker::tick(&path,&a._client).await; }
+                }
+            }
+        }).await.unwrap();
+        assert!(result.success());
+    }
     async fn raw_join_call(
         session: &web_transport_quinn::Session,
         proc: ProcId,

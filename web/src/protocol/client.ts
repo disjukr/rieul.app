@@ -15,7 +15,7 @@ import {
   ReqResMessageKind,
   SessionAuthErrorCode,
 } from "./wire.ts";
-import { Machine, normalizeMachineUrl } from "../state/machines.ts";
+import { Machine, normalizeMachineUrl, normalizeClusterBaseUrl } from "../state/machines.ts";
 
 const CONNECT_TIMEOUT_MS = 10_000;
 
@@ -39,7 +39,7 @@ export async function openWebTransport(
 ): Promise<WebTransport> {
   signal?.throwIfAborted();
   const transport = new WebTransport(
-    `${normalizeMachineUrl(machine.baseUrl)}${path}`,
+    `${machine.cluster ? normalizeClusterBaseUrl(machine.baseUrl) : normalizeMachineUrl(machine.baseUrl)}${path}`,
   );
   // Observe closure even before ready settles; failed openings must not leave an
   // unhandled closed rejection or wait for the full connection deadline.

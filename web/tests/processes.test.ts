@@ -99,6 +99,8 @@ function fixture() {
     >("fixture");
     const [daemonInfo, setDaemonInfo] = createSignal<DaemonInfoState>(ready());
     return {
+      cluster: () => ({ supported: false, message: "fixture" }),
+      refreshCluster: async () => {},
       closeRpcSession: unused,
       reconnect: unused,
       resetController: unused,

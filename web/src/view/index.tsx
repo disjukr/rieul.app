@@ -1,3 +1,4 @@
+import { ClusterConnections } from "./cluster-connections.tsx";
 import { style, theme } from "../zyzz.config.ts";
 import type { JSX } from "@solidjs/web";
 import { createEffect } from "solid-js";
@@ -15,6 +16,7 @@ import { WorkbenchRegion } from "./workbench/index.tsx";
 export default function View() {
   return (
     <Layout>
+      <ClusterConnections />
       <SelectedMachineIdProvider>
         <TopBarRegion />
         <WorkbenchRegion />
