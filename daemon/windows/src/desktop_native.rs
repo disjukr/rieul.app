@@ -438,9 +438,15 @@ impl HardwareEncoder {
                 let uses_rate = rate_mode.is_ok_and(|m| matches!(m, 0 | 1 | 2 | 4 | 5 | 6));
                 uses_rate
                     && codec.IsModifiable(&CODECAPI_AVEncCommonMeanBitRate) == HRESULT(0)
-                    && codec
-                        .SetValue(&CODECAPI_AVEncCommonMeanBitRate, &VARIANT::from(bitrate))
-                        .is_ok()
+                    // The generated SetValue wrapper erases S_FALSE (read-only).
+                    && (windows::core::Interface::vtable(&codec).SetValue)(
+                        windows::core::Interface::as_raw(&codec),
+                        &CODECAPI_AVEncCommonMeanBitRate,
+                        &VARIANT::from(bitrate),
+                    ) == HRESULT(0)
+                    && codec.GetValue(&CODECAPI_AVEncCommonMeanBitRate)
+                        .and_then(|v| windows::Win32::System::Variant::VariantToUInt32(&v))
+                        .is_ok_and(|actual| actual == bitrate)
             })
         };
         if accepted {

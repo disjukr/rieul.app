@@ -178,7 +178,8 @@ control epochs.
 At a completed GOP boundary, macOS updates VideoToolbox AverageBitRate under the
 capture lock. Windows applies MeanBitRate on the encoder's COM thread only when
 its current rate-control mode is a known CBR/VBR mode and IsModifiable returns
-exact S_OK. Quality mode, unknown support or setter rejection retain encoding
+exact S_OK. SetValue must also return exact S_OK (S_FALSE means read-only),
+and GetValue must confirm the requested target. Quality mode, unknown support or setter rejection retain encoding
 and transport pacing; rejected native setters are not retried every group.
 These properties are soft targets, not output bitrate or quality guarantees.
 
