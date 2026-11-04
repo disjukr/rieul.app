@@ -1,15 +1,12 @@
 //! One thread owns COM, DXGI/MF and held input for the active console user.
 //! The system service must use authenticated IPC, never instantiate this backend.
-use crate::{
-    desktop_native as native,
-    desktop_pixels::{nv12, scan_code},
-};
+use crate::{desktop_native as native, desktop_pixels::scan_code};
 use rieul_daemon_core::generated::rpc::*;
 use rieul_daemon_host::desktop::{
     Backend, EncodedFrame, Error, MAX_FRAME, MAX_STREAM, MAX_VIEWPORTS, PROFILE,
 };
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::BTreeSet,
     sync::mpsc::{self, SyncSender},
     time::{Duration, Instant},
 };
@@ -20,15 +17,12 @@ enum Command {
     Displays,
     Cursor(u64),
     Input(DesktopInputEvent, Option<DesktopViewport>),
-    Group(DesktopTrack, bool),
-    End(DesktopTrack),
 }
 enum Reply {
     Probe(DesktopQualityVerification),
     Cursor(DesktopEvent),
     Capabilities(DesktopCapabilities),
     Displays(Vec<DesktopDisplay>),
-    Frames(Vec<EncodedFrame>),
     Done,
 }
 struct Request {
@@ -39,6 +33,7 @@ struct Request {
 pub struct WindowsDesktop {
     sender: Option<SyncSender<Request>>,
     worker: Option<std::thread::JoinHandle<()>>,
+    captures: crate::desktop_capture::Captures,
 }
 impl Drop for WindowsDesktop {
     fn drop(&mut self) {
@@ -70,7 +65,6 @@ impl WindowsDesktop {
                     let result = state.execute(request.command);
                     if request.reply.send(result).is_err() && !read_only_probe {
                         let _ = state.release();
-                        state.tracks.clear();
                     }
                 }
                 let _ = state.release();
@@ -79,6 +73,7 @@ impl WindowsDesktop {
         Ok(Self {
             sender: Some(sender),
             worker: Some(worker),
+            captures: Default::default(),
         })
     }
     fn call(&self, command: Command) -> Result<Reply, Error> {
@@ -169,46 +164,31 @@ impl Backend for WindowsDesktop {
             _ => Err(Error::Backend),
         }
     }
-    fn group(&self, track: &DesktopTrack) -> Result<Vec<EncodedFrame>, Error> {
-        match self.call(Command::Group(track.clone(), false))? {
-            Reply::Frames(frames) => Ok(frames),
-            _ => Err(Error::Backend),
-        }
+    fn group(&self, t: &DesktopTrack) -> Result<Vec<EncodedFrame>, Error> {
+        let mut frames = vec![];
+        self.captures.stream(t, false, &mut |f| {
+            frames.push(f);
+            Ok(())
+        })?;
+        Ok(frames)
     }
     fn stream_group_with_refresh(
         &self,
-        track: &DesktopTrack,
+        t: &DesktopTrack,
         refresh: bool,
         emit: &mut dyn FnMut(EncodedFrame) -> Result<(), Error>,
     ) -> Result<(), Error> {
-        match self.call(Command::Group(track.clone(), refresh))? {
-            Reply::Frames(frames) => {
-                for frame in frames {
-                    emit(frame)?;
-                }
-                Ok(())
-            }
-            _ => Err(Error::Backend),
-        }
+        self.captures.stream(t, refresh, emit)
     }
-    fn end_track(&self, track: &DesktopTrack) -> Result<(), Error> {
-        match self.call(Command::End(track.clone()))? {
-            Reply::Done => Ok(()),
-            _ => Err(Error::Backend),
-        }
+    fn end_track(&self, t: &DesktopTrack) -> Result<(), Error> {
+        self.captures.end(t)
     }
 }
-struct Track {
-    capture: native::Duplication,
-    encoder: native::HardwareEncoder,
-    last_packet: Option<Vec<u8>>,
-}
+
 struct Worker {
-    tracks: BTreeMap<(u64, u64), Track>,
     keys: BTreeSet<u64>,
     buttons: BTreeSet<u64>,
     point: (i32, i32),
-    clock: Instant,
     codecs: Vec<String>,
     probed: bool,
     wheel: (f64, f64),
@@ -216,11 +196,9 @@ struct Worker {
 impl Default for Worker {
     fn default() -> Self {
         Self {
-            tracks: BTreeMap::new(),
             keys: BTreeSet::new(),
             buttons: BTreeSet::new(),
             point: (0, 0),
-            clock: Instant::now(),
             codecs: vec![],
             probed: false,
             wheel: (0.0, 0.0),
@@ -229,10 +207,6 @@ impl Default for Worker {
 }
 impl Worker {
     fn execute(&mut self, command: Command) -> Result<Reply, Error> {
-        if let Command::End(track) = command {
-            self.tracks.remove(&(track.track_id, track.codec_epoch));
-            return Ok(Reply::Done);
-        }
         if !native::interactive() {
             return Err(Error::Unauthorized);
         }
@@ -369,94 +343,6 @@ impl Worker {
                 self.input(event, viewport)?;
                 Ok(Reply::Done)
             }
-            Command::Group(track, refresh) => {
-                let key = (track.track_id, track.codec_epoch);
-                let v = &track.viewport;
-                if !self.tracks.contains_key(&key) {
-                    if self.tracks.len() >= 32 {
-                        return Err(Error::Limit);
-                    }
-                    let (a, o) = v.display_id.split_once('.').ok_or(Error::Invalid)?;
-                    let capture = native::Duplication::open(
-                        a.parse().map_err(|_| Error::Invalid)?,
-                        o.parse().map_err(|_| Error::Invalid)?,
-                    )
-                    .map_err(|_| Error::Backend)?;
-                    let encoder = native::HardwareEncoder::with_codec(
-                        v.width.try_into().map_err(|_| Error::Limit)?,
-                        v.height.try_into().map_err(|_| Error::Limit)?,
-                        v.fps.try_into().map_err(|_| Error::Limit)?,
-                        v.bitrate.try_into().map_err(|_| Error::Limit)?,
-                        if track.codec.codec.starts_with("av01.") {
-                            native::Codec::Av1
-                        } else {
-                            native::Codec::H264
-                        },
-                    )
-                    .map_err(|_| Error::Backend)?;
-                    self.tracks.insert(
-                        key,
-                        Track {
-                            capture,
-                            encoder,
-                            last_packet: None,
-                        },
-                    );
-                }
-                let native = self.tracks.get_mut(&key).unwrap();
-                let Some(frame) = native.capture.next().map_err(|_| Error::Backend)? else {
-                    let frames = if refresh {
-                        native
-                            .last_packet
-                            .as_ref()
-                            .map(|packet| {
-                                vec![EncodedFrame::new(
-                                    self.clock.elapsed().as_micros() as u64,
-                                    true,
-                                    packet.clone(),
-                                )]
-                            })
-                            .unwrap_or_default()
-                    } else {
-                        vec![]
-                    };
-                    return Ok(Reply::Frames(frames));
-                };
-                let pixels = nv12(
-                    &frame.bytes,
-                    (frame.width as usize, frame.height as usize, frame.stride),
-                    (
-                        v.crop.x.try_into().map_err(|_| Error::Invalid)?,
-                        v.crop.y.try_into().map_err(|_| Error::Invalid)?,
-                        v.crop.width as usize,
-                        v.crop.height as usize,
-                    ),
-                    (v.width as usize, v.height as usize),
-                )
-                .ok_or(Error::Invalid)?;
-                let timestamp = self.clock.elapsed().as_micros() as u64;
-                let packet = native
-                    .encoder
-                    .encode_keyframe(&pixels, timestamp)
-                    .map_err(|_| Error::Backend)?;
-                let actual = if track.codec.codec.starts_with("av01.") {
-                    crate::desktop_pixels::av1_independent(&packet, &mut vec![])
-                        .map(|(codec, _)| codec)
-                } else {
-                    avc_codec(&packet)
-                };
-                if actual.as_deref() != Some(&track.codec.codec) {
-                    return Err(Error::Unsupported);
-                }
-                if packet.len() > 4 * 1024 * 1024 {
-                    return Err(Error::Limit);
-                }
-                native.last_packet = Some(packet.clone());
-                Ok(Reply::Frames(vec![EncodedFrame::new(
-                    timestamp, true, packet,
-                )]))
-            }
-            Command::End(_) => unreachable!(),
         }
     }
     fn release(&mut self) -> Result<(), Error> {
@@ -571,7 +457,7 @@ impl Worker {
         Ok(())
     }
 }
-fn avc_codec(bytes: &[u8]) -> Option<String> {
+pub(crate) fn avc_codec(bytes: &[u8]) -> Option<String> {
     let mut sps = None;
     let mut pps = false;
     let mut idr = false;

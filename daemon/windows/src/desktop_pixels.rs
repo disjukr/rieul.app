@@ -509,3 +509,33 @@ mod av1_tests {
         }
     }
 }
+
+/// Rectangle clipping adapted from tembo/voxl win/capture.rs::frame_rects
+/// a24c7171 (MIT; third_party/voxl/LICENSE). Empty/outside regions are ignored.
+pub fn clip_damage(
+    r: (i32, i32, i32, i32),
+    width: u32,
+    height: u32,
+) -> Option<(u32, u32, u32, u32)> {
+    if width > 8192 || height > 8192 {
+        return None;
+    }
+    let (w, h) = (width as i32, height as i32);
+    let (x0, y0) = (r.0.clamp(0, w), r.1.clamp(0, h));
+    let (x1, y1) = (r.2.clamp(0, w), r.3.clamp(0, h));
+    (x1 > x0 && y1 > y0).then_some((x0 as u32, y0 as u32, x1 as u32, y1 as u32))
+}
+#[cfg(test)]
+mod damage_tests {
+    use super::*;
+    #[test]
+    fn clips_negative_and_oversized_damage_without_wrapping() {
+        assert_eq!(
+            clip_damage((-20, -1, 100, 100), 64, 32),
+            Some((0, 0, 64, 32))
+        );
+        assert_eq!(clip_damage((65, 0, i32::MAX, i32::MAX), 64, 32), None);
+        assert_eq!(clip_damage((20, 10, 5, 2), 64, 32), None);
+        assert_eq!(clip_damage((0, 0, 4, 4), u32::MAX, 32), None);
+    }
+}

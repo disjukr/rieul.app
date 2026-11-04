@@ -67,6 +67,7 @@ pub struct CapturedBgra {
 }
 pub struct Duplication {
     has_image: std::cell::Cell<bool>,
+    staging: std::cell::RefCell<Option<(u32, u32, ID3D11Texture2D)>>,
     device: ID3D11Device,
     context: ID3D11DeviceContext,
     duplication: IDXGIOutputDuplication,
@@ -103,6 +104,7 @@ impl Duplication {
             }
             Ok(Self {
                 has_image: std::cell::Cell::new(false),
+                staging: std::cell::RefCell::new(None),
                 device,
                 context,
                 duplication,
@@ -148,14 +150,57 @@ impl Duplication {
             desc.BindFlags = 0;
             desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ.0 as u32;
             desc.MiscFlags = 0;
-            let mut staging = None;
-            self.device
-                .CreateTexture2D(&desc, None, Some(&mut staging))?;
-            let staging = staging.ok_or_else(invalid)?;
-            self.context.CopyResource(&staging, &texture);
+            let mut cached = self.staging.borrow_mut();
+            if cached
+                .as_ref()
+                .is_some_and(|(w, h, _)| *w != desc.Width || *h != desc.Height)
+            {
+                return Err(invalid());
+            }
+            if cached.is_none() {
+                let mut staging = None;
+                self.device
+                    .CreateTexture2D(&desc, None, Some(&mut staging))?;
+                *cached = Some((desc.Width, desc.Height, staging.ok_or_else(invalid)?));
+            }
+            let staging = &cached.as_ref().unwrap().2;
+            let full = vec![(0, 0, desc.Width, desc.Height)];
+            let rects = if self.has_image.get() {
+                frame_rects(&self.duplication, &info, desc.Width, desc.Height)
+                    .filter(|r| !r.is_empty())
+                    .unwrap_or(full)
+            } else {
+                full
+            };
+            // GPU copy scheduling ported from voxl win/capture.rs::copy_rects.
+            // CPU readback remains a bounded full image for the NV12 hardware API.
+            if rects.len() > 32 {
+                self.context.CopyResource(staging, &texture);
+            } else {
+                for &(x0, y0, x1, y1) in &rects {
+                    let region = D3D11_BOX {
+                        left: x0,
+                        top: y0,
+                        front: 0,
+                        right: x1,
+                        bottom: y1,
+                        back: 1,
+                    };
+                    self.context.CopySubresourceRegion(
+                        staging,
+                        0,
+                        x0,
+                        y0,
+                        0,
+                        &texture,
+                        0,
+                        Some(&region),
+                    );
+                }
+            }
             let mut mapped = D3D11_MAPPED_SUBRESOURCE::default();
             self.context
-                .Map(&staging, 0, D3D11_MAP_READ, 0, Some(&mut mapped))?;
+                .Map(staging, 0, D3D11_MAP_READ, 0, Some(&mut mapped))?;
             let length = mapped.RowPitch as usize * desc.Height as usize;
             let result = if mapped.pData.is_null()
                 || length > 256 * 1024 * 1024
@@ -170,13 +215,73 @@ impl Duplication {
                     bytes: std::slice::from_raw_parts(mapped.pData as *const u8, length).to_vec(),
                 }))
             };
-            self.context.Unmap(&staging, 0);
+            self.context.Unmap(staging, 0);
             if result.is_ok() {
                 self.has_image.set(true);
             }
             result
         }
     }
+}
+// Adapted from tembo/voxl win/capture.rs::frame_rects (a24c7171, MIT).
+// Unlike upstream, bound metadata and validate returned byte counts; any missing
+// or malformed evidence falls back to copying the full acquired image.
+fn frame_rects(
+    dup: &IDXGIOutputDuplication,
+    info: &DXGI_OUTDUPL_FRAME_INFO,
+    w: u32,
+    h: u32,
+) -> Option<Vec<(u32, u32, u32, u32)>> {
+    use windows::Win32::Foundation::RECT;
+    let size = info.TotalMetadataBufferSize as usize;
+    if size == 0 || size > 256 * 1024 {
+        return None;
+    }
+    let mut out = Vec::new();
+    let mut push = |r: RECT| {
+        if let Some(r) =
+            crate::desktop_pixels::clip_damage((r.left, r.top, r.right, r.bottom), w, h)
+        {
+            out.push(r);
+        }
+    };
+    let mut need = 0u32;
+    let mut moves =
+        vec![DXGI_OUTDUPL_MOVE_RECT::default(); size / size_of::<DXGI_OUTDUPL_MOVE_RECT>() + 1];
+    unsafe {
+        dup.GetFrameMoveRects(
+            (moves.len() * size_of::<DXGI_OUTDUPL_MOVE_RECT>()) as u32,
+            moves.as_mut_ptr(),
+            &mut need,
+        )
+        .ok()?;
+    }
+    let n = need as usize;
+    if n % size_of::<DXGI_OUTDUPL_MOVE_RECT>() != 0
+        || n / size_of::<DXGI_OUTDUPL_MOVE_RECT>() > moves.len()
+    {
+        return None;
+    }
+    for m in &moves[..n / size_of::<DXGI_OUTDUPL_MOVE_RECT>()] {
+        push(m.DestinationRect);
+    }
+    let mut dirty = vec![RECT::default(); size / size_of::<RECT>() + 1];
+    unsafe {
+        dup.GetFrameDirtyRects(
+            (dirty.len() * size_of::<RECT>()) as u32,
+            dirty.as_mut_ptr(),
+            &mut need,
+        )
+        .ok()?;
+    }
+    let n = need as usize;
+    if n % size_of::<RECT>() != 0 || n / size_of::<RECT>() > dirty.len() {
+        return None;
+    }
+    for &r in &dirty[..n / size_of::<RECT>()] {
+        push(r);
+    }
+    Some(out)
 }
 /// Hardware-only asynchronous Media Foundation encoder. NV12 input, Annex B H.264
 /// output, one forced independent keyframe per group in this initial adapter.
@@ -312,6 +417,18 @@ impl HardwareEncoder {
         }
     }
     pub fn encode_keyframe(&self, nv12: &[u8], timestamp_micros: u64) -> Result<Vec<u8>> {
+        let (bytes, key) = self.encode(nv12, timestamp_micros, true)?;
+        if !key {
+            return Err(invalid());
+        }
+        Ok(bytes)
+    }
+    pub fn encode(
+        &self,
+        nv12: &[u8],
+        timestamp_micros: u64,
+        force_key: bool,
+    ) -> Result<(Vec<u8>, bool)> {
         unsafe {
             let length = self.width as usize * self.height as usize * 3 / 2;
             if nv12.len() != length || timestamp_micros > i64::MAX as u64 / 10 {
@@ -325,7 +442,10 @@ impl HardwareEncoder {
                 }
                 if !sent && self.credits.get() > 0 {
                     let codec: ICodecAPI = self.transform.cast()?;
-                    codec.SetValue(&CODECAPI_AVEncVideoForceKeyFrame, &VARIANT::from(1u32))?;
+                    codec.SetValue(
+                        &CODECAPI_AVEncVideoForceKeyFrame,
+                        &VARIANT::from(u32::from(force_key)),
+                    )?;
                     let buffer = MFCreateMemoryBuffer(length as u32)?;
                     let mut pointer = std::ptr::null_mut();
                     buffer.Lock(&mut pointer, None, None)?;
@@ -390,7 +510,8 @@ impl HardwareEncoder {
                         drop(ManuallyDrop::take(&mut output[0].pEvents));
                         result?;
                         let sample = sample.ok_or_else(invalid)?;
-                        if sample.GetUINT32(&MFSampleExtension_CleanPoint).unwrap_or(0) != 1 {
+                        let key = sample.GetUINT32(&MFSampleExtension_CleanPoint).unwrap_or(0) == 1;
+                        if force_key && !key {
                             return Err(invalid());
                         }
                         let buffer = sample.ConvertToContiguousBuffer()?;
@@ -412,17 +533,20 @@ impl HardwareEncoder {
                                 &bytes,
                                 &mut self.headers.borrow_mut(),
                             )
-                            .map(|(_, packet)| packet)
+                            .map(|(_, packet)| (packet, true))
                             .ok_or_else(invalid);
                         }
                         // Never falsely advertise an arbitrary avcC/length-prefixed payload.
                         if !bytes.starts_with(&[0, 0, 0, 1]) && !bytes.starts_with(&[0, 0, 1]) {
                             return Err(invalid());
                         }
+                        if !key {
+                            return Ok((bytes, false));
+                        }
                         let headers = crate::desktop_pixels::annex_b_headers(&bytes);
                         if !headers.is_empty() {
                             *self.headers.borrow_mut() = headers;
-                            return Ok(bytes);
+                            return Ok((bytes, true));
                         }
                         if self.headers.borrow().is_empty() {
                             return Err(invalid());
@@ -432,7 +556,7 @@ impl HardwareEncoder {
                         if independent.len() > 4 * 1024 * 1024 {
                             return Err(invalid());
                         }
-                        return Ok(independent);
+                        return Ok((independent, true));
                     }
                     _ => {}
                 }

@@ -128,3 +128,39 @@ copies to distributable licenses. No GPL dependency is introduced.
 
 Final review found no new auth, lock-order or drain blocker. New regressions cover
 unknown/duplicate ACK bytes, stale samples/new epochs, and manual target bypass.
+
+
+## Native worker follow-up
+
+Windows capture/encoding no longer shares its input/console worker. Each track
+owns a bounded video worker with COM/DXGI/MF creation and destruction on that
+thread; cancellation drains to producer completion, preserving update protection.
+This is Rieul's hardware adaptation of the upstream bounded video worker design,
+not a copied x264 worker. Upstream MIT `win/capture.rs::frame_rects` and the GPU
+copy scheduling from `copy_rects` are now actually ported: persistent staging,
+clipped dirty/move destinations, partial CopySubresourceRegion for at most 32
+regions and whole-image fallback otherwise. Added metadata/length checks cap
+allocation and fall back to full copying on missing evidence. CPU readback is
+still a full bounded BGRA image before NV12 conversion, not upstream's partial
+CPU image update.
+
+Hardware H.264 delta frames are probed with synthetic pixels per track before
+selecting short groups. A successful actual non-key output enables up to four
+frames, bounded by fps and group time; otherwise independent-frame operation is
+retained. AV1 remains independent-frame only. Cached refresh re-encodes the latest
+pixels as an independent frame, rather than replaying an outdated group keyframe.
+The probe encoder is discarded before live encoding. No software encoder is used.
+
+Review found and resolved low-fps group timeout and dead-worker-as-Busy bugs;
+regressions cover 1fps, initialization failure, producer panic, cancellation,
+independent workers and owner-thread destruction. Seven portable pixel/rectangle
+tests and the x64 Windows API type harness passed. Actual GPU initialization,
+dirty/move readback and delta output still require Windows runtime evidence.
+
+Remaining upstream differences are intentional or unimplemented, not advertised
+as completed: macOS upstream converts ScreenCaptureKit NV12 to CPU I420 for x264;
+Rieul retains direct NV12-to-VideoToolbox. Macroblock analysis hints, CRF/VBV
+paintover, encoder thread governors and striped x264 instances require hardware
+API equivalents and platform validation. The current RateCtl still controls
+transport pacing, not native encoder reconfiguration. Whole-session live capture
+latency and equal-quality performance remain unproven.

@@ -20,7 +20,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
-Third-party portions: Screen flow/rate controller adaptations from tembo/voxl.
+Third-party portions: Screen pipeline adaptations from tembo/voxl.
 These portions are licensed under the following MIT notice (not the project's alternative Apache license):
 
 MIT License

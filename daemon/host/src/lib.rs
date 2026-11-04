@@ -22,3 +22,4 @@ pub mod cluster;
 
 mod desktop_flow;
 mod desktop_rate;
+pub mod desktop_worker;

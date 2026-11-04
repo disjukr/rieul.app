@@ -20,3 +20,6 @@ pub mod desktop;
 
 #[cfg(windows)]
 pub mod desktop_ipc;
+
+#[cfg(windows)]
+mod desktop_capture;
