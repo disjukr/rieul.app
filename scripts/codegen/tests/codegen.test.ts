@@ -76,8 +76,8 @@ const rustBaseline = {
     "72af8be28ae16e56d51180ab97c92e6884d7f25a810570e02e7bacf8b3b61109",
   // Additive optional rendered-object receipt; existing RPC tags stay unchanged.
   rpc: "a960dcec6ff0a09879f7724acef3dfbe12bf6b2b91e8be42ae85c7626a4d2a40",
-  // Incremental private helper group command/results; existing tags unchanged.
-  ipc: "1762163f8aa8ed421ed024698d65c524a40602e34711e51e16fd4dc44f08c6c0",
+  // Private StreamGroup bitrate field 3; command tag 9 and prior fields unchanged.
+  ipc: "28d31f9523e8dcdd79941b4b90459b200868b451abb8bedff76c11576e4bdf63",
 };
 for (const [schema, hash] of Object.entries(rustBaseline))
   test(`Node Rust codegen preserves ${schema} baseline and is deterministic`, async () =>
