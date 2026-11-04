@@ -59,9 +59,10 @@ interface TrackState {
   stream?: ReadableStream<Uint8Array>;
   abort?: AbortController;
   makeDecoder: () => VideoDecoder;
-  timings: Map<number, number>;
+  timings: Map<number, { started: number; groupId: number; objectId: number }>;
 }
 export interface DesktopVideoStats {
+  objectId?: number;
   trackId: number;
   codecEpoch: number;
   groupId: number;
@@ -121,12 +122,14 @@ export class DesktopVideoReceiver {
         const decoder = new VideoDecoder({
           output: (frame) => {
             const started = performance.now();
-            const timestamp = frame.timestamp;
+            const timing = state.timings.get(frame.timestamp);
+            state.timings.delete(frame.timestamp);
             try {
               if (
                 !this.closed &&
                 this.tracks.get(track.trackId) === state &&
-                state.decoder === decoder
+                state.decoder === decoder &&
+                timing?.groupId === state.group
               )
                 this.render(track.viewport.viewportId, frame);
             } finally {
@@ -135,15 +138,15 @@ export class DesktopVideoReceiver {
             if (
               !this.closed &&
               this.tracks.get(track.trackId) === state &&
-              state.decoder === decoder
+              state.decoder === decoder &&
+              timing?.groupId === state.group
             )
               this.stats({
                 trackId: track.trackId,
                 codecEpoch: track.codecEpoch,
-                groupId: state.group,
-                decodeMicros: Math.round(
-                  (started - (state.timings.get(timestamp) ?? started)) * 1000,
-                ),
+                groupId: timing!.groupId,
+                objectId: timing!.objectId,
+                decodeMicros: Math.round((started - timing!.started) * 1000),
                 renderMicros: Math.round((performance.now() - started) * 1000),
                 queueDepth: decoder.decodeQueueSize,
                 requestKeyframe: false,
@@ -256,7 +259,11 @@ export class DesktopVideoReceiver {
         if (state.decoder.decodeQueueSize >= 3)
           throw new Error("Screen decoder backpressure");
         const started = performance.now();
-        state.timings.set(object.timestampMicros, started);
+        state.timings.set(object.timestampMicros, {
+          started,
+          groupId,
+          objectId: object.objectId,
+        });
         try {
           state.decoder.decode(
             new EncodedVideoChunk({
@@ -293,6 +300,7 @@ export class DesktopVideoReceiver {
         state.group === groupId &&
         !this.closed
       ) {
+        state.timings.clear();
         if (state.decoder.state !== "closed") state.decoder.reset();
         this.stats({
           trackId: state.track.trackId,

@@ -7,7 +7,7 @@ use rieul_daemon_host::desktop::{
 use std::{
     collections::{BTreeMap, BTreeSet},
     ffi::c_void,
-    sync::Mutex,
+    sync::{Arc, Mutex},
     time::Instant,
 };
 #[repr(C)]
@@ -60,6 +60,8 @@ unsafe extern "C" {
     fn rd_capture_next(
         handle: *mut c_void,
         timestamp: u64,
+        key: bool,
+        refresh: bool,
         emit: extern "C" fn(*mut c_void, *const u8, usize, u64) -> bool,
         context: *mut c_void,
     ) -> i32;
@@ -103,7 +105,7 @@ impl InputState {
 }
 pub struct MacDesktop {
     shutdown_uncertain: std::sync::atomic::AtomicBool,
-    tracks: Mutex<BTreeMap<(u64, u64), Capture>>,
+    tracks: Mutex<BTreeMap<(u64, u64), Arc<Mutex<Capture>>>>,
     input: Mutex<InputState>,
     clock: Instant,
 }
@@ -265,7 +267,11 @@ impl MacDesktop {
             }
             _ => return Err(Error::Unsupported),
         }
-        if ok { Ok(()) } else { Err(Error::Backend) }
+        if ok {
+            Ok(())
+        } else {
+            Err(Error::Backend)
+        }
     }
 }
 fn map_point(v: &DesktopViewport, d: &Display, x: f64, y: f64) -> Result<(f64, f64), Error> {
@@ -293,25 +299,41 @@ fn map_point(v: &DesktopViewport, d: &Display, x: f64, y: f64) -> Result<(f64, f
 }
 impl Backend for MacDesktop {
     fn probe_video(&self, track: &DesktopTrack) -> DesktopQualityVerification {
-        if !rieul_daemon_host::desktop::validate_video_probe(track) || !track.codec.codec.starts_with("avc1.") {
+        if !rieul_daemon_host::desktop::validate_video_probe(track)
+            || !track.codec.codec.starts_with("avc1.")
+        {
             return DesktopQualityVerification::Unsupported;
         }
         let v = &track.viewport;
         let mut codec = 0;
-        if unsafe { rd_probe_video(v.width as u32, v.height as u32, v.fps as u32, v.bitrate as u32, &mut codec) }
-            && format!("avc1.{codec:06x}").eq_ignore_ascii_case(&track.codec.codec) {
+        if unsafe {
+            rd_probe_video(
+                v.width as u32,
+                v.height as u32,
+                v.fps as u32,
+                v.bitrate as u32,
+                &mut codec,
+            )
+        } && format!("avc1.{codec:06x}").eq_ignore_ascii_case(&track.codec.codec)
+        {
             DesktopQualityVerification::Verified
-        } else { DesktopQualityVerification::Unknown }
+        } else {
+            DesktopQualityVerification::Unknown
+        }
     }
 
     fn recover_input(&self, keys: &[u64], buttons: &[u64]) -> Result<(), Error> {
-        if keys.is_empty() && buttons.is_empty() { return Ok(()); }
+        if keys.is_empty() && buttons.is_empty() {
+            return Ok(());
+        }
         {
             let mut state = self.input.lock().map_err(|_| Error::Backend)?;
             if !buttons.is_empty() {
                 let (mut x, mut y) = (0.0, 0.0);
-                if !unsafe { rd_pointer_position(&mut x, &mut y) } { return Err(Error::Backend); }
-                state.point = (x,y);
+                if !unsafe { rd_pointer_position(&mut x, &mut y) } {
+                    return Err(Error::Backend);
+                }
+                state.point = (x, y);
             }
             state.keys.extend(keys.iter().copied());
             state.buttons.extend(buttons.iter().copied());
@@ -420,7 +442,8 @@ impl Backend for MacDesktop {
             .lock()
             .map_err(|_| Error::Backend)?
             .remove(&(track.track_id, track.codec_epoch));
-        if let Some(mut capture) = capture {
+        if let Some(capture) = capture {
+            let mut capture = capture.lock().map_err(|_| Error::Backend)?;
             let handle = std::mem::replace(&mut capture.0, std::ptr::null_mut());
             if !unsafe { rd_capture_destroy(handle) } {
                 self.shutdown_uncertain
@@ -437,72 +460,113 @@ impl Backend for MacDesktop {
         }
     }
     fn group(&self, track: &DesktopTrack) -> Result<Vec<EncodedFrame>, Error> {
+        let mut frames = vec![];
+        self.stream_group_with_refresh(track, false, &mut |f| {
+            frames.push(f);
+            Ok(())
+        })?;
+        Ok(frames)
+    }
+    fn stream_group(
+        &self,
+        track: &DesktopTrack,
+        emit: &mut dyn FnMut(EncodedFrame) -> Result<(), Error>,
+    ) -> Result<(), Error> {
+        self.stream_group_with_refresh(track, false, emit)
+    }
+    fn stream_group_with_refresh(
+        &self,
+        track: &DesktopTrack,
+        refresh: bool,
+        emit: &mut dyn FnMut(EncodedFrame) -> Result<(), Error>,
+    ) -> Result<(), Error> {
         if !track.codec.codec.starts_with("avc1.42") {
             return Err(Error::Unsupported);
         }
-        let mut tracks = self.tracks.lock().map_err(|_| Error::Backend)?;
-        let key = (track.track_id, track.codec_epoch);
-        let v = &track.viewport;
-        if !tracks.contains_key(&key) {
-            if tracks.len() >= 32 {
-                return Err(Error::Limit);
+        let capture = {
+            let mut tracks = self.tracks.lock().map_err(|_| Error::Backend)?;
+            let key = (track.track_id, track.codec_epoch);
+            let v = &track.viewport;
+            if !tracks.contains_key(&key) {
+                if tracks.len() >= 32 {
+                    return Err(Error::Limit);
+                }
+                let d = self
+                    .native_displays()
+                    .into_iter()
+                    .find(|d| d.id.to_string() == v.display_id)
+                    .ok_or(Error::Stale)?;
+                map_point(v, &d, 0.0, 0.0)?;
+                let mut shutdown_failed = false;
+                let handle = unsafe {
+                    rd_capture_create(
+                        d.id,
+                        v.crop.x as f64,
+                        v.crop.y as f64,
+                        v.crop.width as f64,
+                        v.crop.height as f64,
+                        v.width.try_into().map_err(|_| Error::Limit)?,
+                        v.height.try_into().map_err(|_| Error::Limit)?,
+                        v.fps.try_into().map_err(|_| Error::Limit)?,
+                        v.bitrate.try_into().map_err(|_| Error::Limit)?,
+                        &mut shutdown_failed,
+                    )
+                };
+                if shutdown_failed {
+                    self.shutdown_uncertain
+                        .store(true, std::sync::atomic::Ordering::SeqCst);
+                }
+                if handle.is_null() {
+                    return Err(Error::Backend);
+                }
+                tracks.insert(key, Arc::new(Mutex::new(Capture(handle))));
             }
-            let d = self
-                .native_displays()
-                .into_iter()
-                .find(|d| d.id.to_string() == v.display_id)
-                .ok_or(Error::Stale)?;
-            map_point(v, &d, 0.0, 0.0)?;
-            let mut shutdown_failed = false;
-            let handle = unsafe {
-                rd_capture_create(
-                    d.id,
-                    v.crop.x as f64,
-                    v.crop.y as f64,
-                    v.crop.width as f64,
-                    v.crop.height as f64,
-                    v.width.try_into().map_err(|_| Error::Limit)?,
-                    v.height.try_into().map_err(|_| Error::Limit)?,
-                    v.fps.try_into().map_err(|_| Error::Limit)?,
-                    v.bitrate.try_into().map_err(|_| Error::Limit)?,
-                    &mut shutdown_failed,
-                )
-            };
-            if shutdown_failed {
-                self.shutdown_uncertain
-                    .store(true, std::sync::atomic::Ordering::SeqCst);
-            }
-            if handle.is_null() {
-                return Err(Error::Backend);
-            }
-            tracks.insert(key, Capture(handle));
+            tracks[&key].clone()
+        };
+        let capture = capture.lock().map_err(|_| Error::Backend)?;
+        if capture.0.is_null() {
+            return Err(Error::Stale);
+        }
+        struct Packet {
+            frame: Option<EncodedFrame>,
+            key: bool,
         }
         extern "C" fn packet(context: *mut c_void, data: *const u8, len: usize, time: u64) -> bool {
             if len == 0 || len > 4 * 1024 * 1024 || data.is_null() {
                 return false;
             }
-            let frames = unsafe { &mut *(context as *mut Vec<EncodedFrame>) };
-            frames.push(EncodedFrame::new(
+            let p = unsafe { &mut *(context as *mut Packet) };
+            p.frame = Some(EncodedFrame::new(
                 time,
-                true,
+                p.key,
                 unsafe { std::slice::from_raw_parts(data, len) }.to_vec(),
             ));
             true
         }
-        let mut frames = Vec::new();
-        let result = unsafe {
-            rd_capture_next(
-                tracks[&key].0,
-                self.clock.elapsed().as_micros() as u64,
-                packet,
-                &mut frames as *mut _ as *mut c_void,
-            )
-        };
-        if result < 0 {
-            tracks.remove(&key);
-            return Err(Error::Backend);
+        for index in 0..4 {
+            let mut p = Packet {
+                frame: None,
+                key: index == 0,
+            };
+            let result = unsafe {
+                rd_capture_next(
+                    capture.0,
+                    self.clock.elapsed().as_micros() as u64,
+                    index == 0,
+                    refresh && index == 0,
+                    packet,
+                    &mut p as *mut _ as *mut c_void,
+                )
+            };
+            if result < 0 {
+                return Err(Error::Backend);
+            }
+            if result == 0 {
+                break;
+            }
+            emit(p.frame.ok_or(Error::Backend)?)?;
         }
-        Ok(frames)
+        Ok(())
     }
 }
 // USB HID usage -> Apple virtual key code. Unmapped usages fail, never guess by text.
@@ -627,13 +691,52 @@ mod tests {
     #[test]
     #[ignore = "exact synthetic hardware encoder targets only; no screen capture/input"]
     fn synthetic_quality_combinations() {
-        for (width,height,fps,bitrate) in [(1280,720,15,2_000_000),(1280,720,30,5_000_000),(1920,1080,60,20_000_000)] {
-            let mut codec=0;
-            assert!(unsafe {rd_probe_video(width,height,fps,bitrate,&mut codec)}, "{width}x{height} {fps}fps {bitrate}");
-            assert_eq!(codec >> 16,66); assert_eq!(codec & 255,42);
+        for (width, height, fps, bitrate) in [
+            (1280, 720, 15, 2_000_000),
+            (1280, 720, 30, 5_000_000),
+            (1920, 1080, 60, 20_000_000),
+        ] {
+            let mut codec = 0;
+            assert!(
+                unsafe { rd_probe_video(width, height, fps, bitrate, &mut codec) },
+                "{width}x{height} {fps}fps {bitrate}"
+            );
+            assert_eq!(codec >> 16, 66);
+            assert_eq!(codec & 255, 42);
         }
-        let mut codec=0;
-        assert!(!unsafe {rd_probe_video(4097,720,60,20_000_000,&mut codec)});
+        let mut codec = 0;
+        assert!(!unsafe { rd_probe_video(4097, 720, 60, 20_000_000, &mut codec) });
+    }
+    #[test]
+    #[ignore = "synthetic short-GOP hardware export; no screen capture/input"]
+    fn export_synthetic_hardware_groups() {
+        extern "C" {
+            fn rd_synthetic_groups(
+                emit: extern "C" fn(*mut c_void, *const u8, usize, u64) -> bool,
+                context: *mut c_void,
+            ) -> bool;
+        }
+        extern "C" fn packet(
+            context: *mut c_void,
+            data: *const u8,
+            len: usize,
+            timestamp: u64,
+        ) -> bool {
+            if data.is_null() || len > 4 * 1024 * 1024 {
+                return false;
+            }
+            unsafe {
+                let out = &mut *(context as *mut Vec<serde_json::Value>);
+                out.push(serde_json::json!({"timestampMicros":timestamp,"keyframe":out.len()%4==0,"data":std::slice::from_raw_parts(data,len)}));
+            }
+            true
+        }
+        let mut frames = Vec::<serde_json::Value>::new();
+        assert!(unsafe { rd_synthetic_groups(packet, &mut frames as *mut _ as *mut c_void) });
+        assert_eq!(frames.len(), 12);
+        if let Ok(path) = std::env::var("RIEUL_DESKTOP_SYNTHETIC_GROUPS_OUT") {
+            std::fs::write(path, serde_json::to_vec(&frames).unwrap()).unwrap();
+        }
     }
     #[test]
     #[ignore = "synthetic hardware bitstream export only; no capture/input"]

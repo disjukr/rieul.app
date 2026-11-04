@@ -367,6 +367,8 @@ union DesktopInputEvent {
     queueDepth: u53,
     @ id - 7
     requestKeyframe: bool,
+    @ id - 8
+    objectId?: u53,
   ),
 }
 

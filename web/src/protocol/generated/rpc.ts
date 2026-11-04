@@ -943,7 +943,7 @@ export type DesktopInputEvent =
   | { type: "button"; viewportId: string; x: number; y: number; button: number; down: boolean }
   | { type: "wheel"; viewportId: string; x: number; y: number; dx: number; dy: number; unit: DesktopWheelUnit }
   | { type: "releaseAll" }
-  | { type: "feedback"; trackId: number; codecEpoch: number; groupId: number; decodeMicros: number; renderMicros: number; queueDepth: number; requestKeyframe: boolean }
+  | { type: "feedback"; trackId: number; codecEpoch: number; groupId: number; decodeMicros: number; renderMicros: number; queueDepth: number; requestKeyframe: boolean; objectId?: number }
 ;
 
 export interface DesktopInputReceipt {
@@ -7481,6 +7481,7 @@ export function encodeDesktopInputEventValue(value: DesktopInputEvent): CborValu
       fields.set(5, u53(required(value.renderMicros, "DesktopInputEvent.Feedback.renderMicros")));
       fields.set(6, u53(required(value.queueDepth, "DesktopInputEvent.Feedback.queueDepth")));
       fields.set(7, bool(required(value.requestKeyframe, "DesktopInputEvent.Feedback.requestKeyframe")));
+      if (value.objectId !== undefined) fields.set(8, u53(value.objectId));
       return [8, fields];
     }
   }
@@ -7554,6 +7555,7 @@ export function decodeDesktopInputEventValue(value: CborValue): DesktopInputEven
         renderMicros: fieldOrDefault(fields.get(5), (value) => integer(value), () => 0),
         queueDepth: fieldOrDefault(fields.get(6), (value) => integer(value), () => 0),
         requestKeyframe: fieldOrDefault(fields.get(7), (value) => boolValue(value), () => false),
+        objectId: optionalField(fields.get(8), (value) => integer(value)),
       };
   }
   throw new Error(`unknown DesktopInputEvent variant ${variantId}`);

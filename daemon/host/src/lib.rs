@@ -19,3 +19,5 @@ pub mod desktop_ipc;
 
 // Opt-in cluster management; keys and membership require explicit RPC actions.
 pub mod cluster;
+
+mod desktop_flow;

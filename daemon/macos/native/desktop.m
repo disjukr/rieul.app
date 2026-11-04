@@ -86,7 +86,7 @@ static VTCompressionSessionRef encoder(uint32_t width,uint32_t height,uint32_t f
     BOOL stopped;
     VTCompressionSessionRef compression;
     NSMutableData *packet;
-    BOOL encodeFailed;
+    BOOL encodeFailed, wantKey, retryKey;
 }
 @end
 static void encoded(void *ref,void *source,OSStatus status,VTEncodeInfoFlags flags,CMSampleBufferRef sample) {
@@ -94,12 +94,13 @@ static void encoded(void *ref,void *source,OSStatus status,VTEncodeInfoFlags fla
     RDStream *self=(__bridge RDStream *)ref;
     if(status || !sample || (flags & kVTEncodeInfo_FrameDropped)) { self->encodeFailed=YES; return; }
     CFArrayRef attachments=CMSampleBufferGetSampleAttachmentsArray(sample,false);
-    if(attachments && CFArrayGetCount(attachments) && CFDictionaryContainsKey(CFArrayGetValueAtIndex(attachments,0),kCMSampleAttachmentKey_NotSync)) { self->encodeFailed=YES; return; }
+    bool key=!(attachments && CFArrayGetCount(attachments) && CFDictionaryContainsKey(CFArrayGetValueAtIndex(attachments,0),kCMSampleAttachmentKey_NotSync));
+    if(key!=self->wantKey) { if(key) self->retryKey=YES; else self->encodeFailed=YES; return; }
     CMFormatDescriptionRef format=CMSampleBufferGetFormatDescription(sample);
     int lengthSize=0; size_t count=0;
     if(CMVideoFormatDescriptionGetH264ParameterSetAtIndex(format,0,NULL,NULL,&count,&lengthSize) || lengthSize!=4) { self->encodeFailed=YES; return; }
     const uint8_t prefix[]={0,0,0,1};
-    for(size_t i=0;i<count;i++) {
+    for(size_t i=0;key && i<count;i++) {
         const uint8_t *bytes=NULL; size_t length=0;
         if(CMVideoFormatDescriptionGetH264ParameterSetAtIndex(format,i,&bytes,&length,NULL,NULL) || length>4*1024*1024) { self->encodeFailed=YES; return; }
         [self->packet appendBytes:prefix length:4]; [self->packet appendBytes:bytes length:length];
@@ -126,7 +127,7 @@ static void encoded(void *ref,void *source,OSStatus status,VTEncodeInfoFlags fla
     if(!attachments || !CFArrayGetCount(attachments)) return;
     NSDictionary *info=(__bridge NSDictionary *)CFArrayGetValueAtIndex(attachments,0);
     if([info[SCStreamFrameInfoStatus] integerValue]!=SCFrameStatusComplete) return;
-    @synchronized(self) { if(stopped) return; if(latest) CVPixelBufferRelease(latest); latest=CVPixelBufferRetain(image); serial++; }
+    @synchronized(self) { if(stopped) return; NSArray *dirty=info[SCStreamFrameInfoDirtyRects]; if(latest && dirty && dirty.count==0) return; if(latest) CVPixelBufferRelease(latest); latest=CVPixelBufferRetain(image); serial++; }
     dispatch_semaphore_signal(ready);
 }
 - (void)dealloc { if(compression) { VTCompressionSessionInvalidate(compression); CFRelease(compression); } if(latest) CVPixelBufferRelease(latest); }
@@ -134,7 +135,7 @@ static void encoded(void *ref,void *source,OSStatus status,VTEncodeInfoFlags fla
 static bool synthetic_frame_at(uint32_t width,uint32_t height,uint32_t fps,uint32_t bitrate,uint32_t *codec,RDPacket emit,void *context) {
     @autoreleasepool {
         RDStream *self=[RDStream new]; self->packet=[NSMutableData new];
-        self->compression=encoder(width,height,fps,bitrate,encoded,(__bridge void *)self);
+        self->wantKey=YES; self->compression=encoder(width,height,fps,bitrate,encoded,(__bridge void *)self);
         if(!self->compression) return false;
         CVPixelBufferRef image=NULL;
         if(CVPixelBufferCreate(NULL,width,height,kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,NULL,&image)) return false;
@@ -154,6 +155,29 @@ static bool synthetic_frame_at(uint32_t width,uint32_t height,uint32_t fps,uint3
 }
 bool rd_hardware_codec(uint32_t *codec) { return synthetic_frame_at(640,480,60,2000000,codec,NULL,NULL); }
 bool rd_synthetic_packet(RDPacket emit,void *context) { uint32_t codec; return synthetic_frame_at(640,480,60,2000000,&codec,emit,context); }
+// Test fixture: the same hardware encoder and packet callback as live capture,
+// fed only locally allocated pixels. No ScreenCaptureKit/input/permission calls.
+bool rd_synthetic_groups(RDPacket emit,void *context) {
+    @autoreleasepool {
+        RDStream *self=[RDStream new]; self->packet=[NSMutableData new];
+        self->compression=encoder(640,480,60,2000000,encoded,(__bridge void *)self);
+        if(!self->compression) return false;
+        CVPixelBufferRef image=NULL;
+        if(CVPixelBufferCreate(NULL,640,480,kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,NULL,&image)) return false;
+        bool ok=true;
+        for(uint64_t frame=0;frame<12 && ok;frame++) {
+            CVPixelBufferLockBaseAddress(image,0);
+            for(size_t plane=0;plane<2;plane++) memset(CVPixelBufferGetBaseAddressOfPlane(image,plane),plane?128:16,CVPixelBufferGetBytesPerRowOfPlane(image,plane)*CVPixelBufferGetHeightOfPlane(image,plane));
+            CVPixelBufferUnlockBaseAddress(image,0);
+            self->wantKey=(frame%4)==0; self->encodeFailed=NO; [self->packet setLength:0];
+            NSDictionary *options=@{(__bridge NSString *)kVTEncodeFrameOptionKey_ForceKeyFrame:@(self->wantKey)};
+            OSStatus status=VTCompressionSessionEncodeFrame(self->compression,image,CMTimeMake(frame,60),kCMTimeInvalid,(__bridge CFDictionaryRef)options,NULL,NULL);
+            if(!status) status=VTCompressionSessionCompleteFrames(self->compression,kCMTimeInvalid);
+            ok=!status && !self->encodeFailed && self->packet.length>0 && emit(context,self->packet.bytes,self->packet.length,frame*16667);
+        }
+        CVPixelBufferRelease(image); return ok;
+    }
+}
 bool rd_capture_destroy(void *handle);
 // The returned object owns a bounded (latest only) frame slot and a hardware session.
 void *rd_capture_create(uint32_t id,double x,double y,double w,double h,uint32_t width,uint32_t height,uint32_t fps,uint32_t bitrate,bool *shutdown_failed) {
@@ -197,26 +221,31 @@ bool rd_capture_destroy(void *handle) {
     self->stream=nil;
     return stopped;
 }
-int rd_capture_next(void *handle,uint64_t timestamp,RDPacket emit,void *context) {
+int rd_capture_next(void *handle,uint64_t timestamp,bool key,bool refresh,RDPacket emit,void *context) {
     @autoreleasepool {
         RDStream *self=(__bridge RDStream *)handle; CVPixelBufferRef image=NULL;
         uint64_t until=clock_gettime_nsec_np(CLOCK_UPTIME_RAW)+500*NSEC_PER_MSEC;
         while(!image) {
             @synchronized(self) {
                 if(self->stopped || !(rd_permissions() & 1)) return -1;
-                if(self->latest && self->serial!=self->consumed) { image=CVPixelBufferRetain(self->latest); self->consumed=self->serial; }
+                if(self->latest && (self->serial!=self->consumed || refresh || self->retryKey)) { image=CVPixelBufferRetain(self->latest); self->consumed=self->serial; }
             }
             if(image) break;
             if(clock_gettime_nsec_np(CLOCK_UPTIME_RAW)>=until) return 0;
             dispatch_semaphore_wait(self->ready,dispatch_time(DISPATCH_TIME_NOW,20*NSEC_PER_MSEC));
         }
-        self->packet=[NSMutableData new]; self->encodeFailed=NO;
-        // v1 native adapter uses one-frame independent GOPs, always H.264 hardware.
-        NSDictionary *options=@{(__bridge NSString *)kVTEncodeFrameOptionKey_ForceKeyFrame:@YES};
+        self->packet=[NSMutableData new]; self->encodeFailed=NO; self->retryKey=NO;
+        // Each transport group starts at an IDR; no references cross a group.
+        self->wantKey=key;
+        NSDictionary *options=@{(__bridge NSString *)kVTEncodeFrameOptionKey_ForceKeyFrame:@(key)};
         OSStatus status=VTCompressionSessionEncodeFrame(self->compression,image,CMTimeMake(timestamp,1000000),kCMTimeInvalid,(__bridge CFDictionaryRef)options,NULL,NULL);
         CVPixelBufferRelease(image);
         if(!status) status=VTCompressionSessionCompleteFrames(self->compression,kCMTimeInvalid);
-        if(status || self->encodeFailed || !self->packet.length) return -1;
+        if(status || self->encodeFailed) return -1;
+        // An encoder may insert its own keyframe. End this group, then encode
+        // the cached image as the next group's IDR instead of killing capture.
+        if(self->retryKey) return 0;
+        if(!self->packet.length) return -1;
         return emit(context,self->packet.bytes,self->packet.length,timestamp)?1:-1;
     }
 }

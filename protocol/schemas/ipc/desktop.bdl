@@ -23,6 +23,13 @@ struct UserDesktopRequest {
   command: UserDesktopCommand,
 }
 union UserDesktopCommand {
+  @ id - 9
+  StreamGroup(
+    @ id - 1
+    track: DesktopTrack,
+    @ id - 2
+    refresh: bool,
+  ),
   @ id - 8
   ProbeVideo(
     @ id - 1
@@ -74,6 +81,11 @@ struct UserDesktopResponse {
   result: UserDesktopResult,
 }
 union UserDesktopResult {
+  @ id - 7
+  GroupFrame(
+    @ id - 1
+    frame: UserDesktopFrame,
+  ),
   @ id - 6
   VideoProbe(
     @ id - 1

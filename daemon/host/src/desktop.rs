@@ -3,7 +3,7 @@
 use crate::maintenance::{WorkGate, WorkGuard};
 use rieul_daemon_core::generated::rpc::{
     DesktopControlAction, DesktopInputEvent, DesktopInputFrame, DesktopKeyboardMode,
-    DesktopViewport, DesktopQualityPolicy,
+    DesktopQualityPolicy, DesktopTrack, DesktopViewport,
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -595,10 +595,9 @@ mod tests {
             Err(Error::Busy)
         );
         drop(drain);
-        assert!(
-            d.attach(&auth, 1, "paired", DesktopKeyboardMode::Physical, 0)
-                .is_ok()
-        );
+        assert!(d
+            .attach(&auth, 1, "paired", DesktopKeyboardMode::Physical, 0)
+            .is_ok());
     }
     #[test]
     fn physical_and_text_cannot_double_inject() {
@@ -802,20 +801,33 @@ mod viewport_tests {
 /// The default server has no adapter; constructing a fixture never touches an OS desktop.
 pub trait Backend: Send + Sync {
     /// Changes immediately when an established helper channel is lost.
-    fn generation(&self) -> u64 { 0 }
+    fn generation(&self) -> u64 {
+        0
+    }
     /// Called with the desktop state locked. Never replays an old operation.
-    fn recover(&self, _minimum_codec_epoch: u64) -> Result<u64, Error> { Ok(self.generation()) }
-    fn retain_uncertain_capture(&self, _track: &rieul_daemon_core::generated::rpc::DesktopTrack, work: Option<WorkGuard>) {
+    fn recover(&self, _minimum_codec_epoch: u64) -> Result<u64, Error> {
+        Ok(self.generation())
+    }
+    fn retain_uncertain_capture(
+        &self,
+        _track: &rieul_daemon_core::generated::rpc::DesktopTrack,
+        work: Option<WorkGuard>,
+    ) {
         std::mem::forget(work);
     }
     /// A freshly authenticated helper releases the predecessor's uncertain input.
     fn recover_input(&self, keys: &[u64], buttons: &[u64]) -> Result<(), Error> {
-        if !keys.is_empty() || !buttons.is_empty() { return Err(Error::Unsupported); }
+        if !keys.is_empty() || !buttons.is_empty() {
+            return Err(Error::Unsupported);
+        }
         self.input(&DesktopInputEvent::ReleaseAll)
     }
 
     /// Synthetic encoding only; must never capture a screen or inject input.
-    fn probe_video(&self, _track: &rieul_daemon_core::generated::rpc::DesktopTrack) -> rieul_daemon_core::generated::rpc::DesktopQualityVerification {
+    fn probe_video(
+        &self,
+        _track: &rieul_daemon_core::generated::rpc::DesktopTrack,
+    ) -> rieul_daemon_core::generated::rpc::DesktopQualityVerification {
         rieul_daemon_core::generated::rpc::DesktopQualityVerification::Unknown
     }
     fn capabilities(&self) -> rieul_daemon_core::generated::rpc::DesktopCapabilities;
@@ -839,6 +851,14 @@ pub trait Backend: Send + Sync {
         _track: &rieul_daemon_core::generated::rpc::DesktopTrack,
     ) -> Result<(), Error> {
         Ok(())
+    }
+    fn stream_group_with_refresh(
+        &self,
+        track: &rieul_daemon_core::generated::rpc::DesktopTrack,
+        _refresh: bool,
+        emit: &mut dyn FnMut(EncodedFrame) -> Result<(), Error>,
+    ) -> Result<(), Error> {
+        self.stream_group(track, emit)
     }
     fn stream_group(
         &self,
@@ -891,6 +911,7 @@ impl Input for BackendInput {
 }
 /// Owned by one daemon runtime. All controllers share this one state machine.
 pub struct Runtime {
+    flow: std::sync::Mutex<BTreeMap<(String, u64), crate::desktop_flow::Flow>>,
     quality: std::sync::Mutex<BTreeMap<String, quality::State>>,
     quality_operation: std::sync::Mutex<()>,
     quality_samples: std::sync::Mutex<BTreeMap<(String, u64), quality::Sample>>,
@@ -911,7 +932,10 @@ impl Runtime {
     pub fn new(gate: Arc<WorkGate>, backend: Option<Arc<dyn Backend>>) -> Arc<Self> {
         let (changed, _) = tokio::sync::watch::channel(0);
         Arc::new(Self {
-            quality: Default::default(), quality_operation: Default::default(), quality_samples: Default::default(),
+            flow: Default::default(),
+            quality: Default::default(),
+            quality_operation: Default::default(),
+            quality_samples: Default::default(),
             state: std::sync::Mutex::new(Desktop::new(gate.clone(), BackendInput(backend.clone()))),
             backend,
             changed,
@@ -925,25 +949,48 @@ impl Runtime {
         })
     }
     pub(crate) fn reconcile_backend(&self) -> Result<(), Error> {
-        let Some(backend) = &self.backend else { return Ok(()); };
+        let Some(backend) = &self.backend else {
+            return Ok(());
+        };
         let _work = self.gate.enter().ok_or(Error::Busy)?;
         let mut d = self.state.lock().map_err(|_| Error::Backend)?;
-        let minimum = self.next_codec_epoch.lock().map_err(|_| Error::Backend)?
-            .checked_add(1).ok_or(Error::Limit)?;
+        let minimum = self
+            .next_codec_epoch
+            .lock()
+            .map_err(|_| Error::Backend)?
+            .checked_add(1)
+            .ok_or(Error::Limit)?;
         let generation = backend.recover(minimum)?;
         if d.backend_generation != generation {
-            d.epoch = d.epoch.checked_add(1).filter(|n| *n <= MAX_SAFE).ok_or(Error::Limit)?;
-            d.layout_epoch = d.layout_epoch.checked_add(1).filter(|n| *n <= MAX_SAFE).ok_or(Error::Limit)?;
+            d.epoch = d
+                .epoch
+                .checked_add(1)
+                .filter(|n| *n <= MAX_SAFE)
+                .ok_or(Error::Limit)?;
+            d.layout_epoch = d
+                .layout_epoch
+                .checked_add(1)
+                .filter(|n| *n <= MAX_SAFE)
+                .ok_or(Error::Limit)?;
             d.holder = None;
-            d.keys.clear(); d.buttons.clear(); d.attachments.clear();
+            d.keys.clear();
+            d.buttons.clear();
+            d.attachments.clear();
             d.poisoned = false;
             d.backend_generation = generation;
             self.streams.lock().map_err(|_| Error::Backend)?.clear();
             self.codecs.lock().map_err(|_| Error::Backend)?.clear();
-            self.configurations.lock().map_err(|_| Error::Backend)?.clear();
+            self.configurations
+                .lock()
+                .map_err(|_| Error::Backend)?
+                .clear();
             self.feedback.lock().map_err(|_| Error::Backend)?.clear();
             self.quality.lock().map_err(|_| Error::Backend)?.clear();
-            self.quality_samples.lock().map_err(|_| Error::Backend)?.clear();
+            self.quality_samples
+                .lock()
+                .map_err(|_| Error::Backend)?
+                .clear();
+            self.flow.lock().map_err(|_| Error::Backend)?.clear();
             *self.layout_displays.lock().map_err(|_| Error::Backend)? = None;
             self.changed.send_modify(|n| *n = n.wrapping_add(1));
         }
@@ -951,9 +998,13 @@ impl Runtime {
     }
     pub fn capabilities(&self) -> rieul_daemon_core::generated::rpc::DesktopCapabilities {
         use rieul_daemon_core::generated::rpc::*;
-        self.reconcile_backend().ok().and_then(|_| self.backend
-            .as_ref()
-            .and_then(|b| self.gate.enter().map(|_work| b.capabilities())))
+        self.reconcile_backend()
+            .ok()
+            .and_then(|_| {
+                self.backend
+                    .as_ref()
+                    .and_then(|b| self.gate.enter().map(|_work| b.capabilities()))
+            })
             .unwrap_or(DesktopCapabilities {
                 profile: PROFILE,
                 feedback: Some(true),
@@ -975,7 +1026,11 @@ impl Runtime {
         run: impl FnOnce(&mut Desktop<BackendInput>) -> Result<T, Error>,
     ) -> Result<T, Error> {
         let mut d = self.state.lock().map_err(|_| Error::Backend)?;
-        if self.backend.as_ref().is_some_and(|b| b.generation() != d.backend_generation) {
+        if self
+            .backend
+            .as_ref()
+            .is_some_and(|b| b.generation() != d.backend_generation)
+        {
             return Err(Error::Backend);
         }
         let result = run(&mut d);
@@ -991,8 +1046,18 @@ impl Runtime {
             .lock()
             .map_err(|_| Error::Backend)?
             .retain(|(id, _), _| d.attachments.contains_key(id));
-        self.quality.lock().map_err(|_| Error::Backend)?.retain(|id, _| d.attachments.contains_key(id));
-        self.quality_samples.lock().map_err(|_| Error::Backend)?.retain(|(id, _), _| d.attachments.contains_key(id));
+        self.quality
+            .lock()
+            .map_err(|_| Error::Backend)?
+            .retain(|id, _| d.attachments.contains_key(id));
+        self.quality_samples
+            .lock()
+            .map_err(|_| Error::Backend)?
+            .retain(|(id, _), _| d.attachments.contains_key(id));
+        self.flow
+            .lock()
+            .map_err(|_| Error::Backend)?
+            .retain(|(id, _), _| d.attachments.contains_key(id));
         self.changed.send_modify(|n| *n = n.wrapping_add(1));
         result
     }
@@ -1062,7 +1127,12 @@ impl Runtime {
     pub(crate) fn has(&self, id: &str) -> bool {
         self.state
             .lock()
-            .map(|d| self.backend.as_ref().is_none_or(|b| b.generation() == d.backend_generation) && d.attachments.contains_key(id))
+            .map(|d| {
+                self.backend
+                    .as_ref()
+                    .is_none_or(|b| b.generation() == d.backend_generation)
+                    && d.attachments.contains_key(id)
+            })
             .unwrap_or(false)
     }
     pub(crate) fn close(&self, connection: u64) {
@@ -1152,7 +1222,9 @@ impl Runtime {
                 return Ok(());
             }
             if previous.is_some() {
-                if d.holder.is_some() { d.release_held()?; }
+                if d.holder.is_some() {
+                    d.release_held()?;
+                }
                 d.layout_changed()?;
                 self.configurations
                     .lock()
@@ -1192,6 +1264,8 @@ impl Runtime {
             decode_micros,
             render_micros,
             queue_depth,
+            request_keyframe,
+            object_id,
             ..
         } = &frame.event
         else {
@@ -1224,8 +1298,35 @@ impl Runtime {
                 return Err(Error::Stale);
             }
             a.sequence = frame.sequence;
-            self.quality_samples.lock().map_err(|_| Error::Backend)?.entry((frame.attach_id.clone(), *track_id)).or_default()
-                .receive(*codec_epoch, *group_id, *queue_depth, *decode_micros, *render_micros);
+            let mut flows = self.flow.lock().map_err(|_| Error::Backend)?;
+            flows.retain(|(id, track), _| {
+                id != &frame.attach_id || config.tracks.iter().any(|t| t.track_id == *track)
+            });
+            let flow = flows
+                .entry((frame.attach_id.clone(), *track_id))
+                .or_insert_with(|| crate::desktop_flow::Flow::new(*codec_epoch));
+            if flow.epoch != *codec_epoch {
+                *flow = crate::desktop_flow::Flow::new(*codec_epoch);
+            }
+            if let Some(object) = object_id {
+                flow.receipt(*group_id, *object, std::time::Instant::now());
+            }
+            if *request_keyframe {
+                flow.request_refresh();
+            }
+            drop(flows);
+            self.quality_samples
+                .lock()
+                .map_err(|_| Error::Backend)?
+                .entry((frame.attach_id.clone(), *track_id))
+                .or_default()
+                .receive(
+                    *codec_epoch,
+                    *group_id,
+                    *queue_depth,
+                    *decode_micros,
+                    *render_micros,
+                );
             self.feedback.lock().map_err(|_| Error::Backend)?.insert(
                 (frame.attach_id.clone(), *track_id),
                 (std::time::Instant::now(), *queue_depth),
@@ -1234,6 +1335,45 @@ impl Runtime {
             // requestKeyframe. No input privilege is granted by decoder feedback.
             Ok(())
         })
+    }
+    pub(crate) fn media_flow(
+        &self,
+        id: &str,
+        track: &DesktopTrack,
+        sent: Option<(u64, u64)>,
+        failed: Option<u64>,
+    ) -> crate::desktop_flow::Decision {
+        // Configuration lock fences stale producers and precedes flow lock, as in accept_input.
+        let configs = self
+            .configurations
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if !configs.get(id).is_some_and(|c| {
+            c.tracks
+                .iter()
+                .any(|t| t.track_id == track.track_id && t.codec_epoch == track.codec_epoch)
+        }) {
+            return crate::desktop_flow::Decision::Wait;
+        }
+        let mut flows = self.flow.lock().unwrap_or_else(|e| e.into_inner());
+        flows.retain(|(attachment, key), _| {
+            attachment != id || configs[id].tracks.iter().any(|t| t.track_id == *key)
+        });
+        let flow = flows
+            .entry((id.into(), track.track_id))
+            .or_insert_with(|| crate::desktop_flow::Flow::new(track.codec_epoch));
+        if flow.epoch != track.codec_epoch {
+            *flow = crate::desktop_flow::Flow::new(track.codec_epoch);
+        }
+        if let Some((g, o)) = sent {
+            flow.sent(g, o, std::time::Instant::now());
+            return crate::desktop_flow::Decision::Send;
+        }
+        if let Some(g) = failed {
+            flow.failed_group(g);
+            return crate::desktop_flow::Decision::Send;
+        }
+        flow.next(track.viewport.fps, std::time::Instant::now())
     }
     pub(crate) fn feedback_delay(&self, id: &str, track: u64) -> std::time::Duration {
         let depth = self
@@ -1266,7 +1406,11 @@ impl Runtime {
         let height = 1080;
         let fps = 60;
         let budget = 20_000_000;
-        let DesktopEvent::Layout { layout_epoch, displays } = self.layout_event()? else {
+        let DesktopEvent::Layout {
+            layout_epoch,
+            displays,
+        } = self.layout_event()?
+        else {
             unreachable!()
         };
         // Never silently omit a display or describe a subset as the whole desktop.
@@ -1274,20 +1418,42 @@ impl Runtime {
             return Err(Error::Limit);
         }
         let bitrate = budget / (displays.len().max(1) as u64);
-        let viewports = displays.into_iter().map(|display| {
-            let crop = DesktopRect { x: 0, y: 0, width: display.bounds.width, height: display.bounds.height };
-            let scale = (width as f64 / crop.width as f64)
-                .min(height as f64 / crop.height as f64).min(1.0);
-            DesktopViewport {
-                viewport_id: display.display_id.clone(), display_id: display.display_id,
-                width: ((crop.width as f64 * scale) as u64 / 2 * 2).max(2),
-                height: ((crop.height as f64 * scale) as u64 / 2 * 2).max(2),
-                crop, fps, bitrate,
-            }
-        }).collect();
-        self.configure_impl(auth, connection, now, ConfigureDesktopViewportsReq {
-            attach_id: id.to_owned(), layout_epoch, viewports, total_bitrate: budget,
-        }, true, None)
+        let viewports = displays
+            .into_iter()
+            .map(|display| {
+                let crop = DesktopRect {
+                    x: 0,
+                    y: 0,
+                    width: display.bounds.width,
+                    height: display.bounds.height,
+                };
+                let scale = (width as f64 / crop.width as f64)
+                    .min(height as f64 / crop.height as f64)
+                    .min(1.0);
+                DesktopViewport {
+                    viewport_id: display.display_id.clone(),
+                    display_id: display.display_id,
+                    width: ((crop.width as f64 * scale) as u64 / 2 * 2).max(2),
+                    height: ((crop.height as f64 * scale) as u64 / 2 * 2).max(2),
+                    crop,
+                    fps,
+                    bitrate,
+                }
+            })
+            .collect();
+        self.configure_impl(
+            auth,
+            connection,
+            now,
+            ConfigureDesktopViewportsReq {
+                attach_id: id.to_owned(),
+                layout_epoch,
+                viewports,
+                total_bitrate: budget,
+            },
+            true,
+            None,
+        )
     }
     pub(crate) fn configure(
         &self,
@@ -1314,7 +1480,15 @@ impl Runtime {
             d.authorize(auth, connection, &request.attach_id, now)?;
             if let Some((revision, _, _)) = &quality_change {
                 let current = self.configuration(&request.attach_id).ok_or(Error::Stale)?;
-                if quality::revision(&current) != *revision || !self.quality.lock().map_err(|_| Error::Backend)?.contains_key(&request.attach_id) { return Err(Error::Stale); }
+                if quality::revision(&current) != *revision
+                    || !self
+                        .quality
+                        .lock()
+                        .map_err(|_| Error::Backend)?
+                        .contains_key(&request.attach_id)
+                {
+                    return Err(Error::Stale);
+                }
             }
             if !server_owned && d.attachments[&request.attach_id].server_viewports {
                 return Err(Error::Invalid);
@@ -1362,7 +1536,10 @@ impl Runtime {
                 request.viewports.clone(),
                 request.total_bitrate,
             )?;
-            d.attachments.get_mut(&request.attach_id).unwrap().server_viewports = server_owned;
+            d.attachments
+                .get_mut(&request.attach_id)
+                .unwrap()
+                .server_viewports = server_owned;
             let configuration = DesktopConfiguration {
                 layout_epoch: request.layout_epoch,
                 total_bitrate: request.total_bitrate,

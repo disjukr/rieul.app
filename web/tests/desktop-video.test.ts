@@ -20,6 +20,7 @@ test("video receiver negotiates codecs, cancels stale groups and closes every fr
   let framesClosed = 0,
     decodersClosed = 0,
     groupCanceled = 0;
+  let lastOutput: (() => void) | undefined;
   class Decoder {
     static async isConfigSupported(c: VideoDecoderConfig) {
       return { supported: c.codec === "avc1.42e02a", config: c };
@@ -34,12 +35,14 @@ test("video receiver negotiates codecs, cancels stale groups and closes every fr
       this.state = "configured";
     }
     decode(chunk: EncodedVideoChunk) {
-      this.callbacks.output({
-        timestamp: chunk.timestamp,
-        close() {
-          framesClosed++;
-        },
-      } as VideoFrame);
+      lastOutput = () =>
+        this.callbacks.output({
+          timestamp: chunk.timestamp,
+          close() {
+            framesClosed++;
+          },
+        } as VideoFrame);
+      lastOutput();
     }
     async flush() {}
     close() {
@@ -128,14 +131,23 @@ test("video receiver negotiates codecs, cancels stale groups and closes every fr
     await receiver.configure(config);
     incoming!.enqueue(group(1, false));
     await tick();
+    const staleOutput = lastOutput!;
     incoming!.enqueue(group(2, true));
     await tick();
+    staleOutput(); // A callback queued before reset must not render/ACK a newer group.
     incoming!.enqueue(group(3, true, 9));
     await tick();
     assert.deepEqual(rendered, ["v", "v"]);
-    assert.equal(framesClosed, 2);
+    assert.equal(framesClosed, 3);
     assert.equal(groupCanceled, 1);
     assert.equal(stats.length, 2);
+    assert.deepEqual(
+      stats.map(({ groupId, objectId }) => [groupId, objectId]),
+      [
+        [1, 0],
+        [2, 0],
+      ],
+    );
     assert.deepEqual(errors, []);
     receiver.close();
     await tick();
