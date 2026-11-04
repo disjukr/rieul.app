@@ -420,3 +420,15 @@ cleanup. This is not live capture, matched-quality PSNR or an end-to-end latency
 measurement. Windows uses the same tracker and type-checks, but its physical GPU
 path remains unverified. `tools/spatial-paintover-bench.rs` measured ~103us/frame
 for CPU-only 720p tracking over 600 frames on M1 Max (four refinement objects).
+
+## Display receipt boundary
+
+The DOM render callback returns false when no connected nonzero canvas has a
+usable 2D context. Both main-thread and worker receivers then release the frame
+without emitting a displayed-object ACK. Worker `consumed` still releases its
+bounded frame slot; it is not a transport receipt. Registering a surface or
+restoring its context requests a fresh group without an object ID, so this does
+not falsely acknowledge display. Worker refresh messages are generation-bound.
+Tests cover absent/null/lost contexts, suppressed receipts, frame release,
+restoration refresh and subsequent real render ACK in both receiver paths.
+This verifies drawing into a canvas, not presentation by a physical display.

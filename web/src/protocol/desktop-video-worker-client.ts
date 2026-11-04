@@ -20,7 +20,7 @@ export class WorkerVideoReceiver {
   constructor(
     private transport: WebTransport,
     attachId: string,
-    private render: (id: string, frame: VideoFrame) => void,
+    private render: (id: string, frame: VideoFrame) => boolean | void,
     private stats: (stats: DesktopVideoStats) => void,
     private failed: (message: string) => void,
     private codecFailed?: (codec: string) => void,
@@ -69,13 +69,13 @@ export class WorkerVideoReceiver {
           try {
             if (!this.closed && data.generation === this.generation) {
               const start = performance.now();
-              this.render(data.viewportId, frame);
-              this.stats({
-                ...data.stats,
-                renderMicros:
-                  data.stats.renderMicros +
-                  Math.round((performance.now() - start) * 1000),
-              });
+              if (this.render(data.viewportId, frame) !== false)
+                this.stats({
+                  ...data.stats,
+                  renderMicros:
+                    data.stats.renderMicros +
+                    Math.round((performance.now() - start) * 1000),
+                });
             }
           } catch (error) {
             this.failed(error instanceof Error ? error.message : String(error));
@@ -159,6 +159,14 @@ export class WorkerVideoReceiver {
       this.pending = { id, resolve, reject };
       this.worker.postMessage({ type: "configure", id, configuration });
     });
+  }
+  requestRefresh(viewportId: string): void {
+    if (!this.closed)
+      this.worker.postMessage({
+        type: "refresh",
+        generation: this.generation,
+        viewportId,
+      });
   }
   close(): void {
     if (this.closed) return;

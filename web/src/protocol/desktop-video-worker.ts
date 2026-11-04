@@ -98,6 +98,11 @@ scope.onmessage = async ({ data }) => {
     scope.postMessage({ type: "ready" });
     return;
   }
+  if (data.type === "refresh") {
+    if (!configuring && data.generation === generation)
+      engine?.requestRefresh(data.viewportId);
+    return;
+  }
   if (data.type === "consumed") {
     outstanding.delete(data.id);
     return;

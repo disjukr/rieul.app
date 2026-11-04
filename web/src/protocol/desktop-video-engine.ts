@@ -37,7 +37,7 @@ export class DesktopVideoEngine {
   constructor(
     transport: WebTransport,
     private attachId: string,
-    private render: (viewportId: string, frame: VideoFrame) => void,
+    private render: (viewportId: string, frame: VideoFrame) => boolean | void,
     private stats: (stats: DesktopVideoStats) => void,
     private failed: (message: string) => void,
     private codecFailed?: (codec: string) => void,
@@ -108,6 +108,7 @@ export class DesktopVideoEngine {
             const started = performance.now();
             const timing = state.timings.get(frame.timestamp);
             state.timings.delete(frame.timestamp);
+            let rendered = false;
             try {
               if (
                 !this.closed &&
@@ -115,11 +116,13 @@ export class DesktopVideoEngine {
                 state.decoder === decoder &&
                 timing?.groupId === state.group
               )
-                this.render(track.viewport.viewportId, frame);
+                rendered =
+                  this.render(track.viewport.viewportId, frame) !== false;
             } finally {
               frame.close();
             }
             if (
+              rendered &&
               !this.closed &&
               this.tracks.get(track.trackId) === state &&
               state.decoder === decoder &&
@@ -311,6 +314,21 @@ export class DesktopVideoEngine {
     } finally {
       if (state?.stream === stream) state.stream = undefined;
     }
+  }
+  requestRefresh(viewportId: string): void {
+    if (this.closed) return;
+    for (const state of this.tracks.values())
+      if (state.track.viewport.viewportId === viewportId) {
+        this.stats({
+          trackId: state.track.trackId,
+          codecEpoch: state.track.codecEpoch,
+          groupId: state.group,
+          decodeMicros: 0,
+          renderMicros: 0,
+          queueDepth: 0,
+          requestKeyframe: true,
+        });
+      }
   }
   private resetTracks(): void {
     for (const state of this.tracks.values()) {

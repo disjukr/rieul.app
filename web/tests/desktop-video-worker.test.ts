@@ -180,3 +180,66 @@ test("worker reconfiguration supersedes pending replies and close releases the l
     else Reflect.deleteProperty(globalThis, "Worker");
   }
 });
+
+test("missing render surface suppresses receipt but releases frame; restoration requests refresh", async () => {
+  const old = Object.getOwnPropertyDescriptor(globalThis, "Worker");
+  Object.defineProperty(globalThis, "Worker", {
+    configurable: true,
+    value: FakeWorker,
+  });
+  let drawn = false,
+    receipts = 0,
+    closed = 0;
+  const receiver = new WorkerVideoReceiver(
+    { incomingUnidirectionalStreams: new ReadableStream() } as WebTransport,
+    "attach",
+    () => drawn,
+    () => receipts++,
+    assert.fail,
+  );
+  try {
+    await receiver.ready;
+    const worker = FakeWorker.last;
+    const configure = receiver.configure({
+      tracks: [],
+      layoutEpoch: 1,
+      totalBitrate: 1,
+    });
+    await tick();
+    const id = worker.sent.find((m) => m.type === "configure").id;
+    worker.receive({ type: "configured", id });
+    await configure;
+    const message = {
+      type: "frame",
+      generation: id,
+      id: 1,
+      viewportId: "screen",
+      frame: {
+        close() {
+          closed++;
+        },
+      },
+      stats: { renderMicros: 0 },
+    };
+    worker.receive(message);
+    assert.equal(receipts, 0);
+    assert.equal(closed, 1);
+    assert.deepEqual(worker.sent.at(-1), { type: "consumed", id: 1 });
+    drawn = true;
+    receiver.requestRefresh("screen");
+    assert.deepEqual(worker.sent.at(-1), {
+      type: "refresh",
+      generation: id,
+      viewportId: "screen",
+    });
+    worker.receive({ ...message, id: 2 });
+    assert.equal(receipts, 1);
+    assert.equal(closed, 2);
+    receiver.close();
+    worker.receive({ type: "closed" });
+  } finally {
+    receiver.close();
+    if (old) Object.defineProperty(globalThis, "Worker", old);
+    else Reflect.deleteProperty(globalThis, "Worker");
+  }
+});

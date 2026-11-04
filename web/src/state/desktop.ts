@@ -254,6 +254,9 @@ export const desktopBunja = bunja(() => {
       surfaces.set(viewportId, set);
     }
     set.add(canvas);
+    video?.requestRefresh(viewportId);
+    const restored = () => video?.requestRefresh(viewportId);
+    canvas.addEventListener("contextrestored", restored);
     const cleanup = bindDesktopInput(canvas, viewportId, send, () => ({
       active: controlling(),
       epoch: control().inputEpoch,
@@ -261,6 +264,7 @@ export const desktopBunja = bunja(() => {
     }));
     return () => {
       cleanup();
+      canvas.removeEventListener("contextrestored", restored);
       set!.delete(canvas);
       if (set!.size === 0) surfaces.delete(viewportId);
     };
@@ -524,10 +528,21 @@ export const desktopBunja = bunja(() => {
                 nextTransport,
                 event.attachId,
                 (viewportId, frame) => {
+                  let drawn = false;
                   for (const canvas of surfaces.get(viewportId) ?? []) {
                     const ctx = canvas.getContext("2d");
-                    ctx?.drawImage(frame, 0, 0, canvas.width, canvas.height);
+                    if (
+                      !canvas.isConnected ||
+                      !canvas.width ||
+                      !canvas.height ||
+                      !ctx ||
+                      ctx.isContextLost?.()
+                    )
+                      continue;
+                    ctx.drawImage(frame, 0, 0, canvas.width, canvas.height);
+                    drawn = true;
                   }
+                  return drawn;
                 },
                 (next) => {
                   if (token !== generation) return;

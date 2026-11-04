@@ -20,6 +20,8 @@ let procedure: number | undefined;
 let enqueue: (event: DesktopEvent | undefined) => void;
 let abortSignal: AbortSignal;
 const configured: DesktopConfiguration[] = [];
+let renderFrame: (id: string, frame: VideoFrame) => boolean;
+const refreshes: string[] = [];
 const display = {
   displayId: "screen",
   bounds: { x: 0, y: 0, width: 1280, height: 720 },
@@ -161,6 +163,16 @@ mock.module("../src/protocol/desktop-video.ts", {
   namedExports: {
     supportedDesktopCodecs: async () => ["fixture"],
     DesktopVideoReceiver: class {
+      constructor(
+        _transport: unknown,
+        _attach: unknown,
+        render: typeof renderFrame,
+      ) {
+        renderFrame = render;
+      }
+      requestRefresh(id: string) {
+        refreshes.push(id);
+      }
       async configure(value: DesktopConfiguration) {
         configured.push(value);
       }
@@ -219,9 +231,41 @@ test("automatic existing displays consume server tracks and layout changes witho
     assert.deepEqual(entry.value.configuration(), config(1));
     assert.equal(configureCalls, 0);
     assert.equal(controlCalls, 0);
+    assert.equal(renderFrame("screen", {} as VideoFrame), false);
+    let draws = 0,
+      lost = false;
+    const canvas = {
+      isConnected: true,
+      width: 640,
+      height: 480,
+      addEventListener() {},
+      removeEventListener() {},
+      getContext: () => null,
+    } as unknown as HTMLCanvasElement;
+    const unregister = entry.value.registerSurface("screen", canvas);
+    assert.equal(refreshes.at(-1), "screen");
+    assert.equal(renderFrame("screen", {} as VideoFrame), false);
+    canvas.getContext = (() => ({
+      isContextLost: () => lost,
+      drawImage() {
+        draws++;
+      },
+    })) as any;
+    assert.equal(renderFrame("screen", {} as VideoFrame), true);
+    assert.equal(draws, 1);
+    lost = true;
+    assert.equal(renderFrame("screen", {} as VideoFrame), false);
+    unregister();
+    assert.equal(renderFrame("screen", {} as VideoFrame), false);
     // The real popup lifecycle keeps the document/canvas on a quality-only change.
     let popupClosed = 0;
-    const element = () => ({ style: {}, setAttribute() {}, append() {} });
+    const element = () => ({
+      style: {},
+      setAttribute() {},
+      append() {},
+      addEventListener() {},
+      removeEventListener() {},
+    });
     const popup = {
       document: { body: element(), createElement: element },
       close() {

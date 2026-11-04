@@ -106,6 +106,9 @@ export class DesktopVideoReceiver {
     await this.ready;
     if (!this.closed) await this.inner!.configure(configuration);
   }
+  requestRefresh(viewportId: string): void {
+    if (!this.closed) this.inner?.requestRefresh(viewportId);
+  }
   close(): void {
     this.closed = true;
     this.initializing?.close();

@@ -63,13 +63,18 @@ test("video receiver negotiates codecs, cancels stale groups and closes every fr
       incoming = c;
     },
   });
+  let canRender = true;
   const rendered: string[] = [],
     stats: DesktopVideoStats[] = [],
     errors: string[] = [];
   const receiver = new DesktopVideoReceiver(
     { incomingUnidirectionalStreams: stream } as WebTransport,
     "a",
-    (id) => rendered.push(id),
+    (id) => {
+      if (!canRender) return false;
+      rendered.push(id);
+      return true;
+    },
     (s) => stats.push(s),
     (e) => errors.push(e),
   );
@@ -149,6 +154,19 @@ test("video receiver negotiates codecs, cancels stale groups and closes every fr
       ],
     );
     assert.deepEqual(errors, []);
+    canRender = false;
+    incoming!.enqueue(group(4, true));
+    await tick();
+    assert.equal(stats.length, 2);
+    assert.equal(framesClosed, 4);
+    receiver.requestRefresh("v");
+    assert.equal(stats.at(-1)?.requestKeyframe, true);
+    assert.equal(stats.at(-1)?.objectId, undefined);
+    canRender = true;
+    incoming!.enqueue(group(5, true));
+    await tick();
+    assert.equal(stats.at(-1)?.groupId, 5);
+    assert.equal(stats.at(-1)?.objectId, 0);
     receiver.close();
     await tick();
     assert.equal(decodersClosed, 1);
