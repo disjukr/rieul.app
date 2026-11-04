@@ -469,16 +469,16 @@ export const desktopBunja = bunja(() => {
                   }
                 },
                 (next) => {
+                  if (token !== generation) return;
+                  // ACKs drive the sender's bounded receipt window. Throttle
+                  // only visible statistics, never transport acknowledgements.
+                  if (caps.feedback) input?.send({ type: "feedback", ...next });
                   if (
-                    token === generation &&
-                    (next.requestKeyframe ||
-                      performance.now() - (lastStats.get(next.trackId) ?? 0) >
-                        500)
+                    next.requestKeyframe ||
+                    performance.now() - (lastStats.get(next.trackId) ?? 0) > 500
                   ) {
                     lastStats.set(next.trackId, performance.now());
                     setStats(next);
-                    if (caps.feedback)
-                      input?.send({ type: "feedback", ...next });
                   }
                 },
                 (error) => {
