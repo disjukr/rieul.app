@@ -23,3 +23,6 @@ pub mod desktop_ipc;
 
 #[cfg(windows)]
 mod desktop_capture;
+
+#[cfg(any(windows, test))]
+pub mod desktop_recovery;

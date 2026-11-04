@@ -1,6 +1,6 @@
 //! Per-track hardware pipeline. COM/DXGI/MF objects are created and dropped on
 //! their capture worker. Input remains independent on the console input thread.
-use crate::{desktop_native as native, desktop_pixels::nv12};
+use crate::{desktop_native as native, desktop_pixels::nv12_update};
 use rieul_daemon_core::generated::rpc::*;
 use rieul_daemon_host::{
     desktop::{EncodedFrame, Error},
@@ -280,18 +280,19 @@ fn create(t: DesktopTrack) -> Result<Worker, Error> {
         drop(probe);
         drop(pixels);
         struct State {
-            capture: native::Duplication,
+            capture: Option<native::Duplication>,
             encoder: Option<native::HardwareEncoder>,
             stripes: Option<Stripes>,
             latest_pixels: Option<Vec<u8>>,
             replay: bool,
+            capture_retries: u8,
             refining: bool,
             budget: rieul_daemon_host::desktop_paintover::RefinementBudget,
             paintover: rieul_daemon_host::desktop_paintover::Paintover,
             _apartment: native::Apartment,
         }
         let mut state = State {
-            capture,
+            capture: Some(capture),
             encoder: if striped { None } else { Some(make()?) },
             stripes: if striped {
                 Some(Stripes::new(&t)?)
@@ -300,6 +301,7 @@ fn create(t: DesktopTrack) -> Result<Worker, Error> {
             },
             latest_pixels: None,
             replay: false,
+            capture_retries: 0,
             refining: false,
             budget: Default::default(),
             paintover: Default::default(),
@@ -329,27 +331,59 @@ fn create(t: DesktopTrack) -> Result<Worker, Error> {
                         return Err(Error::Unauthorized);
                     }
                     let start = Instant::now();
-                    let frame = state.capture.next().map_err(|_| Error::Backend)?;
+                    let frame = match state.capture.as_ref().ok_or(Error::Backend)?.next() {
+                        Ok(frame) => frame,
+                        Err(error)
+                            if native::capture_access_lost(&error) && state.capture_retries < 3 =>
+                        {
+                            state.capture_retries += 1;
+                            if !native::interactive() {
+                                return Err(Error::Unauthorized);
+                            }
+                            let (adapter, output) =
+                                v.display_id.split_once('.').ok_or(Error::Invalid)?;
+                            let bounds = state.capture.as_ref().ok_or(Error::Backend)?.bounds;
+                            crate::desktop_recovery::reopen(&mut state.capture, || {
+                                let replacement = native::Duplication::open(
+                                    adapter.parse().map_err(|_| Error::Invalid)?,
+                                    output.parse().map_err(|_| Error::Invalid)?,
+                                )
+                                .map_err(|_| Error::Backend)?;
+                                if replacement.bounds != bounds {
+                                    return Err(Error::Stale);
+                                }
+                                Ok(replacement)
+                            })?;
+                            state.latest_pixels = None;
+                            state.paintover = Default::default();
+                            state.budget = Default::default();
+                            state.replay = true;
+                            break;
+                        }
+                        Err(_) => return Err(Error::Backend),
+                    };
                     if !native::interactive() {
                         return Err(Error::Unauthorized);
                     }
                     let damaged = frame.is_some();
                     let paintover = short && state.paintover.due(clock.elapsed());
                     if let Some(frame) = frame {
-                        state.latest_pixels = Some(
-                            nv12(
-                                &frame.bytes,
-                                (frame.width as usize, frame.height as usize, frame.stride),
-                                (
-                                    v.crop.x.try_into().map_err(|_| Error::Invalid)?,
-                                    v.crop.y.try_into().map_err(|_| Error::Invalid)?,
-                                    v.crop.width as usize,
-                                    v.crop.height as usize,
-                                ),
-                                (v.width as usize, v.height as usize),
-                            )
-                            .ok_or(Error::Invalid)?,
-                        );
+                        state.capture_retries = 0;
+                        let pixels = state.latest_pixels.get_or_insert_with(Vec::new);
+                        nv12_update(
+                            &frame.bytes,
+                            (frame.width as usize, frame.height as usize, frame.stride),
+                            (
+                                v.crop.x.try_into().map_err(|_| Error::Invalid)?,
+                                v.crop.y.try_into().map_err(|_| Error::Invalid)?,
+                                v.crop.width as usize,
+                                v.crop.height as usize,
+                            ),
+                            (v.width as usize, v.height as usize),
+                            &frame.damage,
+                            pixels,
+                        )
+                        .ok_or(Error::Invalid)?;
                         state.paintover.motion(clock.elapsed());
                         state.budget.motion();
                     } else if !paintover && !(index == 0 && (refresh || state.replay)) {

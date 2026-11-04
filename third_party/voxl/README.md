@@ -334,3 +334,34 @@ or Windows GPU evidence. The reproducible encoder-only rate experiment is
 `tools/hardware-screen-bench/examples/refinement.rs`, with raw results alongside
 the earlier benchmark. Its high-entropy quality improvement costs additional
 bytes; it is not a matched-quality performance comparison or x264 CRF equivalence.
+
+## Partial Windows CPU updates and explicit macOS color
+
+The Windows adapter retains tight BGRA CPU storage behind an Arc. After mapping,
+only validated DXGI dirty/move destination rows are copied; unchanged pixels are
+retained. A first image or unknown metadata uses a full copy. NV12 conversion now
+updates the nearest-neighbour crop/scale projection of damage, expanded to 2x2
+chroma boundaries. Multiple regions use one bounding rectangle. Output remains
+full NV12 for the hardware API; this is not zero-copy capture.
+
+Pure tests compare incremental output byte-for-byte against full conversion for
+odd damage, crop, scaling and chroma edges, and verify invalid readback batches
+cannot partially modify the destination. `tools/windows-pixels-bench.rs` measures
+only this CPU code on synthetic images (M1 Max, not a Windows GPU). In one 720p
+run, 32x32 damage took 4us versus 3370us full conversion; 256x256 took 204us versus
+2733us; 720x720 took 1537us versus 2743us. These are isolated conversion costs,
+not end-to-end performance or GPU readback measurements. Raw results are saved.
+
+Access-loss/device-reset recovery releases the old duplication on its COM worker
+before reopening. Geometry must match; cached images/refinement state are reset
+and the next group starts independently. Three consecutive losses without a
+successful frame end the pipeline. Failed reopen or changed geometry also ends
+it; no permission bypass or stale-image replay. Drop-before-open and failed-open
+ownership are tested; actual Windows GPU loss/recovery remains unverified.
+
+macOS explicitly converts capture to BT.709 color space/matrix and supplies
+matching VideoToolbox primaries/transfer/matrix metadata. This intentionally
+matches our SDR hardware path rather than copying voxl's x264/BT.601 choice.
+Allocated hardware video replayed in Chrome reports bt709 primaries, transfer and
+matrix, with limited range. Striped replay also passed. Actual wide-gamut/HDR
+screen capture and display color accuracy have not been validated.

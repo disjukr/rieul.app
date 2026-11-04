@@ -63,10 +63,12 @@ pub struct CapturedBgra {
     pub width: u32,
     pub height: u32,
     pub stride: usize,
-    pub bytes: Vec<u8>,
+    pub bytes: std::sync::Arc<Vec<u8>>,
+    pub damage: Vec<(u32,u32,u32,u32)>,
 }
 pub struct Duplication {
     has_image: std::cell::Cell<bool>,
+    cpu: std::cell::RefCell<std::sync::Arc<Vec<u8>>>,
     staging: std::cell::RefCell<Option<(u32, u32, ID3D11Texture2D)>>,
     device: ID3D11Device,
     context: ID3D11DeviceContext,
@@ -104,6 +106,7 @@ impl Duplication {
             }
             Ok(Self {
                 has_image: std::cell::Cell::new(false),
+                cpu: Default::default(),
                 staging: std::cell::RefCell::new(None),
                 device,
                 context,
@@ -165,7 +168,7 @@ impl Duplication {
             }
             let staging = &cached.as_ref().unwrap().2;
             let full = vec![(0, 0, desc.Width, desc.Height)];
-            let rects = if self.has_image.get() {
+            let mut rects = if self.has_image.get() {
                 frame_rects(&self.duplication, &info, desc.Width, desc.Height)
                     .filter(|r| !r.is_empty())
                     .unwrap_or(full)
@@ -173,9 +176,10 @@ impl Duplication {
                 full
             };
             // GPU copy scheduling ported from voxl win/capture.rs::copy_rects.
-            // CPU readback remains a bounded full image for the NV12 hardware API.
+            // Retain CPU pixels; only copy acquired dirty rows out of the map.
             if rects.len() > 32 {
                 self.context.CopyResource(staging, &texture);
+                rects=vec![(0,0,desc.Width,desc.Height)];
             } else {
                 for &(x0, y0, x1, y1) in &rects {
                     let region = D3D11_BOX {
@@ -208,12 +212,17 @@ impl Duplication {
             {
                 Err(invalid())
             } else {
+                let mut cpu=self.cpu.borrow_mut();
+                let target=std::sync::Arc::make_mut(&mut cpu);
+                let stride=desc.Width as usize*4;
+                let copied=crate::desktop_pixels::copy_bgra_damage(
+                    std::slice::from_raw_parts(mapped.pData as *const u8,length),
+                    desc.Width as usize,desc.Height as usize,mapped.RowPitch as usize,&rects,target);
+                if copied.is_none() {Err(invalid())} else {
                 Ok(Some(CapturedBgra {
-                    width: desc.Width,
-                    height: desc.Height,
-                    stride: mapped.RowPitch as usize,
-                    bytes: std::slice::from_raw_parts(mapped.pData as *const u8, length).to_vec(),
-                }))
+                    width:desc.Width,height:desc.Height,stride,
+                    bytes:cpu.clone(),damage:rects,
+                }))}
             };
             self.context.Unmap(staging, 0);
             if result.is_ok() {
@@ -1000,4 +1009,8 @@ pub fn wheel_units_per_line() -> Result<(f64, f64)> {
         }
         Ok((120.0 / x as f64, 120.0 / y as f64))
     }
+}
+
+pub fn capture_access_lost(error:&windows::core::Error)->bool {
+    matches!(error.code(), DXGI_ERROR_ACCESS_LOST | DXGI_ERROR_DEVICE_REMOVED | DXGI_ERROR_DEVICE_RESET)
 }

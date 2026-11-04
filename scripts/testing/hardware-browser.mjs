@@ -115,6 +115,7 @@ try {
     const frames = {},
       pixels = {},
       bottomPixels = {},
+      colorSpaces = [],
       errors = [],
       groups = new Set();
     let feedback = 0;
@@ -150,6 +151,7 @@ try {
           media,
           attachId,
           (id, frame) => {
+            colorSpaces.push(frame.colorSpace.toJSON());
             const canvas = document.createElement("canvas");
             canvas.width = frame.displayWidth;
             canvas.height = frame.displayHeight;
@@ -222,6 +224,7 @@ try {
       firstFrameMs,
       pixels,
       bottomPixels,
+      colorSpaces,
       groups: groups.size,
       cancelledStreams,
       feedback,
@@ -259,6 +262,16 @@ try {
     assert.ok(result.receiptsHeld > 0);
     assert.ok(result.maxObject > 10, JSON.stringify(result));
     assert.ok(result.recoveredGroups > 0, JSON.stringify(result));
+  }
+  if (process.env.RIEUL_EXPECT_BT709 === "1") {
+    assert.ok(result.colorSpaces.length > 0);
+    for (const color of result.colorSpaces)
+      assert.deepEqual(color, {
+        primaries: "bt709",
+        transfer: "bt709",
+        matrix: "bt709",
+        fullRange: false,
+      });
   }
   assert.ok(result.feedback >= 16);
   assert.ok(result.groups >= 4);

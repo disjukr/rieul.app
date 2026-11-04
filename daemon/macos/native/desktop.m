@@ -66,6 +66,9 @@ static VTCompressionSessionRef encoder(uint32_t width,uint32_t height,uint32_t f
     NSDictionary *props=@{(__bridge NSString *)kVTCompressionPropertyKey_RealTime:@YES,
       (__bridge NSString *)kVTCompressionPropertyKey_AllowFrameReordering:@NO,
       (__bridge NSString *)kVTCompressionPropertyKey_ProfileLevel:(__bridge NSString *)kVTProfileLevel_H264_Baseline_4_2,
+      (__bridge NSString *)kVTCompressionPropertyKey_ColorPrimaries:(__bridge NSString *)kCVImageBufferColorPrimaries_ITU_R_709_2,
+      (__bridge NSString *)kVTCompressionPropertyKey_TransferFunction:(__bridge NSString *)kCVImageBufferTransferFunction_ITU_R_709_2,
+      (__bridge NSString *)kVTCompressionPropertyKey_YCbCrMatrix:(__bridge NSString *)kCVImageBufferYCbCrMatrix_ITU_R_709_2,
       (__bridge NSString *)kVTCompressionPropertyKey_ExpectedFrameRate:@(fps),
       (__bridge NSString *)kVTCompressionPropertyKey_AverageBitRate:@(bitrate)};
     if(VTSessionSetProperties(session,(__bridge CFDictionaryRef)props) || VTCompressionSessionPrepareToEncodeFrames(session)) { VTCompressionSessionInvalidate(session); CFRelease(session); return NULL; }
@@ -421,6 +424,10 @@ void *rd_capture_create(uint32_t id,double x,double y,double w,double h,uint32_t
         if(!configure_pipeline(self,width,height,fps,bitrate,stripes)) return NULL;
         SCStreamConfiguration *config=[SCStreamConfiguration new];
         config.width=width; config.height=height; config.pixelFormat=kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange;
+        // Match capture conversion and encoded VUI; do not inherit a P3 display
+        // space while copying untagged NV12 stripes into an SDR stream.
+        config.colorMatrix=kCGDisplayStreamYCbCrMatrix_ITU_R_709_2;
+        config.colorSpaceName=kCGColorSpaceITUR_709;
         config.queueDepth=3; config.minimumFrameInterval=CMTimeMake(1,fps); config.showsCursor=NO;
         CGRect bounds=CGDisplayBounds(id); double scale=CGDisplayPixelsWide(id)/bounds.size.width;
         if(x<0 || y<0 || w<=0 || h<=0 || x+w>CGDisplayPixelsWide(id) || y+h>CGDisplayPixelsHigh(id)) return NULL;

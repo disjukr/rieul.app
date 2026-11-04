@@ -6,6 +6,20 @@ pub fn nv12(
     crop: (usize, usize, usize, usize),
     output: (usize, usize),
 ) -> Option<Vec<u8>> {
+    let mut result = vec![];
+    nv12_update(bytes, source, crop, output, &[], &mut result)?;
+    Some(result)
+}
+/// Update retained NV12 only where nearest-neighbour sampling intersects source
+/// damage. Expand to complete 2x2 chroma blocks; first output is always full.
+pub fn nv12_update(
+    bytes: &[u8],
+    source: (usize, usize, usize),
+    crop: (usize, usize, usize, usize),
+    output: (usize, usize),
+    damage: &[(u32, u32, u32, u32)],
+    result: &mut Vec<u8>,
+) -> Option<()> {
     let (sw, sh, stride) = source;
     let (cx, cy, cw, ch) = crop;
     let (w, h) = output;
@@ -24,7 +38,37 @@ pub fn nv12(
     {
         return None;
     }
-    let mut result = vec![0; w * h * 3 / 2];
+    let mut region = None;
+    if result.len() != w * h * 3 / 2 {
+        result.resize(w * h * 3 / 2, 0);
+        region = Some((0, 0, w, h));
+    } else {
+        for &(x0, y0, x1, y1) in damage {
+            let (x0, y0, x1, y1) = (x0 as usize, y0 as usize, x1 as usize, y1 as usize);
+            if x0 >= x1 || y0 >= y1 || x1 > sw || y1 > sh {
+                return None;
+            }
+            let (left, top, right, bottom) =
+                (x0.max(cx), y0.max(cy), x1.min(cx + cw), y1.min(cy + ch));
+            if left >= right || top >= bottom {
+                continue;
+            }
+            let l = ((left - cx) * w).div_ceil(cw) & !1;
+            let t = ((top - cy) * h).div_ceil(ch) & !1;
+            let r = ((((right - cx) * w).div_ceil(cw) + 1) & !1).min(w);
+            let b = ((((bottom - cy) * h).div_ceil(ch) + 1) & !1).min(h);
+            if l >= r || t >= b {
+                continue;
+            }
+            region = Some(match region {
+                None => (l, t, r, b),
+                Some((a, c, d, e)) => (l.min(a), t.min(c), r.max(d), b.max(e)),
+            });
+        }
+    }
+    let Some((left, top, right, bottom)) = region else {
+        return Some(());
+    };
     let rgb = |x: usize, y: usize| {
         let offset = (cy + y * ch / h) * stride + (cx + x * cw / w) * 4;
         (
@@ -34,14 +78,14 @@ pub fn nv12(
         )
     };
     let byte = |n: f64| n.round().clamp(0.0, 255.0) as u8;
-    for y in 0..h {
-        for x in 0..w {
+    for y in top..bottom {
+        for x in left..right {
             let (r, g, b) = rgb(x, y);
             result[y * w + x] = byte(16.0 + 0.182586 * r + 0.614231 * g + 0.062007 * b);
         }
     }
-    for y in (0..h).step_by(2) {
-        for x in (0..w).step_by(2) {
+    for y in (top..bottom).step_by(2) {
+        for x in (left..right).step_by(2) {
             let (mut r, mut g, mut b) = (0.0, 0.0, 0.0);
             for dy in 0..2 {
                 for dx in 0..2 {
@@ -56,7 +100,7 @@ pub fn nv12(
             result[offset + 1] = byte(128.0 + 0.439216 * r - 0.398942 * g - 0.040274 * b);
         }
     }
-    Some(result)
+    Some(())
 }
 /// HID keyboard-page usage to set-1 scan code + E0 prefix. Pause/PrintScreen need
 /// special sequences and are deliberately unsupported instead of guessing.
@@ -215,7 +259,11 @@ pub fn annex_b_headers(bytes: &[u8]) -> Vec<u8> {
             pps |= kind == 8;
         }
     }
-    if sps && pps { output } else { vec![] }
+    if sps && pps {
+        output
+    } else {
+        vec![]
+    }
 }
 
 /// Bounded RGBA PNG using stored DEFLATE blocks; avoids an image-library/codec
@@ -537,5 +585,118 @@ mod damage_tests {
         assert_eq!(clip_damage((65, 0, i32::MAX, i32::MAX), 64, 32), None);
         assert_eq!(clip_damage((20, 10, 5, 2), 64, 32), None);
         assert_eq!(clip_damage((0, 0, 4, 4), u32::MAX, 32), None);
+    }
+}
+
+#[cfg(test)]
+mod partial_tests {
+    use super::*;
+    #[test]
+    fn partial_conversion_matches_full_for_crop_scale_odd_damage_and_chroma_edges() {
+        for (w, h) in [(2, 2), (6, 4), (16, 12)] {
+            for crop in [(0, 0, 13, 9), (1, 1, 11, 7), (3, 2, 7, 6)] {
+                let stride = 13 * 4 + 8;
+                let mut bgra: Vec<u8> = (0..stride * 9).map(|n| (n * 17 % 251) as u8).collect();
+                let mut retained = nv12(&bgra, (13, 9, stride), crop, (w, h)).unwrap();
+                for (x0, y0, x1, y1) in [
+                    (0, 0, 1, 1),
+                    (3, 3, 4, 4),
+                    (2, 1, 8, 6),
+                    (12, 8, 13, 9),
+                    (0, 0, 13, 9),
+                ] {
+                    for y in y0..y1 {
+                        for x in x0..x1 {
+                            for c in 0..3 {
+                                bgra[y * stride + x * 4 + c] ^= 0x7f;
+                            }
+                        }
+                    }
+                    nv12_update(
+                        &bgra,
+                        (13, 9, stride),
+                        crop,
+                        (w, h),
+                        &[(x0 as u32, y0 as u32, x1 as u32, y1 as u32)],
+                        &mut retained,
+                    )
+                    .unwrap();
+                    assert_eq!(
+                        retained,
+                        nv12(&bgra, (13, 9, stride), crop, (w, h)).unwrap(),
+                        "crop={crop:?},out={w}x{h},damage={x0},{y0},{x1},{y1}"
+                    );
+                }
+                let previous = retained.clone();
+                nv12_update(&bgra, (13, 9, stride), crop, (w, h), &[], &mut retained).unwrap();
+                assert_eq!(previous, retained);
+            }
+        }
+    }
+}
+
+/// Copy only validated dirty rows from a mapped BGRA surface into tight retained
+/// CPU storage. Validate the entire batch before modifying destination bytes.
+pub fn copy_bgra_damage(
+    source: &[u8],
+    width: usize,
+    height: usize,
+    stride: usize,
+    damage: &[(u32, u32, u32, u32)],
+    target: &mut Vec<u8>,
+) -> Option<()> {
+    if width == 0
+        || height == 0
+        || width > 8192
+        || height > 8192
+        || stride < width * 4
+        || source.len() < stride.checked_mul(height)?
+    {
+        return None;
+    }
+    for &(x0, y0, x1, y1) in damage {
+        if x0 >= x1 || y0 >= y1 || x1 as usize > width || y1 as usize > height {
+            return None;
+        }
+    }
+    let first = target.len() != width * height * 4;
+    target.resize(width * height * 4, 0);
+    let full = [(0, 0, width as u32, height as u32)];
+    let rects = if first { &full[..] } else { damage };
+    for &(x0, y0, x1, y1) in rects {
+        for y in y0 as usize..y1 as usize {
+            let from = y * stride + x0 as usize * 4;
+            let to = (y * width + x0 as usize) * 4;
+            let count = (x1 - x0) as usize * 4;
+            target[to..to + count].copy_from_slice(&source[from..from + count]);
+        }
+    }
+    Some(())
+}
+#[cfg(test)]
+mod readback_tests {
+    use super::*;
+    #[test]
+    fn padded_readback_retains_unchanged_pixels_and_invalid_batch_is_atomic() {
+        let mut source: Vec<u8> = (0..24 * 4).map(|n| n as u8).collect();
+        let mut target = vec![];
+        copy_bgra_damage(&source, 4, 4, 24, &[], &mut target).unwrap();
+        let old = target.clone();
+        source[24 + 4..24 + 8].fill(200);
+        copy_bgra_damage(&source, 4, 4, 24, &[(1, 1, 2, 2)], &mut target).unwrap();
+        for i in 0..target.len() {
+            assert_eq!(target[i], if (20..24).contains(&i) { 200 } else { old[i] });
+        }
+        let old = target.clone();
+        assert!(copy_bgra_damage(
+            &source,
+            4,
+            4,
+            24,
+            &[(1, 1, 2, 2), (3, 3, 5, 4)],
+            &mut target
+        )
+        .is_none());
+        assert_eq!(target, old);
     }
 }
