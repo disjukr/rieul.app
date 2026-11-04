@@ -218,6 +218,8 @@ try {
     await new Promise((r) => setTimeout(r, 150));
     const result = {
       frames,
+      execution: receiver.execution,
+      workerFailure: receiver.workerFailure,
       receiptsHeld,
       maxObject,
       recoveredGroups: recoveredGroups.size,
@@ -236,6 +238,8 @@ try {
     abort.abort();
     return result;
   }, fixture);
+  if (process.env.RIEUL_EXPECT_WORKER === "1")
+    assert.equal(result.execution, "worker", JSON.stringify(result));
   assert.equal(Object.keys(result.frames).length, 2, JSON.stringify(result));
   for (const count of Object.values(result.frames))
     assert.ok(count >= (fixture.continuous ? 40 : 8), JSON.stringify(result));

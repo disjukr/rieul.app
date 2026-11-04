@@ -9,7 +9,8 @@ const devAllowedHosts = readDevAllowedHosts();
 
 export default defineConfig({
   plugins: [
-    zyzz(),
+    // Protocol modules also execute in workers: CSS injection requires document.
+    zyzz({ exclude: ["src/protocol/**"] }),
     solid(),
     {
       name: "verify-native-solid-runtime",

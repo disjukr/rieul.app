@@ -22,8 +22,9 @@ export async function* readDesktopGroup(
   signal?: AbortSignal,
 ): AsyncGenerator<DesktopMediaObject> {
   const reader = readable.getReader();
+  let cancellation: Promise<void> | undefined;
   const abort = () => {
-    void reader.cancel("desktop group abandoned").catch(() => {});
+    cancellation ??= reader.cancel("desktop group abandoned").catch(() => {});
   };
   signal?.addEventListener("abort", abort, { once: true });
   if (signal?.aborted) abort();
@@ -103,7 +104,8 @@ export async function* readDesktopGroup(
     }
   } finally {
     // Reset/cancel abandons the entire GOP, including on downstream decode failure.
-    if (!complete)
+    if (cancellation) await cancellation;
+    else if (!complete)
       await reader.cancel("desktop group abandoned").catch(() => {});
     signal?.removeEventListener("abort", abort);
     reader.releaseLock();

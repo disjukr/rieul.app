@@ -111,3 +111,36 @@ test("media codec matches Rust golden", () => {
     "a90161610201030104010502060007186408f50943010203",
   );
 });
+
+test("abort after a valid object waits for underlying cancellation despite EOF", async () => {
+  let release!: () => void;
+  let cancelled = 0;
+  const deferred = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const source = new ReadableStream<Uint8Array>({
+    start(c) {
+      c.enqueue(encode(first));
+    },
+    cancel() {
+      cancelled++;
+      return deferred;
+    },
+  });
+  const abort = new AbortController();
+  const group = readDesktopGroup(source, first, abort.signal);
+  assert.equal((await group.next()).value?.objectId, 0);
+  let settled = false;
+  const next = group.next().then((result) => {
+    settled = true;
+    return result;
+  });
+  abort.abort();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(cancelled, 1);
+  assert.equal(settled, false);
+  assert.equal(source.locked, true);
+  release();
+  assert.equal((await next).done, true);
+  assert.equal(source.locked, false);
+});

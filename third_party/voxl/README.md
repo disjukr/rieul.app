@@ -365,3 +365,29 @@ matches our SDR hardware path rather than copying voxl's x264/BT.601 choice.
 Allocated hardware video replayed in Chrome reports bt709 primaries, transfer and
 matrix, with limited range. Striped replay also passed. Actual wide-gamut/HDR
 screen capture and display color accuracy have not been validated.
+
+## Browser media worker
+
+The browser now transfers each accepted media uni-stream to a dedicated worker
+for bounded parsing, decoding and stripe composition. It retains at most 16
+active streams and three transferred output frames. Final drawing into the
+existing multi-window DOM canvases stays on their owner thread; render feedback
+is sent only after that drawing. This avoids changing popup/input ownership and
+does not claim all presentation work or WebTransport setup moved off-thread.
+
+Worker startup probes transferable-stream support before acquiring authenticated
+media ownership. Missing worker/WebCodecs APIs use the existing main-thread
+engine. Configuration generations fence late frames and errors. Closing fences
+rendering immediately, asks the worker to cancel/settle transferred readers and
+release retained frames, then terminates after acknowledgement or a one-second
+fallback deadline. Existing in-flight source cancellation is awaited even if an
+aborted read appears as EOF. The shared incoming queue itself is not cancelled.
+
+The media engine is DOM-free. Zyzz's supported exclusion option keeps protocol
+modules from receiving stylesheet imports in worker environments; full styling
+UI regressions still pass. Actual Chrome tests cover transferred source cancel
+and queue reuse in both dev and built production workers. Hardware-stripe
+IPC/WebTransport replay asserts worker execution and exercises delayed feedback,
+fresh groups, stream cancellation and fake held-key cleanup. Unit tests cover
+render-before-ACK, stale frames, bounds, configuration replacement and deferred
+source cancellation. No matched-quality end-to-end speedup is claimed.
