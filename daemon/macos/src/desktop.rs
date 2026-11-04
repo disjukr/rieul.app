@@ -36,6 +36,15 @@ unsafe extern "C" {
     fn rd_permissions() -> i32;
     fn rd_displays(out: *mut Display, capacity: usize) -> usize;
     fn rd_hardware_codec(codec: *mut u32) -> bool;
+    fn rd_hardware_stripes() -> bool;
+    fn rd_probe_stripe_video(
+        width: u32,
+        height: u32,
+        fps: u32,
+        bitrate: u32,
+        count: u32,
+        codec: *mut u32,
+    ) -> bool;
     fn rd_probe_video(width: u32, height: u32, fps: u32, bitrate: u32, codec: *mut u32) -> bool;
     #[cfg(test)]
     fn rd_av1_hardware_encoder_available() -> bool;
@@ -54,6 +63,7 @@ unsafe extern "C" {
         height: u32,
         fps: u32,
         bitrate: u32,
+        stripes: u32,
         shutdown_failed: *mut bool,
     ) -> *mut c_void;
     fn rd_capture_set_bitrate(handle: *mut c_void, bitrate: u32) -> bool;
@@ -305,13 +315,24 @@ impl Backend for MacDesktop {
         let v = &track.viewport;
         let mut codec = 0;
         if unsafe {
-            rd_probe_video(
-                v.width as u32,
-                v.height as u32,
-                v.fps as u32,
-                v.bitrate as u32,
-                &mut codec,
-            )
+            if let Some(stripes) = &track.stripes {
+                rd_probe_stripe_video(
+                    v.width as u32,
+                    v.height as u32,
+                    v.fps as u32,
+                    v.bitrate as u32,
+                    stripes.len() as u32,
+                    &mut codec,
+                )
+            } else {
+                rd_probe_video(
+                    v.width as u32,
+                    v.height as u32,
+                    v.fps as u32,
+                    v.bitrate as u32,
+                    &mut codec,
+                )
+            }
         } && format!("avc1.{codec:06x}").eq_ignore_ascii_case(&track.codec.codec)
         {
             DesktopQualityVerification::Verified
@@ -344,6 +365,11 @@ impl Backend for MacDesktop {
         let mut codec = 0;
         let hardware = permissions & 1 != 0 && unsafe { rd_hardware_codec(&mut codec) };
         DesktopCapabilities {
+            supported_profiles: Some(if hardware && unsafe { rd_hardware_stripes() } {
+                vec![1, 2]
+            } else {
+                vec![1]
+            }),
             profile: PROFILE,
             feedback: Some(true),
             wheel_units: Some(vec![DesktopWheelUnit::Pixels, DesktopWheelUnit::Lines]),
@@ -488,6 +514,16 @@ impl Backend for MacDesktop {
         emit: &mut dyn FnMut(EncodedFrame) -> Result<(), Error>,
     ) -> Result<(), Error> {
         rieul_daemon_host::desktop::validate_encoder_rate(track, bitrate)?;
+        if let Some(stripes) = &track.stripes {
+            if !rieul_daemon_host::desktop::validate_video_probe(track)
+                || rieul_daemon_core::desktop_stripe::layout(track.viewport.height, stripes.len())
+                    .as_ref()
+                    != Some(stripes)
+            {
+                return Err(Error::Invalid);
+            }
+        }
+
         if !track.codec.codec.starts_with("avc1.42") {
             return Err(Error::Unsupported);
         }
@@ -517,6 +553,7 @@ impl Backend for MacDesktop {
                         v.height.try_into().map_err(|_| Error::Limit)?,
                         v.fps.try_into().map_err(|_| Error::Limit)?,
                         v.bitrate.try_into().map_err(|_| Error::Limit)?,
+                        track.stripes.as_ref().map_or(0, |s| s.len() as u32),
                         &mut shutdown_failed,
                     )
                 };
@@ -747,6 +784,47 @@ mod tests {
         }
         let mut codec = 0;
         assert!(!unsafe { rd_probe_video(4097, 720, 60, 20_000_000, &mut codec) });
+    }
+    #[test]
+    #[ignore = "two actual hardware encoder stripes from allocated pixels only"]
+    fn export_synthetic_hardware_stripes() {
+        unsafe extern "C" {
+            fn rd_synthetic_stripes(
+                frames: u32,
+                emit: extern "C" fn(*mut c_void, *const u8, usize, u64) -> bool,
+                context: *mut c_void,
+            ) -> bool;
+        }
+        extern "C" fn packet(
+            context: *mut c_void,
+            data: *const u8,
+            len: usize,
+            timestamp: u64,
+        ) -> bool {
+            if data.is_null() || len > 4 * 1024 * 1024 {
+                return false;
+            }
+            unsafe {
+                let out = &mut *(context as *mut Vec<serde_json::Value>);
+                let bytes = std::slice::from_raw_parts(data, len);
+                let Some(packets) =
+                    rieul_daemon_core::desktop_stripe::decode(bytes, 2, out.is_empty())
+                else {
+                    return false;
+                };
+                if packets.len() != (if out.is_empty() { 2 } else { 1 }) {
+                    return false;
+                }
+                out.push(serde_json::json!({"timestampMicros":timestamp,"keyframe":out.is_empty(),"data":bytes}));
+            }
+            true
+        }
+        let mut frames = Vec::<serde_json::Value>::new();
+        assert!(unsafe { rd_synthetic_stripes(60, packet, &mut frames as *mut _ as *mut c_void) });
+        assert_eq!(frames.len(), 60);
+        if let Ok(path) = std::env::var("RIEUL_DESKTOP_SYNTHETIC_STRIPES_OUT") {
+            std::fs::write(path, serde_json::to_vec(&frames).unwrap()).unwrap();
+        }
     }
     #[test]
     #[ignore = "synthetic short-GOP hardware export; no screen capture/input"]

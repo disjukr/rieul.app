@@ -92,6 +92,8 @@ struct DesktopCapabilities {
   wheelUnits?: DesktopWheelUnit[],
   @ id - 13
   physicalKeys?: u53[],
+  @ id - 14
+  supportedProfiles?: u53[],
 }
 
 struct DesktopCodec {
@@ -192,6 +194,15 @@ struct DesktopTrack {
   codec: DesktopCodec,
   @ id - 4
   codecEpoch: u53,
+  @ id - 5
+  stripes?: DesktopStripe[],
+}
+
+struct DesktopStripe {
+  @ id - 1
+  y: u53,
+  @ id - 2
+  height: u53,
 }
 
 struct DesktopConfiguration {

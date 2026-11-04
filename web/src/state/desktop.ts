@@ -1,3 +1,4 @@
+import { RpcError } from "../protocol/client.ts";
 import { desktopModes } from "../protocol/desktop-support.ts";
 import { desktopCursorPng } from "../protocol/desktop-cursor.ts";
 import { copyDocumentStyles } from "../solid/popup-styles.ts";
@@ -126,13 +127,18 @@ export const desktopBunja = bunja(() => {
     configVersion = 0;
   let offeredCodecs: string[] = [],
     currentCodec = "",
-    h264Fallback = false;
+    h264Fallback = false,
+    profileFallback = false,
+    fallbackPending = false,
+    currentProfile = 1;
   let inputFeatures: Pick<DesktopCapabilities, "physicalKeys" | "wheelUnits"> =
     {};
   const surfaces = new Map<string, Set<HTMLCanvasElement>>();
   const popups = new Map<Window, () => void>();
   function disconnect() {
     generation++;
+    fallbackPending = false;
+    currentProfile = 1;
     eventsAbort?.abort();
     eventsAbort = undefined;
     clearTimeout(attachTimeout);
@@ -176,7 +182,50 @@ export const desktopBunja = bunja(() => {
     setBusy(false);
     setPhase("idle");
   }
+  async function retryFullFrame() {
+    const token = generation,
+      oldTransport = transport,
+      id = attachId();
+    profileFallback = true;
+    fallbackPending = true;
+    setMessage(
+      "Stripe video failed. Reconnecting with full-frame video; control will remain released.",
+    );
+    input?.send({ type: "releaseAll" });
+    await Promise.resolve(input?.flush()).catch(() => {});
+    if (token !== generation || !active) return;
+    if (oldTransport && id) {
+      try {
+        await detachDesktop(oldTransport, { attachId: id });
+      } catch (error) {
+        if (!(error instanceof RpcError && error.code === "notFound"))
+          throw error;
+      }
+    }
+    if (token === generation && active) await connect(h264Fallback, true);
+  }
   function failed(error: unknown) {
+    if (fallbackPending) return;
+    if (
+      active &&
+      currentProfile === 2 &&
+      !profileFallback &&
+      !(
+        error instanceof RpcError &&
+        ["permissionDenied", "invalidCredentials", "unauthorized"].includes(
+          error.code,
+        )
+      )
+    ) {
+      const token = generation;
+      void retryFullFrame().catch((e) => {
+        if (token === generation) {
+          fallbackPending = false;
+          failed(e);
+        }
+      });
+      return;
+    }
     if (
       active &&
       !h264Fallback &&
@@ -363,9 +412,10 @@ export const desktopBunja = bunja(() => {
         configuration()?.tracks.map((t) => t.viewport.displayId) ?? [],
       );
   }
-  async function connect(h264Only = false) {
+  async function connect(h264Only = false, fullFrame = false) {
     disconnect();
     h264Fallback = h264Only;
+    profileFallback = fullFrame;
     if (!active || !supported()) return;
     const token = generation;
     setMessage(undefined);
@@ -407,10 +457,17 @@ export const desktopBunja = bunja(() => {
       offeredCodecs = codecs;
       transport = nextTransport;
       eventsAbort = new AbortController();
+      currentProfile =
+        !fullFrame &&
+        caps.supportedProfiles?.includes(2) &&
+        typeof OffscreenCanvas !== "undefined" &&
+        codecs[0]?.startsWith("avc1.")
+          ? 2
+          : 1;
       const iterator = desktopEvents(
         nextTransport,
         {
-          profile: 1,
+          profile: currentProfile,
           codecs,
           mediaUniStreams: true,
           keyboardMode: DesktopKeyboardMode.Physical,
@@ -437,7 +494,11 @@ export const desktopBunja = bunja(() => {
                 physicalKeys: caps.physicalKeys,
                 wheelUnits: caps.wheelUnits,
               };
-              setMessage(caps.reason);
+              setMessage(
+                fullFrame
+                  ? "Using full-frame video after stripe initialization failed. Control remains released."
+                  : caps.reason,
+              );
               setInputReady(caps.input === DesktopAvailability.Available);
               setAttachId(event.attachId);
               setControl(event.control);
@@ -485,8 +546,17 @@ export const desktopBunja = bunja(() => {
                   if (token === generation) failed(error);
                 },
                 (codec) => {
-                  if (token === generation && codec.startsWith("av01."))
-                    failed(new Error("AV1 decoder failed"));
+                  if (
+                    token === generation &&
+                    (currentProfile === 2 || codec.startsWith("av01."))
+                  )
+                    failed(
+                      new Error(
+                        currentProfile === 2
+                          ? "Stripe decoder failed"
+                          : "AV1 decoder failed",
+                      ),
+                    );
                 },
               );
               renew = setInterval(

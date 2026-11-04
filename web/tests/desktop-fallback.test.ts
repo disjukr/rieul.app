@@ -1,3 +1,4 @@
+import type { DesktopVideoStats } from "../src/protocol/desktop-video.ts";
 import { test, mock } from "node:test";
 import assert from "node:assert/strict";
 import { createBunjaStore, createReadScopeFn, override } from "bunja";
@@ -18,8 +19,13 @@ let mode = "configure",
   controlCalls = 0;
 let offers: string[][] = [];
 let selected = h264;
+let selectedProfile = 1,
+  profiles: number[] = [],
+  released = 0;
 let rejectControl = false;
 let configurations: ConfigureDesktopViewportsReq[] = [];
+let feedbacks: unknown[] = [],
+  statsHandlers: Array<(value: DesktopVideoStats) => void> = [];
 const display = {
   displayId: "d",
   bounds: { x: 0, y: 0, width: 1921, height: 1081 },
@@ -31,6 +37,7 @@ mock.module("../src/protocol/generated/client.ts", {
     ...client,
     getDesktopCapabilities: async () => ({
       profile: 1,
+      supportedProfiles: mode.startsWith("stripe") ? [1, 2] : undefined,
       capture: DesktopAvailability.Available,
       input: DesktopAvailability.Available,
       codecs: [
@@ -38,6 +45,7 @@ mock.module("../src/protocol/generated/client.ts", {
         { codec: h264, hardware: true },
       ],
       composition: false,
+      feedback: true,
       relativePointer: false,
       maxViewports: 8,
       maxInputFrameBytes: 16384,
@@ -54,6 +62,13 @@ mock.module("../src/protocol/generated/client.ts", {
         tracks: [
           {
             trackId: 1,
+            stripes:
+              selectedProfile === 2
+                ? [
+                    { y: 0, height: 32 },
+                    { y: 32, height: 32 },
+                  ]
+                : undefined,
             codecEpoch: 1,
             codec: { codec: selected, hardware: true },
             viewport: {
@@ -86,6 +101,8 @@ mock.module("../src/protocol/desktop-session.ts", {
       signal: AbortSignal,
     ) {
       offers.push(request.codecs);
+      profiles.push(request.profile);
+      selectedProfile = request.profile;
       selected = request.codecs[0];
       yield {
         type: "attached",
@@ -95,7 +112,10 @@ mock.module("../src/protocol/desktop-session.ts", {
         control: { inputEpoch: next },
         leaseMs: 15000,
       };
-      if (mode === "encoder" && request.codecs[0] === av1)
+      if (
+        (mode === "encoder" && request.codecs[0] === av1) ||
+        (mode === "stripe-encoder" && request.profile === 2)
+      )
         throw new Error("Native encoder failed");
       if (!signal.aborted)
         await new Promise<void>((resolve) =>
@@ -108,7 +128,9 @@ mock.module("../src/protocol/desktop-input.ts", {
   namedExports: {
     DesktopInputChannel: class {
       abort() {}
-      send() {
+      send(event: { type: string }) {
+        if (event.type === "releaseAll") released++;
+        if (event.type === "feedback") feedbacks.push(event);
         return true;
       }
       flush() {}
@@ -120,18 +142,28 @@ mock.module("../src/protocol/desktop-video.ts", {
   namedExports: {
     // Represents a client with separately verified hardware; never a claim about
     // the test runner/browser. Ordinary browser policy excludes AV1 before attach.
-    supportedDesktopCodecs: async () => [av1, h264],
+    supportedDesktopCodecs: async () =>
+      mode.startsWith("stripe") ? [h264] : [av1, h264],
     DesktopVideoReceiver: class {
       constructor(
         _t: unknown,
         _id: string,
         _render: unknown,
-        _stats: unknown,
+        stats: (value: DesktopVideoStats) => void,
         _fail: unknown,
         private codecFailed: (codec: string) => void,
-      ) {}
+      ) {
+        statsHandlers.push(stats);
+      }
       async configure(config: DesktopConfiguration) {
         const codec = config.tracks[0].codec.codec;
+        if (
+          mode === "stripe-both" ||
+          (config.tracks[0].stripes && mode === "stripe-configure")
+        )
+          throw Error("Stripe configuration failed");
+        if (config.tracks[0].stripes && mode === "stripe-decode")
+          queueMicrotask(() => this.codecFailed(codec));
         if (codec === av1) {
           if (mode === "configure") throw Error("AV1 configuration failed");
           if (mode === "decode") queueMicrotask(() => this.codecFailed(codec));
@@ -143,12 +175,28 @@ mock.module("../src/protocol/desktop-video.ts", {
 });
 const { rpcSessionBunja } = await import("../src/state/rpc-session.ts");
 const { desktopBunja } = await import("../src/state/desktop.ts");
-for (const failure of ["configure", "decode", "encoder"]) {
-  test(`AV1 ${failure} failure reattaches with H264 once and never restores control`, async () => {
+for (const failure of [
+  "configure",
+  "decode",
+  "encoder",
+  "stripe-configure",
+  "stripe-decode",
+  "stripe-encoder",
+  "stripe-both",
+]) {
+  test(`${failure} failure renegotiates once and never restores control`, async () => {
     mode = failure;
     offers = [];
     configurations = [];
     controlCalls = 0;
+    profiles = [];
+    released = 0;
+    feedbacks = [];
+    statsHandlers = [];
+    const canvas = globalThis.OffscreenCanvas;
+    if (failure.startsWith("stripe"))
+      globalThis.OffscreenCanvas =
+        class {} as unknown as typeof OffscreenCanvas;
     const store = createBunjaStore({
       wrapInstance: (init) => createRoot(init),
       overrides: [
@@ -191,13 +239,59 @@ for (const failure of ["configure", "decode", "encoder"]) {
       }
       assert.deepEqual(
         offers,
-        [[av1, h264], [h264]],
+        failure.startsWith("stripe") ? [[h264], [h264]] : [[av1, h264], [h264]],
         JSON.stringify({
           phase: entry.value.phase(),
           message: entry.value.message(),
         }),
       );
+      assert.deepEqual(
+        profiles,
+        failure.startsWith("stripe") ? [2, 1] : [1, 1],
+      );
+      if (failure.startsWith("stripe")) assert.ok(released > 0);
+      if (failure === "stripe-both") {
+        assert.equal(entry.value.phase(), "error");
+        assert.equal(controlCalls, 0);
+        assert.equal(entry.value.controlling(), false);
+        return;
+      }
       assert.equal(entry.value.phase(), "viewing");
+      const now = mock.method(performance, "now", () => 1000);
+      try {
+        const rendered = {
+          trackId: 1,
+          codecEpoch: 1,
+          groupId: 1,
+          objectId: 1,
+          decodeMicros: 10,
+          renderMicros: 5,
+          queueDepth: 0,
+          requestKeyframe: false,
+        };
+        statsHandlers.at(-1)!(rendered);
+        statsHandlers.at(-1)!({ ...rendered, objectId: 2 });
+        flushSolid();
+        assert.equal(
+          feedbacks.length,
+          2,
+          "both rendered objects must be acknowledged inside the UI throttle interval",
+        );
+        assert.equal(
+          entry.value.stats()?.objectId,
+          1,
+          "UI statistics remain throttled",
+        );
+        statsHandlers[0]({ ...rendered, objectId: 3 });
+        assert.equal(
+          feedbacks.length,
+          2,
+          "retired generation must not send acknowledgements",
+        );
+      } finally {
+        now.mock.restore();
+      }
+
       assert.equal(entry.value.configuration()?.tracks[0].codec.codec, h264);
       assert.equal(entry.value.controlling(), false);
       assert.equal(controlCalls, 0);
@@ -220,6 +314,7 @@ for (const failure of ["configure", "decode", "encoder"]) {
     } finally {
       stop();
       store.dispose();
+      globalThis.OffscreenCanvas = canvas;
     }
   });
 }

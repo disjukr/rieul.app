@@ -627,7 +627,7 @@ impl Backend for Proxy {
     fn capabilities(&self) -> DesktopCapabilities {
         match self.call(UserDesktopCommand::Capabilities) {
             Ok(UserDesktopResult::Capabilities { value }) => DesktopCapabilities::decode(&value.encode()).unwrap_or_default(),
-            _ => DesktopCapabilities { profile:PROFILE, capture:DesktopAvailability::Unsupported, input:DesktopAvailability::Unsupported, codecs:vec![], composition:false, relative_pointer:false, max_viewports:MAX_VIEWPORTS as u64,max_input_frame_bytes:MAX_FRAME as u64,max_input_stream_bytes:MAX_STREAM as u64,reason:Some("Authenticated desktop helper unavailable; waiting for authenticated helper recovery".into()),feedback:None,wheel_units:None,physical_keys:None },
+            _ => DesktopCapabilities { supported_profiles:None, profile:PROFILE, capture:DesktopAvailability::Unsupported, input:DesktopAvailability::Unsupported, codecs:vec![], composition:false, relative_pointer:false, max_viewports:MAX_VIEWPORTS as u64,max_input_frame_bytes:MAX_FRAME as u64,max_input_stream_bytes:MAX_STREAM as u64,reason:Some("Authenticated desktop helper unavailable; waiting for authenticated helper recovery".into()),feedback:None,wheel_units:None,physical_keys:None },
         }
     }
     fn displays(&self) -> Vec<DesktopDisplay> {
@@ -833,6 +833,7 @@ mod tests {
         }
         fn capabilities(&self) -> DesktopCapabilities {
             DesktopCapabilities {
+                supported_profiles: None,
                 capture: DesktopAvailability::Available,
                 input: DesktopAvailability::Available,
                 ..Default::default()
@@ -917,6 +918,7 @@ mod tests {
             let mut seen = Some(seen_tx);
             p.stream_group(
                 &DesktopTrack {
+                    stripes: None,
                     track_id: 1,
                     codec_epoch: 1,
                     viewport: DesktopViewport {
@@ -984,6 +986,7 @@ mod tests {
         let result = tokio::task::spawn_blocking(move || {
             p.stream_group(
                 &DesktopTrack {
+                    stripes: None,
                     track_id: 1,
                     codec_epoch: 1,
                     viewport: DesktopViewport {
@@ -1025,6 +1028,7 @@ mod tests {
         let native = backend.clone();
         tokio::task::spawn_blocking(move || {
             let t = DesktopTrack {
+                stripes: None,
                 track_id: 9,
                 codec_epoch: 3,
                 viewport: DesktopViewport {
@@ -1075,6 +1079,7 @@ mod tests {
     fn synthetic_probe_bounds_and_unknown_backend_do_not_inject_input() {
         let backend = Fake::default();
         let mut track = DesktopTrack {
+            stripes: None,
             viewport: DesktopViewport {
                 width: 1280,
                 height: 720,
@@ -1137,6 +1142,7 @@ mod tests {
         let p = proxy.clone();
         let group = tokio::task::spawn_blocking(move || {
             p.group(&DesktopTrack {
+                stripes: None,
                 track_id: 1,
                 codec_epoch: 1,
                 viewport: DesktopViewport {
@@ -1183,6 +1189,7 @@ mod tests {
             *backend.probe_pause.lock().unwrap() = Some((started, blocked));
             let task = tokio::spawn(serve(server, backend.clone()));
             let track = ipc::DesktopTrack {
+                stripes: None,
                 viewport: ipc::DesktopViewport {
                     width: 1280,
                     height: 720,

@@ -730,6 +730,7 @@ pub(super) mod tests {
         }
         fn capabilities(&self) -> DesktopCapabilities {
             let mut result = DesktopCapabilities {
+                supported_profiles: None,
                 profile: 1,
                 feedback: Some(true),
                 wheel_units: None,
@@ -761,6 +762,15 @@ pub(super) mod tests {
                     hardware: true,
                     description: None,
                 }];
+            }
+            if self
+                .hardware_frames
+                .lock()
+                .unwrap()
+                .first()
+                .is_some_and(|f| f["data"][0].as_u64() == Some(82))
+            {
+                result.supported_profiles = Some(vec![2]);
             }
             result
         }
@@ -901,7 +911,14 @@ pub(super) mod tests {
             .unwrap()
             .listen_addr;
         let metadata = f._dir.path().join("hardware-browser.json");
-        std::fs::write(&metadata,serde_json::to_vec(&serde_json::json!({"url":format!("https://{address}/rieul/rpc"),"hash":f.certificate_hash,"clientId":f.client_id,"secret":f.secret,"continuous": f.backend.hardware_frames.lock().unwrap().len()>12})).unwrap()).unwrap();
+        let stripes = f
+            .backend
+            .hardware_frames
+            .lock()
+            .unwrap()
+            .first()
+            .is_some_and(|f| f["data"][0].as_u64() == Some(82));
+        std::fs::write(&metadata,serde_json::to_vec(&serde_json::json!({"url":format!("https://{address}/rieul/rpc"),"hash":f.certificate_hash,"clientId":f.client_id,"secret":f.secret,"stripes":stripes,"continuous": f.backend.hardware_frames.lock().unwrap().len()>12})).unwrap()).unwrap();
         let script = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../scripts/testing/hardware-browser.mjs");
         let mut child = tokio::process::Command::new("node")
@@ -1321,6 +1338,7 @@ pub(super) mod tests {
     #[test]
     fn uncertain_native_shutdown_keeps_update_workload() {
         let track = DesktopTrack {
+            stripes: None,
             track_id: 1,
             codec_epoch: 1,
             codec: DesktopCodec {
@@ -2576,6 +2594,17 @@ async fn stream_media(
                         .unwrap_or(false)
                     {
                         anyhow::bail!("detached while waiting for screen receipt");
+                    }
+                }
+                if let Some(stripes) = &track.stripes {
+                    if rieul_daemon_core::desktop_stripe::decode(
+                        &frame.data,
+                        stripes.len(),
+                        index == 0,
+                    )
+                    .is_none()
+                    {
+                        anyhow::bail!("invalid screen stripe bundle");
                     }
                 }
                 let object = DesktopMediaObject {

@@ -51,6 +51,7 @@ pub trait Input {
     }
 }
 struct Attachment {
+    profile: u64,
     connection: u64,
     keyboard_mode: DesktopKeyboardMode,
     client: String,
@@ -121,6 +122,7 @@ impl<I: Input> Desktop<I> {
         self.attachments.insert(
             id.clone(),
             Attachment {
+                profile: PROFILE,
                 connection,
                 keyboard_mode,
                 client: client.into(),
@@ -1018,6 +1020,7 @@ impl Runtime {
                     .and_then(|b| self.gate.enter().map(|_work| b.capabilities()))
             })
             .unwrap_or(DesktopCapabilities {
+                supported_profiles: None,
                 profile: PROFILE,
                 feedback: Some(true),
                 wheel_units: None,
@@ -1084,30 +1087,28 @@ impl Runtime {
         use rieul_daemon_core::generated::rpc::*;
         self.refresh_layout()?;
         let caps = self.capabilities();
-        if request.profile != PROFILE
+        let selected = request.codecs.iter().find_map(|wanted| caps.codecs.iter().find(|c| &c.codec==wanted && (request.profile!=2 || (c.codec.starts_with("avc1.") && c.description.is_none()))));
+        if !caps
+            .supported_profiles
+            .as_deref()
+            .unwrap_or(&[caps.profile])
+            .contains(&request.profile)
             || !self
                 .backend
                 .as_ref()
                 .is_some_and(|b| b.keyboard_mode_supported(request.keyboard_mode))
             || !request.media_uni_streams
             || caps.capture != DesktopAvailability::Available
-            || !caps
-                .codecs
-                .iter()
-                .any(|c| request.codecs.contains(&c.codec))
+            || selected.is_none()
         {
             return Err(Error::Unsupported);
         }
         self.mutate(|d| {
             let id = d.attach(auth, connection, client, request.keyboard_mode, now)?;
+            d.attachments.get_mut(&id).unwrap().profile = request.profile;
             self.codecs.lock().map_err(|_| Error::Backend)?.insert(
                 id.clone(),
-                request
-                    .codecs
-                    .iter()
-                    .find_map(|wanted| caps.codecs.iter().find(|c| &c.codec == wanted))
-                    .unwrap()
-                    .clone(),
+                selected.unwrap().clone(),
             );
             Ok(DesktopEvent::Attached {
                 attach_id: id,
@@ -1531,6 +1532,23 @@ impl Runtime {
             if !server_owned && d.attachments[&request.attach_id].server_viewports {
                 return Err(Error::Invalid);
             }
+            if d.attachments[&request.attach_id].profile == 2 {
+                let pixels = request
+                    .viewports
+                    .iter()
+                    .try_fold(0u64, |sum, v| {
+                        if v.width > 3840
+                            || rieul_daemon_core::desktop_stripe::layout(v.height, 2).is_none()
+                        {
+                            return None;
+                        }
+                        sum.checked_add(v.width.checked_mul(v.height)?)
+                    })
+                    .filter(|n| *n <= 32 * 1024 * 1024);
+                if pixels.is_none() {
+                    return Err(Error::Limit);
+                }
+            }
             for v in &request.viewports {
                 let display = displays
                     .iter()
@@ -1586,6 +1604,11 @@ impl Runtime {
                     .into_iter()
                     .enumerate()
                     .map(|(i, viewport)| DesktopTrack {
+                        stripes: if d.attachments[&request.attach_id].profile == 2 {
+                            rieul_daemon_core::desktop_stripe::layout(viewport.height, 2)
+                        } else {
+                            None
+                        },
                         track_id: i as u64 + 1,
                         viewport,
                         codec: codec.clone(),

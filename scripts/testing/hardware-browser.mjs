@@ -86,7 +86,7 @@ try {
     const events = desktopEvents(
       transport,
       {
-        profile: 1,
+        profile: fixture.stripes ? 2 : 1,
         codecs,
         mediaUniStreams: true,
         keyboardMode: DesktopKeyboardMode.Physical,
@@ -114,6 +114,7 @@ try {
     };
     const frames = {},
       pixels = {},
+      bottomPixels = {},
       errors = [],
       groups = new Set();
     let feedback = 0;
@@ -156,6 +157,9 @@ try {
             context.drawImage(frame, 0, 0);
             (pixels[id] ??= []).push(
               context.getImageData(10, 10, 1, 1).data[0],
+            );
+            (bottomPixels[id] ??= []).push(
+              context.getImageData(10, canvas.height - 10, 1, 1).data[0],
             );
             frames[id] = (frames[id] ?? 0) + 1;
             firstFrameMs[id] ??= performance.now() - started;
@@ -217,6 +221,7 @@ try {
       recoveredGroups: recoveredGroups.size,
       firstFrameMs,
       pixels,
+      bottomPixels,
       groups: groups.size,
       cancelledStreams,
       feedback,
@@ -232,7 +237,13 @@ try {
   for (const count of Object.values(result.frames))
     assert.ok(count >= (fixture.continuous ? 40 : 8), JSON.stringify(result));
   for (const p of Object.values(result.pixels))
-    assert.ok(Math.max(...p) < 8, JSON.stringify(result));
+    assert.ok(
+      Math.max(...p) < (fixture.stripes ? 70 : 8),
+      JSON.stringify(result),
+    );
+  if (fixture.stripes)
+    for (const p of Object.values(result.bottomPixels))
+      assert.ok(Math.min(...p) > 150, JSON.stringify(result));
   console.log(
     JSON.stringify({
       firstFrameMs: result.firstFrameMs,

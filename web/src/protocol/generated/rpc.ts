@@ -839,6 +839,7 @@ export interface DesktopCapabilities {
   feedback?: boolean;
   wheelUnits?: DesktopWheelUnit[];
   physicalKeys?: number[];
+  supportedProfiles?: number[];
 }
 
 export interface DesktopCodec {
@@ -904,6 +905,12 @@ export interface DesktopTrack {
   viewport: DesktopViewport;
   codec: DesktopCodec;
   codecEpoch: number;
+  stripes?: DesktopStripe[];
+}
+
+export interface DesktopStripe {
+  y: number;
+  height: number;
 }
 
 export interface DesktopConfiguration {
@@ -7064,6 +7071,7 @@ export function encodeDesktopCapabilitiesValue(value: DesktopCapabilities): Cbor
   if (value.feedback !== undefined) fields.set(11, bool(value.feedback));
   if (value.wheelUnits !== undefined) fields.set(12, value.wheelUnits.map((item) => encodeDesktopWheelUnitValue(item)));
   if (value.physicalKeys !== undefined) fields.set(13, value.physicalKeys.map((item) => u53(item)));
+  if (value.supportedProfiles !== undefined) fields.set(14, value.supportedProfiles.map((item) => u53(item)));
   return fields;
 }
 
@@ -7083,6 +7091,7 @@ export function decodeDesktopCapabilitiesValue(value: CborValue): DesktopCapabil
     feedback: optionalField(fields.get(11), (value) => boolValue(value)),
     wheelUnits: optionalField(fields.get(12), (value) => array(value).map((item) => decodeDesktopWheelUnitValue(item))),
     physicalKeys: optionalField(fields.get(13), (value) => array(value).map((item) => integer(item))),
+    supportedProfiles: optionalField(fields.get(14), (value) => array(value).map((item) => integer(item))),
   };
 }
 
@@ -7253,6 +7262,7 @@ export function encodeDesktopTrackValue(value: DesktopTrack): CborValue {
   fields.set(2, encodeDesktopViewportValue(required(value.viewport, "DesktopTrack.viewport")));
   fields.set(3, encodeDesktopCodecValue(required(value.codec, "DesktopTrack.codec")));
   fields.set(4, u53(required(value.codecEpoch, "DesktopTrack.codecEpoch")));
+  if (value.stripes !== undefined) fields.set(5, value.stripes.map((item) => encodeDesktopStripeValue(item)));
   return fields;
 }
 
@@ -7263,6 +7273,22 @@ export function decodeDesktopTrackValue(value: CborValue): DesktopTrack {
     viewport: fieldOrDefault(fields.get(2), (value) => decodeDesktopViewportValue(value), () => defaultDesktopViewport()),
     codec: fieldOrDefault(fields.get(3), (value) => decodeDesktopCodecValue(value), () => defaultDesktopCodec()),
     codecEpoch: fieldOrDefault(fields.get(4), (value) => integer(value), () => 0),
+    stripes: optionalField(fields.get(5), (value) => array(value).map((item) => decodeDesktopStripeValue(item))),
+  };
+}
+
+export function encodeDesktopStripeValue(value: DesktopStripe): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, u53(required(value.y, "DesktopStripe.y")));
+  fields.set(2, u53(required(value.height, "DesktopStripe.height")));
+  return fields;
+}
+
+export function decodeDesktopStripeValue(value: CborValue): DesktopStripe {
+  const fields = expectMap(value);
+  return {
+    y: fieldOrDefault(fields.get(1), (value) => integer(value), () => 0),
+    height: fieldOrDefault(fields.get(2), (value) => integer(value), () => 0),
   };
 }
 
@@ -13776,6 +13802,13 @@ function defaultDesktopTrack(): DesktopTrack {
     viewport: defaultDesktopViewport(),
     codec: defaultDesktopCodec(),
     codecEpoch: 0,
+  };
+}
+
+function defaultDesktopStripe(): DesktopStripe {
+  return {
+    y: 0,
+    height: 0,
   };
 }
 

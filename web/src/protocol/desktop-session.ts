@@ -1,7 +1,10 @@
+import { RpcError, rpcErrorCode } from "./client.ts";
+import { RpcErrorKind, decodeRpcErrorPayloadValue } from "./generated/wire.ts";
 import { encodeCbor, decodeCbor } from "./cbor.ts";
 import {
   encodeAttachDesktopReqValue,
   decodeDesktopEventValue,
+  decodeDesktopErrorValue,
   ProcId,
   type AttachDesktopReq,
   type DesktopEvent,
@@ -64,8 +67,23 @@ export async function* desktopEvents(
         const decoded = decodeReqResMessageSequencePrefix(buffer);
         buffer = buffer.slice(decoded.readBytes);
         for (const message of decoded.messages) {
-          if (message.kind === ReqResMessageKind.ResponseStreamErrorEnd)
-            throw new Error("Screen attach was rejected by the daemon");
+          if (message.kind === ReqResMessageKind.ResponseStreamErrorEnd) {
+            if (!message.error)
+              throw new RpcError(
+                "badMessage",
+                "Screen error payload is missing",
+              );
+            const value = decodeCbor(message.error);
+            if (message.errorKind === RpcErrorKind.Method) {
+              const error = decodeDesktopErrorValue(value);
+              throw new RpcError(error.type, error.message);
+            }
+            if (message.errorKind === RpcErrorKind.System) {
+              const error = decodeRpcErrorPayloadValue(value);
+              throw new RpcError(rpcErrorCode(error.code), error.message);
+            }
+            throw new RpcError("badMessage", "Screen error kind is missing");
+          }
           if (
             message.kind !==
               (!started

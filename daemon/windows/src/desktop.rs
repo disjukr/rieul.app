@@ -93,6 +93,7 @@ impl WindowsDesktop {
 }
 fn unavailable(reason: &str) -> DesktopCapabilities {
     DesktopCapabilities {
+        supported_profiles: None,
         profile: PROFILE,
         capture: DesktopAvailability::Unsupported,
         input: DesktopAvailability::Unsupported,

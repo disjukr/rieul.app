@@ -14,3 +14,5 @@ pub const DEFAULT_LISTEN_ADDR: &str = "0.0.0.0:9012";
 pub mod desktop_transport;
 
 pub mod local_update;
+
+pub mod desktop_stripe;

@@ -243,3 +243,37 @@ selection and selective stripe resynchronization are not part of this checkpoint
 Neither are completed high-quality paintover, live guest/GPU validation on
 Windows, or matched-quality full-session latency measurements. No public RPC
 support claim, driver installation or host display/permission change is added.
+
+## Negotiated macOS stripes (next checkpoint)
+
+Profile 2 uses voxl's aligned horizontal stripe layout with two independent
+hardware H.264 sessions sharing one retained capture image. The native producer
+compares copied NV12 rows against each stripe's retained image and encodes only
+changed stripes; initial/recovery keyframes and settled repeats include both.
+Independent stripe encodes run concurrently, with one aggregate bitrate budget.
+This is an adaptation of the MIT pipeline, not upstream `run()` or x264 linkage.
+
+The optional `supportedProfiles` capability is an explicit list. Profile 1
+remains the legacy full-frame format. Profile 2 carries a bounded bundle of
+indexed Annex-B packets; first objects require every stripe's independent IDR.
+The browser uses separate decoders and atomically composites a complete object,
+retaining unchanged regions. It acknowledges every rendered object independently
+of throttled UI statistics. Recovery currently resets the whole group, not just
+one damaged stripe. Bounds include two stripes, 3840x2160 per track, 4 MiB per
+bundle and 32 Mi output pixels per attachment. Encoder allocation/probe failure
+is reported; the browser releases input and retries profile 1 once without
+restoring control. Permission/authentication errors do not trigger that retry.
+
+Allocated-pixel hardware export produced 60 objects: two key packets initially,
+then alternating single-stripe changes. Localhost signed-helper fixture IPC,
+WebTransport and Chrome replay verified contrasting top/bottom pixels, two
+viewports, delayed receipts, refresh, stream cancellation and fake held-input
+cleanup. Generation and replay are separate stages: no live host capture, no
+matched-quality end-to-end latency claim. Actual multi-display GPU capacity is
+not established by this fixture. Native support queries probe the requested
+stripe sessions together; success is not a sustained-throughput guarantee.
+
+Windows retains profile 1 and does not advertise stripe support. High-quality
+paintover remains incomplete: bounded same-rate settled repeats are present,
+but the quality experiments above do not establish a matched-quality gain.
+No x264/GPL binary, driver or host display/permission change is included.

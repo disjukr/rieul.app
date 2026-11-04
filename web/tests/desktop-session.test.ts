@@ -1,3 +1,10 @@
+import { RpcError } from "../src/protocol/client.ts";
+import {
+  RpcErrorKind,
+  RpcErrorCode,
+  encodeRpcErrorPayloadValue,
+} from "../src/protocol/generated/wire.ts";
+import { encodeDesktopErrorValue } from "../src/protocol/generated/rpc.ts";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { desktopEvents } from "../src/protocol/desktop-session.ts";
@@ -124,5 +131,42 @@ test("automatic attach uses its own procedure without a viewport request or fall
     }
     assert.equal(f.writes.length, 1);
     assert.equal(decodeReqResMessageSequence(f.writes[0])[0].procId, procedure);
+  }
+});
+
+test("attach stream preserves method permission denial and system authentication rejection", async () => {
+  for (const [kind, error, code] of [
+    [
+      RpcErrorKind.Method,
+      encodeDesktopErrorValue({ type: "permissionDenied", message: "denied" }),
+      "permissionDenied",
+    ],
+    [
+      RpcErrorKind.System,
+      encodeRpcErrorPayloadValue({
+        code: RpcErrorCode.Unauthorized,
+        message: "expired",
+      }),
+      "unauthorized",
+    ],
+  ] as const) {
+    const f = fixture(
+      encodeReqResMessageSequence([
+        {
+          kind: ReqResMessageKind.ResponseStreamErrorEnd,
+          errorKind: kind,
+          error: encodeCbor(error),
+        },
+      ]),
+    );
+    const iterator = desktopEvents(
+      f.transport,
+      request,
+      new AbortController().signal,
+    );
+    await assert.rejects(
+      iterator.next(),
+      (e: unknown) => e instanceof RpcError && e.code === code,
+    );
   }
 });

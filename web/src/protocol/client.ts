@@ -376,7 +376,7 @@ function sessionAuthErrorCode(value: SessionAuthErrorCode | undefined): string {
   }
 }
 
-function rpcErrorCode(value: RpcErrorCode): string {
+export function rpcErrorCode(value: RpcErrorCode): string {
   switch (value) {
     case RpcErrorCode.BadMessage:
       return "badMessage";

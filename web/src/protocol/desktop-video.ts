@@ -4,6 +4,7 @@ import type {
   DesktopMediaObject,
   DesktopTrack,
 } from "./generated/rpc.ts";
+import { StripeDecoder, validStripeLayout } from "./desktop-stripe.ts";
 import { readDesktopGroup } from "./desktop-media.ts";
 
 /** Client policy only; never infer hardware use from WebCodecs preference hints.
@@ -54,11 +55,11 @@ export async function supportedDesktopCodecs(
 interface TrackState {
   track: DesktopTrack;
   config: VideoDecoderConfig;
-  decoder: VideoDecoder;
+  decoder: VideoDecoder | StripeDecoder;
   group: number;
   stream?: ReadableStream<Uint8Array>;
   abort?: AbortController;
-  makeDecoder: () => VideoDecoder;
+  makeDecoder: () => VideoDecoder | StripeDecoder;
   timings: Map<number, { started: number; groupId: number; objectId: number }>;
 }
 export interface DesktopVideoStats {
@@ -94,6 +95,15 @@ export class DesktopVideoReceiver {
     const generation = ++this.generation;
     if (configuration.tracks.length > 8)
       throw new Error("Too many screen tracks");
+    if (
+      configuration.tracks.reduce(
+        (sum, t) =>
+          sum + (t.stripes ? t.viewport.width * t.viewport.height : 0),
+        0,
+      ) >
+      32 * 1024 * 1024
+    )
+      throw new Error("Screen stripe surface budget exceeded");
     const configs = await Promise.all(
       configuration.tracks.map(async (track) => {
         const config: VideoDecoderConfig = {
@@ -108,7 +118,26 @@ export class DesktopVideoReceiver {
             ? "prefer-hardware"
             : "no-preference",
         };
-        if (!(await VideoDecoder.isConfigSupported(config)).supported)
+        if (
+          track.stripes &&
+          !validStripeLayout(track.viewport.height, track.stripes)
+        )
+          throw new Error("Invalid screen stripe layout");
+        const regions = track.stripes ?? [
+          { y: 0, height: track.viewport.height },
+        ];
+        if (
+          !(
+            await Promise.all(
+              regions.map((s) =>
+                VideoDecoder.isConfigSupported({
+                  ...config,
+                  codedHeight: s.height,
+                }),
+              ),
+            )
+          ).every((r) => r.supported)
+        )
           throw new Error(`Browser cannot decode ${track.codec.codec}`);
         return { track, config };
       }),
@@ -119,7 +148,7 @@ export class DesktopVideoReceiver {
     for (const { track, config } of configs) {
       const state = {} as TrackState;
       const makeDecoder = () => {
-        const decoder = new VideoDecoder({
+        const callbacks: VideoDecoderInit = {
           output: (frame) => {
             const started = performance.now();
             const timing = state.timings.get(frame.timestamp);
@@ -160,7 +189,15 @@ export class DesktopVideoReceiver {
             )
               this.codecFailed?.(track.codec.codec);
           },
-        });
+        };
+        const decoder = track.stripes
+          ? new StripeDecoder(
+              track.viewport.width,
+              track.viewport.height,
+              track.stripes,
+              callbacks,
+            )
+          : new VideoDecoder(callbacks);
         return decoder;
       };
       Object.assign(state, {

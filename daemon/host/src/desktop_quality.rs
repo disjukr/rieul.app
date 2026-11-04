@@ -13,6 +13,10 @@ pub fn validate_video_probe(track: &DesktopTrack) -> bool {
         && (1..=120).contains(&v.fps)
         && (1..=100_000_000).contains(&v.bitrate)
         && track.codec.codec.len() <= 128
+        && track.stripes.as_ref().is_none_or(|s| {
+            track.codec.codec.starts_with("avc1.")
+                && rieul_daemon_core::desktop_stripe::valid_layout(v.height, s)
+        })
         && baseline_42_bounds(track)
 }
 // Both current H.264 backends request Baseline level 4.2. A successful single
@@ -421,6 +425,8 @@ mod tests {
     impl Backend for Native {
         fn capabilities(&self) -> DesktopCapabilities {
             DesktopCapabilities {
+                supported_profiles: None,
+                profile: PROFILE,
                 capture: DesktopAvailability::Available,
                 input: DesktopAvailability::Available,
                 codecs: vec![DesktopCodec {
@@ -552,6 +558,7 @@ mod tests {
     #[test]
     fn baseline_level_limits_apply_to_combinations_not_independent_maxima() {
         let mut track = DesktopTrack {
+            stripes: None,
             codec: DesktopCodec {
                 codec: "avc1.42002a".into(),
                 ..Default::default()
