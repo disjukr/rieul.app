@@ -89,6 +89,131 @@ fn validate_key(t: &DesktopTrack, format: native::Codec, packet: &[u8]) -> Resul
     }
     Ok(())
 }
+// All encoder objects remain on the same COM capture worker. Unlike macOS,
+// this first implementation encodes stripes sequentially, not on foreign threads.
+pub(crate) struct Stripes {
+    layout: Vec<DesktopStripe>,
+    encoders: Vec<native::HardwareEncoder>,
+    previous: Vec<Vec<u8>>,
+    width: usize,
+    height: usize,
+    codec: String,
+}
+impl Stripes {
+    pub(crate) fn new(t: &DesktopTrack) -> Result<Self, Error> {
+        use rieul_daemon_core::desktop_stripe as stripe;
+        let layout = t.stripes.clone().ok_or(Error::Invalid)?;
+        let v = &t.viewport;
+        if !stripe::valid_layout(v.height, &layout) || !t.codec.codec.starts_with("avc1.") {
+            return Err(Error::Unsupported);
+        }
+        let rates = stripe::rates(
+            v.bitrate.try_into().map_err(|_| Error::Invalid)?,
+            v.height,
+            &layout,
+        )
+        .ok_or(Error::Invalid)?;
+        let encoders = layout
+            .iter()
+            .zip(rates)
+            .map(|(s, rate)| {
+                native::HardwareEncoder::with_codec(
+                    v.width as u32,
+                    s.height as u32,
+                    v.fps as u32,
+                    rate,
+                    native::Codec::H264,
+                )
+                .map_err(|_| Error::Unsupported)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(Self {
+            previous: vec![vec![]; layout.len()],
+            layout,
+            encoders,
+            width: v.width as usize,
+            height: v.height as usize,
+            codec: t.codec.codec.clone(),
+        })
+    }
+    fn rate(&self, total: u32) -> Result<(), Error> {
+        let rates =
+            rieul_daemon_core::desktop_stripe::rates(total, self.height as u64, &self.layout)
+                .ok_or(Error::Invalid)?;
+        for (encoder, rate) in self.encoders.iter().zip(rates) {
+            encoder.set_bitrate(rate);
+        }
+        Ok(())
+    }
+    // None means identical pixels. A spontaneous IDR discards the whole bundle;
+    // the caller starts a fresh group before anything is sent to the receiver.
+    pub(crate) fn encode(
+        &mut self,
+        pixels: &[u8],
+        timestamp: u64,
+        key: bool,
+        force: bool,
+    ) -> Result<Option<(Vec<u8>, bool)>, Error> {
+        use rieul_daemon_core::desktop_stripe as stripe;
+        let mut packets = vec![];
+        for index in 0..self.layout.len() {
+            let region = stripe::nv12_region(pixels, self.width, self.height, &self.layout[index])
+                .ok_or(Error::Invalid)?;
+            if !key && !force && self.previous[index] == region {
+                continue;
+            }
+            let (data, actual_key) = self.encoders[index]
+                .encode(&region, timestamp, key)
+                .map_err(|_| Error::Backend)?;
+            if actual_key
+                && crate::desktop::avc_codec(&data).as_deref() != Some(self.codec.as_str())
+            {
+                return Err(Error::Unsupported);
+            }
+            if key && !actual_key {
+                return Err(Error::Unsupported);
+            }
+            if actual_key != key {
+                return Ok(Some((vec![], actual_key)));
+            }
+            self.previous[index] = region;
+            packets.push((index as u8, actual_key, data));
+        }
+        if packets.is_empty() {
+            return Ok(None);
+        }
+        let views: Vec<_> = packets
+            .iter()
+            .map(|(index, keyframe, data)| stripe::Packet {
+                index: *index,
+                keyframe: *keyframe,
+                data,
+            })
+            .collect();
+        Ok(Some((
+            stripe::encode(&views, self.layout.len(), key).ok_or(Error::Limit)?,
+            key,
+        )))
+    }
+}
+
+pub(crate) fn probe_stripes(t: &DesktopTrack) -> bool {
+    if !rieul_daemon_host::desktop::validate_video_probe(t) {
+        return false;
+    }
+    let Ok(mut probe) = Stripes::new(t) else {
+        return false;
+    };
+    let mut pixels = vec![128; (t.viewport.width * t.viewport.height * 3 / 2) as usize];
+    pixels[..(t.viewport.width * t.viewport.height) as usize].fill(16);
+    probe
+        .encode(&pixels, 0, true, true)
+        .is_ok_and(|r| r.is_some_and(|(b, k)| k && !b.is_empty()))
+        && probe
+            .encode(&pixels, 1_000_000 / t.viewport.fps, false, true)
+            .is_ok_and(|r| r.is_some_and(|(b, k)| !k && !b.is_empty()))
+}
+
 fn create(t: DesktopTrack) -> Result<Worker, Error> {
     if !rieul_daemon_host::desktop::validate_video_probe(&t) {
         return Err(Error::Invalid);
@@ -122,19 +247,31 @@ fn create(t: DesktopTrack) -> Result<Worker, Error> {
         };
         // Probe delta support using synthetic pixels. Recreate after probing so
         // probe timestamps/references never enter the live media sequence.
-        let probe = make()?;
+        let striped = t.stripes.is_some();
+        let probe = if striped { None } else { Some(make()?) };
         let mut pixels = vec![128; (v.width * v.height * 3 / 2) as usize];
         pixels[..(v.width * v.height) as usize].fill(16);
-        let short = format == native::Codec::H264
-            && probe.encode_keyframe(&pixels, 0).is_ok()
-            && probe
-                .encode(&pixels, 1_000_000 / v.fps, false)
-                .is_ok_and(|(_, key)| !key);
+        let short = if striped {
+            let mut probe = Stripes::new(&t)?;
+            probe.encode(&pixels, 0, true, true)?;
+            probe
+                .encode(&pixels, 1_000_000 / v.fps, false, true)?
+                .is_some_and(|(_, key)| !key)
+        } else {
+            format == native::Codec::H264
+                && probe.as_ref().unwrap().encode_keyframe(&pixels, 0).is_ok()
+                && probe
+                    .as_ref()
+                    .unwrap()
+                    .encode(&pixels, 1_000_000 / v.fps, false)
+                    .is_ok_and(|(_, key)| !key)
+        };
         drop(probe);
         drop(pixels);
         struct State {
             capture: native::Duplication,
-            encoder: native::HardwareEncoder,
+            encoder: Option<native::HardwareEncoder>,
+            stripes: Option<Stripes>,
             latest_pixels: Option<Vec<u8>>,
             replay: bool,
             paintover: rieul_daemon_host::desktop_paintover::Paintover,
@@ -142,7 +279,12 @@ fn create(t: DesktopTrack) -> Result<Worker, Error> {
         }
         let mut state = State {
             capture,
-            encoder: make()?,
+            encoder: if striped { None } else { Some(make()?) },
+            stripes: if striped {
+                Some(Stripes::new(&t)?)
+            } else {
+                None
+            },
             latest_pixels: None,
             replay: false,
             paintover: Default::default(),
@@ -154,7 +296,12 @@ fn create(t: DesktopTrack) -> Result<Worker, Error> {
                   bitrate: u64,
                   emit: &mut dyn FnMut(EncodedFrame) -> Result<(), Error>| {
                 let v = &t.viewport;
-                state.encoder.set_bitrate(bitrate as u32);
+                if let Some(stripes) = &state.stripes {
+                    stripes.rate(bitrate as u32)?;
+                }
+                if let Some(encoder) = &state.encoder {
+                    encoder.set_bitrate(bitrate as u32);
+                }
                 let count = if short {
                     rieul_daemon_host::desktop_worker::group_frames(v.fps)
                 } else {
@@ -199,15 +346,31 @@ fn create(t: DesktopTrack) -> Result<Worker, Error> {
                         break;
                     };
                     let timestamp = clock.elapsed().as_micros() as u64;
-                    let (packet, key) = state
-                        .encoder
-                        .encode(pixels, timestamp, index == 0)
-                        .map_err(|_| Error::Backend)?;
+                    let (packet, key) = if let Some(stripes) = &mut state.stripes {
+                        match stripes.encode(
+                            pixels,
+                            timestamp,
+                            index == 0,
+                            !damaged && paintover,
+                        )? {
+                            Some(result) => result,
+                            None => continue,
+                        }
+                    } else {
+                        state
+                            .encoder
+                            .as_ref()
+                            .unwrap()
+                            .encode(pixels, timestamp, index == 0)
+                            .map_err(|_| Error::Backend)?
+                    };
                     if packet.len() > 4 * 1024 * 1024 {
                         return Err(Error::Limit);
                     }
                     if key {
-                        validate_key(&t, format, &packet)?;
+                        if !striped {
+                            validate_key(&t, format, &packet)?;
+                        }
                         if index != 0 {
                             state.replay = true;
                             break;
@@ -230,4 +393,71 @@ fn create(t: DesktopTrack) -> Result<Worker, Error> {
             },
         )
     })
+}
+
+#[cfg(test)]
+mod stripe_tests {
+    use super::*;
+    #[test]
+    #[ignore = "allocated-pixel hardware test; requires a real Windows hardware H264 encoder"]
+    fn synthetic_stripe_key_delta_selective_and_recovery() {
+        let _apartment = native::Apartment::enter().unwrap();
+        let full =
+            native::HardwareEncoder::with_codec(640, 480, 60, 2_000_000, native::Codec::H264)
+                .unwrap();
+        let mut pixels = vec![128; 640 * 480 * 3 / 2];
+        pixels[..640 * 480].fill(16);
+        let codec = crate::desktop::avc_codec(&full.encode_keyframe(&pixels, 0).unwrap()).unwrap();
+        drop(full);
+        let track = DesktopTrack {
+            codec: DesktopCodec {
+                codec,
+                hardware: true,
+                description: None,
+            },
+            viewport: DesktopViewport {
+                width: 640,
+                height: 480,
+                fps: 60,
+                bitrate: 2_000_000,
+                ..Default::default()
+            },
+            stripes: rieul_daemon_core::desktop_stripe::layout(480, 2),
+            ..Default::default()
+        };
+        assert!(probe_stripes(&track));
+        let mut encoder = Stripes::new(&track).unwrap();
+        let (first, key) = encoder.encode(&pixels, 0, true, true).unwrap().unwrap();
+        assert!(key);
+        assert_eq!(
+            rieul_daemon_core::desktop_stripe::decode(&first, 2, true)
+                .unwrap()
+                .len(),
+            2
+        );
+        assert!(encoder
+            .encode(&pixels, 16_666, false, false)
+            .unwrap()
+            .is_none());
+        pixels[..640 * 240].fill(32);
+        let (delta, key) = encoder
+            .encode(&pixels, 33_333, false, false)
+            .unwrap()
+            .unwrap();
+        assert!(!key);
+        let packets = rieul_daemon_core::desktop_stripe::decode(&delta, 2, false).unwrap();
+        assert_eq!(packets.len(), 1);
+        assert_eq!(packets[0].index, 0);
+        let (recovery, key) = encoder
+            .encode(&pixels, 50_000, true, true)
+            .unwrap()
+            .unwrap();
+        assert!(key);
+        assert_eq!(
+            rieul_daemon_core::desktop_stripe::decode(&recovery, 2, true)
+                .unwrap()
+                .len(),
+            2
+        );
+    }
 }

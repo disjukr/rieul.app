@@ -41,6 +41,61 @@ pub fn valid_layout(height: u64, stripes: &[DesktopStripe]) -> bool {
     end == height
 }
 
+/// Split an aggregate rate without multiplying the negotiated budget.
+pub fn rates(total: u32, height: u64, stripes: &[DesktopStripe]) -> Option<Vec<u32>> {
+    if !valid_layout(height, stripes) || total < stripes.len() as u32 {
+        return None;
+    }
+    let mut remaining = total;
+    let mut result = Vec::with_capacity(stripes.len());
+    for (index, stripe) in stripes.iter().enumerate() {
+        let rate = if index + 1 == stripes.len() {
+            remaining
+        } else {
+            (u64::from(total) * stripe.height / height) as u32
+        };
+        if rate == 0 || rate > remaining {
+            return None;
+        }
+        remaining -= rate;
+        result.push(rate);
+    }
+    Some(result)
+}
+
+/// Copy one horizontal region from tightly packed NV12. No capture API needed.
+pub fn nv12_region(
+    pixels: &[u8],
+    width: usize,
+    height: usize,
+    stripe: &DesktopStripe,
+) -> Option<Vec<u8>> {
+    if width == 0
+        || width > 3840
+        || width % 2 != 0
+        || height == 0
+        || height > 2160
+        || height % 2 != 0
+    {
+        return None;
+    }
+    let y = usize::try_from(stripe.y).ok()?;
+    let h = usize::try_from(stripe.height).ok()?;
+    if y % 2 != 0
+        || h == 0
+        || h % 2 != 0
+        || y.checked_add(h)? > height
+        || pixels.len() != width * height * 3 / 2
+    {
+        return None;
+    }
+    let mut result = Vec::with_capacity(width * h * 3 / 2);
+    result.extend_from_slice(&pixels[y * width..(y + h) * width]);
+    let uv = width * height + y / 2 * width;
+    result.extend_from_slice(&pixels[uv..uv + h / 2 * width]);
+    Some(result)
+}
+
 #[derive(Debug, PartialEq)]
 pub struct Packet<'a> {
     pub index: u8,
@@ -207,17 +262,45 @@ mod tests {
         let mut huge = bytes;
         huge[6..10].copy_from_slice(&u32::MAX.to_be_bytes());
         assert!(decode(&huge, 2, true).is_none());
-        assert!(
-            encode(
-                &[Packet {
-                    index: 0,
-                    keyframe: true,
-                    data: &vec![0; MAX_BUNDLE]
-                }],
-                1,
-                true
-            )
-            .is_none()
-        );
+        assert!(encode(
+            &[Packet {
+                index: 0,
+                keyframe: true,
+                data: &vec![0; MAX_BUNDLE]
+            }],
+            1,
+            true
+        )
+        .is_none());
+    }
+}
+
+#[cfg(test)]
+mod region_tests {
+    use super::*;
+    #[test]
+    fn split_preserves_luma_chroma_and_total_rate() {
+        let stripes = layout(480, 2).unwrap();
+        let pixels: Vec<u8> = (0..640 * 480 * 3 / 2)
+            .map(|i| (i / 640 % 251) as u8)
+            .collect();
+        for stripe in &stripes {
+            let part = nv12_region(&pixels, 640, 480, stripe).unwrap();
+            assert_eq!(part.len(), 640 * stripe.height as usize * 3 / 2);
+            assert_eq!(part[0], pixels[stripe.y as usize * 640]);
+            assert_eq!(
+                part[640 * stripe.height as usize],
+                pixels[640 * 480 + stripe.y as usize / 2 * 640]
+            );
+        }
+        for total in [2, 100_001, 50_000_000] {
+            assert_eq!(
+                rates(total, 480, &stripes).unwrap().iter().sum::<u32>(),
+                total
+            );
+        }
+        assert!(rates(1, 480, &stripes).is_none());
+        assert!(nv12_region(&pixels[..pixels.len() - 1], 640, 480, &stripes[0]).is_none());
+        assert!(nv12_region(&pixels, 640, 480, &DesktopStripe { y: 2, height: 480 }).is_none());
     }
 }

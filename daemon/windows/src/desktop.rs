@@ -201,6 +201,8 @@ struct Worker {
     point: (i32, i32),
     codecs: Vec<String>,
     probed: bool,
+    stripes: bool,
+    stripes_probed: bool,
     wheel: (f64, f64),
 }
 impl Default for Worker {
@@ -211,6 +213,8 @@ impl Default for Worker {
             point: (0, 0),
             codecs: vec![],
             probed: false,
+            stripes: false,
+            stripes_probed: false,
             wheel: (0.0, 0.0),
         }
     }
@@ -224,6 +228,9 @@ impl Worker {
             Command::Probe(track) => {
                 if !rieul_daemon_host::desktop::validate_video_probe(&track) {
                     return Ok(Reply::Probe(DesktopQualityVerification::Unsupported));
+                }
+                if track.stripes.is_some() {
+                    return Ok(Reply::Probe(if crate::desktop_capture::probe_stripes(&track) {DesktopQualityVerification::Verified} else {DesktopQualityVerification::Unknown}));
                 }
                 let format = if track.codec.codec.starts_with("avc1.") {
                     native::Codec::H264
@@ -291,9 +298,22 @@ impl Worker {
                         }
                     }
                 }
+                if !self.stripes_probed {
+                    self.stripes_probed=true;
+                    if let Some(codec)=self.codecs.iter().find(|c|c.starts_with("avc1.")) {
+                        let track=DesktopTrack {
+                            codec: DesktopCodec{codec:codec.clone(),hardware:true,description:None},
+                            viewport: DesktopViewport{width:640,height:480,fps:60,bitrate:2_000_000,..Default::default()},
+                            stripes: rieul_daemon_core::desktop_stripe::layout(480,2),
+                            ..Default::default()
+                        };
+                        self.stripes=crate::desktop_capture::probe_stripes(&track);
+                    }
+                }
                 let mut caps =
                     unavailable("No hardware encoder produced a supported independent keyframe");
                 if !self.codecs.is_empty() {
+                    caps.supported_profiles=Some(if self.stripes {vec![1,2]} else {vec![1]});
                     caps.capture = DesktopAvailability::Available;
                     caps.input = DesktopAvailability::Available;
                     caps.reason=Some("Physical keys and line-unit wheel only; IME, pixel/page wheel, rotated displays and secure desktops are unavailable".into());

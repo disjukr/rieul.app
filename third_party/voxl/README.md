@@ -277,3 +277,27 @@ Windows retains profile 1 and does not advertise stripe support. High-quality
 paintover remains incomplete: bounded same-rate settled repeats are present,
 but the quality experiments above do not establish a matched-quality gain.
 No x264/GPL binary, driver or host display/permission change is included.
+
+## Windows stripe backend
+
+Windows now shares the profile-2 bundle and aligned layout. One DXGI capture and
+NV12 conversion feeds independently retained stripe images and hardware MF
+encoders. All COM objects remain on the capture worker; stripe encoding is
+sequential in this backend. A changed stripe alone is encoded, and any unexpected
+IDR discards the entire pending object before a complete recovery keyframe group.
+Rates partition the requested total rather than multiplying it per encoder.
+
+Capability discovery caches a synthetic two-session key/delta probe, including
+negative results. Requested configurations probe both sessions again; failure
+stays Unknown and initialization can use the existing bounded profile-1 fallback.
+The ignored Windows hardware regression covers first keys, no-change omission,
+selective output and complete recovery. It has been type-checked for Windows x64,
+not executed on a Windows hardware GPU. This distinction remains a validation
+limit; the ARM VM's virtual adapter cannot establish physical Windows GPU support.
+
+A follow-up allocated-pixel experiment raised the 8Mbps encoder target only for
+four settled frames. High-entropy luma PSNR reached 13.12/15.29/17.36dB at
+1x/2x/4x targets, spending 6.6/112.5/218.5KB respectively. This does not preserve
+the same instantaneous target and is not enabled in production. A bounded
+refinement credit/pacing policy and matched-quality latency evidence are still
+needed before describing high-quality paintover as complete.
