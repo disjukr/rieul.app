@@ -169,13 +169,13 @@ static int encode_image(RDStream *self,CVPixelBufferRef image,uint64_t timestamp
     if(self->retryKey) return 2;
     return self->packet.length?1:-1;
 }
-static int encode_pipeline(RDStream *self,CVPixelBufferRef image,uint64_t timestamp,bool key,bool force) {
+static int encode_pipeline_mask(RDStream *self,CVPixelBufferRef image,uint64_t timestamp,bool key,uint32_t force) {
     if(!self->stripes) return encode_image(self,image,timestamp,key);
     self->retryKey=NO;
     if(CVPixelBufferGetPixelFormatType(image)!=kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange || CVPixelBufferGetPlaneCount(image)!=2 ||
        CVPixelBufferGetWidth(image)!=self->imageWidth || CVPixelBufferGetHeight(image)!=self->imageHeight ||
        CVPixelBufferLockBaseAddress(image,kCVPixelBufferLock_ReadOnly)) return -1;
-    bool copied=true; bool activeStorage[2]={key||force,key||force}; bool *active=activeStorage; size_t stripeIndex=0;
+    bool copied=true; bool activeStorage[2]={key||(force&1),key||(force&2)}; bool *active=activeStorage; size_t stripeIndex=0;
     for(RDStream *child in self->stripes) {
         if(CVPixelBufferLockBaseAddress(child->stripeImage,0)) { copied=false; break; }
         for(size_t plane=0;plane<2;plane++) {
@@ -221,6 +221,9 @@ static int encode_pipeline(RDStream *self,CVPixelBufferRef image,uint64_t timest
 }
 // Exercises the actual two-session/copy/bundle path without SCStream or permissions.
 static bool frame_rate(RDStream *self,uint32_t base,uint32_t target,bool *boosted);
+static int encode_pipeline(RDStream *self,CVPixelBufferRef image,uint64_t timestamp,bool key,bool force) {
+    return encode_pipeline_mask(self,image,timestamp,key,force?UINT32_MAX:0);
+}
 static bool synthetic_stripes(uint32_t frames,bool refine,RDPacket emit,void *context) {
     @autoreleasepool {
         if(!frames || frames>60) return false;
@@ -246,6 +249,31 @@ static bool synthetic_stripes(uint32_t frames,bool refine,RDPacket emit,void *co
             if(ok && emit) ok=emit(context,self->packet.bytes,self->packet.length,i*16667);
         }
         CVPixelBufferRelease(image); return ok;
+    }
+}
+// Allocated pixels only: top-left motion continues while other blocks settle.
+bool rd_synthetic_spatial(const uint32_t *masks,uint32_t frames,RDPacket emit,void *context) {
+    @autoreleasepool {
+        if(!masks || frames!=60) return false;
+        RDStream *self=[RDStream new];
+        if(!configure_pipeline(self,640,480,60,2000000,2)) return false;
+        CVPixelBufferRef image=NULL;
+        if(CVPixelBufferCreate(NULL,640,480,kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,NULL,&image)) return false;
+        bool ok=true;
+        for(uint32_t i=0;i<frames && ok;i++) {
+            if(CVPixelBufferLockBaseAddress(image,0)) {ok=false;break;}
+            for(size_t y=0;y<480;y++) {
+                uint8_t *row=(uint8_t *)CVPixelBufferGetBaseAddressOfPlane(image,0)+y*CVPixelBufferGetBytesPerRowOfPlane(image,0);
+                for(size_t x=0;x<640;x++) row[x]=y<64 && x<64?32+i:((x/4+y/4)%2?48:208);
+            }
+            memset(CVPixelBufferGetBaseAddressOfPlane(image,1),128,CVPixelBufferGetBytesPerRowOfPlane(image,1)*240);
+            CVPixelBufferUnlockBaseAddress(image,0);
+            bool boosted=false;
+            ok=frame_rate(self,2000000,masks[i]?8000000:2000000,&boosted);
+            if(ok) ok=encode_pipeline_mask(self,image,i*16667,i==0,masks[i])==1;
+            if(ok && emit) ok=emit(context,self->packet.bytes,self->packet.length,i*16667);
+        }
+        CVPixelBufferRelease(image);return ok;
     }
 }
 bool rd_synthetic_stripes(uint32_t frames,RDPacket emit,void *context) {return synthetic_stripes(frames,false,emit,context);}
@@ -454,22 +482,29 @@ bool rd_capture_destroy(void *handle) {
     self->stream=nil;
     return stopped;
 }
-int rd_capture_next(void *handle,uint64_t timestamp,bool key,bool refresh,uint32_t base,uint32_t refinement,bool *damaged,bool *boosted,RDPacket emit,void *context) {
+typedef bool (*RDSpatial)(void *,const uint8_t *,size_t,const uint8_t *,size_t,size_t,size_t,uint32_t *,uint32_t *,bool *);
+int rd_capture_next(void *handle,uint64_t timestamp,bool key,bool refresh,uint32_t base,RDSpatial spatial,void *policy,bool *boosted,RDPacket emit,void *context) {
     @autoreleasepool {
         RDStream *self=(__bridge RDStream *)handle; CVPixelBufferRef image=NULL;
-        *damaged=false; *boosted=false;
+        *boosted=false;
         uint64_t until=clock_gettime_nsec_np(CLOCK_UPTIME_RAW)+20*NSEC_PER_MSEC;
         while(!image) {
             @synchronized(self) {
                 if(self->stopped || !(rd_permissions() & 1)) return -1;
-                if(self->latest && (self->serial!=self->consumed || refresh || self->retryKey)) { *damaged=self->serial!=self->consumed; image=CVPixelBufferRetain(self->latest); self->consumed=self->serial; }
+                if(self->latest) { image=CVPixelBufferRetain(self->latest); self->consumed=self->serial; }
             }
             if(image) break;
             if(clock_gettime_nsec_np(CLOCK_UPTIME_RAW)>=until) return 0;
             dispatch_semaphore_wait(self->ready,dispatch_time(DISPATCH_TIME_NOW,20*NSEC_PER_MSEC));
         }
-        if(!frame_rate(self,base,*damaged?base:refinement,boosted)) { CVPixelBufferRelease(image); return -1; }
-        int result=encode_pipeline(self,image,timestamp,key,refresh);
+        if(CVPixelBufferGetPlaneCount(image)!=2 || CVPixelBufferGetPixelFormatType(image)!=kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange || CVPixelBufferLockBaseAddress(image,kCVPixelBufferLock_ReadOnly)) { CVPixelBufferRelease(image); return -1; }
+        uint32_t mask=0, target=base; bool damaged=false;
+        bool valid=spatial(policy,CVPixelBufferGetBaseAddressOfPlane(image,0),CVPixelBufferGetBytesPerRowOfPlane(image,0),CVPixelBufferGetBaseAddressOfPlane(image,1),CVPixelBufferGetBytesPerRowOfPlane(image,1),CVPixelBufferGetWidth(image),CVPixelBufferGetHeight(image),&mask,&target,&damaged);
+        CVPixelBufferUnlockBaseAddress(image,kCVPixelBufferLock_ReadOnly);
+        if(!valid) {CVPixelBufferRelease(image);return -1;}
+        if(!damaged && !mask && !refresh && !self->retryKey) {CVPixelBufferRelease(image);return 0;}
+        if(!frame_rate(self,base,target,boosted)) { CVPixelBufferRelease(image); return -1; }
+        int result=encode_pipeline_mask(self,image,timestamp,key,refresh?UINT32_MAX:mask);
         CVPixelBufferRelease(image);
         if(result!=1) return result;
         return emit(context,self->packet.bytes,self->packet.length,timestamp)?1:-1;

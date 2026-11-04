@@ -74,8 +74,8 @@ unsafe extern "C" {
         key: bool,
         refresh: bool,
         base: u32,
-        refinement: u32,
-        damaged: *mut bool,
+        spatial: extern "C" fn(*mut c_void,*const u8,usize,*const u8,usize,usize,usize,*mut u32,*mut u32,*mut bool)->bool,
+        policy: *mut c_void,
         boosted: *mut bool,
         emit: extern "C" fn(*mut c_void, *const u8, usize, u64) -> bool,
         context: *mut c_void,
@@ -84,7 +84,7 @@ unsafe extern "C" {
     fn rd_mouse(kind: u32, button: u32, x: f64, y: f64, flags: u64) -> bool;
     fn rd_wheel(x: i32, y: i32, pixels: bool) -> bool;
 }
-struct Capture(*mut c_void, rieul_daemon_host::desktop_paintover::Paintover, rieul_daemon_host::desktop_paintover::RefinementBudget);
+struct Capture(*mut c_void, rieul_daemon_host::desktop_paintover::SpatialPaintover, rieul_daemon_host::desktop_paintover::RefinementBudget);
 // Access is serialized by tracks; the ObjC capture delegate owns its queue/lock.
 unsafe impl Send for Capture {}
 impl Drop for Capture {
@@ -604,33 +604,53 @@ impl Backend for MacDesktop {
         let mut index = 0;
         while index < count && started.elapsed() < Duration::from_secs(1) {
             let frame_started = Instant::now();
-            let paintover = capture.1.due(self.clock.elapsed());
-            let mut damaged = false;
+            struct Policy<'a> {
+                tracker: &'a mut rieul_daemon_host::desktop_paintover::SpatialPaintover,
+                budget: &'a mut rieul_daemon_host::desktop_paintover::RefinementBudget,
+                track: &'a DesktopTrack, now: Duration, base:u64, selected:bool,
+            }
+            extern "C" fn spatial(context:*mut c_void,y:*const u8,ys:usize,uv:*const u8,uvs:usize,w:usize,h:usize,mask:*mut u32,target:*mut u32,damaged:*mut bool)->bool {
+                let p=unsafe {&mut *(context as *mut Policy<'_>)};
+                if y.is_null() || uv.is_null() || w!=p.track.viewport.width as usize || h!=p.track.viewport.height as usize || ys<w || uvs<w || ys>65536 || uvs>65536 || h>8192 { return false; }
+                let changed=p.tracker.observe(unsafe {std::slice::from_raw_parts(y,ys*h)},ys,unsafe {std::slice::from_raw_parts(uv,uvs*h/2)},uvs,w,h,p.now);
+                let Some(changed)=changed else {return false;};
+                                let layout:Vec<_>=p.track.stripes.as_ref().map(|s|s.iter().map(|s|(s.y as usize,s.height as usize)).collect()).unwrap_or_else(||vec![(0,h)]);
+                let selected=p.tracker.select(p.now,&layout);
+                p.selected=selected!=0;
+                if changed && !p.selected {p.budget.motion();}
+                let rate=if p.selected {p.budget.target(p.now,p.base,p.track.viewport.bitrate,p.track.viewport.fps)} else {p.base};
+                unsafe {*mask=selected; *target=rate as u32; *damaged=changed;}
+                true
+            }
             let mut boosted = false;
-            let target=if paintover { capture.2.target(self.clock.elapsed(),bitrate,track.viewport.bitrate,track.viewport.fps) } else {bitrate};
+            let handle=capture.0;
+            let Capture(_,tracker,budget)=&mut *capture;
+            let mut policy=Policy{tracker,budget,track,now:self.clock.elapsed(),base:bitrate,selected:false};
             let mut p = Packet {
                 frame: None,
                 key: index == 0,
             };
             let result = unsafe {
                 rd_capture_next(
-                    capture.0,
+                    handle,
                     self.clock.elapsed().as_micros() as u64,
                     index == 0,
-                    (refresh && index == 0) || paintover,
+                    refresh && index == 0,
                     bitrate as u32,
-                    target as u32,
-                    &mut damaged,
+                    spatial,
+                    &mut policy as *mut _ as *mut c_void,
                     &mut boosted,
                     packet,
                     &mut p as *mut _ as *mut c_void,
                 )
             };
+            let paintover=policy.selected;
             if result < 0 {
                 return Err(Error::Backend);
             }
             if result == 0 {
                 if capture.1.pending() {
+                    std::thread::sleep(interval.saturating_sub(frame_started.elapsed()));
                     continue;
                 }
                 break;
@@ -640,14 +660,10 @@ impl Backend for MacDesktop {
             if result == 2 {
                 break;
             }
-            if damaged {
-                capture.1.motion(self.clock.elapsed());
-                capture.2.motion();
-            }
             let frame=p.frame.ok_or(Error::Backend)?;
             if !capture.2.accept(self.clock.elapsed(),bitrate,frame.data.len(),boosted) { break; }
             emit(frame)?;
-            if !damaged && paintover {
+            if paintover {
                 capture.1.painted();
             }
             index += 1;
@@ -836,6 +852,39 @@ mod tests {
         if let Ok(path) = std::env::var("RIEUL_DESKTOP_SYNTHETIC_STRIPES_OUT") {
             std::fs::write(path, serde_json::to_vec(&frames).unwrap()).unwrap();
         }
+    }
+    #[test]
+    #[ignore = "spatial refinement hardware fixture from allocated pixels only"]
+    fn export_synthetic_spatial_paintover() {
+        unsafe extern "C" {fn rd_synthetic_spatial(masks:*const u32,frames:u32,emit:extern "C" fn(*mut c_void,*const u8,usize,u64)->bool,context:*mut c_void)->bool;}
+        let mut tracker=rieul_daemon_host::desktop_paintover::SpatialPaintover::default();
+        let mut y=vec![0;640*480]; let uv=vec![128;640*240]; let mut masks=vec![];
+        for frame in 0..60 {
+            for row in 0..480 {for x in 0..640 {y[row*640+x]=if row<64 && x<64 {32+frame as u8} else if (x/4+row/4)%2!=0 {48} else {208};}}
+            let now=Duration::from_micros(frame*16667);
+            tracker.observe(&y,640,&uv,640,640,480,now).unwrap();
+            masks.push(tracker.select(now,&[(0,240),(240,240)]));tracker.painted();
+        }
+        assert_eq!(masks.iter().filter(|&&m|m==3).count(),4);
+        extern "C" fn packet(context:*mut c_void,data:*const u8,len:usize,timestamp:u64)->bool {
+            if data.is_null() || len>4*1024*1024 {return false;}
+            unsafe {
+                let (frames,masks)=&mut *(context as *mut (Vec<serde_json::Value>,Vec<u32>));
+                let bytes=std::slice::from_raw_parts(data,len);
+                let Some(parts)=rieul_daemon_core::desktop_stripe::decode(bytes,2,frames.is_empty()) else {return false;};
+                if parts.len()!=if frames.is_empty() || masks[frames.len()]&2!=0 {2} else {1} {return false;}
+                frames.push(serde_json::json!({"timestampMicros":timestamp,"keyframe":frames.is_empty(),"data":bytes}));
+            }
+            true
+        }
+        let mut state=(Vec::<serde_json::Value>::new(),masks);
+        assert!(unsafe {rd_synthetic_spatial(state.1.as_ptr(),60,packet,&mut state as *mut _ as *mut c_void)});
+        assert_eq!(state.0.len(),60);
+        let mut baseline=(Vec::<serde_json::Value>::new(),vec![0u32;60]);
+        assert!(unsafe {rd_synthetic_spatial(baseline.1.as_ptr(),60,packet,&mut baseline as *mut _ as *mut c_void)});
+        let bytes=|frames:&Vec<serde_json::Value>| frames.iter().map(|f|f["data"].as_array().unwrap().len()).sum::<usize>();
+        println!("spatial synthetic: baseline_bytes={}, refined_bytes={}, selected_objects=4, frames=60",bytes(&baseline.0),bytes(&state.0));
+        if let Ok(path)=std::env::var("RIEUL_DESKTOP_SYNTHETIC_STRIPES_OUT") {std::fs::write(path,serde_json::to_vec(&state.0).unwrap()).unwrap();}
     }
     #[test]
     #[ignore = "synthetic hardware refinement export; no capture/input"]

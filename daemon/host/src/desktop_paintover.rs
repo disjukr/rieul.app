@@ -234,3 +234,205 @@ mod transition_tests {
         assert_eq!(transition_rate(&mut active, 4, 4, |_| false), None);
     }
 }
+
+/// Hardware adaptation of spatial paintover: independent 64x64 NV12 regions
+/// settle independently. Encoders still consume whole stripes, not ROI/QP maps.
+#[derive(Default)]
+pub struct SpatialPaintover {
+    width: usize,
+    height: usize,
+    previous: Vec<u8>,
+    blocks: Vec<Paintover>,
+    selected: Vec<usize>,
+}
+impl SpatialPaintover {
+    pub fn observe(
+        &mut self,
+        y: &[u8],
+        ys: usize,
+        uv: &[u8],
+        uvs: usize,
+        width: usize,
+        height: usize,
+        now: Duration,
+    ) -> Option<bool> {
+        if width == 0
+            || height == 0
+            || width > 8192
+            || height > 8192
+            || width % 2 != 0
+            || height % 2 != 0
+            || ys < width
+            || uvs < width
+            || y.len() < ys.checked_mul(height)?
+            || uv.len() < uvs.checked_mul(height / 2)?
+        {
+            return None;
+        }
+        let first = self.width != width || self.height != height;
+        if first {
+            self.width = width;
+            self.height = height;
+            self.previous = vec![0; width * height * 3 / 2];
+            self.blocks = (0..width.div_ceil(64) * height.div_ceil(64))
+                .map(|_| Paintover::default())
+                .collect();
+        }
+        self.selected.clear();
+        let mut motion = false;
+        for by in 0..height.div_ceil(64) {
+            for bx in 0..width.div_ceil(64) {
+                let x = bx * 64;
+                let right = (x + 64).min(width);
+                let top = by * 64;
+                let bottom = (top + 64).min(height);
+                let mut changed = first;
+                for (source, stride, offset, start, end) in [
+                    (y, ys, 0, top, bottom),
+                    (uv, uvs, width * height, top / 2, bottom / 2),
+                ] {
+                    for row in start..end {
+                        let next = &source[row * stride + x..row * stride + right];
+                        let old = &mut self.previous
+                            [offset + row * width + x..offset + row * width + right];
+                        changed |= old != next;
+                        old.copy_from_slice(next);
+                    }
+                }
+                if changed {
+                    self.blocks[by * width.div_ceil(64) + bx].motion(now);
+                    motion = true;
+                }
+            }
+        }
+        Some(motion)
+    }
+    /// Returns a stripe bit mask. A block crossing a stripe boundary refines both.
+    /// Selection is consumed only after the complete object reaches the output.
+    pub fn select(&mut self, now: Duration, stripes: &[(usize, usize)]) -> u32 {
+        self.selected.clear();
+        let mut mask = 0;
+        for (i, block) in self.blocks.iter().enumerate() {
+            if !block.due(now) {
+                continue;
+            }
+            let top = i / self.width.div_ceil(64) * 64;
+            let bottom = (top + 64).min(self.height);
+            let mut selected = false;
+            for (index, &(y, height)) in stripes.iter().take(32).enumerate() {
+                if top < y.saturating_add(height) && y < bottom {
+                    mask |= 1 << index;
+                    selected = true;
+                }
+            }
+            if selected {
+                self.selected.push(i);
+            }
+        }
+        mask
+    }
+    pub fn pending(&self) -> bool {
+        self.blocks.iter().any(Paintover::pending)
+    }
+    pub fn painted(&mut self) {
+        for i in self.selected.drain(..) {
+            self.blocks[i].painted();
+        }
+    }
+}
+
+#[cfg(test)]
+mod spatial_tests {
+    use super::*;
+    #[test]
+    fn moving_neighbor_cannot_starve_settled_blocks_even_in_same_stripe() {
+        let mut p = SpatialPaintover::default();
+        let mut y = vec![16; 128 * 128];
+        let uv = vec![128; 128 * 64];
+        for frame in 0..30 {
+            y[0] = frame;
+            p.observe(
+                &y,
+                128,
+                &uv,
+                128,
+                128,
+                128,
+                Duration::from_millis(frame as u64 * 20),
+            )
+            .unwrap();
+            let mask = p.select(
+                Duration::from_millis(frame as u64 * 20),
+                &[(0, 64), (64, 64)],
+            );
+            if frame == 10 {
+                assert_eq!(mask, 3);
+            }
+            if frame >= 14 {
+                assert_eq!(mask, 0);
+            }
+            p.painted();
+        }
+        assert!(p.pending()); // moving block still waits for its own settle time
+        assert_eq!(
+            p.select(Duration::from_millis(800), &[(0, 64), (64, 64)]),
+            1
+        );
+    }
+    #[test]
+    fn oversized_mixed_frame_recovers_at_base_despite_continuous_motion() {
+        let mut spatial = SpatialPaintover::default();
+        let mut budget = RefinementBudget::default();
+        let mut y = vec![16; 128 * 64];
+        let uv = vec![128; 128 * 32];
+        spatial
+            .observe(&y, 128, &uv, 128, 128, 64, Duration::ZERO)
+            .unwrap();
+        budget.accept(Duration::ZERO, 1_000_000, 0, false);
+        let mut delivered = 0;
+        for frame in 0..5 {
+            let now = Duration::from_millis(250 + frame * 20);
+            y[0] = frame as u8;
+            let changed = spatial.observe(&y, 128, &uv, 128, 128, 64, now).unwrap();
+            let selected = spatial.select(now, &[(0, 64)]) != 0;
+            if changed && !selected {
+                budget.motion();
+            }
+            let target = budget.target(now, 1_000_000, 4_000_000, 60);
+            if frame == 0 {
+                assert!(target > 1_000_000);
+            } else {
+                assert_eq!(target, 1_000_000);
+            }
+            if budget.accept(now, 1_000_000, 100_000, target > 1_000_000) {
+                spatial.painted();
+                delivered += 1;
+            }
+        }
+        assert_eq!(delivered, 4);
+    }
+    #[test]
+    fn chroma_motion_padding_failure_and_delivery_are_independent() {
+        let mut p = SpatialPaintover::default();
+        let y = vec![16; 130 * 128];
+        let mut uv = vec![128; 130 * 64];
+        p.observe(&y, 130, &uv, 130, 128, 128, Duration::ZERO)
+            .unwrap();
+        uv[0] = 90;
+        p.observe(&y, 130, &uv, 130, 128, 128, Duration::from_millis(100))
+            .unwrap();
+        assert_eq!(p.select(DELAY, &[(0, 64), (64, 64)]), 3);
+        // Failed delivery does not consume a selection.
+        assert_eq!(p.select(DELAY, &[(0, 64), (64, 64)]), 3);
+        assert!(p.observe(&[], 130, &uv, 130, 128, 128, DELAY).is_none());
+        for _ in 0..4 {
+            p.select(DELAY, &[(0, 64), (64, 64)]);
+            p.painted();
+        }
+        assert_eq!(p.select(DELAY, &[(0, 64), (64, 64)]), 0);
+        assert_eq!(
+            p.select(Duration::from_millis(300), &[(0, 64), (64, 64)]),
+            1
+        );
+    }
+}

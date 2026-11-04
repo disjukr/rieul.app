@@ -391,3 +391,32 @@ IPC/WebTransport replay asserts worker execution and exercises delayed feedback,
 fresh groups, stream cancellation and fake held-key cleanup. Unit tests cover
 render-before-ACK, stale frames, bounds, configuration replacement and deferred
 source cancellation. No matched-quality end-to-end speedup is claimed.
+
+## Spatial hardware paintover
+
+The former track-wide settle timer is replaced by independent 64x64 NV12 block
+state. Exact luma/chroma comparison rearms only changed blocks, including when
+motion continues beside static text in the same stripe. After 200ms, each stable
+block selects its enclosing stripe(s) for at most four successful deliveries.
+Stripe boundaries crossing a block select both stripes. Failed encoding, credit
+rejection or output failure does not consume the selection. Capture recovery or
+track replacement creates fresh state.
+
+This adapts spatial scheduling to hardware; it is not x264 macroblock QP/CRF or
+an ROI map. A selected stripe is encoded as a whole, including motion within it.
+The negotiated ceiling and existing refinement credit still apply. A rejected
+mixed motion/refinement object preserves suppression across subsequent motion
+while the refinement remains due, allowing the next independent group through
+at base rate. Continuous motion therefore cannot repeatedly rearm the rejected
+boost and starve delivery. Auth, input and permission boundaries are unchanged.
+
+The allocated-pixel macOS test `export_synthetic_spatial_paintover` keeps one
+64x64 region moving for 60 frames and checks four two-stripe refinements while
+other frames contain only the moving stripe. In one M1 Max run, the identical
+sequence produced 13,102 bytes without refinement versus 13,338 with refinement.
+Hardware export and separate worker IPC/WebTransport/Chrome replay passed static
+region preservation, ongoing motion, refresh, cancellation and fake held-input
+cleanup. This is not live capture, matched-quality PSNR or an end-to-end latency
+measurement. Windows uses the same tracker and type-checks, but its physical GPU
+path remains unverified. `tools/spatial-paintover-bench.rs` measured ~103us/frame
+for CPU-only 720p tracking over 600 frames on M1 Max (four refinement objects).

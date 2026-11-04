@@ -1,0 +1,20 @@
+{
+  "fixture": "640x480 NV12, two stripes, 60 frames, continuous 64x64 motion beside static checkerboard",
+  "base_bps": 2000000,
+  "refinement_bps": 8000000,
+  "refinement_objects": 4,
+  "baseline_bytes": 13102,
+  "refined_bytes": 13338,
+  "tracking_benchmark": {
+    "width": 1280,
+    "height": 720,
+    "frames": 600,
+    "microseconds_per_frame": 103
+  },
+  "limitations": [
+    "allocated pixels, not screen capture",
+    "CPU tracking benchmark is not encode or network latency",
+    "not a matched-quality comparison",
+    "Windows physical GPU unverified"
+  ]
+}

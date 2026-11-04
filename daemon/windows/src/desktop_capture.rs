@@ -165,12 +165,15 @@ impl Stripes {
         key: bool,
         force: bool,
     ) -> Result<Option<(Vec<u8>, bool)>, Error> {
+        self.encode_mask(pixels,timestamp,key,if force {u32::MAX} else {0})
+    }
+    fn encode_mask(&mut self,pixels:&[u8],timestamp:u64,key:bool,force:u32)->Result<Option<(Vec<u8>,bool)>,Error> {
         use rieul_daemon_core::desktop_stripe as stripe;
         let mut packets = vec![];
         for index in 0..self.layout.len() {
             let region = stripe::nv12_region(pixels, self.width, self.height, &self.layout[index])
                 .ok_or(Error::Invalid)?;
-            if !key && !force && self.previous[index] == region {
+            if !key && force & (1<<index) == 0 && self.previous[index] == region {
                 continue;
             }
             let (data, actual_key) = self.encoders[index]
@@ -288,7 +291,7 @@ fn create(t: DesktopTrack) -> Result<Worker, Error> {
             capture_retries: u8,
             refining: bool,
             budget: rieul_daemon_host::desktop_paintover::RefinementBudget,
-            paintover: rieul_daemon_host::desktop_paintover::Paintover,
+            paintover: rieul_daemon_host::desktop_paintover::SpatialPaintover,
             _apartment: native::Apartment,
         }
         let mut state = State {
@@ -365,8 +368,7 @@ fn create(t: DesktopTrack) -> Result<Worker, Error> {
                     if !native::interactive() {
                         return Err(Error::Unauthorized);
                     }
-                    let damaged = frame.is_some();
-                    let paintover = short && state.paintover.due(clock.elapsed());
+                    let captured = frame.is_some();
                     if let Some(frame) = frame {
                         state.capture_retries = 0;
                         let pixels = state.latest_pixels.get_or_insert_with(Vec::new);
@@ -384,9 +386,15 @@ fn create(t: DesktopTrack) -> Result<Worker, Error> {
                             pixels,
                         )
                         .ok_or(Error::Invalid)?;
-                        state.paintover.motion(clock.elapsed());
-                        state.budget.motion();
-                    } else if !paintover && !(index == 0 && (refresh || state.replay)) {
+                    }
+                    let Some(pixels) = state.latest_pixels.as_ref() else { break; };
+                    let w=v.width as usize; let h=v.height as usize;
+                    let damaged=state.paintover.observe(&pixels[..w*h],w,&pixels[w*h..],w,w,h,clock.elapsed()).ok_or(Error::Invalid)?;
+                                        let layout:Vec<_>=t.stripes.as_ref().map(|s|s.iter().map(|s|(s.y as usize,s.height as usize)).collect()).unwrap_or_else(||vec![(0,h)]);
+                    let mask=if short {state.paintover.select(clock.elapsed(),&layout)} else {0};
+                    let paintover=mask!=0;
+                    if damaged && !paintover {state.budget.motion();}
+                    if !captured && !paintover && !(index == 0 && (refresh || state.replay)) {
                         if short && state.paintover.pending() {
                             continue;
                         }
@@ -395,7 +403,7 @@ fn create(t: DesktopTrack) -> Result<Worker, Error> {
                     let Some(pixels) = state.latest_pixels.as_ref() else {
                         break;
                     };
-                    let target = if paintover && !damaged {
+                    let target = if paintover {
                         state
                             .budget
                             .target(clock.elapsed(), bitrate, v.bitrate, v.fps)
@@ -424,11 +432,11 @@ fn create(t: DesktopTrack) -> Result<Worker, Error> {
                     };
                     let timestamp = clock.elapsed().as_micros() as u64;
                     let (packet, key) = if let Some(stripes) = &mut state.stripes {
-                        match stripes.encode(
+                        match stripes.encode_mask(
                             pixels,
                             timestamp,
                             index == 0,
-                            !damaged && paintover,
+                            mask,
                         )? {
                             Some(result) => result,
                             None => continue,
@@ -462,7 +470,7 @@ fn create(t: DesktopTrack) -> Result<Worker, Error> {
                         break;
                     }
                     emit(EncodedFrame::new(timestamp, key, packet))?;
-                    if !damaged && paintover {
+                    if paintover {
                         state.paintover.painted();
                     }
                     index += 1;

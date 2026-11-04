@@ -250,7 +250,14 @@ try {
     );
   if (fixture.stripes)
     for (const p of Object.values(result.bottomPixels))
-      assert.ok(Math.min(...p) > 150, JSON.stringify(result));
+      if (process.env.RIEUL_EXPECT_SPATIAL === "1") {
+        assert.ok(
+          Math.min(...p) > 20 &&
+            Math.max(...p) < 70 &&
+            Math.max(...p) - Math.min(...p) < 8,
+          JSON.stringify(result),
+        );
+      } else assert.ok(Math.min(...p) > 150, JSON.stringify(result));
   console.log(
     JSON.stringify({
       firstFrameMs: result.firstFrameMs,
