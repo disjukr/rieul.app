@@ -8,7 +8,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     ffi::c_void,
     sync::{Arc, Mutex},
-    time::Instant,
+    time::{Duration, Instant},
 };
 #[repr(C)]
 #[derive(Default, Clone, Copy)]
@@ -63,6 +63,7 @@ unsafe extern "C" {
         timestamp: u64,
         key: bool,
         refresh: bool,
+        damaged: *mut bool,
         emit: extern "C" fn(*mut c_void, *const u8, usize, u64) -> bool,
         context: *mut c_void,
     ) -> i32;
@@ -70,7 +71,7 @@ unsafe extern "C" {
     fn rd_mouse(kind: u32, button: u32, x: f64, y: f64, flags: u64) -> bool;
     fn rd_wheel(x: i32, y: i32, pixels: bool) -> bool;
 }
-struct Capture(*mut c_void);
+struct Capture(*mut c_void, rieul_daemon_host::desktop_paintover::Paintover);
 // Access is serialized by tracks; the ObjC capture delegate owns its queue/lock.
 unsafe impl Send for Capture {}
 impl Drop for Capture {
@@ -526,11 +527,14 @@ impl Backend for MacDesktop {
                 if handle.is_null() {
                     return Err(Error::Backend);
                 }
-                tracks.insert(key, Arc::new(Mutex::new(Capture(handle))));
+                tracks.insert(
+                    key,
+                    Arc::new(Mutex::new(Capture(handle, Default::default()))),
+                );
             }
             tracks[&key].clone()
         };
-        let capture = capture.lock().map_err(|_| Error::Backend)?;
+        let mut capture = capture.lock().map_err(|_| Error::Backend)?;
         if capture.0.is_null() {
             return Err(Error::Stale);
         }
@@ -554,7 +558,14 @@ impl Backend for MacDesktop {
             ));
             true
         }
-        for index in 0..4 {
+        let started = Instant::now();
+        let count = rieul_daemon_host::desktop_worker::group_frames(track.viewport.fps);
+        let interval = Duration::from_secs_f64(1.0 / track.viewport.fps as f64);
+        let mut index = 0;
+        while index < count && started.elapsed() < Duration::from_secs(1) {
+            let frame_started = Instant::now();
+            let paintover = capture.1.due(self.clock.elapsed());
+            let mut damaged = false;
             let mut p = Packet {
                 frame: None,
                 key: index == 0,
@@ -564,7 +575,8 @@ impl Backend for MacDesktop {
                     capture.0,
                     self.clock.elapsed().as_micros() as u64,
                     index == 0,
-                    refresh && index == 0,
+                    (refresh && index == 0) || paintover,
+                    &mut damaged,
                     packet,
                     &mut p as *mut _ as *mut c_void,
                 )
@@ -573,9 +585,27 @@ impl Backend for MacDesktop {
                 return Err(Error::Backend);
             }
             if result == 0 {
+                if capture.1.pending() {
+                    continue;
+                }
                 break;
             }
+            // The native encoder inserted an IDR. Start a fresh transport GOP;
+            // do not send a delta that references the discarded native frame.
+            if result == 2 {
+                break;
+            }
+            if damaged {
+                capture.1.motion(self.clock.elapsed());
+            }
             emit(p.frame.ok_or(Error::Backend)?)?;
+            if !damaged && paintover {
+                capture.1.painted();
+            }
+            index += 1;
+            if index < count {
+                std::thread::sleep(interval.saturating_sub(frame_started.elapsed()));
+            }
         }
         Ok(())
     }
@@ -723,6 +753,7 @@ mod tests {
     fn export_synthetic_hardware_groups() {
         extern "C" {
             fn rd_synthetic_groups(
+                group_length: u32,
                 emit: extern "C" fn(*mut c_void, *const u8, usize, u64) -> bool,
                 context: *mut c_void,
             ) -> bool;
@@ -737,14 +768,22 @@ mod tests {
                 return false;
             }
             unsafe {
-                let out = &mut *(context as *mut Vec<serde_json::Value>);
-                out.push(serde_json::json!({"timestampMicros":timestamp,"keyframe":out.len()%4==0,"data":std::slice::from_raw_parts(data,len)}));
+                let (length, out) = &mut *(context as *mut (u32, Vec<serde_json::Value>));
+                out.push(serde_json::json!({"timestampMicros":timestamp,"keyframe":out.len()%*length as usize==0,"data":std::slice::from_raw_parts(data,len)}));
             }
             true
         }
-        let mut frames = Vec::<serde_json::Value>::new();
-        assert!(unsafe { rd_synthetic_groups(packet, &mut frames as *mut _ as *mut c_void) });
-        assert_eq!(frames.len(), 12);
+        let length = if std::env::var_os("RIEUL_DESKTOP_CONTINUOUS_GROUP").is_some() {
+            60
+        } else {
+            4
+        };
+        let mut fixture = (length, Vec::<serde_json::Value>::new());
+        assert!(unsafe {
+            rd_synthetic_groups(length, packet, &mut fixture as *mut _ as *mut c_void)
+        });
+        let frames = fixture.1;
+        assert_eq!(frames.len(), (length * 3) as usize);
         if let Ok(path) = std::env::var("RIEUL_DESKTOP_SYNTHETIC_GROUPS_OUT") {
             std::fs::write(path, serde_json::to_vec(&frames).unwrap()).unwrap();
         }

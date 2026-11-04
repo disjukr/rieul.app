@@ -137,6 +137,7 @@ fn create(t: DesktopTrack) -> Result<Worker, Error> {
             encoder: native::HardwareEncoder,
             latest_pixels: Option<Vec<u8>>,
             replay: bool,
+            paintover: rieul_daemon_host::desktop_paintover::Paintover,
             _apartment: native::Apartment,
         }
         let mut state = State {
@@ -144,6 +145,7 @@ fn create(t: DesktopTrack) -> Result<Worker, Error> {
             encoder: make()?,
             latest_pixels: None,
             replay: false,
+            paintover: Default::default(),
             _apartment: apartment,
         };
         let clock = Instant::now();
@@ -159,10 +161,8 @@ fn create(t: DesktopTrack) -> Result<Worker, Error> {
                     1
                 };
                 let group_start = Instant::now();
-                for index in 0..count {
-                    if index > 0 && group_start.elapsed() >= Duration::from_secs(1) {
-                        break;
-                    }
+                let mut index = 0;
+                while index < count && group_start.elapsed() < Duration::from_secs(1) {
                     if !native::interactive() {
                         return Err(Error::Unauthorized);
                     }
@@ -171,39 +171,38 @@ fn create(t: DesktopTrack) -> Result<Worker, Error> {
                     if !native::interactive() {
                         return Err(Error::Unauthorized);
                     }
-                    let Some(frame) = frame else {
-                        if index == 0 && (refresh || state.replay) {
-                            if let Some(pixels) = &state.latest_pixels {
-                                let timestamp = clock.elapsed().as_micros() as u64;
-                                let packet = state
-                                    .encoder
-                                    .encode_keyframe(pixels, timestamp)
-                                    .map_err(|_| Error::Backend)?;
-                                validate_key(&t, format, &packet)?;
-                                emit(EncodedFrame::new(timestamp, true, packet))?;
-                                state.replay = false;
-                            }
+                    let damaged = frame.is_some();
+                    let paintover = short && state.paintover.due(clock.elapsed());
+                    if let Some(frame) = frame {
+                        state.latest_pixels = Some(
+                            nv12(
+                                &frame.bytes,
+                                (frame.width as usize, frame.height as usize, frame.stride),
+                                (
+                                    v.crop.x.try_into().map_err(|_| Error::Invalid)?,
+                                    v.crop.y.try_into().map_err(|_| Error::Invalid)?,
+                                    v.crop.width as usize,
+                                    v.crop.height as usize,
+                                ),
+                                (v.width as usize, v.height as usize),
+                            )
+                            .ok_or(Error::Invalid)?,
+                        );
+                        state.paintover.motion(clock.elapsed());
+                    } else if !paintover && !(index == 0 && (refresh || state.replay)) {
+                        if short && state.paintover.pending() {
+                            continue;
                         }
                         break;
+                    }
+                    let Some(pixels) = state.latest_pixels.as_ref() else {
+                        break;
                     };
-                    let pixels = nv12(
-                        &frame.bytes,
-                        (frame.width as usize, frame.height as usize, frame.stride),
-                        (
-                            v.crop.x.try_into().map_err(|_| Error::Invalid)?,
-                            v.crop.y.try_into().map_err(|_| Error::Invalid)?,
-                            v.crop.width as usize,
-                            v.crop.height as usize,
-                        ),
-                        (v.width as usize, v.height as usize),
-                    )
-                    .ok_or(Error::Invalid)?;
                     let timestamp = clock.elapsed().as_micros() as u64;
                     let (packet, key) = state
                         .encoder
-                        .encode(&pixels, timestamp, index == 0)
+                        .encode(pixels, timestamp, index == 0)
                         .map_err(|_| Error::Backend)?;
-                    state.latest_pixels = Some(pixels);
                     if packet.len() > 4 * 1024 * 1024 {
                         return Err(Error::Limit);
                     }
@@ -216,7 +215,11 @@ fn create(t: DesktopTrack) -> Result<Worker, Error> {
                     }
                     state.replay = false;
                     emit(EncodedFrame::new(timestamp, key, packet))?;
-                    if index + 1 < count {
+                    if !damaged && paintover {
+                        state.paintover.painted();
+                    }
+                    index += 1;
+                    if index < count {
                         std::thread::sleep(
                             Duration::from_secs_f64(1. / v.fps as f64)
                                 .saturating_sub(start.elapsed()),

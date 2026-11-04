@@ -117,6 +117,12 @@ try {
       errors = [],
       groups = new Set();
     let feedback = 0;
+    let receiptsHeld = 0,
+      holdUntil = 0,
+      maxObject = 0;
+    const heldGroups = new Set(),
+      recoveredGroups = new Set();
+    const frameGoal = fixture.continuous ? 40 : 8;
     let refreshRequested = false;
     const started = performance.now();
     const firstFrameMs = {};
@@ -155,7 +161,22 @@ try {
             firstFrameMs[id] ??= performance.now() - started;
           },
           (stats) => {
-            groups.add(`${stats.trackId}:${stats.groupId}`);
+            const group = `${stats.trackId}:${stats.groupId}`;
+            groups.add(group);
+            maxObject = Math.max(maxObject, stats.objectId ?? 0);
+            if (
+              holdUntil &&
+              performance.now() >= holdUntil &&
+              !heldGroups.has(group)
+            )
+              recoveredGroups.add(group);
+            if (fixture.continuous && feedback >= 16 && holdUntil === 0)
+              holdUntil = performance.now() + 500;
+            if (performance.now() < holdUntil) {
+              receiptsHeld++;
+              heldGroups.add(group);
+              return;
+            }
             if (input.send({ type: "feedback", ...stats })) feedback++;
             if (!refreshRequested && feedback >= 8) {
               refreshRequested = true;
@@ -182,7 +203,7 @@ try {
     while (
       performance.now() < until &&
       (Object.keys(frames).length !== 2 ||
-        Object.values(frames).some((n) => n < 8))
+        Object.values(frames).some((n) => n < frameGoal))
     ) {
       if (errors.length) throw new Error(errors.join(";"));
       await new Promise((r) => setTimeout(r, 20));
@@ -191,6 +212,9 @@ try {
     await new Promise((r) => setTimeout(r, 150));
     const result = {
       frames,
+      receiptsHeld,
+      maxObject,
+      recoveredGroups: recoveredGroups.size,
       firstFrameMs,
       pixels,
       groups: groups.size,
@@ -206,7 +230,7 @@ try {
   }, fixture);
   assert.equal(Object.keys(result.frames).length, 2, JSON.stringify(result));
   for (const count of Object.values(result.frames))
-    assert.ok(count >= 8, JSON.stringify(result));
+    assert.ok(count >= (fixture.continuous ? 40 : 8), JSON.stringify(result));
   for (const p of Object.values(result.pixels))
     assert.ok(Math.max(...p) < 8, JSON.stringify(result));
   console.log(
@@ -214,9 +238,17 @@ try {
       firstFrameMs: result.firstFrameMs,
       frames: result.frames,
       feedback: result.feedback,
+      maxObject: result.maxObject,
+      receiptsHeld: result.receiptsHeld,
+      recoveredGroups: result.recoveredGroups,
       groups: result.groups,
     }),
   );
+  if (fixture.continuous) {
+    assert.ok(result.receiptsHeld > 0);
+    assert.ok(result.maxObject > 10, JSON.stringify(result));
+    assert.ok(result.recoveredGroups > 0, JSON.stringify(result));
+  }
   assert.ok(result.feedback >= 16);
   assert.ok(result.groups >= 4);
   assert.equal(result.cancelledStreams, 1);

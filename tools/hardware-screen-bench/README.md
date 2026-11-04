@@ -53,3 +53,15 @@ all hardware encoders or other profiles cannot reach that quality. The user
 accepted the known difference and requested the default pipeline transition;
 that decision does not turn these results into a matched-quality performance
 claim. See `results/m1-max-rate-sweep-2026-11-04.json`.
+
+## Settled-image experiment
+
+`cargo run --release --manifest-path tools/hardware-screen-bench/Cargo.toml --example paintover`
+compares GOP4/GOP60 on the same 720p synthetic motion followed by 200ms of
+unchanged input and four retained-image submissions. Both use the same 8Mbps
+target and optional MaxKeyFrameInterval=60 (earlier spontaneous keys remain
+possible). This isolates reference continuity; it is not the live scheduling,
+network, capture or browser path. Results in
+`results/m1-max-settled-2026-11-04.json` show scroll preservation but negligible
+noise refinement. This does not establish high-quality paintover or a matched
+quality performance improvement. Times are encoder wall time only.

@@ -5,7 +5,7 @@ use crate::desktop::{EncodedFrame as Frame, Error};
 use std::sync::mpsc::{self, Receiver, SyncSender};
 /// Keep a low-fps group below the helper request deadline; never sleep after its last frame.
 pub fn group_frames(fps: u64) -> usize {
-    fps.clamp(1, 4) as usize
+    fps.clamp(1, 60) as usize
 }
 type Reply = Result<Option<Frame>, Error>;
 pub struct Worker {
@@ -158,7 +158,7 @@ mod tests {
         );
         thread.join().unwrap();
         assert_eq!(group_frames(2), 2);
-        assert_eq!(group_frames(120), 4);
+        assert_eq!(group_frames(120), 60);
     }
     #[test]
     fn independent_workers_cancel_and_drop_on_owner_thread() {

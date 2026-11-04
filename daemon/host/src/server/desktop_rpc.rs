@@ -829,7 +829,10 @@ pub(super) mod tests {
             }
             let frames = self.hardware_frames.lock().unwrap().clone();
             if !frames.is_empty() {
-                for f in frames.iter().take(4) {
+                for (index, f) in frames.iter().enumerate() {
+                    if index > 0 && f["keyframe"].as_bool() == Some(true) {
+                        break;
+                    }
                     emit(desktop::EncodedFrame::new(
                         f["timestampMicros"].as_u64().unwrap(),
                         f["keyframe"].as_bool().unwrap(),
@@ -879,10 +882,12 @@ pub(super) mod tests {
     #[ignore = "hardware encoded synthetic fixture + real localhost WebTransport/Chrome; no capture/input"]
     async fn browser_hardware_ipc_two_displays_and_disconnect_release() {
         let f = Fixture::with_ipc(true).await;
-        *f.backend.hardware_frames.lock().unwrap() = serde_json::from_str(include_str!(
-            "../../../../web/tests/fixtures/desktop-hardware-groups.json"
-        ))
-        .unwrap();
+        let fixture = if let Ok(path) = std::env::var("RIEUL_DESKTOP_GROUP_FIXTURE") {
+            std::fs::read_to_string(path).unwrap()
+        } else {
+            include_str!("../../../../web/tests/fixtures/desktop-hardware-groups.json").to_string()
+        };
+        *f.backend.hardware_frames.lock().unwrap() = serde_json::from_str(&fixture).unwrap();
         f.backend
             .display_count
             .store(2, std::sync::atomic::Ordering::SeqCst);
@@ -896,7 +901,7 @@ pub(super) mod tests {
             .unwrap()
             .listen_addr;
         let metadata = f._dir.path().join("hardware-browser.json");
-        std::fs::write(&metadata,serde_json::to_vec(&serde_json::json!({"url":format!("https://{address}/rieul/rpc"),"hash":f.certificate_hash,"clientId":f.client_id,"secret":f.secret})).unwrap()).unwrap();
+        std::fs::write(&metadata,serde_json::to_vec(&serde_json::json!({"url":format!("https://{address}/rieul/rpc"),"hash":f.certificate_hash,"clientId":f.client_id,"secret":f.secret,"continuous": f.backend.hardware_frames.lock().unwrap().len()>12})).unwrap()).unwrap();
         let script = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../scripts/testing/hardware-browser.mjs");
         let mut child = tokio::process::Command::new("node")
@@ -2545,6 +2550,33 @@ async fn stream_media(
                     .unwrap_or(false);
                 if index >= 240 || frame.keyframe != (index == 0) || !attached {
                     anyhow::bail!("invalid or detached desktop group");
+                }
+                // Continuous native groups must obey the receipt window per
+                // object, not just when opening the GOP. An abandoned dependency
+                // chain is recovered by the existing fresh-IDR path below.
+                if index > 0 {
+                    tokio::time::timeout(Duration::from_millis(250), async {
+                        loop {
+                            match runtime.media_flow(&id, &track, None, None) {
+                                crate::desktop_flow::Decision::Send => break Ok(()),
+                                crate::desktop_flow::Decision::Refresh => {
+                                    break Err(anyhow::anyhow!("desktop refresh during group"));
+                                }
+                                crate::desktop_flow::Decision::Wait => {
+                                    tokio::time::sleep(Duration::from_millis(5)).await;
+                                }
+                            }
+                        }
+                    })
+                    .await??;
+                    // A disconnect/revocation may have happened while waiting.
+                    let check_id = id.clone();
+                    if !blocking(runtime.clone(), move |r| Ok(r.has(&check_id)))
+                        .await
+                        .unwrap_or(false)
+                    {
+                        anyhow::bail!("detached while waiting for screen receipt");
+                    }
                 }
                 let object = DesktopMediaObject {
                     attach_id: id.clone(),

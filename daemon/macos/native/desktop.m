@@ -69,6 +69,8 @@ static VTCompressionSessionRef encoder(uint32_t width,uint32_t height,uint32_t f
       (__bridge NSString *)kVTCompressionPropertyKey_ExpectedFrameRate:@(fps),
       (__bridge NSString *)kVTCompressionPropertyKey_AverageBitRate:@(bitrate)};
     if(VTSessionSetProperties(session,(__bridge CFDictionaryRef)props) || VTCompressionSessionPrepareToEncodeFrames(session)) { VTCompressionSessionInvalidate(session); CFRelease(session); return NULL; }
+    // A maximum, not a prohibition on spontaneous IDRs; recovery still handles those.
+    VTSessionSetProperty(session,kVTCompressionPropertyKey_MaxKeyFrameInterval,(__bridge CFNumberRef)@60);
     CFTypeRef hardware=NULL;
     status=VTSessionCopyProperty(session,kVTCompressionPropertyKey_UsingHardwareAcceleratedVideoEncoder,NULL,&hardware);
     bool supported=!status && hardware==kCFBooleanTrue;
@@ -160,7 +162,8 @@ bool rd_synthetic_packet(RDPacket emit,void *context) { uint32_t codec; return s
 // Test fixture: the same hardware encoder and packet callback as live capture,
 // fed only locally allocated pixels. No ScreenCaptureKit/input/permission calls.
 bool rd_capture_set_bitrate(void *handle,uint32_t bitrate);
-bool rd_synthetic_groups(RDPacket emit,void *context) {
+bool rd_synthetic_groups(uint32_t groupLength,RDPacket emit,void *context) {
+    if(groupLength!=4 && groupLength!=60) return false;
     @autoreleasepool {
         RDStream *self=[RDStream new]; self->packet=[NSMutableData new];
         self->compression=encoder(640,480,60,2000000,encoded,(__bridge void *)self);
@@ -168,9 +171,9 @@ bool rd_synthetic_groups(RDPacket emit,void *context) {
         CVPixelBufferRef image=NULL;
         if(CVPixelBufferCreate(NULL,640,480,kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,NULL,&image)) return false;
         bool ok=true;
-        for(uint64_t frame=0;frame<12 && ok;frame++) {
-            if(frame%4==0) {
-                uint32_t requested=frame==4?500000:2000000;
+        for(uint64_t frame=0;frame<3*groupLength && ok;frame++) {
+            if(frame%groupLength==0) {
+                uint32_t requested=frame==groupLength?500000:2000000;
                 if(!rd_capture_set_bitrate((__bridge void *)self,requested)) { ok=false; break; }
                 CFTypeRef property=NULL; int64_t actual=0;
                 OSStatus result=VTSessionCopyProperty(self->compression,kVTCompressionPropertyKey_AverageBitRate,NULL,&property);
@@ -181,11 +184,12 @@ bool rd_synthetic_groups(RDPacket emit,void *context) {
             CVPixelBufferLockBaseAddress(image,0);
             for(size_t plane=0;plane<2;plane++) memset(CVPixelBufferGetBaseAddressOfPlane(image,plane),plane?128:16,CVPixelBufferGetBytesPerRowOfPlane(image,plane)*CVPixelBufferGetHeightOfPlane(image,plane));
             CVPixelBufferUnlockBaseAddress(image,0);
-            self->wantKey=(frame%4)==0; self->encodeFailed=NO; [self->packet setLength:0];
+            self->wantKey=(frame%groupLength)==0; self->encodeFailed=NO; [self->packet setLength:0];
             NSDictionary *options=@{(__bridge NSString *)kVTEncodeFrameOptionKey_ForceKeyFrame:@(self->wantKey)};
             OSStatus status=VTCompressionSessionEncodeFrame(self->compression,image,CMTimeMake(frame,60),kCMTimeInvalid,(__bridge CFDictionaryRef)options,NULL,NULL);
             if(!status) status=VTCompressionSessionCompleteFrames(self->compression,kCMTimeInvalid);
             ok=!status && !self->encodeFailed && self->packet.length>0 && emit(context,self->packet.bytes,self->packet.length,frame*16667);
+            if(!ok) fprintf(stderr,"Synthetic GOP frame %llu: status=%d encodeFailed=%d insertedKey=%d bytes=%lu\n",frame,(int)status,self->encodeFailed,self->retryKey,(unsigned long)self->packet.length);
         }
         CVPixelBufferRelease(image); return ok;
     }
@@ -243,14 +247,15 @@ bool rd_capture_destroy(void *handle) {
     self->stream=nil;
     return stopped;
 }
-int rd_capture_next(void *handle,uint64_t timestamp,bool key,bool refresh,RDPacket emit,void *context) {
+int rd_capture_next(void *handle,uint64_t timestamp,bool key,bool refresh,bool *damaged,RDPacket emit,void *context) {
     @autoreleasepool {
         RDStream *self=(__bridge RDStream *)handle; CVPixelBufferRef image=NULL;
-        uint64_t until=clock_gettime_nsec_np(CLOCK_UPTIME_RAW)+500*NSEC_PER_MSEC;
+        *damaged=false;
+        uint64_t until=clock_gettime_nsec_np(CLOCK_UPTIME_RAW)+20*NSEC_PER_MSEC;
         while(!image) {
             @synchronized(self) {
                 if(self->stopped || !(rd_permissions() & 1)) return -1;
-                if(self->latest && (self->serial!=self->consumed || refresh || self->retryKey)) { image=CVPixelBufferRetain(self->latest); self->consumed=self->serial; }
+                if(self->latest && (self->serial!=self->consumed || refresh || self->retryKey)) { *damaged=self->serial!=self->consumed; image=CVPixelBufferRetain(self->latest); self->consumed=self->serial; }
             }
             if(image) break;
             if(clock_gettime_nsec_np(CLOCK_UPTIME_RAW)>=until) return 0;
@@ -266,7 +271,7 @@ int rd_capture_next(void *handle,uint64_t timestamp,bool key,bool refresh,RDPack
         if(status || self->encodeFailed) return -1;
         // An encoder may insert its own keyframe. End this group, then encode
         // the cached image as the next group's IDR instead of killing capture.
-        if(self->retryKey) return 0;
+        if(self->retryKey) return 2;
         if(!self->packet.length) return -1;
         return emit(context,self->packet.bytes,self->packet.length,timestamp)?1:-1;
     }

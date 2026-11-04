@@ -196,3 +196,50 @@ Desktop 0.6.23 is pinned to 30bce96 and excludes this follow-up. Remaining work
 includes stripe/paintover equivalents, browser decode/render workers, Windows
 partial CPU readback/conversion and access-loss recovery, and validation of
 upstream color-space differences. No x264/GPL encoder is introduced.
+
+## Bounded continuous groups and settled-image scheduling
+
+The next checkpoint ports `encode_loop`'s `last_motion` / `paintover_left`
+state machine into `desktop_paintover.rs`. Hardware H.264 producers keep references
+for up to 60 frames or one second instead of forcing IDR every four frames.
+After 200ms without new damage, they submit the retained image at most four more
+times. New damage restarts the budget; output failure does not consume it.
+macOS polls its existing latest-only slot in bounded intervals. Windows uses the
+same policy only after its existing actual delta-output probe succeeds; other
+encoders retain independent-frame behavior. No extra capture instance is created.
+
+This is bounded refinement scheduling, **not completed high-quality paintover**.
+It keeps the same encoder rate target. x264 CRF/macroblock hints are not emulated.
+A hardware quality-mode alternative still needs explicit support probing and
+bounded rate-control design: Apple's BaseFrameQP disables ordinary bitrate
+control and must be supplied on every frame in that session. It cannot safely
+be enabled only for a few refinement frames in the existing bitrate session.
+
+The optional VideoToolbox MaxKeyFrameInterval=60 setting avoids the observed
+30-frame default on the test machine; it does not prohibit spontaneous IDRs.
+Those still terminate the current dependency chain and request a fresh keyframe.
+The server checks the actual receipt window before each subsequent object, waits
+at most 250ms, and rechecks attachment validity before sending after a wait.
+Existing bounded IPC, producer completion and drain ownership remain in force.
+
+The allocated-pixel VideoToolbox test encoded three 60-frame groups and changed
+rate targets between them. The localhost helper IPC/WebTransport/Chrome test can
+consume that fixture via RIEUL_DESKTOP_GROUP_FIXTURE. Its long-GOP variant holds
+receipts for 500ms, requests refresh mid-group, cancels a stream, checks rendered
+object IDs beyond ten in one group and later-group recovery, then verifies held
+fake-input release and drain. These are separate hardware generation and browser
+replay stages, not live capture-to-browser latency evidence.
+
+`tools/hardware-screen-bench/examples/paintover.rs` compares identical allocated
+720p inputs/settings at an 8Mbps target. GOP60 preserved scroll luma PSNR near
+79.42dB during four settled repeats; GOP4's first new IDR fell to 36.51dB then
+reached 55.24dB. On high-entropy noise, GOP60 improved only 13.05 → 13.12dB,
+while GOP4 reached 14.15dB. Encoding was approximately 9.5–10.1ms. One run,
+two synthetic patterns, unmatched achieved quality: no general quality or
+end-to-end latency improvement is claimed. Raw results are checked in.
+
+Stripe configuration, independent-stripe encoding/composition, dirty-region
+selection and selective stripe resynchronization are not part of this checkpoint.
+Neither are completed high-quality paintover, live guest/GPU validation on
+Windows, or matched-quality full-session latency measurements. No public RPC
+support claim, driver installation or host display/permission change is added.

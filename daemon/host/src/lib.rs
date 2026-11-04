@@ -21,5 +21,6 @@ pub mod desktop_ipc;
 pub mod cluster;
 
 mod desktop_flow;
+pub mod desktop_paintover;
 mod desktop_rate;
 pub mod desktop_worker;

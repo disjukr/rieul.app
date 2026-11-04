@@ -24,6 +24,7 @@ void *bench_new(uint32_t w,uint32_t h,uint32_t fps,uint32_t bitrate){
  (__bridge NSString*)kVTCompressionPropertyKey_ExpectedFrameRate:@(fps),
  (__bridge NSString*)kVTCompressionPropertyKey_AverageBitRate:@(bitrate)};
  if(VTSessionSetProperties(b->session,(__bridge CFDictionaryRef)props)||VTCompressionSessionPrepareToEncodeFrames(b->session)){bench_drop(b);return NULL;}
+ VTSessionSetProperty(b->session,kVTCompressionPropertyKey_MaxKeyFrameInterval,(__bridge CFNumberRef)@60);
  CFTypeRef hw=NULL;OSStatus status=VTSessionCopyProperty(b->session,kVTCompressionPropertyKey_UsingHardwareAcceleratedVideoEncoder,NULL,&hw);
  bool ok=!status&&hw==kCFBooleanTrue;if(hw)CFRelease(hw);if(!ok){bench_drop(b);return NULL;}
  if(CVPixelBufferCreate(NULL,w,h,kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,NULL,&b->image)){bench_drop(b);return NULL;}return b;
