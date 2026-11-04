@@ -12,7 +12,7 @@ use std::{
     collections::BTreeMap,
     future::Future,
     pin::Pin,
-    sync::{mpsc, Arc},
+    sync::{Arc, mpsc},
     time::{Duration, Instant},
 };
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
@@ -288,11 +288,7 @@ pub async fn serve_until<S: Channel + 'static>(
                 .and_then(|t| backend.end_track(&t))
                 .is_ok();
         }
-        if ok {
-            Ok(())
-        } else {
-            Err(Error::Backend)
-        }
+        if ok { Ok(()) } else { Err(Error::Backend) }
     })
     .await
     .map_err(|_| Error::Backend)?;
@@ -769,6 +765,7 @@ impl Backend for Proxy {
                     }
                 }
                 UserDesktopResult::Done => return cancelled.map_or(Ok(()), Err),
+                UserDesktopResult::Failed { code } if code == "Busy" => return Err(Error::Busy),
                 UserDesktopResult::Failed { .. } => return Err(Error::Backend),
                 _ => return Err(Error::Invalid),
             }
@@ -803,8 +800,8 @@ impl Backend for Proxy {
 mod tests {
     use super::*;
     use std::sync::{
-        atomic::{AtomicUsize, Ordering},
         Mutex,
+        atomic::{AtomicUsize, Ordering},
     };
     #[test]
     fn connector_errors_preserve_authentication_and_availability() {
@@ -951,12 +948,14 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
-        assert!(native
-            .base
-            .inputs
-            .lock()
-            .unwrap()
-            .contains(&DesktopInputEvent::ReleaseAll));
+        assert!(
+            native
+                .base
+                .inputs
+                .lock()
+                .unwrap()
+                .contains(&DesktopInputEvent::ReleaseAll)
+        );
         release_tx.send(()).unwrap();
         assert_eq!(capture.await.unwrap(), Err(Error::Stale));
         stop_tx.send(()).unwrap();
@@ -1256,11 +1255,13 @@ mod tests {
                 .await
                 .unwrap();
             }
-            assert!(tokio::time::timeout(Duration::from_secs(2), task)
-                .await
-                .unwrap()
-                .unwrap()
-                .is_err());
+            assert!(
+                tokio::time::timeout(Duration::from_secs(2), task)
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .is_err()
+            );
             assert_eq!(backend.inputs.lock().unwrap().len(), 2);
             assert!(matches!(
                 backend.inputs.lock().unwrap().last(),

@@ -66,6 +66,7 @@ pub struct CapturedBgra {
     pub bytes: Vec<u8>,
 }
 pub struct Duplication {
+    has_image: std::cell::Cell<bool>,
     device: ID3D11Device,
     context: ID3D11DeviceContext,
     duplication: IDXGIOutputDuplication,
@@ -101,6 +102,7 @@ impl Duplication {
                 return Err(invalid());
             }
             Ok(Self {
+                has_image: std::cell::Cell::new(false),
                 device,
                 context,
                 duplication,
@@ -130,6 +132,11 @@ impl Duplication {
                 }
             }
             let _release = Release(&self.duplication);
+            // DXGI reports pointer-only updates with LastPresentTime=0. Keep the
+            // first image; later pointer-only notifications use the cursor path.
+            if self.has_image.get() && info.LastPresentTime == 0 {
+                return Ok(None);
+            }
             let texture: ID3D11Texture2D = resource.ok_or_else(invalid)?.cast()?;
             let mut desc = D3D11_TEXTURE2D_DESC::default();
             texture.GetDesc(&mut desc);
@@ -164,6 +171,9 @@ impl Duplication {
                 }))
             };
             self.context.Unmap(&staging, 0);
+            if result.is_ok() {
+                self.has_image.set(true);
+            }
             result
         }
     }

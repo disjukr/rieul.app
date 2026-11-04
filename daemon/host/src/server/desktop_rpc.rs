@@ -668,6 +668,8 @@ pub(super) mod tests {
     struct FakeBackend {
         hardware_frames: std::sync::Mutex<Vec<serde_json::Value>>,
         refreshes: std::sync::atomic::AtomicUsize,
+        busy_once: std::sync::atomic::AtomicBool,
+        busy_after_once: std::sync::atomic::AtomicBool,
         inputs: std::sync::Mutex<Vec<DesktopInputEvent>>,
         changed: tokio::sync::Notify,
         display_pause: std::sync::Mutex<
@@ -815,6 +817,12 @@ pub(super) mod tests {
             refresh: bool,
             emit: &mut dyn FnMut(desktop::EncodedFrame) -> Result<(), desktop::Error>,
         ) -> Result<(), desktop::Error> {
+            if self
+                .busy_once
+                .swap(false, std::sync::atomic::Ordering::SeqCst)
+            {
+                return Err(desktop::Error::Busy);
+            }
             if refresh {
                 self.refreshes
                     .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
@@ -827,6 +835,12 @@ pub(super) mod tests {
                         f["keyframe"].as_bool().unwrap(),
                         serde_json::from_value(f["data"].clone()).unwrap(),
                     ))?;
+                    if self
+                        .busy_after_once
+                        .swap(false, std::sync::atomic::Ordering::SeqCst)
+                    {
+                        return Err(desktop::Error::Busy);
+                    }
                     std::thread::sleep(Duration::from_millis(17));
                 }
                 return Ok(());
@@ -872,6 +886,12 @@ pub(super) mod tests {
         f.backend
             .display_count
             .store(2, std::sync::atomic::Ordering::SeqCst);
+        f.backend
+            .busy_once
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+        f.backend
+            .busy_after_once
+            .store(true, std::sync::atomic::Ordering::SeqCst);
         let address = load_or_default(&f._dir.path().join("rieul.yaml"))
             .unwrap()
             .listen_addr;
@@ -890,6 +910,16 @@ pub(super) mod tests {
             .unwrap()
             .unwrap();
         assert!(status.success());
+        assert!(
+            !f.backend
+                .busy_once
+                .load(std::sync::atomic::Ordering::SeqCst)
+        );
+        assert!(
+            !f.backend
+                .busy_after_once
+                .load(std::sync::atomic::Ordering::SeqCst)
+        );
         assert!(
             f.backend
                 .refreshes
@@ -1847,9 +1877,11 @@ pub(super) mod tests {
                 .iter()
                 .rposition(|e| matches!(e, DesktopInputEvent::PhysicalKey { down: true, .. }))
                 .unwrap();
-            assert!(inputs[key_down + 1..]
-                .iter()
-                .any(|e| matches!(e, DesktopInputEvent::ReleaseAll)));
+            assert!(
+                inputs[key_down + 1..]
+                    .iter()
+                    .any(|e| matches!(e, DesktopInputEvent::ReleaseAll))
+            );
         }
         async fn wait_input(&self, event: &DesktopInputEvent) {
             loop {
@@ -1971,11 +2003,13 @@ pub(super) mod tests {
                 tokio::time::sleep(Duration::from_millis(5)).await;
             }
             f.wait_input(&DesktopInputEvent::ReleaseAll).await;
-            assert!(blocking(f.runtime.clone(), |r| r.control())
-                .await
-                .unwrap()
-                .holder_attach_id
-                .is_none());
+            assert!(
+                blocking(f.runtime.clone(), |r| r.control())
+                    .await
+                    .unwrap()
+                    .holder_attach_id
+                    .is_none()
+            );
         })
         .await
         .unwrap();
@@ -2311,13 +2345,14 @@ pub(super) mod tests {
                 DesktopError::decode(&error).unwrap(),
                 DesktopError::LimitExceeded { .. }
             ));
-            assert!(!f
-                .backend
-                .inputs
-                .lock()
-                .unwrap()
-                .iter()
-                .any(|e| matches!(e, DesktopInputEvent::PhysicalKey { .. })));
+            assert!(
+                !f.backend
+                    .inputs
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .any(|e| matches!(e, DesktopInputEvent::PhysicalKey { .. }))
+            );
         })
         .await
         .unwrap();
@@ -2464,7 +2499,15 @@ async fn stream_media(
         // lower quality, or trigger a keyframe refresh when no pixels changed.
         let mut first = rx.recv().await;
         if first.is_none() {
-            if !matches!(producer.await, Ok(Ok(())) | Ok(Err(desktop::Error::Stale))) {
+            let produced = producer.await;
+            if matches!(produced, Ok(Err(desktop::Error::Busy))) {
+                runtime.record_delivery(&id, &track, true);
+                runtime.media_flow(&id, &track, None, Some(group));
+            }
+            if !matches!(
+                produced,
+                Ok(Ok(())) | Ok(Err(desktop::Error::Stale | desktop::Error::Busy))
+            ) {
                 let failed = id.clone();
                 let _ = blocking(runtime.clone(), move |r| {
                     r.remove(&failed);
@@ -2546,7 +2589,15 @@ async fn stream_media(
             runtime.media_flow(&id, &track, None, Some(group));
         }
         drop(rx); // Unblock a producer abandoned under downstream pressure.
-        if !matches!(producer.await, Ok(Ok(())) | Ok(Err(desktop::Error::Stale))) {
+        let produced = producer.await;
+        if matches!(produced, Ok(Err(desktop::Error::Busy))) {
+            runtime.record_delivery(&id, &track, true);
+            runtime.media_flow(&id, &track, None, Some(group));
+        }
+        if !matches!(
+            produced,
+            Ok(Ok(())) | Ok(Err(desktop::Error::Stale | desktop::Error::Busy))
+        ) {
             let failed_id = id.clone();
             let _ = blocking(runtime.clone(), move |r| {
                 r.remove(&failed_id);

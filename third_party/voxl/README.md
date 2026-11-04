@@ -73,3 +73,28 @@ browser replay above. Hardware/VM and long-running opt-in tests otherwise remain
 ignored by the aggregate command. Initial sandboxed transport tests failed to
 bind localhost (EPERM); rerunning the same synthetic tests with permitted local
 network access passed. No product failure was hidden by that retry.
+
+## Follow-up review and platform work
+
+Independent source/security review found a P2: completed incremental IPC queue
+overflow (`Busy`) was treated as fatal by the transport. The follow-up preserves
+only terminal Busy as retryable, waits for producer completion, requests a fresh
+GOP and keeps attachment/control. The real overflow unit test plus browser
+injections before any frame and after the first frame cover both recovery paths.
+The reviewer confirmed the blocker resolved and found no new blocker.
+
+Windows now caches the last validated independent encoded packet per track/codec
+(max 4 MiB, at most 32 tracks) for explicit idle refresh, and skips DXGI pointer-only
+updates after receiving its first image. It still uses single-frame hardware
+GOPs; no Windows short-GOP/dedicated capture-worker optimization is claimed.
+The real modified Windows adapter/native API types were checked for x64 using a
+local harness with stubbed host traits; this does not link a Windows executable.
+Six pure image/key tests pass. No Windows guest hardware test was run.
+DXGI's update semantics are documented at:
+https://learn.microsoft.com/en-us/windows/win32/api/dxgi1_2/ns-dxgi1_2-dxgi_outdupl_frame_info
+
+A new MIT/Apache-only standalone benchmark in `tools/hardware-screen-bench`
+compares the same hardware/settings and synthetic inputs, including decoded luma
+PSNR. Scroll patterns use fewer bytes with mixed PSNR results; high-entropy noise loses substantial
+quality; encoding is not faster. See its README and raw data for the actual
+numbers and limits. These findings prohibit an unqualified performance claim.

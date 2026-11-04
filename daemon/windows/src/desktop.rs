@@ -20,7 +20,7 @@ enum Command {
     Displays,
     Cursor(u64),
     Input(DesktopInputEvent, Option<DesktopViewport>),
-    Group(DesktopTrack),
+    Group(DesktopTrack, bool),
     End(DesktopTrack),
 }
 enum Reply {
@@ -43,7 +43,9 @@ pub struct WindowsDesktop {
 impl Drop for WindowsDesktop {
     fn drop(&mut self) {
         drop(self.sender.take());
-        if let Some(worker) = self.worker.take() { let _ = worker.join(); }
+        if let Some(worker) = self.worker.take() {
+            let _ = worker.join();
+        }
     }
 }
 impl WindowsDesktop {
@@ -74,11 +76,16 @@ impl WindowsDesktop {
                 let _ = state.release();
             })
             .map_err(|_| Error::Backend)?;
-        Ok(Self { sender:Some(sender), worker:Some(worker) })
+        Ok(Self {
+            sender: Some(sender),
+            worker: Some(worker),
+        })
     }
     fn call(&self, command: Command) -> Result<Reply, Error> {
         let (tx, rx) = mpsc::sync_channel(1);
-        self.sender.as_ref().ok_or(Error::Backend)?
+        self.sender
+            .as_ref()
+            .ok_or(Error::Backend)?
             .try_send(Request {
                 command,
                 deadline: Instant::now() + Duration::from_secs(2),
@@ -112,13 +119,19 @@ fn unavailable(reason: &str) -> DesktopCapabilities {
 }
 impl Backend for WindowsDesktop {
     fn probe_video(&self, track: &DesktopTrack) -> DesktopQualityVerification {
-        if !rieul_daemon_host::desktop::validate_video_probe(track) { return DesktopQualityVerification::Unsupported; }
-        match self.call(Command::Probe(track.clone())) { Ok(Reply::Probe(value)) => value, _ => DesktopQualityVerification::Unknown }
+        if !rieul_daemon_host::desktop::validate_video_probe(track) {
+            return DesktopQualityVerification::Unsupported;
+        }
+        match self.call(Command::Probe(track.clone())) {
+            Ok(Reply::Probe(value)) => value,
+            _ => DesktopQualityVerification::Unknown,
+        }
     }
 
     fn recover_input(&self, keys: &[u64], buttons: &[u64]) -> Result<(), Error> {
         match self.call(Command::Recover(keys.to_vec(), buttons.to_vec()))? {
-            Reply::Done => Ok(()), _=>Err(Error::Backend),
+            Reply::Done => Ok(()),
+            _ => Err(Error::Backend),
         }
     }
 
@@ -157,8 +170,24 @@ impl Backend for WindowsDesktop {
         }
     }
     fn group(&self, track: &DesktopTrack) -> Result<Vec<EncodedFrame>, Error> {
-        match self.call(Command::Group(track.clone()))? {
+        match self.call(Command::Group(track.clone(), false))? {
             Reply::Frames(frames) => Ok(frames),
+            _ => Err(Error::Backend),
+        }
+    }
+    fn stream_group_with_refresh(
+        &self,
+        track: &DesktopTrack,
+        refresh: bool,
+        emit: &mut dyn FnMut(EncodedFrame) -> Result<(), Error>,
+    ) -> Result<(), Error> {
+        match self.call(Command::Group(track.clone(), refresh))? {
+            Reply::Frames(frames) => {
+                for frame in frames {
+                    emit(frame)?;
+                }
+                Ok(())
+            }
             _ => Err(Error::Backend),
         }
     }
@@ -172,6 +201,7 @@ impl Backend for WindowsDesktop {
 struct Track {
     capture: native::Duplication,
     encoder: native::HardwareEncoder,
+    last_packet: Option<Vec<u8>>,
 }
 struct Worker {
     tracks: BTreeMap<(u64, u64), Track>,
@@ -208,24 +238,47 @@ impl Worker {
         }
         match command {
             Command::Probe(track) => {
-                if !rieul_daemon_host::desktop::validate_video_probe(&track) { return Ok(Reply::Probe(DesktopQualityVerification::Unsupported)); }
-                let format = if track.codec.codec.starts_with("avc1.") { native::Codec::H264 }
-                    else if track.codec.codec.starts_with("av01.") { native::Codec::Av1 }
-                    else { return Ok(Reply::Probe(DesktopQualityVerification::Unsupported)); };
+                if !rieul_daemon_host::desktop::validate_video_probe(&track) {
+                    return Ok(Reply::Probe(DesktopQualityVerification::Unsupported));
+                }
+                let format = if track.codec.codec.starts_with("avc1.") {
+                    native::Codec::H264
+                } else if track.codec.codec.starts_with("av01.") {
+                    native::Codec::Av1
+                } else {
+                    return Ok(Reply::Probe(DesktopQualityVerification::Unsupported));
+                };
                 let v = &track.viewport;
                 let verified = (|| {
-                    let encoder = native::HardwareEncoder::with_codec(v.width as u32, v.height as u32, v.fps as u32, v.bitrate as u32, format).ok()?;
+                    let encoder = native::HardwareEncoder::with_codec(
+                        v.width as u32,
+                        v.height as u32,
+                        v.fps as u32,
+                        v.bitrate as u32,
+                        format,
+                    )
+                    .ok()?;
                     let mut pixels = vec![128; (v.width * v.height * 3 / 2) as usize];
                     pixels[..(v.width * v.height) as usize].fill(16);
                     let packet = encoder.encode_keyframe(&pixels, 0).ok()?;
                     if format == native::Codec::Av1 {
-                        crate::desktop_pixels::av1_independent(&packet, &mut vec![]).map(|(codec, _)| codec)
-                    } else { avc_codec(&packet) }
+                        crate::desktop_pixels::av1_independent(&packet, &mut vec![])
+                            .map(|(codec, _)| codec)
+                    } else {
+                        avc_codec(&packet)
+                    }
                 })();
-                Ok(Reply::Probe(if verified.as_deref() == Some(track.codec.codec.as_str()) { DesktopQualityVerification::Verified } else { DesktopQualityVerification::Unknown }))
+                Ok(Reply::Probe(
+                    if verified.as_deref() == Some(track.codec.codec.as_str()) {
+                        DesktopQualityVerification::Verified
+                    } else {
+                        DesktopQualityVerification::Unknown
+                    },
+                ))
             }
             Command::Recover(keys, buttons) => {
-                self.keys.extend(keys); self.buttons.extend(buttons);
+                self.keys.extend(keys);
+                self.buttons.extend(buttons);
                 self.release()?;
                 Ok(Reply::Done)
             }
@@ -316,7 +369,7 @@ impl Worker {
                 self.input(event, viewport)?;
                 Ok(Reply::Done)
             }
-            Command::Group(track) => {
+            Command::Group(track, refresh) => {
                 let key = (track.track_id, track.codec_epoch);
                 let v = &track.viewport;
                 if !self.tracks.contains_key(&key) {
@@ -341,11 +394,33 @@ impl Worker {
                         },
                     )
                     .map_err(|_| Error::Backend)?;
-                    self.tracks.insert(key, Track { capture, encoder });
+                    self.tracks.insert(
+                        key,
+                        Track {
+                            capture,
+                            encoder,
+                            last_packet: None,
+                        },
+                    );
                 }
                 let native = self.tracks.get_mut(&key).unwrap();
                 let Some(frame) = native.capture.next().map_err(|_| Error::Backend)? else {
-                    return Ok(Reply::Frames(vec![]));
+                    let frames = if refresh {
+                        native
+                            .last_packet
+                            .as_ref()
+                            .map(|packet| {
+                                vec![EncodedFrame::new(
+                                    self.clock.elapsed().as_micros() as u64,
+                                    true,
+                                    packet.clone(),
+                                )]
+                            })
+                            .unwrap_or_default()
+                    } else {
+                        vec![]
+                    };
+                    return Ok(Reply::Frames(frames));
                 };
                 let pixels = nv12(
                     &frame.bytes,
@@ -373,6 +448,10 @@ impl Worker {
                 if actual.as_deref() != Some(&track.codec.codec) {
                     return Err(Error::Unsupported);
                 }
+                if packet.len() > 4 * 1024 * 1024 {
+                    return Err(Error::Limit);
+                }
+                native.last_packet = Some(packet.clone());
                 Ok(Reply::Frames(vec![EncodedFrame::new(
                     timestamp, true, packet,
                 )]))
