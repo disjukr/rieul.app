@@ -56,11 +56,6 @@ union UserDesktopCommand {
     @ id - 2
     viewport?: DesktopViewport,
   ),
-  @ id - 5
-  Group(
-    @ id - 1
-    track: DesktopTrack,
-  ),
   @ id - 7
   RecoverInput(
     @ id - 1
@@ -108,11 +103,6 @@ union UserDesktopResult {
   Cursor(
     @ id - 1
     value?: DesktopEvent,
-  ),
-  @ id - 4
-  Group(
-    @ id - 1
-    frames: UserDesktopFrame[],
   ),
   @ id - 5
   Failed(

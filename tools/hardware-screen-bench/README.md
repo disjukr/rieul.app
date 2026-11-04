@@ -40,3 +40,16 @@ as equivalent-quality optimization. A matched-quality rate sweep and live
 pipeline measurement are still needed before a general performance claim.
 
 Raw three-repetition results are in `results/m1-max-2026-11-04.json`.
+
+## Rate sweep
+
+`RIEUL_BENCH_SWEEP=1` runs the 1080p high-entropy case at multiple requested rates
+and records unsupported configurations without claiming hardware is absent.
+On this machine, GOP4 at 8Mbps and 32Mbps targets measured 13.28/13.31dB luma
+PSNR. 128/512/1024Mbps configurations were rejected by this fixed encoder
+profile/settings. No equal-quality match to all-IDR's 41.72dB was found within
+this sweep. This is a limitation of the tested configuration, not proof that
+all hardware encoders or other profiles cannot reach that quality. The user
+accepted the known difference and requested the default pipeline transition;
+that decision does not turn these results into a matched-quality performance
+claim. See `results/m1-max-rate-sweep-2026-11-04.json`.

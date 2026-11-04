@@ -32,62 +32,92 @@ fn cpu() -> f64 {
 }
 fn main() {
     let mut output = vec![];
-    for (w, h) in [(1280u32, 720u32), (1920, 1080)] {
-        for pattern in ["scroll", "full-motion"] {
-            for repeat in 0..3 {
-                for mode in ["vt-current-all-idr", "vt-closed-gop4"] {
-                    let p = unsafe { bench_new(w, h, 60, 8_000_000) };
-                    assert!(!p.is_null(), "hardware unavailable");
-                    let hw = Hardware(p);
-                    let mut mse = 0.;
-                    let mut y = vec![0; (w * h) as usize];
-                    let uv = vec![128; y.len() / 2];
-                    let mut timings = vec![];
-                    let mut bytes = 0usize;
-                    let mut cpu_seconds = 0.;
-                    for n in 0..132u64 {
-                        // Deterministic neutral-chroma synthetic frames. Same bytes for each mode.
-                        for row in 0..h as usize {
-                            for x in 0..w as usize {
-                                let sx = x + (n as usize) * 7;
-                                let sy = row + (n as usize) * 3;
-                                y[row * w as usize + x] = if pattern == "scroll" {
-                                    if (sx / 24 + sy / 18) % 2 == 0 {
-                                        48
+    let sweep = std::env::var_os("RIEUL_BENCH_SWEEP").is_some();
+    let rates: Vec<u32> = if sweep {
+        vec![
+            8_000_000,
+            32_000_000,
+            128_000_000,
+            512_000_000,
+            1_024_000_000,
+        ]
+    } else {
+        vec![8_000_000]
+    };
+    for bitrate in rates {
+        for (w, h) in [(1280u32, 720u32), (1920, 1080)] {
+            if sweep && w != 1920 {
+                continue;
+            }
+            for pattern in ["scroll", "full-motion"] {
+                if sweep && pattern != "full-motion" {
+                    continue;
+                }
+                for repeat in 0..if sweep { 1 } else { 3 } {
+                    for mode in ["vt-current-all-idr", "vt-closed-gop4"] {
+                        if sweep && mode == "vt-current-all-idr" && bitrate != 8_000_000 {
+                            continue;
+                        }
+                        let p = unsafe { bench_new(w, h, 60, bitrate) };
+                        if p.is_null() {
+                            let row = serde_json::json!({"width":w,"height":h,"mode":mode,"bitrate_target":bitrate,"unsupported":true});
+                            eprintln!("{row}");
+                            output.push(row);
+                            continue;
+                        }
+                        let hw = Hardware(p);
+                        let mut mse = 0.;
+                        let mut y = vec![0; (w * h) as usize];
+                        let uv = vec![128; y.len() / 2];
+                        let mut timings = vec![];
+                        let mut bytes = 0usize;
+                        let mut cpu_seconds = 0.;
+                        for n in 0..132u64 {
+                            // Deterministic neutral-chroma synthetic frames. Same bytes for each mode.
+                            for row in 0..h as usize {
+                                for x in 0..w as usize {
+                                    let sx = x + (n as usize) * 7;
+                                    let sy = row + (n as usize) * 3;
+                                    y[row * w as usize + x] = if pattern == "scroll" {
+                                        if (sx / 24 + sy / 18) % 2 == 0 {
+                                            48
+                                        } else {
+                                            208
+                                        }
                                     } else {
-                                        208
-                                    }
-                                } else {
-                                    16 + ((sx.wrapping_mul(1103515245)
-                                        ^ sy.wrapping_mul(12345)
-                                        ^ n as usize * 99991)
-                                        % 220) as u8
-                                };
+                                        16 + ((sx.wrapping_mul(1103515245)
+                                            ^ sy.wrapping_mul(12345)
+                                            ^ n as usize * 99991)
+                                            % 220)
+                                            as u8
+                                    };
+                                }
+                            }
+                            let key = mode == "vt-current-all-idr" || n % 4 == 0;
+                            let time = (n + 1) * 1_000_000 / 60;
+                            let c = cpu();
+                            let start = Instant::now();
+                            let size = unsafe {
+                                bench_encode(hw.0, y.as_ptr(), uv.as_ptr(), w, h, time, key)
+                            };
+                            let elapsed = start.elapsed().as_secs_f64() * 1000.;
+                            let used = cpu() - c;
+                            assert!(size > 0, "encode failed {mode} {n}");
+                            let distortion = unsafe { bench_mse(hw.0) };
+                            assert!(distortion >= 0.);
+                            if n >= 12 {
+                                mse += distortion;
+                                timings.push(elapsed);
+                                cpu_seconds += used;
+                                bytes += size;
                             }
                         }
-                        let key = mode == "vt-current-all-idr" || n % 4 == 0;
-                        let time = (n + 1) * 1_000_000 / 60;
-                        let c = cpu();
-                        let start = Instant::now();
-                        let size =
-                            unsafe { bench_encode(hw.0, y.as_ptr(), uv.as_ptr(), w, h, time, key) };
-                        let elapsed = start.elapsed().as_secs_f64() * 1000.;
-                        let used = cpu() - c;
-                        assert!(size > 0, "encode failed {mode} {n}");
-                        let distortion = unsafe { bench_mse(hw.0) };
-                        assert!(distortion >= 0.);
-                        if n >= 12 {
-                            mse += distortion;
-                            timings.push(elapsed);
-                            cpu_seconds += used;
-                            bytes += size;
-                        }
+                        timings.sort_by(f64::total_cmp);
+                        let wall: f64 = timings.iter().sum();
+                        let row = serde_json::json!({"bitrate_target":bitrate,"width":w,"height":h,"pattern":pattern,"mode":mode,"repeat":repeat,"frames":120,"luma_psnr_db":10.*(255f64*255./(mse/120.).max(1e-12)).log10(),"median_ms":timings[60],"p95_ms":timings[113],"total_encode_ms":wall,"process_cpu_ms":cpu_seconds*1000.,"bytes":bytes});
+                        eprintln!("{row}");
+                        output.push(row);
                     }
-                    timings.sort_by(f64::total_cmp);
-                    let wall: f64 = timings.iter().sum();
-                    let row = serde_json::json!({"width":w,"height":h,"pattern":pattern,"mode":mode,"repeat":repeat,"frames":120,"luma_psnr_db":10.*(255f64*255./(mse/120.).max(1e-12)).log10(),"median_ms":timings[60],"p95_ms":timings[113],"total_encode_ms":wall,"process_cpu_ms":cpu_seconds*1000.,"bytes":bytes});
-                    eprintln!("{row}");
-                    output.push(row);
                 }
             }
         }

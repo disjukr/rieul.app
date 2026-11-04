@@ -1,0 +1,68 @@
+[
+  {
+    "bitrate_target": 8000000,
+    "bytes": 215595264,
+    "frames": 120,
+    "height": 1080,
+    "luma_psnr_db": 41.71859125764054,
+    "median_ms": 6.754708,
+    "mode": "vt-current-all-idr",
+    "p95_ms": 6.9885,
+    "pattern": "full-motion",
+    "process_cpu_ms": 49.57100000000059,
+    "repeat": 0,
+    "total_encode_ms": 812.1871279999997,
+    "width": 1920
+  },
+  {
+    "bitrate_target": 8000000,
+    "bytes": 14410183,
+    "frames": 120,
+    "height": 1080,
+    "luma_psnr_db": 13.275462961116629,
+    "median_ms": 6.904583,
+    "mode": "vt-closed-gop4",
+    "p95_ms": 7.106209,
+    "pattern": "full-motion",
+    "process_cpu_ms": 47.70700000000172,
+    "repeat": 0,
+    "total_encode_ms": 824.4474979999998,
+    "width": 1920
+  },
+  {
+    "bitrate_target": 32000000,
+    "bytes": 14846010,
+    "frames": 120,
+    "height": 1080,
+    "luma_psnr_db": 13.306921525737323,
+    "median_ms": 6.889,
+    "mode": "vt-closed-gop4",
+    "p95_ms": 7.087708,
+    "pattern": "full-motion",
+    "process_cpu_ms": 47.471999999997294,
+    "repeat": 0,
+    "total_encode_ms": 822.473957,
+    "width": 1920
+  },
+  {
+    "bitrate_target": 128000000,
+    "height": 1080,
+    "mode": "vt-closed-gop4",
+    "unsupported": true,
+    "width": 1920
+  },
+  {
+    "bitrate_target": 512000000,
+    "height": 1080,
+    "mode": "vt-closed-gop4",
+    "unsupported": true,
+    "width": 1920
+  },
+  {
+    "bitrate_target": 1024000000,
+    "height": 1080,
+    "mode": "vt-closed-gop4",
+    "unsupported": true,
+    "width": 1920
+  }
+]

@@ -21,3 +21,4 @@ pub mod desktop_ipc;
 pub mod cluster;
 
 mod desktop_flow;
+mod desktop_rate;

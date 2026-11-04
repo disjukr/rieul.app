@@ -2562,7 +2562,7 @@ async fn stream_media(
                 if bytes > rieul_daemon_core::desktop_transport::MAX_GROUP_BYTES {
                     anyhow::bail!("desktop group exceeds budget");
                 }
-                runtime.media_flow(&id, &track, Some((group, index)), None);
+                runtime.media_flow(&id, &track, Some((group, index, encoded.len())), None);
                 let writing = std::time::Instant::now();
                 tokio::time::timeout(Duration::from_millis(500), send.write_all(&encoded))
                     .await??;
@@ -2607,7 +2607,7 @@ async fn stream_media(
             return;
         }
         tokio::time::sleep(
-            Duration::from_secs_f64(bytes as f64 * 8.0 / track.viewport.bitrate as f64)
+            Duration::from_secs_f64(bytes as f64 * 8.0 / runtime.media_bitrate(&id, &track) as f64)
                 .saturating_sub(started.elapsed()),
         )
         .await;

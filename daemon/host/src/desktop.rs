@@ -595,9 +595,10 @@ mod tests {
             Err(Error::Busy)
         );
         drop(drain);
-        assert!(d
-            .attach(&auth, 1, "paired", DesktopKeyboardMode::Physical, 0)
-            .is_ok());
+        assert!(
+            d.attach(&auth, 1, "paired", DesktopKeyboardMode::Physical, 0)
+                .is_ok()
+        );
     }
     #[test]
     fn physical_and_text_cannot_double_inject() {
@@ -1340,7 +1341,7 @@ impl Runtime {
         &self,
         id: &str,
         track: &DesktopTrack,
-        sent: Option<(u64, u64)>,
+        sent: Option<(u64, u64, usize)>,
         failed: Option<u64>,
     ) -> crate::desktop_flow::Decision {
         // Configuration lock fences stale producers and precedes flow lock, as in accept_input.
@@ -1365,8 +1366,8 @@ impl Runtime {
         if flow.epoch != track.codec_epoch {
             *flow = crate::desktop_flow::Flow::new(track.codec_epoch);
         }
-        if let Some((g, o)) = sent {
-            flow.sent(g, o, std::time::Instant::now());
+        if let Some((g, o, bytes)) = sent {
+            flow.sent(g, o, bytes, std::time::Instant::now());
             return crate::desktop_flow::Decision::Send;
         }
         if let Some(g) = failed {
@@ -1374,6 +1375,32 @@ impl Runtime {
             return crate::desktop_flow::Decision::Send;
         }
         flow.next(track.viewport.fps, std::time::Instant::now())
+    }
+    pub(crate) fn media_bitrate(&self, id: &str, track: &DesktopTrack) -> u64 {
+        let cap = track.viewport.bitrate;
+        let automatic = self
+            .quality
+            .lock()
+            .ok()
+            .and_then(|q| {
+                q.get(id)
+                    .map(|s| matches!(s.policy, DesktopQualityPolicy::Auto))
+            })
+            .unwrap_or(false);
+        if !automatic {
+            return cap;
+        }
+        self.flow
+            .lock()
+            .ok()
+            .and_then(|mut flows| {
+                flows
+                    .get_mut(&(id.into(), track.track_id))
+                    .filter(|f| f.epoch == track.codec_epoch)
+                    .map(|f| f.bitrate(cap, std::time::Instant::now()))
+            })
+            .unwrap_or(cap)
+            .max(1)
     }
     pub(crate) fn feedback_delay(&self, id: &str, track: u64) -> std::time::Duration {
         let depth = self

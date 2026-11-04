@@ -15,6 +15,7 @@ pub(crate) enum Decision {
 struct Sent {
     id: (u64, u64),
     time: Instant,
+    bytes: usize,
 }
 pub(crate) struct Flow {
     pub epoch: u64,
@@ -22,6 +23,12 @@ pub(crate) struct Flow {
     minimum_ms: Option<f64>,
     enabled: bool,
     refresh: bool,
+    queue_ms: f64,
+    window: Option<Instant>,
+    window_bytes: usize,
+    delivered_kbps: f64,
+    sample_at: Option<Instant>,
+    rate: Option<(u64, crate::desktop_rate::RateCtl)>,
 }
 impl Flow {
     pub fn new(epoch: u64) -> Self {
@@ -31,15 +38,23 @@ impl Flow {
             minimum_ms: None,
             enabled: false,
             refresh: false,
+            queue_ms: 0.,
+            window: None,
+            window_bytes: 0,
+            delivered_kbps: 0.,
+            sample_at: None,
+            rate: None,
         }
     }
-    pub fn sent(&mut self, group: u64, object: u64, now: Instant) {
+    pub fn sent(&mut self, group: u64, object: u64, bytes: usize, now: Instant) {
         if self.pending.len() == 40 {
             self.pending.pop_front();
         }
+        self.window.get_or_insert(now);
         self.pending.push_back(Sent {
             id: (group, object),
             time: now,
+            bytes,
         });
     }
     pub fn receipt(&mut self, group: u64, object: u64, now: Instant) {
@@ -51,8 +66,48 @@ impl Flow {
         // claim to know raw network RTT or link capacity.
         let ms = now.saturating_duration_since(sent.time).as_secs_f64() * 1000.;
         self.minimum_ms = Some(self.minimum_ms.map_or(ms, |old| old.min(ms)));
+        self.queue_ms = (ms - self.minimum_ms.unwrap_or(ms)).max(0.);
+        self.window_bytes = self.window_bytes.saturating_add(sent.bytes);
+        if let Some(start) = self.window {
+            let elapsed = now.saturating_duration_since(start).as_secs_f64();
+            if elapsed >= 0.25 {
+                self.delivered_kbps = self.window_bytes as f64 * 8. / elapsed / 1000.;
+                self.window_bytes = 0;
+                self.window = Some(now);
+                self.sample_at = Some(now);
+            }
+        }
         self.enabled = true;
         self.pending.retain(|s| s.id > id);
+    }
+    pub fn bitrate(&mut self, maximum: u64, now: Instant) -> u64 {
+        if !self.enabled {
+            return maximum;
+        }
+        if self.rate.as_ref().map(|(cap, _)| *cap) != Some(maximum) {
+            self.rate = Some((
+                maximum,
+                crate::desktop_rate::RateCtl::new(
+                    maximum as f64 / 1000.,
+                    maximum as f64 / 4000.,
+                    now,
+                ),
+            ));
+        }
+        let fresh = self
+            .sample_at
+            .is_some_and(|t| now.saturating_duration_since(t) < Duration::from_secs(1));
+        let delivered = if fresh { self.delivered_kbps } else { 0. };
+        let age = self.pending.front().map_or(0., |s| {
+            now.saturating_duration_since(s.time).as_secs_f64() * 1000.
+        });
+        (self.rate.as_mut().unwrap().1.update(
+            if fresh { self.queue_ms } else { 0. },
+            age,
+            self.minimum_ms.unwrap_or(40.),
+            delivered,
+            now,
+        ) * 1000.) as u64
     }
     pub fn request_refresh(&mut self) {
         self.refresh = true;
@@ -92,11 +147,35 @@ impl Flow {
 mod tests {
     use super::*;
     #[test]
+    fn delivery_rate_counts_only_exact_rendered_objects_and_expires() {
+        let n = Instant::now();
+        let mut f = Flow::new(1);
+        assert_eq!(f.bitrate(20_000_000, n), 20_000_000);
+        f.sent(1, 0, 1000, n);
+        f.sent(1, 1, 2000, n);
+        f.receipt(999, 0, n + Duration::from_millis(300));
+        assert_eq!(f.window_bytes, 0);
+        f.receipt(1, 1, n + Duration::from_millis(300));
+        assert_eq!(f.delivered_kbps, 2000. * 8. / 0.3 / 1000.);
+        f.receipt(1, 1, n + Duration::from_millis(400));
+        assert_eq!(f.window_bytes, 0);
+        let rate = f.bitrate(20_000_000, n + Duration::from_secs(2));
+        assert!((5_000_000..=20_000_000).contains(&rate));
+        assert_eq!(f.bitrate(1_000_000, n + Duration::from_secs(3)), 1_000_000);
+        let mut next = Flow::new(2);
+        next.receipt(1, 1, n + Duration::from_secs(4));
+        assert_eq!(next.window_bytes, 0);
+        assert_eq!(
+            next.bitrate(20_000_000, n + Duration::from_secs(4)),
+            20_000_000
+        );
+    }
+    #[test]
     fn real_receipts_only_and_legacy_is_bounded() {
         let n = Instant::now();
         let mut f = Flow::new(3);
         for i in 0..100 {
-            f.sent(i, 0, n);
+            f.sent(i, 0, 1000, n);
         }
         assert_eq!(f.pending.len(), 40);
         f.receipt(999, 0, n);
@@ -111,9 +190,9 @@ mod tests {
         let n = Instant::now();
         let mut a = Flow::new(1);
         let mut b = Flow::new(2);
-        a.sent(1, 0, n);
+        a.sent(1, 0, 1000, n);
         a.receipt(1, 0, n + Duration::from_millis(10));
-        a.sent(2, 0, n);
+        a.sent(2, 0, 1000, n);
         assert_eq!(a.next(60, n + Duration::from_millis(200)), Decision::Wait);
         assert_eq!(b.next(60, n + Duration::from_millis(200)), Decision::Send);
         assert_eq!(a.next(60, n + Duration::from_secs(5)), Decision::Refresh);
@@ -123,12 +202,12 @@ mod tests {
     fn reset_and_failed_group_cannot_ack_future_objects() {
         let n = Instant::now();
         let mut f = Flow::new(1);
-        f.sent(1, 0, n);
+        f.sent(1, 0, 1000, n);
         f.failed_group(1);
         f.receipt(1, 0, n);
         assert!(!f.enabled);
         assert_eq!(f.next(60, n), Decision::Refresh);
-        f.sent(2, 0, n);
+        f.sent(2, 0, 1000, n);
         f.request_refresh();
         assert_eq!(f.next(60, n), Decision::Refresh);
         assert!(f.pending.is_empty());

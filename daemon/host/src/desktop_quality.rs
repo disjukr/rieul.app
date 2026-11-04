@@ -515,6 +515,36 @@ mod tests {
             },
         )
     }
+    #[test]
+    fn voxl_pacing_never_reduces_manual_target() {
+        let (r, _, a, id) = setup();
+        let support = query(&r, &a, &id);
+        let c = set(
+            &r,
+            &a,
+            &id,
+            &support,
+            DesktopQualityPolicy::Manual {
+                target: DesktopQualityTarget {
+                    fps: 60,
+                    total_bitrate: 20_000_000,
+                },
+            },
+        )
+        .unwrap();
+        let t = &c.tracks[0];
+        let n = Instant::now();
+        let mut flow = crate::desktop_flow::Flow::new(t.codec_epoch);
+        flow.sent(1, 0, 1000, n);
+        flow.receipt(1, 0, n + std::time::Duration::from_millis(20));
+        r.flow
+            .lock()
+            .unwrap()
+            .insert((id.clone(), t.track_id), flow);
+        assert_eq!(r.media_bitrate(&id, t), t.viewport.bitrate);
+        r.quality.lock().unwrap().get_mut(&id).unwrap().policy = DesktopQualityPolicy::Auto;
+        assert!(r.media_bitrate(&id, t) < t.viewport.bitrate);
+    }
     fn cool(r: &Runtime, id: &str) {
         r.quality.lock().unwrap().get_mut(id).unwrap().last_change =
             Instant::now() - Duration::from_secs(3);

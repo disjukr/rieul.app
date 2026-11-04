@@ -133,29 +133,6 @@ fn execute(backend: &dyn Backend, command: UserDesktopCommand) -> Result<UserDes
             UserDesktopResult::Done
         }
         UserDesktopCommand::StreamGroup { .. } => return Err(Error::Unsupported),
-        UserDesktopCommand::Group { track } => {
-            let mut total = 0usize;
-            let mut frames = Vec::new();
-            backend.stream_group(
-                &DesktopTrack::decode(&track.encode()).map_err(|_| Error::Invalid)?,
-                &mut |frame| {
-                    total = total.checked_add(frame.data.len()).ok_or(Error::Limit)?;
-                    if frames.len() >= 240
-                        || frame.data.len() > 4 * 1024 * 1024
-                        || total > 16 * 1024 * 1024
-                    {
-                        return Err(Error::Limit);
-                    }
-                    frames.push(UserDesktopFrame {
-                        timestamp_micros: frame.timestamp_micros,
-                        keyframe: frame.keyframe,
-                        data: frame.data,
-                    });
-                    Ok(())
-                },
-            )?;
-            UserDesktopResult::Group { frames }
-        }
     })
 }
 /// Serve one already authenticated system peer. Caller must serialize ownership of
@@ -229,7 +206,7 @@ pub async fn serve_until<S: Channel + 'static>(
             last = request.request_id;
             while groups.try_join_next().is_some() {}
             while probes.try_join_next().is_some() {}
-            if let UserDesktopCommand::Group { track } | UserDesktopCommand::StreamGroup { track, .. } = &request.command {
+            if let UserDesktopCommand::StreamGroup { track, .. } = &request.command {
                 let key = (track.track_id, track.codec_epoch);
                 if tracks.len() >= 32 && !tracks.contains_key(&key) { return Err(Error::Limit); }
                 let entry = tracks.entry(key).or_insert_with(|| (track.clone(), Arc::new(tokio::sync::Mutex::new(()))));
@@ -512,7 +489,7 @@ async fn proxy_worker(
                     let _=call.reply.send(Err(Error::Stale)); continue;
                 }
                 match &call.command {
-                    UserDesktopCommand::Group { track } | UserDesktopCommand::StreamGroup { track, .. } | UserDesktopCommand::EndTrack { track }
+                    UserDesktopCommand::StreamGroup { track, .. } | UserDesktopCommand::EndTrack { track }
                         if track.codec_epoch < minimum_codec_epoch.load(std::sync::atomic::Ordering::SeqCst) => {
                             let result = if matches!(call.command, UserDesktopCommand::EndTrack { .. }) { Ok(UserDesktopResult::Done) } else { Err(Error::Stale) };
                             let _=call.reply.send(result); continue;
@@ -774,22 +751,12 @@ impl Backend for Proxy {
         }
     }
     fn group(&self, track: &DesktopTrack) -> Result<Vec<EncodedFrame>, Error> {
-        if track.codec_epoch
-            < self
-                .minimum_codec_epoch
-                .load(std::sync::atomic::Ordering::SeqCst)
-        {
-            return Err(Error::Stale);
-        }
-        match self.call(UserDesktopCommand::Group {
-            track: ipc::DesktopTrack::decode(&track.encode()).map_err(|_| Error::Invalid)?,
-        })? {
-            UserDesktopResult::Group { frames } => Ok(frames
-                .into_iter()
-                .map(|f| EncodedFrame::new(f.timestamp_micros, f.keyframe, f.data))
-                .collect()),
-            _ => Err(Error::Backend),
-        }
+        let mut frames = vec![];
+        self.stream_group_with_refresh(track, false, &mut |f| {
+            frames.push(f);
+            Ok(())
+        })?;
+        Ok(frames)
     }
     fn keyboard_mode_supported(&self, mode: DesktopKeyboardMode) -> bool {
         mode == DesktopKeyboardMode::Physical
@@ -1160,7 +1127,10 @@ mod tests {
                 let mut track = track.clone();
                 track.track_id = id;
                 track.codec_epoch = 1;
-                commands.push(UserDesktopCommand::Group { track });
+                commands.push(UserDesktopCommand::StreamGroup {
+                    track,
+                    refresh: false,
+                });
             }
             for (i, command) in commands.into_iter().enumerate() {
                 write(

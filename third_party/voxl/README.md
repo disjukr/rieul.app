@@ -3,7 +3,8 @@
 Upstream: https://github.com/tembo/voxl/tree/a24c7171bc3b678101a14b3b21521836a414bf7b
 
 `daemon/host/src/desktop_flow.rs` is an adapted source port of
-`src/video.rs::flow_ok` (lines 184–214 at that commit), under the accompanying
+`src/video.rs::flow_ok` (lines 184–214 at that commit);
+`daemon/host/src/desktop_rate.rs` ports `RateCtl` (lines 219–348), under the accompanying
 MIT license. The queue-window calculation, age threshold and stalled-client
 resynchronization are upstream code adapted to Rieul's authenticated per-track
 render receipts and bounded ledger. This is executable production-path code,
@@ -11,7 +12,7 @@ not merely a design reference. Rieul tests exercise its real transport path.
 
 This is a partial integration, not embedding voxl's complete server or capture
 pipeline. voxl's `run` owns process lifecycle, listeners and panic handling; it
-is not called. voxl's x264 encoder, dependencies, bitrate controller, stripe
+is not called. voxl's x264 encoder, dependencies, stripe
 scheduler, macroblock hints and paintover are not included. No x264 binary or
 GPL source is linked or packaged by this branch. The earlier x264 experiment
 remains on a separate unpublished branch, outside this branch's ancestry.
@@ -63,8 +64,8 @@ improvement claim is made here.
 Real guest capture/dirty-rectangle behavior, hardware scene-change behavior,
 Windows runtime, degraded real networks and equal-quality complete-pipeline
 benchmarks remain unverified. No host permission, display, service, pairing or
-trust settings were changed. This checkpoint needs focused review before main
-integration/release.
+trust settings were changed. Independent review and the follow-up tests below precede main integration;
+a signed release and installed-daemon update are separate actions.
 
 Checkpoint checks: Rust core 47/47, host 187/187, macOS 122/122;
 125 Node unit/codegen tests; TypeScript check and Vite build; 49 Chrome UI tests;
@@ -98,3 +99,32 @@ compares the same hardware/settings and synthetic inputs, including decoded luma
 PSNR. Scroll patterns use fewer bytes with mixed PSNR results; high-entropy noise loses substantial
 quality; encoding is not faster. See its README and raw data for the actual
 numbers and limits. These findings prohibit an unqualified performance claim.
+
+
+## Default pipeline transition
+
+The user accepted the known quality tradeoff and requested replacement of the
+old structure. The default macOS capture path now uses short hardware GOPs;
+there is no experimental enable switch. The private batched `Group` command
+(tag 5) and result (tag 4) are retired, never reused. All live helper media uses
+incremental bounded `StreamGroup`/`GroupFrame`/terminal completion. Private IPC
+requires the same installed helper/daemon code; public rendered-object receipts
+remain additive and older viewers retain existing feedback without ACK gating.
+
+The additional upstream `RateCtl` source port controls automatic-mode transport
+pacing using exact rendered-object byte receipts, minimum observed delivery
+latency (not raw RTT), age and a 250ms byte window. It never changes manual targets
+or exceeds the configured track budget. Samples expire after one second; idle
+screens do not justify increasing estimated capacity. It does not directly
+reconfigure the native encoder bitrate. The existing quality negotiation/target
+limits remain; actual visual quality, fps and bandwidth are not guaranteed.
+
+This replaces Rieul's batch/all-IDR media transport with a voxl-derived flow/rate
+pipeline. It is not the complete upstream executable: its listener, runtime,
+signal hooks, capture, input, stripe/paintover and x264-specific machinery are not
+embedded. Rieul's authentication, session ownership and hardware backends remain.
+The MIT attribution is included in root LICENSE-MIT, which packaging already
+copies to distributable licenses. No GPL dependency is introduced.
+
+Final review found no new auth, lock-order or drain blocker. New regressions cover
+unknown/duplicate ACK bytes, stale samples/new epochs, and manual target bypass.

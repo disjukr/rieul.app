@@ -77,7 +77,7 @@ const rustBaseline = {
   // Additive optional rendered-object receipt; existing RPC tags stay unchanged.
   rpc: "a960dcec6ff0a09879f7724acef3dfbe12bf6b2b91e8be42ae85c7626a4d2a40",
   // Incremental private helper group command/results; existing tags unchanged.
-  ipc: "036f2fb349b260874dd6376be95f5eeb6c12ab8f2a4335bb744c098f3e84a34b",
+  ipc: "1762163f8aa8ed421ed024698d65c524a40602e34711e51e16fd4dc44f08c6c0",
 };
 for (const [schema, hash] of Object.entries(rustBaseline))
   test(`Node Rust codegen preserves ${schema} baseline and is deterministic`, async () =>
