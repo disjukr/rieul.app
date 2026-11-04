@@ -218,10 +218,11 @@ pub async fn serve_until<S: Channel + 'static>(
                     let frames = tx.clone();
                     let response = tokio::task::spawn_blocking(move || {
                         let _guard = guard;
-                        if let UserDesktopCommand::StreamGroup { track, refresh } = request.command {
+                        if let UserDesktopCommand::StreamGroup { track, refresh, bitrate } = request.command {
                             let track = DesktopTrack::decode(&track.encode()).map_err(|_| Error::Invalid);
                             let mut count=0; let mut bytes=0usize;
-                            result(track.and_then(|track| backend.stream_group_with_refresh(&track, refresh, &mut |f| {
+                            let track = track.and_then(|t| { crate::desktop::validate_encoder_rate(&t, bitrate)?; Ok(t) });
+                            result(track.and_then(|track| backend.stream_group_at_rate(&track, refresh, bitrate, &mut |f| {
                                 count+=1; bytes=bytes.checked_add(f.data.len()).ok_or(Error::Limit)?;
                                 if count>240 || f.data.len()>4*1024*1024 || bytes>16*1024*1024 { return Err(Error::Limit); }
                                 frames.blocking_send(UserDesktopResponse {request_id:request.request_id,result:UserDesktopResult::GroupFrame {frame:UserDesktopFrame {timestamp_micros:f.timestamp_micros,keyframe:f.keyframe,data:f.data}}}).map_err(|_|Error::Stale)
@@ -692,6 +693,16 @@ impl Backend for Proxy {
         refresh: bool,
         emit: &mut dyn FnMut(EncodedFrame) -> Result<(), Error>,
     ) -> Result<(), Error> {
+        self.stream_group_at_rate(track, refresh, track.viewport.bitrate, emit)
+    }
+    fn stream_group_at_rate(
+        &self,
+        track: &DesktopTrack,
+        refresh: bool,
+        bitrate: u64,
+        emit: &mut dyn FnMut(EncodedFrame) -> Result<(), Error>,
+    ) -> Result<(), Error> {
+        crate::desktop::validate_encoder_rate(track, bitrate)?;
         if track.codec_epoch
             < self
                 .minimum_codec_epoch
@@ -705,6 +716,7 @@ impl Backend for Proxy {
             .try_send(Call {
                 command: UserDesktopCommand::StreamGroup {
                     refresh,
+                    bitrate,
                     track: ipc::DesktopTrack::decode(&track.encode())
                         .map_err(|_| Error::Invalid)?,
                 },
@@ -789,6 +801,7 @@ mod tests {
     struct Fake {
         inputs: Mutex<Vec<DesktopInputEvent>>,
         stopped: AtomicUsize,
+        rates: Mutex<Vec<(u64, u64, u64)>>,
         probe_pause: Mutex<
             Option<(
                 tokio::sync::oneshot::Sender<()>,
@@ -797,6 +810,20 @@ mod tests {
         >,
     }
     impl Backend for Fake {
+        fn stream_group_at_rate(
+            &self,
+            t: &DesktopTrack,
+            refresh: bool,
+            bitrate: u64,
+            emit: &mut dyn FnMut(EncodedFrame) -> Result<(), Error>,
+        ) -> Result<(), Error> {
+            crate::desktop::validate_encoder_rate(t, bitrate)?;
+            self.rates
+                .lock()
+                .unwrap()
+                .push((t.track_id, t.codec_epoch, bitrate));
+            self.stream_group_with_refresh(t, refresh, emit)
+        }
         fn probe_video(&self, _: &DesktopTrack) -> DesktopQualityVerification {
             if let Some((started, release)) = self.probe_pause.lock().unwrap().take() {
                 let _ = started.send(());
@@ -892,6 +919,10 @@ mod tests {
                 &DesktopTrack {
                     track_id: 1,
                     codec_epoch: 1,
+                    viewport: DesktopViewport {
+                        bitrate: 1000,
+                        ..Default::default()
+                    },
                     ..Default::default()
                 },
                 &mut |_| {
@@ -955,6 +986,10 @@ mod tests {
                 &DesktopTrack {
                     track_id: 1,
                     codec_epoch: 1,
+                    viewport: DesktopViewport {
+                        bitrate: 1000,
+                        ..Default::default()
+                    },
                     ..Default::default()
                 },
                 &mut |_| {
@@ -972,6 +1007,69 @@ mod tests {
             .unwrap();
         stop_tx.send(()).unwrap();
         let _ = server.await;
+    }
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn dynamic_rate_roundtrip_keeps_track_and_input() {
+        let (client, server) = tokio::io::duplex(8192);
+        let backend = Arc::new(Fake::default());
+        let task = tokio::spawn(serve(server, backend.clone()));
+        let slot = Arc::new(Mutex::new(Some(client)));
+        let proxy = Proxy::new(Arc::new(move || {
+            let stream = slot.lock().unwrap().take();
+            Box::pin(async move {
+                stream
+                    .map(|s| Box::new(s) as Connection)
+                    .ok_or(Error::Backend)
+            })
+        }));
+        let native = backend.clone();
+        tokio::task::spawn_blocking(move || {
+            let t = DesktopTrack {
+                track_id: 9,
+                codec_epoch: 3,
+                viewport: DesktopViewport {
+                    bitrate: 2_000_000,
+                    ..Default::default()
+                },
+                ..Default::default()
+            };
+            proxy
+                .input(&DesktopInputEvent::PhysicalKey {
+                    usage: 4,
+                    down: true,
+                    repeat: false,
+                })
+                .unwrap();
+            for rate in [2_000_000, 500_000, 2_000_000] {
+                let mut count = 0;
+                proxy
+                    .stream_group_at_rate(&t, false, rate, &mut |_| {
+                        count += 1;
+                        Ok(())
+                    })
+                    .unwrap();
+                assert_eq!(count, 1);
+            }
+            for rate in [0, 2_000_001, u64::MAX] {
+                assert_eq!(
+                    proxy.stream_group_at_rate(&t, false, rate, &mut |_| panic!(
+                        "invalid rate emitted"
+                    )),
+                    Err(Error::Invalid)
+                );
+            }
+            assert_eq!(
+                *native.rates.lock().unwrap(),
+                vec![(9, 3, 2_000_000), (9, 3, 500_000), (9, 3, 2_000_000)]
+            );
+            assert_eq!(native.stopped.load(Ordering::SeqCst), 0);
+            assert_eq!(native.inputs.lock().unwrap().len(), 1);
+            proxy.input(&DesktopInputEvent::ReleaseAll).unwrap();
+        })
+        .await
+        .unwrap();
+        task.abort();
+        let _ = task.await;
     }
     #[test]
     fn synthetic_probe_bounds_and_unknown_backend_do_not_inject_input() {
@@ -1041,6 +1139,10 @@ mod tests {
             p.group(&DesktopTrack {
                 track_id: 1,
                 codec_epoch: 1,
+                viewport: DesktopViewport {
+                    bitrate: 1000,
+                    ..Default::default()
+                },
                 ..Default::default()
             })
         });
@@ -1128,6 +1230,7 @@ mod tests {
                 track.track_id = id;
                 track.codec_epoch = 1;
                 commands.push(UserDesktopCommand::StreamGroup {
+                    bitrate: track.viewport.bitrate,
                     track,
                     refresh: false,
                 });

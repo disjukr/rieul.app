@@ -87,6 +87,8 @@ static VTCompressionSessionRef encoder(uint32_t width,uint32_t height,uint32_t f
     VTCompressionSessionRef compression;
     NSMutableData *packet;
     BOOL encodeFailed, wantKey, retryKey;
+    uint32_t bitrate;
+    BOOL bitrateUnsupported;
 }
 @end
 static void encoded(void *ref,void *source,OSStatus status,VTEncodeInfoFlags flags,CMSampleBufferRef sample) {
@@ -157,6 +159,7 @@ bool rd_hardware_codec(uint32_t *codec) { return synthetic_frame_at(640,480,60,2
 bool rd_synthetic_packet(RDPacket emit,void *context) { uint32_t codec; return synthetic_frame_at(640,480,60,2000000,&codec,emit,context); }
 // Test fixture: the same hardware encoder and packet callback as live capture,
 // fed only locally allocated pixels. No ScreenCaptureKit/input/permission calls.
+bool rd_capture_set_bitrate(void *handle,uint32_t bitrate);
 bool rd_synthetic_groups(RDPacket emit,void *context) {
     @autoreleasepool {
         RDStream *self=[RDStream new]; self->packet=[NSMutableData new];
@@ -166,6 +169,15 @@ bool rd_synthetic_groups(RDPacket emit,void *context) {
         if(CVPixelBufferCreate(NULL,640,480,kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,NULL,&image)) return false;
         bool ok=true;
         for(uint64_t frame=0;frame<12 && ok;frame++) {
+            if(frame%4==0) {
+                uint32_t requested=frame==4?500000:2000000;
+                if(!rd_capture_set_bitrate((__bridge void *)self,requested)) { ok=false; break; }
+                CFTypeRef property=NULL; int64_t actual=0;
+                OSStatus result=VTSessionCopyProperty(self->compression,kVTCompressionPropertyKey_AverageBitRate,NULL,&property);
+                bool verified=!result && property && CFGetTypeID(property)==CFNumberGetTypeID() && CFNumberGetValue((CFNumberRef)property,kCFNumberSInt64Type,&actual) && actual==requested;
+                if(property) CFRelease(property);
+                if(!verified) { ok=false; break; }
+            }
             CVPixelBufferLockBaseAddress(image,0);
             for(size_t plane=0;plane<2;plane++) memset(CVPixelBufferGetBaseAddressOfPlane(image,plane),plane?128:16,CVPixelBufferGetBytesPerRowOfPlane(image,plane)*CVPixelBufferGetHeightOfPlane(image,plane));
             CVPixelBufferUnlockBaseAddress(image,0);
@@ -177,6 +189,16 @@ bool rd_synthetic_groups(RDPacket emit,void *context) {
         }
         CVPixelBufferRelease(image); return ok;
     }
+}
+// Called only while the Rust capture lock is held, between completed GOPs.
+bool rd_capture_set_bitrate(void *handle,uint32_t bitrate) {
+    RDStream *self=(__bridge RDStream *)handle;
+    if(!self || !self->compression || !bitrate || self->bitrateUnsupported) return false;
+    if(self->bitrate==bitrate) return true;
+    OSStatus status=VTSessionSetProperty(self->compression,kVTCompressionPropertyKey_AverageBitRate,(__bridge CFNumberRef)@(bitrate));
+    if(status) { self->bitrateUnsupported=YES; NSLog(@"Screen encoder rejected dynamic bitrate (%d); retaining transport pacing",(int)status); return false; }
+    self->bitrate=bitrate;
+    return true;
 }
 bool rd_capture_destroy(void *handle);
 // The returned object owns a bounded (latest only) frame slot and a hardware session.
@@ -192,7 +214,7 @@ void *rd_capture_create(uint32_t id,double x,double y,double w,double h,uint32_t
         for(SCDisplay *candidate in content.displays) if(candidate.displayID==id) { display=candidate; break; }
         if(!display) return NULL;
         RDStream *self=[RDStream new]; self->ready=dispatch_semaphore_create(0); self->queue=dispatch_queue_create("rieul.desktop.capture",DISPATCH_QUEUE_SERIAL);
-        self->compression=encoder(width,height,fps,bitrate,encoded,(__bridge void *)self); if(!self->compression) return NULL;
+        self->compression=encoder(width,height,fps,bitrate,encoded,(__bridge void *)self); if(!self->compression) return NULL; self->bitrate=bitrate;
         SCStreamConfiguration *config=[SCStreamConfiguration new];
         config.width=width; config.height=height; config.pixelFormat=kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange;
         config.queueDepth=3; config.minimumFrameInterval=CMTimeMake(1,fps); config.showsCursor=NO;

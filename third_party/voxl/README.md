@@ -164,3 +164,34 @@ paintover, encoder thread governors and striped x264 instances require hardware
 API equivalents and platform validation. The current RateCtl still controls
 transport pacing, not native encoder reconfiguration. Whole-session live capture
 latency and equal-quality performance remain unproven.
+
+## Native encoder rate targets (after 0.6.23)
+
+The authenticated private StreamGroup request carries a required encoder bitrate
+separately from the unchanged negotiated track descriptor. Both proxy and helper
+reject zero, above-track-budget and non-u32 targets. Automatic mode supplies the
+voxl RateCtl target based on current rendered-object receipts; manual mode uses
+the negotiated target. This fine-grained control is distinct from the existing
+coarse resolution/fps quality ladder and does not replace tracks, windows or
+control epochs.
+
+At a completed GOP boundary, macOS updates VideoToolbox AverageBitRate under the
+capture lock. Windows applies MeanBitRate on the encoder's COM thread only when
+its current rate-control mode is a known CBR/VBR mode and IsModifiable returns
+exact S_OK. Quality mode, unknown support or setter rejection retain encoding
+and transport pacing; rejected native setters are not retried every group.
+These properties are soft targets, not output bitrate or quality guarantees.
+
+Synthetic M1 Max validation changed and read back 2 Mbps → 0.5 Mbps → 2 Mbps on
+one hardware VideoToolbox session and encoded twelve frames across the changes.
+The private IPC regression verifies target changes, unchanged track/codec epoch,
+held input preservation, and invalid-budget rejection. Worker tests verify exact
+rate/refresh handoff. Host 198 and macOS 122 aggregate tests, the Windows x64 API
+type harness and the isolated two-track IPC/WebTransport/Chrome replay pass.
+The replay uses preencoded frames, so it does not measure live dynamic encoding.
+Windows real hardware rate reconfiguration remains unverified.
+
+Desktop 0.6.23 is pinned to 30bce96 and excludes this follow-up. Remaining work
+includes stripe/paintover equivalents, browser decode/render workers, Windows
+partial CPU readback/conversion and access-loss recovery, and validation of
+upstream color-space differences. No x264/GPL encoder is introduced.

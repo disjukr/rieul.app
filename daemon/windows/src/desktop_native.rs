@@ -299,6 +299,8 @@ pub struct HardwareEncoder {
     fps: u32,
     credits: std::cell::Cell<u32>,
     headers: std::cell::RefCell<Vec<u8>>,
+    bitrate: std::cell::Cell<u32>,
+    bitrate_unsupported: std::cell::Cell<bool>,
 }
 impl HardwareEncoder {
     pub fn new(width: u32, height: u32, fps: u32, bitrate: u32) -> Result<Self> {
@@ -401,6 +403,8 @@ impl HardwareEncoder {
                         fps,
                         credits: std::cell::Cell::new(0),
                         headers: Default::default(),
+                        bitrate: std::cell::Cell::new(bitrate),
+                        bitrate_unsupported: std::cell::Cell::new(false),
                     })
                 })();
                 match attempt {
@@ -415,6 +419,37 @@ impl HardwareEncoder {
             }
             selected.ok_or_else(invalid)
         }
+    }
+    /// Only called between completed groups on the encoder's COM owner thread.
+    /// S_FALSE is not permission to modify; unsupported hardware keeps pacing.
+    pub fn set_bitrate(&self, bitrate: u32) -> bool {
+        if bitrate == 0 || self.bitrate_unsupported.get() {
+            return false;
+        }
+        if bitrate == self.bitrate.get() {
+            return true;
+        }
+        let accepted = unsafe {
+            self.transform.cast::<ICodecAPI>().is_ok_and(|codec| {
+                // Quality mode ignores MeanBitRate. Unknown modes are not evidence.
+                let rate_mode = codec
+                    .GetValue(&CODECAPI_AVEncCommonRateControlMode)
+                    .and_then(|v| windows::Win32::System::Variant::VariantToUInt32(&v));
+                let uses_rate = rate_mode.is_ok_and(|m| matches!(m, 0 | 1 | 2 | 4 | 5 | 6));
+                uses_rate
+                    && codec.IsModifiable(&CODECAPI_AVEncCommonMeanBitRate) == HRESULT(0)
+                    && codec
+                        .SetValue(&CODECAPI_AVEncCommonMeanBitRate, &VARIANT::from(bitrate))
+                        .is_ok()
+            })
+        };
+        if accepted {
+            self.bitrate.set(bitrate);
+        } else {
+            self.bitrate_unsupported.set(true);
+            tracing::warn!("Screen encoder rejected dynamic bitrate; retaining transport pacing");
+        }
+        accepted
     }
     pub fn encode_keyframe(&self, nv12: &[u8], timestamp_micros: u64) -> Result<Vec<u8>> {
         let (bytes, key) = self.encode(nv12, timestamp_micros, true)?;

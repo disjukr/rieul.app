@@ -29,6 +29,8 @@ union UserDesktopCommand {
     track: DesktopTrack,
     @ id - 2
     refresh: bool,
+    @ id - 3
+    bitrate: u53,
   ),
   @ id - 8
   ProbeVideo(

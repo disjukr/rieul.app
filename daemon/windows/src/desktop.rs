@@ -180,6 +180,15 @@ impl Backend for WindowsDesktop {
     ) -> Result<(), Error> {
         self.captures.stream(t, refresh, emit)
     }
+    fn stream_group_at_rate(
+        &self,
+        t: &DesktopTrack,
+        refresh: bool,
+        bitrate: u64,
+        emit: &mut dyn FnMut(EncodedFrame) -> Result<(), Error>,
+    ) -> Result<(), Error> {
+        self.captures.stream_at_rate(t, refresh, bitrate, emit)
+    }
     fn end_track(&self, t: &DesktopTrack) -> Result<(), Error> {
         self.captures.end(t)
     }

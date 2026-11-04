@@ -38,6 +38,16 @@ impl Captures {
         refresh: bool,
         emit: &mut dyn FnMut(EncodedFrame) -> Result<(), Error>,
     ) -> Result<(), Error> {
+        self.stream_at_rate(t, refresh, t.viewport.bitrate, emit)
+    }
+    pub fn stream_at_rate(
+        &self,
+        t: &DesktopTrack,
+        refresh: bool,
+        bitrate: u64,
+        emit: &mut dyn FnMut(EncodedFrame) -> Result<(), Error>,
+    ) -> Result<(), Error> {
+        rieul_daemon_host::desktop::validate_encoder_rate(t, bitrate)?;
         let key = (t.track_id, t.codec_epoch);
         let track = {
             let mut tracks = self.tracks.lock().map_err(|_| Error::Backend)?;
@@ -59,7 +69,10 @@ impl Captures {
             return Err(Error::Stale);
         }
         let worker = track.worker.lock().map_err(|_| Error::Backend)?;
-        worker.as_ref().ok_or(Error::Stale)?.group(refresh, emit)
+        worker
+            .as_ref()
+            .ok_or(Error::Stale)?
+            .group_at_rate(refresh, bitrate, emit)
     }
 }
 fn validate_key(t: &DesktopTrack, format: native::Codec, packet: &[u8]) -> Result<(), Error> {
@@ -135,8 +148,11 @@ fn create(t: DesktopTrack) -> Result<Worker, Error> {
         };
         let clock = Instant::now();
         Ok(
-            move |refresh: bool, emit: &mut dyn FnMut(EncodedFrame) -> Result<(), Error>| {
+            move |refresh: bool,
+                  bitrate: u64,
+                  emit: &mut dyn FnMut(EncodedFrame) -> Result<(), Error>| {
                 let v = &t.viewport;
+                state.encoder.set_bitrate(bitrate as u32);
                 let count = if short {
                     rieul_daemon_host::desktop_worker::group_frames(v.fps)
                 } else {

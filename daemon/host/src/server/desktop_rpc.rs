@@ -2484,6 +2484,7 @@ async fn stream_media(
         let started = std::time::Instant::now();
         let backend = backend.clone();
         let capture_track = track.clone();
+        let bitrate = runtime.media_bitrate(&id, &track);
         // A non-cancelable OS call keeps its own workload guard until it returns.
         let Some(work) = runtime.capture_work() else {
             return;
@@ -2491,7 +2492,7 @@ async fn stream_media(
         let (tx, mut rx) = tokio::sync::mpsc::channel(2);
         let producer = tokio::task::spawn_blocking(move || {
             let _work = work;
-            backend.stream_group_with_refresh(&capture_track, refresh, &mut |frame| {
+            backend.stream_group_at_rate(&capture_track, refresh, bitrate, &mut |frame| {
                 tx.blocking_send(frame).map_err(|_| desktop::Error::Stale)
             })
         });

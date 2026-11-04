@@ -56,6 +56,7 @@ unsafe extern "C" {
         bitrate: u32,
         shutdown_failed: *mut bool,
     ) -> *mut c_void;
+    fn rd_capture_set_bitrate(handle: *mut c_void, bitrate: u32) -> bool;
     fn rd_capture_destroy(handle: *mut c_void) -> bool;
     fn rd_capture_next(
         handle: *mut c_void,
@@ -267,11 +268,7 @@ impl MacDesktop {
             }
             _ => return Err(Error::Unsupported),
         }
-        if ok {
-            Ok(())
-        } else {
-            Err(Error::Backend)
-        }
+        if ok { Ok(()) } else { Err(Error::Backend) }
     }
 }
 fn map_point(v: &DesktopViewport, d: &Display, x: f64, y: f64) -> Result<(f64, f64), Error> {
@@ -480,6 +477,16 @@ impl Backend for MacDesktop {
         refresh: bool,
         emit: &mut dyn FnMut(EncodedFrame) -> Result<(), Error>,
     ) -> Result<(), Error> {
+        self.stream_group_at_rate(track, refresh, track.viewport.bitrate, emit)
+    }
+    fn stream_group_at_rate(
+        &self,
+        track: &DesktopTrack,
+        refresh: bool,
+        bitrate: u64,
+        emit: &mut dyn FnMut(EncodedFrame) -> Result<(), Error>,
+    ) -> Result<(), Error> {
+        rieul_daemon_host::desktop::validate_encoder_rate(track, bitrate)?;
         if !track.codec.codec.starts_with("avc1.42") {
             return Err(Error::Unsupported);
         }
@@ -526,6 +533,10 @@ impl Backend for MacDesktop {
         let capture = capture.lock().map_err(|_| Error::Backend)?;
         if capture.0.is_null() {
             return Err(Error::Stale);
+        }
+        // Unsupported dynamic properties retain the encoder and transport pacing.
+        unsafe {
+            rd_capture_set_bitrate(capture.0, bitrate as u32);
         }
         struct Packet {
             frame: Option<EncodedFrame>,

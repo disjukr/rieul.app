@@ -853,6 +853,17 @@ pub trait Backend: Send + Sync {
     ) -> Result<(), Error> {
         Ok(())
     }
+    /// Apply a per-group encoder target without changing layout/control epochs.
+    fn stream_group_at_rate(
+        &self,
+        track: &DesktopTrack,
+        refresh: bool,
+        bitrate: u64,
+        emit: &mut dyn FnMut(EncodedFrame) -> Result<(), Error>,
+    ) -> Result<(), Error> {
+        validate_encoder_rate(track, bitrate)?;
+        self.stream_group_with_refresh(track, refresh, emit)
+    }
     fn stream_group_with_refresh(
         &self,
         track: &rieul_daemon_core::generated::rpc::DesktopTrack,
@@ -1607,5 +1618,14 @@ impl Runtime {
     }
     pub(crate) fn backend(&self) -> Option<Arc<dyn Backend>> {
         self.backend.clone()
+    }
+}
+
+/// A dynamic encoder target cannot expand the negotiated track budget.
+pub fn validate_encoder_rate(track: &DesktopTrack, bitrate: u64) -> Result<(), Error> {
+    if bitrate == 0 || bitrate > track.viewport.bitrate || bitrate > u32::MAX as u64 {
+        Err(Error::Invalid)
+    } else {
+        Ok(())
     }
 }

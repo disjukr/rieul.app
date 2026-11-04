@@ -96,6 +96,7 @@ mod fixture {
                 |e| {
                     let packet = e.encode_keyframe(&pixels, 0)?;
                     if codec == native::Codec::H264 {
+                        println!("hardware_h264_dynamic_bitrate={}", e.set_bitrate(1_000_000));
                         match e.encode(&pixels, 33_333, false) {
                             Ok((delta, key)) => {
                                 println!("hardware_h264_delta={} bytes={}", !key, delta.len())

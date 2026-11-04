@@ -202,12 +202,20 @@ async fn crash_releases_uncertain_input_then_invalidates_attachments_and_old_tra
         );
         assert!(
             p.group(&DesktopTrack {
+                viewport: DesktopViewport {
+                    bitrate: 1000,
+                    ..Default::default()
+                },
                 codec_epoch: 0,
                 ..Default::default()
             })
             .is_err()
         );
         p.end_track(&DesktopTrack {
+            viewport: DesktopViewport {
+                bitrate: 1000,
+                ..Default::default()
+            },
             codec_epoch: 0,
             ..Default::default()
         })
@@ -242,13 +250,21 @@ async fn outstanding_old_frame_is_not_delivered_after_recovery_and_shutdown_does
     let p = h.proxy.clone();
     let frame = tokio::task::spawn_blocking(move || {
         p.group(&DesktopTrack {
+            viewport: DesktopViewport {
+                bitrate: 1000,
+                ..Default::default()
+            },
             codec_epoch: 1,
             ..Default::default()
         })
     });
-    while h.native.groups.load(Ordering::SeqCst) == 0 {
-        tokio::task::yield_now().await;
-    }
+    tokio::time::timeout(Duration::from_secs(2), async {
+        while h.native.groups.load(Ordering::SeqCst) == 0 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
     h.crash().await;
     assert!(frame.await.unwrap().is_err());
     let p = h.proxy.clone();
@@ -256,6 +272,10 @@ async fn outstanding_old_frame_is_not_delivered_after_recovery_and_shutdown_does
         p.recover(2).unwrap();
         assert!(
             p.group(&DesktopTrack {
+                viewport: DesktopViewport {
+                    bitrate: 1000,
+                    ..Default::default()
+                },
                 codec_epoch: 1,
                 ..Default::default()
             })
@@ -263,6 +283,10 @@ async fn outstanding_old_frame_is_not_delivered_after_recovery_and_shutdown_does
         );
         assert_eq!(
             p.group(&DesktopTrack {
+                viewport: DesktopViewport {
+                    bitrate: 1000,
+                    ..Default::default()
+                },
                 codec_epoch: 2,
                 ..Default::default()
             })
@@ -389,6 +413,10 @@ async fn uncertain_capture_guard_survives_failed_recovery_and_retires_only_after
     h.crash().await;
     let gate = Arc::new(WorkGate::default());
     let track = DesktopTrack {
+        viewport: DesktopViewport {
+            bitrate: 1000,
+            ..Default::default()
+        },
         codec_epoch: 1,
         ..Default::default()
     };
