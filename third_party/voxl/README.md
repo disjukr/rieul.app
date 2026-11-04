@@ -301,3 +301,36 @@ four settled frames. High-entropy luma PSNR reached 13.12/15.29/17.36dB at
 the same instantaneous target and is not enabled in production. A bounded
 refinement credit/pacing policy and matched-quality latency evidence are still
 needed before describing high-quality paintover as complete.
+
+## Bounded hardware refinement
+
+The next implementation uses a 250ms *refinement allowance*, replenished at the
+current controller rate and charged by complete encoded object bytes, including
+motion and recovery keyframes. It is not a strict total-bitrate limiter: ordinary
+motion/recovery must progress, and their excess creates bounded debt before any
+new refinement entitlement. Rate reductions discard positive credit. Codec/layout
+replacement constructs a fresh budget.
+
+Only automatic-mode headroom can raise an encoder's temporary target, by at most
+4x the current rate and never above the already negotiated viewport target.
+Manual mode already runs at that target and receives no temporary increase.
+Targets describe encoder configuration, not guaranteed output quality or bitrate.
+A complete refinement object exceeding available credit is discarded before any
+stripe is emitted; the next group starts with all-stripe keys at base rate, with
+further increases suppressed until motion. There is no added frame wait queue.
+
+Both backends verify bitrate readback, and partial setter success must restore
+all encoder rates or terminate the pipeline. Restoration is lazy while idle:
+before the next encoded frame, the latest base target is restored and verified.
+Closing the track destroys the sessions. A native macOS injected-transition test
+and Rust adapter tests cover partial failures and failed restoration; actual
+allocated two-session VideoToolbox increase/restoration also passed.
+
+The synthetic 48-object stripe fixture includes motion, four forced settled
+objects at increased rate, and motion at restored base rate. Separate hardware
+export and IPC/WebTransport/Chrome replay passed delayed receipts, refresh,
+stream cancellation and fake held-input cleanup. This is not live screen latency
+or Windows GPU evidence. The reproducible encoder-only rate experiment is
+`tools/hardware-screen-bench/examples/refinement.rs`, with raw results alongside
+the earlier benchmark. Its high-entropy quality improvement costs additional
+bytes; it is not a matched-quality performance comparison or x264 CRF equivalence.

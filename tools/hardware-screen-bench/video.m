@@ -60,3 +60,5 @@ double bench_mse(void *p){Bench *b=p;
  for(size_t y=0;y<h;y++)for(size_t x=0;x<w;x++){int delta=a[y*CVPixelBufferGetBytesPerRowOfPlane(b->image,0)+x]-d[y*CVPixelBufferGetBytesPerRowOfPlane(b->decoded,0)+x];sum+=(double)delta*delta;}
  CVPixelBufferUnlockBaseAddress(b->decoded,kCVPixelBufferLock_ReadOnly);CVPixelBufferUnlockBaseAddress(b->image,kCVPixelBufferLock_ReadOnly);return sum/(w*h);
 }
+
+bool bench_rate(void *p,uint32_t rate){Bench *b=p;return VTSessionSetProperty(b->session,kVTCompressionPropertyKey_AverageBitRate,(__bridge CFNumberRef)@(rate))==0;}

@@ -91,6 +91,7 @@ static VTCompressionSessionRef encoder(uint32_t width,uint32_t height,uint32_t f
     BOOL encodeFailed, wantKey, retryKey;
     uint32_t bitrate;
     BOOL bitrateUnsupported;
+    BOOL refining;
     NSArray *stripes;
     CVPixelBufferRef stripeImage;
     uint32_t stripeY, imageWidth, imageHeight;
@@ -216,7 +217,8 @@ static int encode_pipeline(RDStream *self,CVPixelBufferRef image,uint64_t timest
     return 1;
 }
 // Exercises the actual two-session/copy/bundle path without SCStream or permissions.
-bool rd_synthetic_stripes(uint32_t frames,RDPacket emit,void *context) {
+static bool frame_rate(RDStream *self,uint32_t base,uint32_t target,bool *boosted);
+static bool synthetic_stripes(uint32_t frames,bool refine,RDPacket emit,void *context) {
     @autoreleasepool {
         if(!frames || frames>60) return false;
         RDStream *self=[RDStream new];
@@ -230,14 +232,21 @@ bool rd_synthetic_stripes(uint32_t frames,RDPacket emit,void *context) {
         bool ok=true;
         for(uint32_t i=0;i<frames && ok;i++) {
             if(CVPixelBufferLockBaseAddress(image,0)) { ok=false; break; }
-            for(size_t y=0;y<480;y++) memset((uint8_t *)CVPixelBufferGetBaseAddressOfPlane(image,0)+y*CVPixelBufferGetBytesPerRowOfPlane(image,0),y<240?48+(i/2)%2:208+((i+1)/2)%2,640);
+            uint32_t n=refine && i>=32 && i<48?31:i;
+            for(size_t y=0;y<480;y++) memset((uint8_t *)CVPixelBufferGetBaseAddressOfPlane(image,0)+y*CVPixelBufferGetBytesPerRowOfPlane(image,0),y<240?48+(n/2)%2:208+((n+1)/2)%2,640);
             CVPixelBufferUnlockBaseAddress(image,0);
-            ok=encode_pipeline(self,image,i*16667,i==0,false)==1;
+            bool paint=refine && i>=44 && i<48,boosted=false;
+            if(refine && (!frame_rate(self,2000000,paint?8000000:2000000,&boosted)||boosted!=paint)) {ok=false;break;}
+            int result=encode_pipeline(self,image,i*16667,i==0,paint);
+            if(result==0) continue;
+            ok=result==1;
             if(ok && emit) ok=emit(context,self->packet.bytes,self->packet.length,i*16667);
         }
         CVPixelBufferRelease(image); return ok;
     }
 }
+bool rd_synthetic_stripes(uint32_t frames,RDPacket emit,void *context) {return synthetic_stripes(frames,false,emit,context);}
+bool rd_synthetic_refinement(uint32_t frames,RDPacket emit,void *context) {return synthetic_stripes(frames,true,emit,context);}
 bool rd_hardware_stripes(void) { return rd_synthetic_stripes(2,NULL,NULL); }
 bool rd_probe_stripe_video(uint32_t width,uint32_t height,uint32_t fps,uint32_t bitrate,uint32_t count,uint32_t *codec) {
     @autoreleasepool {
@@ -324,7 +333,7 @@ bool rd_synthetic_groups(uint32_t groupLength,RDPacket emit,void *context) {
 // Called only while the Rust capture lock is held, between completed GOPs.
 bool rd_capture_set_bitrate(void *handle,uint32_t bitrate) {
     RDStream *self=(__bridge RDStream *)handle;
-    if(!self || !bitrate || self->bitrateUnsupported) return false;
+    if(!self || !bitrate) return false;
     if(self->stripes) {
         if(bitrate<self->stripes.count) return false;
         uint32_t remaining=bitrate; bool ok=true;
@@ -336,10 +345,64 @@ bool rd_capture_set_bitrate(void *handle,uint32_t bitrate) {
     }
     if(!self->compression) return false;
     if(self->bitrate==bitrate) return true;
+    if(self->bitrateUnsupported) return false;
     OSStatus status=VTSessionSetProperty(self->compression,kVTCompressionPropertyKey_AverageBitRate,(__bridge CFNumberRef)@(bitrate));
     if(status) { self->bitrateUnsupported=YES; NSLog(@"Screen encoder rejected dynamic bitrate (%d); retaining transport pacing",(int)status); return false; }
     self->bitrate=bitrate;
     return true;
+}
+static bool verify_rate(RDStream *self,uint32_t rate) {
+    if(self->stripes) {
+        uint32_t remaining=rate;
+        for(RDStream *child in self->stripes) {
+            uint32_t part=child->stripeY+child->imageHeight==self->imageHeight?remaining:(uint32_t)((uint64_t)rate*child->imageHeight/self->imageHeight);
+            if(!verify_rate(child,part)) return false; remaining-=part;
+        }
+        return true;
+    }
+    CFTypeRef value=NULL; int64_t actual=0;
+    OSStatus status=VTSessionCopyProperty(self->compression,kVTCompressionPropertyKey_AverageBitRate,NULL,&value);
+    bool ok=!status && value && CFGetTypeID(value)==CFNumberGetTypeID() && CFNumberGetValue(value,kCFNumberSInt64Type,&actual) && actual==rate;
+    if(value) CFRelease(value); return ok;
+}
+// Temporary increases require verified restoration, including partial stripe
+// setter success. Ordinary unsupported dynamic control retains old pacing.
+typedef bool (*ApplyRate)(void *,uint32_t);
+static bool transition_rate(void *context,ApplyRate apply,uint32_t base,uint32_t target,bool *refining,bool *boosted) {
+    *boosted=false;
+    bool restored=apply(context,base);
+    if(*refining && !restored) return false;
+    *refining=false;
+    if(target<=base || !restored) return true;
+    if(apply(context,target)) { *refining=true; *boosted=true; return true; }
+    return apply(context,base);
+}
+static bool apply_verified_rate(void *context,uint32_t rate) {
+    RDStream *self=(__bridge RDStream *)context;
+    rd_capture_set_bitrate(context,rate);
+    return verify_rate(self,rate);
+}
+static bool frame_rate(RDStream *self,uint32_t base,uint32_t target,bool *boosted) {
+    if(target<=base && !self->refining) {
+        *boosted=false;rd_capture_set_bitrate((__bridge void *)self,base);return true;
+    }
+    bool active=self->refining;
+    bool ok=transition_rate((__bridge void *)self,apply_verified_rate,base,target,&active,boosted);
+    self->refining=active;return ok;
+}
+typedef struct {bool values[3];uint32_t rates[3];int calls;} RateFixture;
+static bool fixture_rate(void *p,uint32_t rate) {
+    RateFixture *f=p;if(f->calls>=3)return false;
+    f->rates[f->calls]=rate;return f->values[f->calls++];
+}
+bool rd_test_refinement_transition(void) {
+    for(int restore=0;restore<2;restore++) {
+        RateFixture f={{true,false,restore!=0},{0},0};bool active=false,boosted=false;
+        bool ok=transition_rate(&f,fixture_rate,8,32,&active,&boosted);
+        if(ok!=(restore!=0)||active||boosted||f.calls!=3||f.rates[0]!=8||f.rates[1]!=32||f.rates[2]!=8)return false;
+    }
+    RateFixture f={{false,false,false},{0},0};bool active=true,boosted=false;
+    return !transition_rate(&f,fixture_rate,4,4,&active,&boosted)&&f.calls==1;
 }
 bool rd_capture_destroy(void *handle);
 // The returned object owns a bounded (latest only) frame slot and a hardware session.
@@ -384,10 +447,10 @@ bool rd_capture_destroy(void *handle) {
     self->stream=nil;
     return stopped;
 }
-int rd_capture_next(void *handle,uint64_t timestamp,bool key,bool refresh,bool *damaged,RDPacket emit,void *context) {
+int rd_capture_next(void *handle,uint64_t timestamp,bool key,bool refresh,uint32_t base,uint32_t refinement,bool *damaged,bool *boosted,RDPacket emit,void *context) {
     @autoreleasepool {
         RDStream *self=(__bridge RDStream *)handle; CVPixelBufferRef image=NULL;
-        *damaged=false;
+        *damaged=false; *boosted=false;
         uint64_t until=clock_gettime_nsec_np(CLOCK_UPTIME_RAW)+20*NSEC_PER_MSEC;
         while(!image) {
             @synchronized(self) {
@@ -398,6 +461,7 @@ int rd_capture_next(void *handle,uint64_t timestamp,bool key,bool refresh,bool *
             if(clock_gettime_nsec_np(CLOCK_UPTIME_RAW)>=until) return 0;
             dispatch_semaphore_wait(self->ready,dispatch_time(DISPATCH_TIME_NOW,20*NSEC_PER_MSEC));
         }
+        if(!frame_rate(self,base,*damaged?base:refinement,boosted)) { CVPixelBufferRelease(image); return -1; }
         int result=encode_pipeline(self,image,timestamp,key,refresh);
         CVPixelBufferRelease(image);
         if(result!=1) return result;
@@ -468,4 +532,16 @@ bool rd_probe_video(uint32_t width,uint32_t height,uint32_t fps,uint32_t bitrate
     if(width<2 || height<2 || width>4096 || height>4096 || width%2 || height%2 ||
        (uint64_t)width*height>8388608 || fps<1 || fps>120 || bitrate<1 || bitrate>100000000) return false;
     return synthetic_frame_at(width,height,fps,bitrate,codec,NULL,NULL);
+}
+
+// Allocated hardware encoder sessions only; no capture or input API.
+bool rd_test_hardware_refinement(void) {
+    @autoreleasepool {
+        RDStream *self=[RDStream new];
+        if(!configure_pipeline(self,640,480,60,8000000,2)) return false;
+        bool boosted=false;
+        if(!frame_rate(self,8000000,16000000,&boosted)||!boosted||!verify_rate(self,16000000))return false;
+        if(!frame_rate(self,8000000,8000000,&boosted)||boosted||!verify_rate(self,8000000))return false;
+        return true;
+    }
 }

@@ -73,7 +73,10 @@ unsafe extern "C" {
         timestamp: u64,
         key: bool,
         refresh: bool,
+        base: u32,
+        refinement: u32,
         damaged: *mut bool,
+        boosted: *mut bool,
         emit: extern "C" fn(*mut c_void, *const u8, usize, u64) -> bool,
         context: *mut c_void,
     ) -> i32;
@@ -81,7 +84,7 @@ unsafe extern "C" {
     fn rd_mouse(kind: u32, button: u32, x: f64, y: f64, flags: u64) -> bool;
     fn rd_wheel(x: i32, y: i32, pixels: bool) -> bool;
 }
-struct Capture(*mut c_void, rieul_daemon_host::desktop_paintover::Paintover);
+struct Capture(*mut c_void, rieul_daemon_host::desktop_paintover::Paintover, rieul_daemon_host::desktop_paintover::RefinementBudget);
 // Access is serialized by tracks; the ObjC capture delegate owns its queue/lock.
 unsafe impl Send for Capture {}
 impl Drop for Capture {
@@ -566,7 +569,7 @@ impl Backend for MacDesktop {
                 }
                 tracks.insert(
                     key,
-                    Arc::new(Mutex::new(Capture(handle, Default::default()))),
+                    Arc::new(Mutex::new(Capture(handle, Default::default(), Default::default()))),
                 );
             }
             tracks[&key].clone()
@@ -603,6 +606,8 @@ impl Backend for MacDesktop {
             let frame_started = Instant::now();
             let paintover = capture.1.due(self.clock.elapsed());
             let mut damaged = false;
+            let mut boosted = false;
+            let target=if paintover { capture.2.target(self.clock.elapsed(),bitrate,track.viewport.bitrate,track.viewport.fps) } else {bitrate};
             let mut p = Packet {
                 frame: None,
                 key: index == 0,
@@ -613,7 +618,10 @@ impl Backend for MacDesktop {
                     self.clock.elapsed().as_micros() as u64,
                     index == 0,
                     (refresh && index == 0) || paintover,
+                    bitrate as u32,
+                    target as u32,
                     &mut damaged,
+                    &mut boosted,
                     packet,
                     &mut p as *mut _ as *mut c_void,
                 )
@@ -634,8 +642,11 @@ impl Backend for MacDesktop {
             }
             if damaged {
                 capture.1.motion(self.clock.elapsed());
+                capture.2.motion();
             }
-            emit(p.frame.ok_or(Error::Backend)?)?;
+            let frame=p.frame.ok_or(Error::Backend)?;
+            if !capture.2.accept(self.clock.elapsed(),bitrate,frame.data.len(),boosted) { break; }
+            emit(frame)?;
             if !damaged && paintover {
                 capture.1.painted();
             }
@@ -827,6 +838,47 @@ mod tests {
         }
     }
     #[test]
+    #[ignore = "synthetic hardware refinement export; no capture/input"]
+    fn export_synthetic_hardware_refinement() {
+        unsafe extern "C" {
+            fn rd_synthetic_refinement(
+                frames: u32,
+                emit: extern "C" fn(*mut c_void, *const u8, usize, u64) -> bool,
+                context: *mut c_void,
+            ) -> bool;
+        }
+        extern "C" fn packet(
+            context: *mut c_void,
+            data: *const u8,
+            len: usize,
+            timestamp: u64,
+        ) -> bool {
+            if data.is_null() || len > 4 * 1024 * 1024 {
+                return false;
+            }
+            unsafe {
+                let out = &mut *(context as *mut Vec<serde_json::Value>);
+                let bytes = std::slice::from_raw_parts(data, len);
+                let Some(packets) =
+                    rieul_daemon_core::desktop_stripe::decode(bytes, 2, out.is_empty())
+                else {
+                    return false;
+                };
+                if packets.len() != (if out.is_empty() || (44*16667..48*16667).contains(&timestamp) { 2 } else { 1 }) {
+                    return false;
+                }
+                out.push(serde_json::json!({"timestampMicros":timestamp,"keyframe":out.is_empty(),"data":bytes}));
+            }
+            true
+        }
+        let mut frames = Vec::<serde_json::Value>::new();
+        assert!(unsafe { rd_synthetic_refinement(60, packet, &mut frames as *mut _ as *mut c_void) });
+        assert_eq!(frames.len(), 48);
+        if let Ok(path) = std::env::var("RIEUL_DESKTOP_SYNTHETIC_REFINEMENT_OUT") {
+            std::fs::write(path, serde_json::to_vec(&frames).unwrap()).unwrap();
+        }
+    }
+    #[test]
     #[ignore = "synthetic short-GOP hardware export; no screen capture/input"]
     fn export_synthetic_hardware_groups() {
         extern "C" {
@@ -942,5 +994,24 @@ mod tests {
 impl Drop for MacDesktop {
     fn drop(&mut self) {
         let _ = self.inject(&DesktopInputEvent::ReleaseAll, None);
+    }
+}
+
+#[cfg(test)]
+mod refinement_transition_tests {
+    unsafe extern "C" { fn rd_test_refinement_transition()->bool; }
+    #[test]
+    fn native_partial_setter_failure_and_failed_restore_are_not_silent() {
+        assert!(unsafe{rd_test_refinement_transition()});
+    }
+}
+
+#[cfg(test)]
+mod hardware_refinement_tests {
+    unsafe extern "C" { fn rd_test_hardware_refinement()->bool; }
+    #[test]
+    #[ignore="allocated-pixel hardware sessions; no capture, input, or permissions"]
+    fn hardware_stripe_refinement_rate_restores_before_motion() {
+        assert!(unsafe{rd_test_hardware_refinement()});
     }
 }

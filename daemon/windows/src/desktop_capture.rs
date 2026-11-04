@@ -145,6 +145,17 @@ impl Stripes {
         }
         Ok(())
     }
+    fn verified_rate(&self, total: u32) -> Result<bool, Error> {
+        self.rate(total)?;
+        let rates =
+            rieul_daemon_core::desktop_stripe::rates(total, self.height as u64, &self.layout)
+                .ok_or(Error::Invalid)?;
+        Ok(self
+            .encoders
+            .iter()
+            .zip(rates)
+            .all(|(e, r)| e.bitrate_matches(r)))
+    }
     // None means identical pixels. A spontaneous IDR discards the whole bundle;
     // the caller starts a fresh group before anything is sent to the receiver.
     pub(crate) fn encode(
@@ -274,6 +285,8 @@ fn create(t: DesktopTrack) -> Result<Worker, Error> {
             stripes: Option<Stripes>,
             latest_pixels: Option<Vec<u8>>,
             replay: bool,
+            refining: bool,
+            budget: rieul_daemon_host::desktop_paintover::RefinementBudget,
             paintover: rieul_daemon_host::desktop_paintover::Paintover,
             _apartment: native::Apartment,
         }
@@ -287,6 +300,8 @@ fn create(t: DesktopTrack) -> Result<Worker, Error> {
             },
             latest_pixels: None,
             replay: false,
+            refining: false,
+            budget: Default::default(),
             paintover: Default::default(),
             _apartment: apartment,
         };
@@ -336,6 +351,7 @@ fn create(t: DesktopTrack) -> Result<Worker, Error> {
                             .ok_or(Error::Invalid)?,
                         );
                         state.paintover.motion(clock.elapsed());
+                        state.budget.motion();
                     } else if !paintover && !(index == 0 && (refresh || state.replay)) {
                         if short && state.paintover.pending() {
                             continue;
@@ -344,6 +360,33 @@ fn create(t: DesktopTrack) -> Result<Worker, Error> {
                     }
                     let Some(pixels) = state.latest_pixels.as_ref() else {
                         break;
+                    };
+                    let target = if paintover && !damaged {
+                        state
+                            .budget
+                            .target(clock.elapsed(), bitrate, v.bitrate, v.fps)
+                    } else {
+                        bitrate
+                    };
+                    let apply = |rate: u32| -> Result<bool, Error> {
+                        if let Some(stripes) = &state.stripes {
+                            stripes.verified_rate(rate)
+                        } else {
+                            let encoder = state.encoder.as_ref().unwrap();
+                            encoder.set_bitrate(rate);
+                            Ok(encoder.bitrate_matches(rate))
+                        }
+                    };
+                    let boosted = if state.refining || target > bitrate {
+                        rieul_daemon_host::desktop_paintover::transition_rate(
+                            &mut state.refining,
+                            bitrate,
+                            target,
+                            |rate| apply(rate as u32).unwrap_or(false),
+                        )
+                        .ok_or(Error::Backend)?
+                    } else {
+                        false
                     };
                     let timestamp = clock.elapsed().as_micros() as u64;
                     let (packet, key) = if let Some(stripes) = &mut state.stripes {
@@ -377,6 +420,13 @@ fn create(t: DesktopTrack) -> Result<Worker, Error> {
                         }
                     }
                     state.replay = false;
+                    if !state
+                        .budget
+                        .accept(clock.elapsed(), bitrate, packet.len(), boosted)
+                    {
+                        state.replay = true;
+                        break;
+                    }
                     emit(EncodedFrame::new(timestamp, key, packet))?;
                     if !damaged && paintover {
                         state.paintover.painted();

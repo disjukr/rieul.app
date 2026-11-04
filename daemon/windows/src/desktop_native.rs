@@ -422,13 +422,21 @@ impl HardwareEncoder {
     }
     /// Only called between completed groups on the encoder's COM owner thread.
     /// S_FALSE is not permission to modify; unsupported hardware keeps pacing.
+    pub fn bitrate_matches(&self, bitrate:u32) -> bool {
+        unsafe { self.transform.cast::<ICodecAPI>().is_ok_and(|codec| {
+            codec.GetValue(&CODECAPI_AVEncCommonMeanBitRate)
+                .and_then(|v| windows::Win32::System::Variant::VariantToUInt32(&v))
+                .is_ok_and(|actual| actual==bitrate)
+        }) }
+    }
     pub fn set_bitrate(&self, bitrate: u32) -> bool {
-        if bitrate == 0 || self.bitrate_unsupported.get() {
+        if bitrate == 0 {
             return false;
         }
         if bitrate == self.bitrate.get() {
             return true;
         }
+        if self.bitrate_unsupported.get() { return false; }
         let accepted = unsafe {
             self.transform.cast::<ICodecAPI>().is_ok_and(|codec| {
                 // Quality mode ignores MeanBitRate. Unknown modes are not evidence.
