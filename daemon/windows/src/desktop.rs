@@ -234,6 +234,8 @@ impl Worker {
                 }
                 let format = if track.codec.codec.starts_with("avc1.") {
                     native::Codec::H264
+                } else if track.codec.codec.starts_with("hev1.") {
+                    native::Codec::Hevc
                 } else if track.codec.codec.starts_with("av01.") {
                     native::Codec::Av1
                 } else {
@@ -252,12 +254,7 @@ impl Worker {
                     let mut pixels = vec![128; (v.width * v.height * 3 / 2) as usize];
                     pixels[..(v.width * v.height) as usize].fill(16);
                     let packet = encoder.encode_keyframe(&pixels, 0).ok()?;
-                    if format == native::Codec::Av1 {
-                        crate::desktop_pixels::av1_independent(&packet, &mut vec![])
-                            .map(|(codec, _)| codec)
-                    } else {
-                        avc_codec(&packet)
-                    }
+                    packet_codec(format, &packet)
                 })();
                 Ok(Reply::Probe(
                     if verified.as_deref() == Some(track.codec.codec.as_str()) {
@@ -276,7 +273,7 @@ impl Worker {
             Command::Capabilities => {
                 if !self.probed {
                     self.probed = true;
-                    for format in [native::Codec::H264, native::Codec::Av1] {
+                    for format in [native::Codec::H264, native::Codec::Hevc, native::Codec::Av1] {
                         let Ok(encoder) =
                             native::HardwareEncoder::with_codec(640, 480, 60, 2_000_000, format)
                         else {
@@ -287,12 +284,7 @@ impl Worker {
                         let Ok(packet) = encoder.encode_keyframe(&pixels, 0) else {
                             continue;
                         };
-                        let codec = if format == native::Codec::Av1 {
-                            crate::desktop_pixels::av1_independent(&packet, &mut vec![])
-                                .map(|(codec, _)| codec)
-                        } else {
-                            avc_codec(&packet)
-                        };
+                        let codec = packet_codec(format, &packet);
                         if let Some(codec) = codec {
                             self.codecs.push(codec);
                         }
@@ -300,14 +292,14 @@ impl Worker {
                 }
                 if !self.stripes_probed {
                     self.stripes_probed=true;
-                    if let Some(codec)=self.codecs.iter().find(|c|c.starts_with("avc1.")) {
+                    for codec in self.codecs.iter().filter(|c| c.starts_with("avc1.") || c.starts_with("hev1.")) {
                         let track=DesktopTrack {
                             codec: DesktopCodec{codec:codec.clone(),hardware:true,description:None},
                             viewport: DesktopViewport{width:640,height:480,fps:60,bitrate:2_000_000,..Default::default()},
                             stripes: rieul_daemon_core::desktop_stripe::layout(480,2),
                             ..Default::default()
                         };
-                        self.stripes=crate::desktop_capture::probe_stripes(&track);
+                        self.stripes |= crate::desktop_capture::probe_stripes(&track);
                     }
                 }
                 let mut caps =
@@ -510,4 +502,12 @@ pub(crate) fn avc_codec(bytes: &[u8]) -> Option<String> {
         }
     }
     if pps && idr { sps } else { None }
+}
+
+pub(crate) fn packet_codec(format: native::Codec, bytes: &[u8]) -> Option<String> {
+    match format {
+        native::Codec::H264 => avc_codec(bytes),
+        native::Codec::Hevc => rieul_daemon_core::desktop_hevc::codec(bytes),
+        native::Codec::Av1 => crate::desktop_pixels::av1_independent(bytes, &mut vec![]).map(|(c, _)| c),
+    }
 }

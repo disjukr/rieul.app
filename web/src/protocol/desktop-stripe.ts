@@ -127,7 +127,7 @@ export class StripeDecoder {
   configure(config: VideoDecoderConfig) {
     if (
       this.state === "closed" ||
-      !config.codec.startsWith("avc1.") ||
+      !/^(avc1|hev1)\./.test(config.codec) ||
       config.description
     )
       throw new Error("Unsupported stripe codec configuration");

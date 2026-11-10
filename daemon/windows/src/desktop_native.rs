@@ -292,11 +292,12 @@ fn frame_rects(
     }
     Some(out)
 }
-/// Hardware-only asynchronous Media Foundation encoder. NV12 input, Annex B H.264
+/// Hardware-only asynchronous Media Foundation encoder. NV12 input, Annex B H.264/HEVC (or AV1 OBU)
 /// output, one forced independent keyframe per group in this initial adapter.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Codec {
     H264,
+    Hevc,
     Av1,
 }
 pub struct HardwareEncoder {
@@ -338,10 +339,10 @@ impl HardwareEncoder {
                 guidMajorType: MFMediaType_Video,
                 guidSubtype: MFVideoFormat_NV12,
             };
-            let subtype = if format == Codec::Av1 {
-                MFVideoFormat_AV1
-            } else {
-                MFVideoFormat_H264
+            let subtype = match format {
+                Codec::H264 => MFVideoFormat_H264,
+                Codec::Hevc => MFVideoFormat_HEVC,
+                Codec::Av1 => MFVideoFormat_AV1,
             };
             let output = MFT_REGISTER_TYPE_INFO {
                 guidMajorType: MFMediaType_Video,
@@ -380,11 +381,19 @@ impl HardwareEncoder {
                     output.SetUINT32(&MF_MT_AVG_BITRATE, bitrate)?;
                     output.SetUINT32(
                         &MF_MT_MPEG2_PROFILE,
-                        if format == Codec::Av1 { 0 } else { 66 },
+                        match format {
+                            Codec::H264 => 66,
+                            Codec::Hevc => eAVEncH265VProfile_Main_420_8.0 as u32,
+                            Codec::Av1 => 0,
+                        },
                     )?;
                     output.SetUINT32(
                         &MF_MT_MPEG2_LEVEL,
-                        if format == Codec::Av1 { 13 } else { 42 },
+                        match format {
+                            Codec::H264 => 42,
+                            Codec::Hevc => eAVEncH265VLevel5_1.0 as u32,
+                            Codec::Av1 => 13,
+                        },
                     )?;
                     transform.SetOutputType(0, &output, 0)?;
                     transform.SetInputType(
@@ -394,7 +403,7 @@ impl HardwareEncoder {
                     )?;
                     let codec: ICodecAPI = transform.cast()?;
                     codec.SetValue(&CODECAPI_AVLowLatencyMode, &VARIANT::from(true))?;
-                    if format == Codec::H264 {
+                    if format != Codec::Av1 {
                         codec.SetValue(
                             &CODECAPI_AVEncMPVDefaultBPictureCount,
                             &VARIANT::from(0u32),
@@ -601,9 +610,16 @@ impl HardwareEncoder {
                         if !key {
                             return Ok((bytes, false));
                         }
-                        let headers = crate::desktop_pixels::annex_b_headers(&bytes);
+                        let headers = if self.codec == Codec::Hevc {
+                            rieul_daemon_core::desktop_hevc::headers(&bytes)
+                        } else {
+                            crate::desktop_pixels::annex_b_headers(&bytes)
+                        };
                         if !headers.is_empty() {
                             *self.headers.borrow_mut() = headers;
+                            if self.codec == Codec::Hevc && rieul_daemon_core::desktop_hevc::codec(&bytes).is_none() {
+                                return Err(invalid());
+                            }
                             return Ok((bytes, true));
                         }
                         if self.headers.borrow().is_empty() {
@@ -611,7 +627,8 @@ impl HardwareEncoder {
                         }
                         let mut independent = self.headers.borrow().clone();
                         independent.extend_from_slice(&bytes);
-                        if independent.len() > 4 * 1024 * 1024 {
+                        if independent.len() > 4 * 1024 * 1024
+                            || (self.codec == Codec::Hevc && rieul_daemon_core::desktop_hevc::codec(&independent).is_none()) {
                             return Err(invalid());
                         }
                         return Ok((independent, true));

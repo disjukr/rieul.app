@@ -376,3 +376,37 @@ never releases an in-flight native work guard early. UI and localhost transport
 fixtures verify these boundaries; synthetic Mac VideoToolbox tests verify selected
 actual encoder combinations without touching the host screen. Real network/GPU
 performance tuning and Windows hardware throughput remain unverified.
+
+## HEVC hardware encoding and browser negotiation
+
+The existing WebTransport media envelope and profile-2 atomic stripe bundles also
+carry HEVC Main, using `hev1` Annex B with in-band VPS/SPS/PPS. Independent recovery
+packets require an IDR; a CRA is not accepted as a transport recovery point. The
+codec string is derived from the actual emitted SPS profile, compatibility flags,
+tier, level and constraints, rather than guessed from the operating system.
+
+macOS uses hardware-required VideoToolbox sessions, Main AutoLevel, no frame
+reordering, and synthetic full-frame/stripe probes. Its advertised level comes
+from a 3840x2160/60 probe; smaller configurations must fit that profile and level.
+Windows uses hardware-only Media Foundation HEVC Main level 5.1, no B frames, and
+synthetic encoded-output validation. A failed encoder creation or keyframe probe
+does not advertise HEVC. Per-configuration probes still validate dimensions and
+quality targets. Two stripe encoders share the negotiated total bitrate.
+
+The browser prefers host-hardware HEVC only after `VideoDecoder.isConfigSupported`
+accepts the actual advertised `hev1` configuration. Browser/OS brand is not a
+capability check. `prefer-hardware` is a hint, not proof of hardware decoding;
+HEVC can use a browser-selected software decoder. The stricter existing AV1
+hardware-attestation policy remains unchanged. No description record is supplied
+for HEVC Annex B; MP4-style `hvc1` is not negotiated for these packets.
+
+Unsupported HEVC probes retain H.264. Host/decoder failure retries full-frame if
+stripe mode was active, then creates a fresh H.264 attachment if needed. Recovery
+does not reacquire control or replay input. Authentication failures do not trigger
+codec retries. Worker decode/composition and selective stripe refinement retain
+the same epoch, bounded-memory and presentation-acknowledgment rules.
+
+Synthetic regression fixtures cover negotiation and fallback without capturing a
+user display. Actual encoder throughput, decoded output and browser/platform
+interoperability still require hardware validation; compile/tests alone do not
+establish that HEVC is faster or more efficient on a particular device.

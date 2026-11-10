@@ -44,7 +44,7 @@ test("stripe layouts and packet bounds reject incomplete initial state", () => {
   new DataView(huge.buffer).setUint32(6, 0xffffffff);
   assert.throws(() => decodeStripeBundle(huge, 2, true));
 });
-test("composition commits atomically, keeps unchanged stripes and ignores retired decoder callbacks", async () => {
+async function verifyComposition(codec: string) {
   const original = {
     VideoDecoder: globalThis.VideoDecoder,
     VideoFrame: globalThis.VideoFrame,
@@ -149,7 +149,7 @@ test("composition commits atomically, keeps unchanged stripes and ignores retire
         },
       },
     );
-    decoder.configure({ codec: "avc1.42002a" });
+    decoder.configure({ codec });
     const send = (timestamp: number, indexes = [0, 1], key = true) =>
       decoder.decode(
         new EncodedVideoChunk({
@@ -185,7 +185,7 @@ test("composition commits atomically, keeps unchanged stripes and ignores retire
     decoders[1].emit(3, 50);
     assert.equal(outputs.length, 2);
     assert.equal(closed, 5);
-    decoder.configure({ codec: "avc1.42002a" });
+    decoder.configure({ codec });
     send(4);
     decoders[2].emit(4, 60);
     decoders[3].emit(4, 70);
@@ -202,4 +202,7 @@ test("composition commits atomically, keeps unchanged stripes and ignores retire
   } finally {
     Object.assign(globalThis, original);
   }
-});
+}
+for (const codec of ["avc1.42002a", "hev1.1.6.L120.B0"])
+  test(`${codec} composition commits atomically, keeps unchanged stripes and ignores retired decoder callbacks`, () =>
+    verifyComposition(codec));

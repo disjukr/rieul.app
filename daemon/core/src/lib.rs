@@ -16,3 +16,5 @@ pub mod desktop_transport;
 pub mod local_update;
 
 pub mod desktop_stripe;
+
+pub mod desktop_hevc;

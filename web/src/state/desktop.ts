@@ -229,10 +229,16 @@ export const desktopBunja = bunja(() => {
     if (
       active &&
       !h264Fallback &&
-      currentCodec.startsWith("av01.") &&
-      offeredCodecs.some((c) => /^avc[13]\./.test(c))
+      /^(av01|hev1)\./.test(currentCodec) &&
+      offeredCodecs.some((c) => /^avc[13]\./.test(c)) &&
+      !(
+        error instanceof RpcError &&
+        ["permissionDenied", "invalidCredentials", "unauthorized"].includes(
+          error.code,
+        )
+      )
     ) {
-      void connect(true);
+      void connect(true, profileFallback);
       return;
     }
     disconnect();
@@ -459,13 +465,15 @@ export const desktopBunja = bunja(() => {
         return;
       }
       offeredCodecs = codecs;
+      // Before configuration arrives, recover a failed preferred-codec attach too.
+      currentCodec = codecs[0];
       transport = nextTransport;
       eventsAbort = new AbortController();
       currentProfile =
         !fullFrame &&
         caps.supportedProfiles?.includes(2) &&
         typeof OffscreenCanvas !== "undefined" &&
-        codecs[0]?.startsWith("avc1.")
+        /^(avc1|hev1)\./.test(codecs[0] ?? "")
           ? 2
           : 1;
       const iterator = desktopEvents(
@@ -563,13 +571,13 @@ export const desktopBunja = bunja(() => {
                 (codec) => {
                   if (
                     token === generation &&
-                    (currentProfile === 2 || codec.startsWith("av01."))
+                    (currentProfile === 2 || /^(av01|hev1)\./.test(codec))
                   )
                     failed(
                       new Error(
                         currentProfile === 2
                           ? "Stripe decoder failed"
-                          : "AV1 decoder failed",
+                          : "Video decoder failed",
                       ),
                     );
                 },

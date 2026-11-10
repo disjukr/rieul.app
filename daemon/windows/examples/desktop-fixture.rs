@@ -91,17 +91,17 @@ mod fixture {
         );
         let mut pixels = vec![16u8; 640 * 480 * 3 / 2];
         pixels[640 * 480..].fill(128);
-        for (name, codec) in [("h264", native::Codec::H264), ("av1", native::Codec::Av1)] {
+        for (name, codec) in [("h264", native::Codec::H264), ("hevc", native::Codec::Hevc), ("av1", native::Codec::Av1)] {
             match native::HardwareEncoder::with_codec(640, 480, 30, 2_000_000, codec).and_then(
                 |e| {
                     let packet = e.encode_keyframe(&pixels, 0)?;
-                    if codec == native::Codec::H264 {
-                        println!("hardware_h264_dynamic_bitrate={}", e.set_bitrate(1_000_000));
+                    if codec != native::Codec::Av1 {
+                        println!("hardware_{name}_dynamic_bitrate={}", e.set_bitrate(1_000_000));
                         match e.encode(&pixels, 33_333, false) {
                             Ok((delta, key)) => {
-                                println!("hardware_h264_delta={} bytes={}", !key, delta.len())
+                                println!("hardware_{name}_delta={} bytes={}", !key, delta.len())
                             }
-                            Err(error) => println!("hardware_h264_delta=unavailable error={error}"),
+                            Err(error) => println!("hardware_{name}_delta=unavailable error={error}"),
                         }
                     }
                     Ok(packet)

@@ -1087,7 +1087,7 @@ impl Runtime {
         use rieul_daemon_core::generated::rpc::*;
         self.refresh_layout()?;
         let caps = self.capabilities();
-        let selected = request.codecs.iter().find_map(|wanted| caps.codecs.iter().find(|c| &c.codec==wanted && (request.profile!=2 || (c.codec.starts_with("avc1.") && c.description.is_none()))));
+        let selected = request.codecs.iter().find_map(|wanted| caps.codecs.iter().find(|c| &c.codec==wanted && (request.profile!=2 || rieul_daemon_core::desktop_stripe::supports_codec(&c.codec, c.description.is_some()))));
         if !caps
             .supported_profiles
             .as_deref()

@@ -58,14 +58,14 @@ size_t rd_displays(RDDisplay *out, size_t capacity) {
     }
     return MIN(count,capacity);
 }
-static VTCompressionSessionRef encoder(uint32_t width,uint32_t height,uint32_t fps,uint32_t bitrate,VTCompressionOutputCallback callback,void *ref) {
+static VTCompressionSessionRef encoder_format(uint32_t width,uint32_t height,uint32_t fps,uint32_t bitrate,VTCompressionOutputCallback callback,void *ref,bool hevc) {
     VTCompressionSessionRef session=NULL;
     NSDictionary *spec=@{(__bridge NSString *)kVTVideoEncoderSpecification_RequireHardwareAcceleratedVideoEncoder:@YES};
-    OSStatus status=VTCompressionSessionCreate(NULL,width,height,kCMVideoCodecType_H264,(__bridge CFDictionaryRef)spec,NULL,NULL,callback,ref,&session);
+    OSStatus status=VTCompressionSessionCreate(NULL,width,height,hevc?kCMVideoCodecType_HEVC:kCMVideoCodecType_H264,(__bridge CFDictionaryRef)spec,NULL,NULL,callback,ref,&session);
     if(status || !session) return NULL;
     NSDictionary *props=@{(__bridge NSString *)kVTCompressionPropertyKey_RealTime:@YES,
       (__bridge NSString *)kVTCompressionPropertyKey_AllowFrameReordering:@NO,
-      (__bridge NSString *)kVTCompressionPropertyKey_ProfileLevel:(__bridge NSString *)kVTProfileLevel_H264_Baseline_4_2,
+      (__bridge NSString *)kVTCompressionPropertyKey_ProfileLevel:(hevc?(__bridge NSString *)kVTProfileLevel_HEVC_Main_AutoLevel:(__bridge NSString *)kVTProfileLevel_H264_Baseline_4_2),
       (__bridge NSString *)kVTCompressionPropertyKey_ColorPrimaries:(__bridge NSString *)kCVImageBufferColorPrimaries_ITU_R_709_2,
       (__bridge NSString *)kVTCompressionPropertyKey_TransferFunction:(__bridge NSString *)kCVImageBufferTransferFunction_ITU_R_709_2,
       (__bridge NSString *)kVTCompressionPropertyKey_YCbCrMatrix:(__bridge NSString *)kCVImageBufferYCbCrMatrix_ITU_R_709_2,
@@ -81,6 +81,30 @@ static VTCompressionSessionRef encoder(uint32_t width,uint32_t height,uint32_t f
     if(!supported) { VTCompressionSessionInvalidate(session); CFRelease(session); return NULL; }
     return session;
 }
+static VTCompressionSessionRef encoder(uint32_t width,uint32_t height,uint32_t fps,uint32_t bitrate,VTCompressionOutputCallback callback,void *ref) {
+    return encoder_format(width,height,fps,bitrate,callback,ref,false);
+}
+// RFC 6381 uses the SPS profile_tier_level, with compatibility bits reversed.
+// Read the actual emitted SPS rather than assuming a level for this resolution.
+static NSString *hevc_codec(CMFormatDescriptionRef format) {
+    const uint8_t *sps=NULL; size_t size=0;
+    if(CMVideoFormatDescriptionGetHEVCParameterSetAtIndex(format,1,&sps,&size,NULL,NULL) || size<15) return nil;
+    uint8_t rbsp[32]; size_t n=0; unsigned zeros=0;
+    for(size_t i=2;i<size && n<sizeof(rbsp);i++) {
+        uint8_t b=sps[i];
+        if(zeros>=2 && b==3) { zeros=0; continue; }
+        rbsp[n++]=b; zeros=b==0?zeros+1:0;
+    }
+    if(n<13) return nil;
+    uint8_t profile=rbsp[1], level=rbsp[12];
+    uint32_t compatibility=0;
+    for(unsigned i=0;i<32;i++) if(rbsp[2+i/8] & (1u<<(7-i%8))) compatibility|=1u<<i;
+    NSString *space=@[@"",@"A",@"B",@"C"][profile>>6];
+    NSMutableString *result=[NSMutableString stringWithFormat:@"hev1.%@%u.%X.%c%u",space,profile&31,compatibility,(profile&32)?'H':'L',level];
+    size_t end=12; while(end>6 && rbsp[end-1]==0) end--;
+    for(size_t i=6;i<end;i++) [result appendFormat:@".%02X",rbsp[i]];
+    return result;
+}
 @interface RDStream : NSObject<SCStreamOutput,SCStreamDelegate> {
 @public
     SCStream *stream;
@@ -89,6 +113,8 @@ static VTCompressionSessionRef encoder(uint32_t width,uint32_t height,uint32_t f
     CVPixelBufferRef latest;
     uint64_t serial, consumed;
     BOOL stopped;
+    BOOL hevc;
+    NSString *codec;
     VTCompressionSessionRef compression;
     NSMutableData *packet;
     BOOL encodeFailed, wantKey, retryKey;
@@ -109,11 +135,12 @@ static void encoded(void *ref,void *source,OSStatus status,VTEncodeInfoFlags fla
     if(key!=self->wantKey) { if(key) self->retryKey=YES; else self->encodeFailed=YES; return; }
     CMFormatDescriptionRef format=CMSampleBufferGetFormatDescription(sample);
     int lengthSize=0; size_t count=0;
-    if(CMVideoFormatDescriptionGetH264ParameterSetAtIndex(format,0,NULL,NULL,&count,&lengthSize) || lengthSize!=4) { self->encodeFailed=YES; return; }
+    if((self->hevc?CMVideoFormatDescriptionGetHEVCParameterSetAtIndex(format,0,NULL,NULL,&count,&lengthSize):CMVideoFormatDescriptionGetH264ParameterSetAtIndex(format,0,NULL,NULL,&count,&lengthSize)) || lengthSize!=4) { self->encodeFailed=YES; return; }
+    if(self->hevc) { self->codec=hevc_codec(format); if(count<3 || !self->codec) { self->encodeFailed=YES; return; } }
     const uint8_t prefix[]={0,0,0,1};
     for(size_t i=0;key && i<count;i++) {
         const uint8_t *bytes=NULL; size_t length=0;
-        if(CMVideoFormatDescriptionGetH264ParameterSetAtIndex(format,i,&bytes,&length,NULL,NULL) || length>4*1024*1024) { self->encodeFailed=YES; return; }
+        if((self->hevc?CMVideoFormatDescriptionGetHEVCParameterSetAtIndex(format,i,&bytes,&length,NULL,NULL):CMVideoFormatDescriptionGetH264ParameterSetAtIndex(format,i,&bytes,&length,NULL,NULL)) || length>4*1024*1024) { self->encodeFailed=YES; return; }
         [self->packet appendBytes:prefix length:4]; [self->packet appendBytes:bytes length:length];
     }
     CMBlockBufferRef block=CMSampleBufferGetDataBuffer(sample);
@@ -121,13 +148,15 @@ static void encoded(void *ref,void *source,OSStatus status,VTEncodeInfoFlags fla
     if(size>4*1024*1024) { self->encodeFailed=YES; return; }
     NSMutableData *data=[NSMutableData dataWithLength:size];
     if(CMBlockBufferCopyDataBytes(block,0,size,data.mutableBytes)) { self->encodeFailed=YES; return; }
-    const uint8_t *bytes=data.bytes; size_t offset=0;
+    const uint8_t *bytes=data.bytes; size_t offset=0; bool hevcIDR=false;
     while(offset+4<=size) {
         uint32_t n=((uint32_t)bytes[offset]<<24)|((uint32_t)bytes[offset+1]<<16)|((uint32_t)bytes[offset+2]<<8)|bytes[offset+3]; offset+=4;
         if(!n || n>size-offset || self->packet.length+n+4>4*1024*1024) { self->encodeFailed=YES; return; }
+        if(self->hevc && n>=2) { unsigned type=(bytes[offset]>>1)&63; hevcIDR|=type==19 || type==20; }
         [self->packet appendBytes:prefix length:4]; [self->packet appendBytes:bytes+offset length:n]; offset+=n;
     }
-    if(offset!=size) self->encodeFailed=YES;
+    // CRA frames can reference pictures outside the transport recovery group.
+    if(offset!=size || (self->hevc && key && !hevcIDR)) self->encodeFailed=YES;
 }
 @implementation RDStream
 - (void)stream:(SCStream *)s didStopWithError:(NSError *)error { @synchronized(self) { stopped=YES; } dispatch_semaphore_signal(ready); }
@@ -147,14 +176,15 @@ static void encoded(void *ref,void *source,OSStatus status,VTEncodeInfoFlags fla
 static bool configure_pipeline(RDStream *self,uint32_t width,uint32_t height,uint32_t fps,uint32_t bitrate,uint32_t count) {
     if(!width || !height || width%2 || height%2 || width>3840 || height>2160 || count>2 || bitrate<count) return false;
     self->imageWidth=width; self->imageHeight=height; self->bitrate=bitrate;
-    if(!count) { self->compression=encoder(width,height,fps,bitrate,encoded,(__bridge void *)self); return self->compression!=NULL; }
+    if(!count) { self->compression=encoder_format(width,height,fps,bitrate,encoded,(__bridge void *)self,self->hevc); return self->compression!=NULL; }
     NSMutableArray *children=[NSMutableArray new];
     uint32_t each=((height+count-1)/count+15)&~15u, y=0, remaining=bitrate;
     while(y<height) {
         uint32_t h=MIN(each,height-y), rate=y+h==height?remaining:(uint32_t)((uint64_t)bitrate*h/height);
         if(!rate) return false;
         RDStream *child=[RDStream new]; child->stripeY=y; child->imageWidth=width; child->imageHeight=h; child->bitrate=rate;
-        child->compression=encoder(width,h,fps,rate,encoded,(__bridge void *)child);
+        child->hevc=self->hevc;
+        child->compression=encoder_format(width,h,fps,rate,encoded,(__bridge void *)child,child->hevc);
         if(!child->compression || CVPixelBufferCreate(NULL,width,h,kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,NULL,&child->stripeImage)) return false;
         [children addObject:child]; y+=h; remaining-=rate;
     }
@@ -437,7 +467,7 @@ bool rd_test_refinement_transition(void) {
 }
 bool rd_capture_destroy(void *handle);
 // The returned object owns a bounded (latest only) frame slot and a hardware session.
-void *rd_capture_create(uint32_t id,double x,double y,double w,double h,uint32_t width,uint32_t height,uint32_t fps,uint32_t bitrate,uint32_t stripes,bool *shutdown_failed) {
+void *rd_capture_create(uint32_t id,double x,double y,double w,double h,uint32_t width,uint32_t height,uint32_t fps,uint32_t bitrate,uint32_t stripes,bool hevc,bool *shutdown_failed) {
     @autoreleasepool {
         *shutdown_failed=false;
         if(!(rd_permissions() & 1) || !width || !height || width>3840 || height>2160 || !fps || fps>120) return NULL;
@@ -449,6 +479,7 @@ void *rd_capture_create(uint32_t id,double x,double y,double w,double h,uint32_t
         for(SCDisplay *candidate in content.displays) if(candidate.displayID==id) { display=candidate; break; }
         if(!display) return NULL;
         RDStream *self=[RDStream new]; self->ready=dispatch_semaphore_create(0); self->queue=dispatch_queue_create("rieul.desktop.capture",DISPATCH_QUEUE_SERIAL);
+        self->hevc=hevc;
         if(!configure_pipeline(self,width,height,fps,bitrate,stripes)) return NULL;
         SCStreamConfiguration *config=[SCStreamConfiguration new];
         config.width=width; config.height=height; config.pixelFormat=kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange;
@@ -586,4 +617,39 @@ bool rd_test_hardware_refinement(void) {
         if(!frame_rate(self,8000000,8000000,&boosted)||boosted||!verify_rate(self,8000000))return false;
         return true;
     }
+}
+
+// Allocate synthetic pixels only. Probe all stripe sessions together and emit an
+// actual IDR so a hardware session that fails on encode is never advertised.
+static bool probe_hevc(uint32_t width,uint32_t height,uint32_t fps,uint32_t bitrate,uint32_t stripes,char *codec,size_t capacity,RDPacket emit,void *context) {
+    @autoreleasepool {
+        if(!codec || !capacity || !fps || fps>120) return false;
+        RDStream *self=[RDStream new]; self->hevc=YES;
+        if(!configure_pipeline(self,width,height,fps,bitrate,stripes)) return false;
+        CVPixelBufferRef image=NULL;
+        if(CVPixelBufferCreate(NULL,width,height,kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,NULL,&image)) return false;
+        if(CVPixelBufferLockBaseAddress(image,0)) { CVPixelBufferRelease(image); return false; }
+        for(size_t plane=0;plane<2;plane++) memset(CVPixelBufferGetBaseAddressOfPlane(image,plane),plane?128:16,CVPixelBufferGetBytesPerRowOfPlane(image,plane)*CVPixelBufferGetHeightOfPlane(image,plane));
+        CVPixelBufferUnlockBaseAddress(image,0);
+        bool ok=encode_pipeline(self,image,0,true,false)==1;
+        CVPixelBufferRelease(image);
+        if(!ok) return false;
+        NSString *value=self->codec;
+        if(stripes) {
+            value=((RDStream *)self->stripes.firstObject)->codec;
+            for(RDStream *child in self->stripes) if(![value isEqualToString:child->codec]) return false;
+        }
+        const char *text=value.UTF8String;
+        if(!text || strlen(text)>=capacity) return false;
+        memcpy(codec,text,strlen(text)+1);
+        return !emit || emit(context,self->packet.bytes,self->packet.length,0);
+    }
+}
+
+bool rd_probe_hevc(uint32_t width,uint32_t height,uint32_t fps,uint32_t bitrate,uint32_t stripes,char *codec,size_t capacity) {
+    return probe_hevc(width,height,fps,bitrate,stripes,codec,capacity,NULL,NULL);
+}
+bool rd_synthetic_hevc_packet(RDPacket emit,void *context) {
+    char codec[128];
+    return probe_hevc(640,480,60,2000000,0,codec,sizeof(codec),emit,context);
 }

@@ -12,7 +12,8 @@ import {
   type ConfigureDesktopViewportsReq,
 } from "../src/protocol/generated/rpc.ts";
 import { rpcSessionStub } from "./helpers/rpc-session.ts";
-const av1 = "av01.0.13M.08",
+const hevc = "hev1.1.6.L120.B0",
+  av1 = "av01.0.13M.08",
   h264 = "avc1.42e02a";
 let mode = "configure",
   next = 0,
@@ -41,6 +42,7 @@ mock.module("../src/protocol/generated/client.ts", {
       capture: DesktopAvailability.Available,
       input: DesktopAvailability.Available,
       codecs: [
+        { codec: hevc, hardware: true },
         { codec: av1, hardware: true },
         { codec: h264, hardware: true },
       ],
@@ -104,6 +106,8 @@ mock.module("../src/protocol/desktop-session.ts", {
       profiles.push(request.profile);
       selectedProfile = request.profile;
       selected = request.codecs[0];
+      if (mode === "hevc-attach" && selected === hevc)
+        throw new Error("HEVC unavailable before attach");
       yield {
         type: "attached",
         attachId: `a${++next}`,
@@ -114,6 +118,7 @@ mock.module("../src/protocol/desktop-session.ts", {
       };
       if (
         (mode === "encoder" && request.codecs[0] === av1) ||
+        (mode.includes("hevc-encoder") && request.codecs[0] === hevc) ||
         (mode === "stripe-encoder" && request.profile === 2)
       )
         throw new Error("Native encoder failed");
@@ -143,7 +148,11 @@ mock.module("../src/protocol/desktop-video.ts", {
     // Represents a client with separately verified hardware; never a claim about
     // the test runner/browser. Ordinary browser policy excludes AV1 before attach.
     supportedDesktopCodecs: async () =>
-      mode.startsWith("stripe") ? [h264] : [av1, h264],
+      mode.includes("hevc")
+        ? [hevc, h264]
+        : mode.startsWith("stripe")
+          ? [h264]
+          : [av1, h264],
     DesktopVideoReceiver: class {
       constructor(
         _t: unknown,
@@ -164,6 +173,12 @@ mock.module("../src/protocol/desktop-video.ts", {
           throw Error("Stripe configuration failed");
         if (config.tracks[0].stripes && mode === "stripe-decode")
           queueMicrotask(() => this.codecFailed(codec));
+        if (codec === hevc) {
+          if (mode.includes("hevc-configure"))
+            throw Error("HEVC configuration failed");
+          if (mode.includes("hevc-decode"))
+            queueMicrotask(() => this.codecFailed(codec));
+        }
         if (codec === av1) {
           if (mode === "configure") throw Error("AV1 configuration failed");
           if (mode === "decode") queueMicrotask(() => this.codecFailed(codec));
@@ -176,6 +191,13 @@ mock.module("../src/protocol/desktop-video.ts", {
 const { rpcSessionBunja } = await import("../src/state/rpc-session.ts");
 const { desktopBunja } = await import("../src/state/desktop.ts");
 for (const failure of [
+  "hevc-attach",
+  "hevc-configure",
+  "hevc-decode",
+  "hevc-encoder",
+  "stripe-hevc-configure",
+  "stripe-hevc-decode",
+  "stripe-hevc-encoder",
   "configure",
   "decode",
   "encoder",
@@ -184,7 +206,7 @@ for (const failure of [
   "stripe-encoder",
   "stripe-both",
 ]) {
-  test(`${failure} failure renegotiates once and never restores control`, async () => {
+  test(`${failure} failure uses bounded recovery and never restores control`, async () => {
     mode = failure;
     offers = [];
     configurations = [];
@@ -239,7 +261,13 @@ for (const failure of [
       }
       assert.deepEqual(
         offers,
-        failure.startsWith("stripe") ? [[h264], [h264]] : [[av1, h264], [h264]],
+        failure.startsWith("stripe-hevc")
+          ? [[hevc, h264], [hevc, h264], [h264]]
+          : failure.startsWith("hevc")
+            ? [[hevc, h264], [h264]]
+            : failure.startsWith("stripe")
+              ? [[h264], [h264]]
+              : [[av1, h264], [h264]],
         JSON.stringify({
           phase: entry.value.phase(),
           message: entry.value.message(),
@@ -247,7 +275,11 @@ for (const failure of [
       );
       assert.deepEqual(
         profiles,
-        failure.startsWith("stripe") ? [2, 1] : [1, 1],
+        failure.startsWith("stripe-hevc")
+          ? [2, 1, 1]
+          : failure.startsWith("stripe")
+            ? [2, 1]
+            : [1, 1],
       );
       if (failure.startsWith("stripe")) assert.ok(released > 0);
       if (failure === "stripe-both") {
@@ -282,7 +314,8 @@ for (const failure of [
           1,
           "UI statistics remain throttled",
         );
-        statsHandlers[0]({ ...rendered, objectId: 3 });
+        if (statsHandlers.length > 1)
+          statsHandlers[0]({ ...rendered, objectId: 3 });
         assert.equal(
           feedbacks.length,
           2,

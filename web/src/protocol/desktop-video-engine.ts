@@ -69,7 +69,7 @@ export class DesktopVideoEngine {
             ? new Uint8Array(track.codec.description)
             : undefined,
           optimizeForLatency: true,
-          hardwareAcceleration: track.codec.codec.startsWith("av01.")
+          hardwareAcceleration: /^(av01|hev1)\./.test(track.codec.codec)
             ? "prefer-hardware"
             : "no-preference",
         };

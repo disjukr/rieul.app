@@ -243,3 +243,65 @@ test("missing render surface suppresses receipt but releases frame; restoration 
     else Reflect.deleteProperty(globalThis, "Worker");
   }
 });
+
+test("worker forwards HEVC configuration and only current codec failures", async () => {
+  const old = Object.getOwnPropertyDescriptor(globalThis, "Worker");
+  Object.defineProperty(globalThis, "Worker", {
+    configurable: true,
+    value: FakeWorker,
+  });
+  const failures: string[] = [];
+  const receiver = new WorkerVideoReceiver(
+    { incomingUnidirectionalStreams: new ReadableStream() } as WebTransport,
+    "attach",
+    () => {},
+    () => {},
+    assert.fail,
+    (codec) => failures.push(codec),
+  );
+  const codec = "hev1.1.6.L120.B0";
+  try {
+    await receiver.ready;
+    const configuration: DesktopConfiguration = {
+      layoutEpoch: 1,
+      totalBitrate: 1000,
+      tracks: [
+        {
+          trackId: 1,
+          codecEpoch: 1,
+          codec: { codec, hardware: true },
+          stripes: [
+            { y: 0, height: 32 },
+            { y: 32, height: 32 },
+          ],
+          viewport: {
+            viewportId: "d",
+            displayId: "d",
+            crop: { x: 0, y: 0, width: 64, height: 64 },
+            width: 64,
+            height: 64,
+            fps: 60,
+            bitrate: 1000,
+          },
+        },
+      ],
+    };
+    const configuring = receiver.configure(configuration);
+    await tick();
+    const worker = FakeWorker.last;
+    const message = worker.sent.find((m) => m.type === "configure");
+    assert.deepEqual(message.configuration, configuration);
+    worker.receive({ type: "configured", id: message.id });
+    await configuring;
+    worker.receive({ type: "codecFailed", generation: message.id - 1, codec });
+    assert.deepEqual(failures, []);
+    worker.receive({ type: "codecFailed", generation: message.id, codec });
+    assert.deepEqual(failures, [codec]);
+    receiver.close();
+    worker.receive({ type: "closed" });
+  } finally {
+    receiver.close();
+    if (old) Object.defineProperty(globalThis, "Worker", old);
+    else Reflect.deleteProperty(globalThis, "Worker");
+  }
+});

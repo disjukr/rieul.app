@@ -221,3 +221,63 @@ test("prefer-hardware acceptance alone does not advertise AV1", async () => {
     globalThis.VideoDecoder = original;
   }
 });
+
+test("HEVC prefers verified host hardware without weakening AV1 policy", () => {
+  const hevc = { codec: "hev1.1.6.L120.B0", hardware: true };
+  const h264 = { codec: "avc1.42e02a", hardware: true };
+  const av1 = { codec: "av01.0.08M.08", hardware: true };
+  assert.deepEqual(desktopCodecOrder([h264, av1, hevc]), [hevc, h264]);
+  assert.deepEqual(desktopCodecOrder([h264, av1, hevc], new Set([av1.codec])), [
+    hevc,
+    av1,
+    h264,
+  ]);
+  assert.deepEqual(
+    desktopCodecOrder([
+      { ...hevc, hardware: false },
+      { ...hevc, description: new Uint8Array([1]) },
+      { ...hevc, codec: "hvc1.1.6.L120.B0" },
+      h264,
+    ]),
+    [h264],
+  );
+});
+
+for (const support of ["supported", "unsupported", "throws"] as const) {
+  test(`HEVC browser probe ${support} retains H264 fallback`, async () => {
+    const original = globalThis.VideoDecoder;
+    const configs: VideoDecoderConfig[] = [];
+    const hevc = "hev1.1.6.L120.B0",
+      h264 = "avc1.42e02a";
+    globalThis.VideoDecoder = {
+      async isConfigSupported(config: VideoDecoderConfig) {
+        configs.push(config);
+        if (config.codec === hevc && support === "throws")
+          throw new Error("Unsupported codec");
+        return {
+          supported: config.codec !== hevc || support === "supported",
+          config,
+        };
+      },
+    } as typeof VideoDecoder;
+    try {
+      assert.deepEqual(
+        await supportedDesktopCodecs([
+          { codec: h264, hardware: true },
+          { codec: hevc, hardware: true },
+        ]),
+        support === "supported" ? [hevc, h264] : [h264],
+      );
+      assert.deepEqual(
+        configs.map((c) => [c.codec, c.hardwareAcceleration]),
+        [
+          [hevc, "prefer-hardware"],
+          [h264, "no-preference"],
+        ],
+      );
+      assert.equal(configs[0].description, undefined);
+    } finally {
+      globalThis.VideoDecoder = original;
+    }
+  });
+}

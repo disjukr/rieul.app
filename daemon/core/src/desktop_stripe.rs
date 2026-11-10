@@ -1,4 +1,4 @@
-//! Profile 2: bounded atomic bundles of independent horizontal H.264 stripes.
+//! Profile 2: bounded atomic bundles of independent horizontal Annex-B video stripes.
 //! Layout adapted from MIT voxl video::stripe_layout; see third_party/voxl.
 //! The outer media object owns authentication/epochs/time/GOP sequencing.
 use crate::generated::rpc::DesktopStripe;
@@ -6,6 +6,12 @@ use crate::generated::rpc::DesktopStripe;
 pub const MAX_STRIPES: usize = 2;
 pub const MAX_BUNDLE: usize = 4 * 1024 * 1024;
 const MAGIC: &[u8; 3] = b"RS\x02";
+
+/// Profile 2 carries in-band parameter sets in each independent keyframe.
+/// MP4-style decoder descriptions and AV1 are not part of this wire profile.
+pub fn supports_codec(codec: &str, has_description: bool) -> bool {
+    !has_description && (codec.starts_with("avc1.") || codec.starts_with("hev1."))
+}
 
 /// Aligned upstream stripe layout, restricted to even NV12 dimensions and two
 /// concurrent hardware sessions. A profile-2 full frame is a one-stripe bundle.
@@ -302,5 +308,21 @@ mod region_tests {
         assert!(rates(1, 480, &stripes).is_none());
         assert!(nv12_region(&pixels[..pixels.len() - 1], 640, 480, &stripes[0]).is_none());
         assert!(nv12_region(&pixels, 640, 480, &DesktopStripe { y: 2, height: 480 }).is_none());
+    }
+}
+
+#[cfg(test)]
+mod codec_tests {
+    use super::*;
+    #[test]
+    fn stripes_require_an_annex_b_codec_without_description() {
+        assert!(supports_codec("avc1.42002a", false));
+        assert!(supports_codec("hev1.1.6.L153.B0", false));
+        for codec in ["hev1.1.6.L153.B0", "avc1.42002a"] {
+            assert!(!supports_codec(codec, true));
+        }
+        for codec in ["hvc1.1.6.L153.B0", "av01.0.08M.08", "vp09.00.10.08", ""] {
+            assert!(!supports_codec(codec, false));
+        }
     }
 }

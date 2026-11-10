@@ -3,6 +3,8 @@ import { DesktopVideoEngine } from "./desktop-video-engine.ts";
 export type { DesktopVideoStats } from "./desktop-video-engine.ts";
 /** Client policy only; never infer hardware use from WebCodecs preference hints.
  * The browser currently has no authoritative per-decoder hardware attestation.
+ * HEVC uses host hardware evidence plus an actual WebCodecs support probe;
+ * prefer-hardware remains only a hint, with runtime H.264 recovery.
  * A future trusted native client may supply device/configuration-specific evidence.
  */
 export function desktopCodecOrder(
@@ -13,8 +15,11 @@ export function desktopCodecOrder(
     (c) =>
       c.codec.startsWith("av01.") && c.hardware && hardwareDecoded.has(c.codec),
   );
+  const hevc = codecs.filter(
+    (c) => /^hev1\./.test(c.codec) && c.hardware && !c.description,
+  );
   const h264 = codecs.filter((c) => /^avc[13]\./.test(c.codec));
-  return [...av1, ...h264];
+  return [...hevc, ...av1, ...h264];
 }
 
 export async function supportedDesktopCodecs(
@@ -33,7 +38,7 @@ export async function supportedDesktopCodecs(
               ? new Uint8Array(codec.description)
               : undefined,
             optimizeForLatency: true,
-            hardwareAcceleration: codec.codec.startsWith("av01.")
+            hardwareAcceleration: /^(av01|hev1)\./.test(codec.codec)
               ? "prefer-hardware"
               : "no-preference",
           })

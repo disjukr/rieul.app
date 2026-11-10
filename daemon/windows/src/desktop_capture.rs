@@ -79,11 +79,7 @@ fn validate_key(t: &DesktopTrack, format: native::Codec, packet: &[u8]) -> Resul
     if packet.len() > 4 * 1024 * 1024 {
         return Err(Error::Limit);
     }
-    let codec = if format == native::Codec::Av1 {
-        crate::desktop_pixels::av1_independent(packet, &mut vec![]).map(|(c, _)| c)
-    } else {
-        crate::desktop::avc_codec(packet)
-    };
+    let codec = crate::desktop::packet_codec(format, packet);
     if codec.as_deref() != Some(t.codec.codec.as_str()) {
         return Err(Error::Unsupported);
     }
@@ -98,13 +94,21 @@ pub(crate) struct Stripes {
     width: usize,
     height: usize,
     codec: String,
+    format: native::Codec,
 }
 impl Stripes {
     pub(crate) fn new(t: &DesktopTrack) -> Result<Self, Error> {
         use rieul_daemon_core::desktop_stripe as stripe;
         let layout = t.stripes.clone().ok_or(Error::Invalid)?;
         let v = &t.viewport;
-        if !stripe::valid_layout(v.height, &layout) || !t.codec.codec.starts_with("avc1.") {
+        let format = if t.codec.codec.starts_with("avc1.") {
+            native::Codec::H264
+        } else if t.codec.codec.starts_with("hev1.") {
+            native::Codec::Hevc
+        } else {
+            return Err(Error::Unsupported);
+        };
+        if !stripe::valid_layout(v.height, &layout) {
             return Err(Error::Unsupported);
         }
         let rates = stripe::rates(
@@ -122,7 +126,7 @@ impl Stripes {
                     s.height as u32,
                     v.fps as u32,
                     rate,
-                    native::Codec::H264,
+                    format,
                 )
                 .map_err(|_| Error::Unsupported)
             })
@@ -134,6 +138,7 @@ impl Stripes {
             width: v.width as usize,
             height: v.height as usize,
             codec: t.codec.codec.clone(),
+            format,
         })
     }
     fn rate(&self, total: u32) -> Result<(), Error> {
@@ -180,7 +185,7 @@ impl Stripes {
                 .encode(&region, timestamp, key)
                 .map_err(|_| Error::Backend)?;
             if actual_key
-                && crate::desktop::avc_codec(&data).as_deref() != Some(self.codec.as_str())
+                && crate::desktop::packet_codec(self.format, &data).as_deref() != Some(self.codec.as_str())
             {
                 return Err(Error::Unsupported);
             }
@@ -246,8 +251,12 @@ fn create(t: DesktopTrack) -> Result<Worker, Error> {
         .map_err(|_| Error::Backend)?;
         let format = if t.codec.codec.starts_with("av01.") {
             native::Codec::Av1
-        } else {
+        } else if t.codec.codec.starts_with("hev1.") {
+            native::Codec::Hevc
+        } else if t.codec.codec.starts_with("avc1.") {
             native::Codec::H264
+        } else {
+            return Err(Error::Unsupported);
         };
         let make = || {
             native::HardwareEncoder::with_codec(
@@ -272,7 +281,7 @@ fn create(t: DesktopTrack) -> Result<Worker, Error> {
                 .encode(&pixels, 1_000_000 / v.fps, false, true)?
                 .is_some_and(|(_, key)| !key)
         } else {
-            format == native::Codec::H264
+            format != native::Codec::Av1
                 && probe.as_ref().unwrap().encode_keyframe(&pixels, 0).is_ok()
                 && probe
                     .as_ref()
@@ -493,13 +502,21 @@ mod stripe_tests {
     #[test]
     #[ignore = "allocated-pixel hardware test; requires a real Windows hardware H264 encoder"]
     fn synthetic_stripe_key_delta_selective_and_recovery() {
+        synthetic_stripe_codec(native::Codec::H264);
+    }
+    #[test]
+    #[ignore = "allocated-pixel hardware test; requires a real Windows hardware HEVC encoder"]
+    fn synthetic_hevc_stripe_key_delta_selective_and_recovery() {
+        synthetic_stripe_codec(native::Codec::Hevc);
+    }
+    fn synthetic_stripe_codec(format: native::Codec) {
         let _apartment = native::Apartment::enter().unwrap();
         let full =
-            native::HardwareEncoder::with_codec(640, 480, 60, 2_000_000, native::Codec::H264)
+            native::HardwareEncoder::with_codec(640, 480, 60, 2_000_000, format)
                 .unwrap();
         let mut pixels = vec![128; 640 * 480 * 3 / 2];
         pixels[..640 * 480].fill(16);
-        let codec = crate::desktop::avc_codec(&full.encode_keyframe(&pixels, 0).unwrap()).unwrap();
+        let codec = crate::desktop::packet_codec(format, &full.encode_keyframe(&pixels, 0).unwrap()).unwrap();
         drop(full);
         let track = DesktopTrack {
             codec: DesktopCodec {

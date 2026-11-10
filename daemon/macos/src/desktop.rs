@@ -36,6 +36,7 @@ unsafe extern "C" {
     fn rd_permissions() -> i32;
     fn rd_displays(out: *mut Display, capacity: usize) -> usize;
     fn rd_hardware_codec(codec: *mut u32) -> bool;
+    fn rd_probe_hevc(width: u32, height: u32, fps: u32, bitrate: u32, stripes: u32, codec: *mut u8, capacity: usize) -> bool;
     fn rd_hardware_stripes() -> bool;
     fn rd_probe_stripe_video(
         width: u32,
@@ -64,6 +65,7 @@ unsafe extern "C" {
         fps: u32,
         bitrate: u32,
         stripes: u32,
+        hevc: bool,
         shutdown_failed: *mut bool,
     ) -> *mut c_void;
     fn rd_capture_set_bitrate(handle: *mut c_void, bitrate: u32) -> bool;
@@ -308,14 +310,37 @@ fn map_point(v: &DesktopViewport, d: &Display, x: f64, y: f64) -> Result<(f64, f
         d.y + (v.crop.y as f64 + y * v.crop.height as f64 / v.height as f64) / d.scale,
     ))
 }
+// Codec strings come from actual hardware-encoded synthetic frames. VideoToolbox
+// uses AutoLevel for HEVC; a smaller stream is valid under the advertised level.
+fn probe_hevc(width: u32, height: u32, fps: u32, bitrate: u32, stripes: u32) -> Option<String> {
+    let mut codec = [0u8; 128];
+    if !unsafe { rd_probe_hevc(width, height, fps, bitrate, stripes, codec.as_mut_ptr(), codec.len()) } {
+        return None;
+    }
+    let end = codec.iter().position(|b| *b == 0)?;
+    String::from_utf8(codec[..end].to_vec()).ok()
+}
+fn hevc_fits(actual: &str, advertised: &str) -> bool {
+    let a: Vec<_> = actual.split('.').collect();
+    let b: Vec<_> = advertised.split('.').collect();
+    a.len() >= 4 && a.len() == b.len() && a[..3] == b[..3] && a[4..] == b[4..]
+        && a[3].starts_with('L') && b[3].starts_with('L')
+        && a[3][1..].parse::<u32>().ok().zip(b[3][1..].parse::<u32>().ok()).is_some_and(|(a,b)| a <= b)
+}
 impl Backend for MacDesktop {
     fn probe_video(&self, track: &DesktopTrack) -> DesktopQualityVerification {
-        if !rieul_daemon_host::desktop::validate_video_probe(track)
-            || !track.codec.codec.starts_with("avc1.")
-        {
+        if !rieul_daemon_host::desktop::validate_video_probe(track) {
             return DesktopQualityVerification::Unsupported;
         }
         let v = &track.viewport;
+        if track.codec.codec.starts_with("hev1.") {
+            return if probe_hevc(v.width as u32, v.height as u32, v.fps as u32, v.bitrate as u32,
+                track.stripes.as_ref().map_or(0, |s| s.len() as u32))
+                .is_some_and(|codec| hevc_fits(&codec, &track.codec.codec)) {
+                DesktopQualityVerification::Verified
+            } else { DesktopQualityVerification::Unsupported };
+        }
+        if !track.codec.codec.starts_with("avc1.") { return DesktopQualityVerification::Unsupported; }
         let mut codec = 0;
         if unsafe {
             if let Some(stripes) = &track.stripes {
@@ -366,9 +391,15 @@ impl Backend for MacDesktop {
     fn capabilities(&self) -> DesktopCapabilities {
         let permissions = unsafe { rd_permissions() };
         let mut codec = 0;
-        let hardware = permissions & 1 != 0 && unsafe { rd_hardware_codec(&mut codec) };
+        let h264 = permissions & 1 != 0 && unsafe { rd_hardware_codec(&mut codec) };
+        let hevc = if permissions & 1 != 0 { probe_hevc(3840, 2160, 60, 20_000_000, 0) } else { None };
+        let hevc_stripes = hevc.as_ref().is_some_and(|advertised| probe_hevc(3840, 2160, 60, 20_000_000, 2).is_some_and(|actual| hevc_fits(&actual, advertised)));
+        let hardware = h264 || hevc.is_some();
+        let mut codecs = Vec::new();
+        if let Some(codec) = hevc { codecs.push(DesktopCodec { codec, description: None, hardware: true }); }
+        if h264 { codecs.push(DesktopCodec { codec: format!("avc1.{codec:06x}"), description: None, hardware: true }); }
         DesktopCapabilities {
-            supported_profiles: Some(if hardware && unsafe { rd_hardware_stripes() } {
+            supported_profiles: Some(if hevc_stripes || (h264 && unsafe { rd_hardware_stripes() }) {
                 vec![1, 2]
             } else {
                 vec![1]
@@ -393,22 +424,14 @@ impl Backend for MacDesktop {
             } else {
                 DesktopAvailability::PermissionRequired
             },
-            codecs: if hardware {
-                vec![DesktopCodec {
-                    codec: format!("avc1.{codec:06x}"),
-                    description: None,
-                    hardware: true,
-                }]
-            } else {
-                vec![]
-            },
+            codecs,
             composition: false,
             relative_pointer: false,
             max_viewports: MAX_VIEWPORTS as u64,
             max_input_frame_bytes: MAX_FRAME as u64,
             max_input_stream_bytes: MAX_STREAM as u64,
             reason: (!hardware).then(|| {
-                "Screen Recording permission and a hardware H.264 encoder are required".into()
+                "Screen Recording permission and a hardware H.264 or HEVC encoder are required".into()
             }),
         }
     }
@@ -527,7 +550,7 @@ impl Backend for MacDesktop {
             }
         }
 
-        if !track.codec.codec.starts_with("avc1.42") {
+        if !track.codec.codec.starts_with("avc1.42") && !track.codec.codec.starts_with("hev1.") {
             return Err(Error::Unsupported);
         }
         let capture = {
@@ -557,6 +580,7 @@ impl Backend for MacDesktop {
                         v.fps.try_into().map_err(|_| Error::Limit)?,
                         v.bitrate.try_into().map_err(|_| Error::Limit)?,
                         track.stripes.as_ref().map_or(0, |s| s.len() as u32),
+                        track.codec.codec.starts_with("hev1."),
                         &mut shutdown_failed,
                     )
                 };
@@ -661,6 +685,17 @@ impl Backend for MacDesktop {
                 break;
             }
             let frame=p.frame.ok_or(Error::Backend)?;
+            if track.codec.codec.starts_with("hev1.") {
+                let valid_key = |bytes: &[u8]| {
+                    rieul_daemon_core::desktop_hevc::codec(bytes)
+                        .is_some_and(|actual| hevc_fits(&actual, &track.codec.codec))
+                };
+                let valid = if let Some(stripes) = &track.stripes {
+                    rieul_daemon_core::desktop_stripe::decode(&frame.data, stripes.len(), index == 0)
+                        .is_some_and(|packets| packets.iter().all(|p| !p.keyframe || valid_key(p.data)))
+                } else { index != 0 || valid_key(&frame.data) };
+                if !valid { return Err(Error::Unsupported); }
+            }
             if !capture.2.accept(self.clock.elapsed(),bitrate,frame.data.len(),boosted) { break; }
             emit(frame)?;
             if paintover {
@@ -1062,5 +1097,41 @@ mod hardware_refinement_tests {
     #[ignore="allocated-pixel hardware sessions; no capture, input, or permissions"]
     fn hardware_stripe_refinement_rate_restores_before_motion() {
         assert!(unsafe{rd_test_hardware_refinement()});
+    }
+}
+
+#[cfg(test)]
+mod hevc_tests {
+    use super::*;
+    #[test]
+    fn auto_level_stays_within_advertised_configuration() {
+        assert!(hevc_fits("hev1.1.6.L90.B0", "hev1.1.6.L153.B0"));
+        assert!(!hevc_fits("hev1.1.6.L156.B0", "hev1.1.6.L153.B0"));
+        assert!(!hevc_fits("hev1.2.6.L90.B0", "hev1.1.6.L153.B0"));
+        assert!(!hevc_fits("hev1.1.6.H90.B0", "hev1.1.6.L153.B0"));
+        assert!(!hevc_fits("hev1.1.6.L90", "hev1.1.6.L153.B0"));
+    }
+    #[test]
+    #[ignore = "requires native Apple Silicon VideoToolbox hardware; synthetic pixels only"]
+    fn synthetic_hevc_hardware_full_frame_and_stripes() {
+        unsafe extern "C" {
+            fn rd_synthetic_hevc_packet(emit: extern "C" fn(*mut c_void, *const u8, usize, u64) -> bool, context: *mut c_void) -> bool;
+        }
+        extern "C" fn packet(context: *mut c_void, data: *const u8, size: usize, _: u64) -> bool {
+            if data.is_null() || size == 0 || size > 4 * 1024 * 1024 { return false; }
+            let result = unsafe { &mut *(context as *mut Option<String>) };
+            *result = rieul_daemon_core::desktop_hevc::codec(unsafe { std::slice::from_raw_parts(data, size) });
+            result.is_some()
+        }
+        let mut packet_codec: Option<String> = None;
+        assert!(unsafe { rd_synthetic_hevc_packet(packet, &mut packet_codec as *mut _ as *mut c_void) });
+        assert_eq!(packet_codec, probe_hevc(640, 480, 60, 2_000_000, 0));
+        let maximum = probe_hevc(3840, 2160, 60, 20_000_000, 0).expect("HEVC hardware encoder");
+        for stripes in [0, 2] {
+            for (width, height, fps) in [(640, 480, 60), (1920, 1080, 60), (3840, 2160, 60)] {
+                let actual = probe_hevc(width, height, fps, 20_000_000, stripes).expect("HEVC encode");
+                assert!(hevc_fits(&actual, &maximum), "{actual} exceeds {maximum}");
+            }
+        }
     }
 }

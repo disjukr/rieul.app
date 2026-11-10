@@ -14,8 +14,10 @@ pub fn validate_video_probe(track: &DesktopTrack) -> bool {
         && (1..=100_000_000).contains(&v.bitrate)
         && track.codec.codec.len() <= 128
         && track.stripes.as_ref().is_none_or(|s| {
-            track.codec.codec.starts_with("avc1.")
-                && rieul_daemon_core::desktop_stripe::valid_layout(v.height, s)
+            rieul_daemon_core::desktop_stripe::supports_codec(
+                &track.codec.codec,
+                track.codec.description.is_some(),
+            ) && rieul_daemon_core::desktop_stripe::valid_layout(v.height, s)
         })
         && baseline_42_bounds(track)
 }
@@ -584,6 +586,32 @@ mod tests {
         track.viewport.width = 3840;
         track.viewport.height = 2160;
         track.viewport.fps = 15;
+        assert!(!validate_video_probe(&track));
+    }
+    #[test]
+    fn hevc_stripe_probe_keeps_geometry_bounds_without_h264_level_limits() {
+        let mut track = DesktopTrack {
+            stripes: rieul_daemon_core::desktop_stripe::layout(2160, 2),
+            codec: DesktopCodec {
+                codec: "hev1.1.6.L153.B0".into(),
+                ..Default::default()
+            },
+            viewport: DesktopViewport {
+                width: 3840,
+                height: 2160,
+                fps: 60,
+                bitrate: 20_000_000,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        assert!(validate_video_probe(&track));
+        track.viewport.width = 3841;
+        assert!(!validate_video_probe(&track));
+        track.viewport.width = 3840;
+        track.codec.codec = "hvc1.1.6.L153.B0".into();
+        assert!(!validate_video_probe(&track));
+        track.codec.codec = "av01.0.08M.08".into();
         assert!(!validate_video_probe(&track));
     }
     #[test]
