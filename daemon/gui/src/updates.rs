@@ -5,6 +5,7 @@ use rieul_daemon_core::generated::rpc::{UpdatePhase, UpdateStatus};
 pub enum Action {
     Check,
     Install,
+    ForceInstall,
     Restart,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -137,7 +138,7 @@ impl Updates {
     pub fn request(&mut self, action: Action) -> Option<Request> {
         if !match action {
             Action::Check => self.can_check(),
-            Action::Install => self.can_install(),
+            Action::Install | Action::ForceInstall => self.can_install(),
             Action::Restart => self.can_restart(),
         } {
             return None;
@@ -173,6 +174,12 @@ impl Updates {
         }
         if self.pending.is_some_and(|r| r.action == Action::Restart) {
             return "Requesting daemon restart…";
+        }
+        if self
+            .pending
+            .is_some_and(|r| r.action == Action::ForceInstall)
+        {
+            return "Requesting forced installation…";
         }
         if self.pending.is_some_and(|r| r.action == Action::Install) {
             return "Requesting installation…";

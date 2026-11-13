@@ -267,19 +267,33 @@ pub(super) fn requires_confirmed_retry(state: &Dir, j: &Journal) -> Result<bool>
         });
     Ok(failed || super::preparation::rolled_back_candidate(state, &j.new)?)
 }
+#[cfg(all(test, target_os = "macos"))]
 pub(super) fn dispatch_prepared(manual: bool) -> Result<()> {
+    dispatch_prepared_with_force(manual, false)
+}
+pub(super) fn dispatch_prepared_with_force(manual: bool, force: bool) -> Result<()> {
     let state = Dir::open(Path::new(STATE), 0, true)?;
-    dispatch_attempt(&state, manual, |state| {
+    dispatch_attempt_with_force(&state, manual, force, |state| {
         ensure_worker(state, &mut launchd::Native { state })
     })
 }
 /// Persist pessimistic failure before any copy/sign/submit side effect. A crash
 /// or dispatch error must require explicit retry, including after daemon restart.
+#[cfg(test)]
 pub(super) fn dispatch_attempt(
     state: &Dir,
     manual: bool,
     submit: impl FnOnce(&Dir) -> Result<()>,
 ) -> Result<()> {
+    dispatch_attempt_with_force(state, manual, false, submit)
+}
+fn dispatch_attempt_with_force(
+    state: &Dir,
+    manual: bool,
+    force: bool,
+    submit: impl FnOnce(&Dir) -> Result<()>,
+) -> Result<()> {
+    ensure!(!force || manual, "force requires a confirmed install");
     state.require_private()?;
     let _lock = state.lock()?;
     let j: Journal = state
@@ -305,6 +319,7 @@ pub(super) fn dispatch_attempt(
                 &super::control::InstallIntent {
                     nonce: j.nonce.clone(),
                     confirmed: true,
+                    force,
                 },
             )?;
         } else {
@@ -345,6 +360,25 @@ mod result_tests {
         };
         transaction::prepare(&state, identity(1), identity(2)).unwrap();
         (tmp, state)
+    }
+    #[test]
+    fn force_intent_requires_confirmation_and_is_bound_to_the_candidate() {
+        let (_tmp, state) = handoff_fixture();
+        assert!(
+            dispatch_attempt_with_force(&state, false, true, |_| {
+                panic!("unconfirmed force dispatched")
+            })
+            .is_err()
+        );
+        dispatch_attempt_with_force(&state, true, true, |state| {
+            let journal: Journal = state.load("journal.json")?.unwrap();
+            let intent: super::super::control::InstallIntent =
+                state.load("install-request.json")?.unwrap();
+            assert!(intent.confirmed && intent.force);
+            assert_eq!(intent.nonce, journal.nonce);
+            Ok(())
+        })
+        .unwrap();
     }
     #[test]
     fn worker_waits_for_dispatch_lock_and_owns_result_publication() {

@@ -1,5 +1,5 @@
-//! Conservative local update drain: no disconnecting sessions or killing work.
-//! A connected idle client also defers updates until it disconnects.
+//! Update admission and two-phase exit leases. Ordinary installs wait for idle;
+//! an explicitly confirmed force install may interrupt admitted work.
 use anyhow::Result;
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
@@ -18,6 +18,12 @@ impl Workload {
         self.blocks_update(false)
     }
     pub fn blocks_update(&self, manual: bool) -> bool {
+        self.blocks_update_with_force(manual, false)
+    }
+    pub fn blocks_update_with_force(&self, manual: bool, force: bool) -> bool {
+        if manual && force {
+            return false;
+        }
         (!manual && self.connections != 0)
             || self.terminals != 0
             || self.commands != 0
@@ -30,6 +36,7 @@ pub struct DrainRequest {
     pub nonce: String,
     pub commit: bool,
     pub manual: bool,
+    pub force: bool,
 }
 #[derive(Clone, Debug)]
 pub enum DrainState {
@@ -139,8 +146,11 @@ impl WorkGate {
         Some(WorkGuard(self.clone()))
     }
     pub fn begin_drain(self: &Arc<Self>) -> Option<DrainGuard> {
+        self.begin_update_drain(false)
+    }
+    pub(crate) fn begin_update_drain(self: &Arc<Self>, force: bool) -> Option<DrainGuard> {
         let mut state = self.0.lock().ok()?;
-        if state.draining || state.active != 0 {
+        if state.draining || (!force && state.active != 0) {
             return None;
         }
         state.draining = true;
@@ -152,6 +162,23 @@ impl WorkGate {
             .map(|state| state.active)
             .unwrap_or(usize::MAX)
     }
+}
+#[cfg(test)]
+#[test]
+fn forced_update_closes_admission_even_with_active_work() {
+    let gate = Arc::new(WorkGate::default());
+    let existing = gate.enter().unwrap();
+    assert!(gate.begin_drain().is_none());
+    let drain = gate.begin_update_drain(true).unwrap();
+    assert!(gate.enter().is_none());
+    let busy = Workload { active_calls: 1, terminals: 1, ..Default::default() };
+    assert!(busy.blocks_update_with_force(true, false));
+    assert!(busy.blocks_update_with_force(false, true));
+    assert!(!busy.blocks_update_with_force(true, true));
+    drop(existing);
+    assert!(gate.enter().is_none());
+    drop(drain);
+    assert!(gate.enter().is_some());
 }
 impl Drop for WorkGuard {
     fn drop(&mut self) {
@@ -258,6 +285,7 @@ mod startup_tests {
             nonce: "first".into(),
             commit: true,
             manual: false,
+            force: false,
         })));
         let events = Arc::new(std::sync::Mutex::new(Vec::new()));
         let read = request.clone();
@@ -282,6 +310,7 @@ mod startup_tests {
             nonce: "replacement".into(),
             commit: true,
             manual: false,
+            force: false,
         });
         tokio::time::sleep(std::time::Duration::from_millis(150)).await;
         assert!(!task.is_finished());

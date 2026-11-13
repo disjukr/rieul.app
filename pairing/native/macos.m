@@ -10,7 +10,7 @@ static atomic_uint events;
 static NSWindow *window;
 static NSStatusItem *status;
 static NSMenu *menu;
-static NSMenuItem *updateStatus, *updateDetail, *updateCheck, *updateInstall, *daemonRestart;
+static NSMenuItem *updateStatus, *updateDetail, *updateCheck, *updateInstall, *forceInstall, *daemonRestart;
 static NSApplicationActivationPolicy previousPolicy;
 static BOOL changedPolicy;
 static atomic_int notificationAuthorization;
@@ -90,6 +90,7 @@ static RieulApplicationDelegate *applicationDelegate;
 - (void)quit:(id)sender { atomic_fetch_or(&events, RieulQuit); }
 - (void)checkUpdates:(id)sender { atomic_fetch_or(&events, 64); }
 - (void)installUpdate:(id)sender { atomic_fetch_or(&events, 128); }
+- (void)forceInstallUpdate:(id)sender { atomic_fetch_or(&events, 512); }
 - (void)restartDaemon:(id)sender { atomic_fetch_or(&events, 256); }
 @end
 static RieulStatusTarget *target;
@@ -129,8 +130,9 @@ int32_t rieul_macos_init(const char *iconPath) {
     updateDetail = [[NSMenuItem alloc] initWithTitle:@"" action:nil keyEquivalent:@""];
     updateCheck = [[NSMenuItem alloc] initWithTitle:@"Check for Updates" action:@selector(checkUpdates:) keyEquivalent:@""];
     updateInstall = [[NSMenuItem alloc] initWithTitle:@"Install Update…" action:@selector(installUpdate:) keyEquivalent:@""];
+    forceInstall = [[NSMenuItem alloc] initWithTitle:@"Force Install Update…" action:@selector(forceInstallUpdate:) keyEquivalent:@""];
     daemonRestart = [[NSMenuItem alloc] initWithTitle:@"Restart Daemon…" action:@selector(restartDaemon:) keyEquivalent:@""];
-    for (NSMenuItem *item in @[updateStatus, updateDetail, updateCheck, updateInstall, daemonRestart]) {
+    for (NSMenuItem *item in @[updateStatus, updateDetail, updateCheck, updateInstall, forceInstall, daemonRestart]) {
       item.target = target; item.enabled = NO; [menu addItem:item];
     }
     updateDetail.hidden = YES;
@@ -222,12 +224,12 @@ void rieul_macos_updates(const char *label, const char *detail, int check, int i
   updateDetail.title = [NSString stringWithUTF8String:detail];
   updateDetail.hidden = updateDetail.title.length == 0;
   daemonRestart.title = [NSString stringWithUTF8String:restartLabel];
-  updateCheck.enabled = check != 0; updateInstall.enabled = install != 0; daemonRestart.enabled = restart != 0;
+  updateCheck.enabled = check != 0; updateInstall.enabled = install != 0; forceInstall.enabled = install != 0; daemonRestart.enabled = restart != 0;
 }
-int32_t rieul_macos_confirm_update(const char *title) {
+int32_t rieul_macos_confirm_update(const char *title, int force) {
   NSAlert *alert = [NSAlert new];
-  alert.messageText = [NSString stringWithUTF8String:title];
-  alert.informativeText = @"Connected clients will disconnect. Active terminals, commands, transfers, agents and Screen sessions must finish first; they will not be forcibly stopped.";
+  alert.messageText = force ? @"Force Install Update?" : [NSString stringWithUTF8String:title];
+  alert.informativeText = force ? @"The daemon will restart without waiting for active terminals, commands, transfers, agents or Screen sessions. Unsaved work may be lost." : @"Connected clients will disconnect. Active terminals, commands, transfers, agents and Screen sessions must finish first; they will not be forcibly stopped.";
   [alert addButtonWithTitle:@"Cancel"];
   [alert addButtonWithTitle:@"Continue"];
   return [alert runModal] == NSAlertSecondButtonReturn;

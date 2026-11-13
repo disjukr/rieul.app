@@ -19,7 +19,7 @@ mod macos {
             restart: i32,
             restart_label: *const std::ffi::c_char,
         );
-        fn rieul_macos_confirm_update(title: *const std::ffi::c_char) -> i32;
+        fn rieul_macos_confirm_update(title: *const std::ffi::c_char, force: i32) -> i32;
         fn rieul_macos_destroy() -> i32;
     }
     pub struct Shell;
@@ -60,9 +60,9 @@ mod macos {
                 );
             }
         }
-        pub fn confirm_update(&self, title: &str) -> bool {
+        pub fn confirm_update(&self, title: &str, force: bool) -> bool {
             let title = CString::new(title.replace('\0', "")).unwrap();
-            unsafe { rieul_macos_confirm_update(title.as_ptr()) != 0 }
+            unsafe { rieul_macos_confirm_update(title.as_ptr(), force.into()) != 0 }
         }
         pub fn events(&self) -> u32 {
             unsafe { rieul_macos_take_events() }

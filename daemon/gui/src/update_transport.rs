@@ -48,6 +48,7 @@ impl Bridge {
                         let action = match request.action {
                             Action::Check => "check",
                             Action::Install => "install",
+                            Action::ForceInstall => "force-install",
                             Action::Restart => "restart",
                         };
                         let result = macos::exchange(action, None)

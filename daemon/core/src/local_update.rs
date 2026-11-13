@@ -7,6 +7,7 @@ pub enum Operation {
     Subscribe,
     Check,
     Install,
+    ForceInstall,
     Restart,
 }
 impl Operation {
@@ -15,6 +16,7 @@ impl Operation {
             Self::Subscribe => ProcId::SubscribeLocalUpdateStatus,
             Self::Check => ProcId::CheckLocalUpdates,
             Self::Install => ProcId::InstallLocalUpdateConfirmed,
+            Self::ForceInstall => ProcId::ForceInstallLocalUpdateConfirmed,
             Self::Restart => ProcId::RestartLocalDaemonConfirmed,
         }
         .as_u64()
@@ -32,9 +34,15 @@ impl Operation {
                 stream_id: 1,
                 proc_id,
                 payload: None,
-            } => [Self::Subscribe, Self::Check, Self::Install, Self::Restart]
-                .into_iter()
-                .find(|op| op.id() == proc_id),
+            } => [
+                Self::Subscribe,
+                Self::Check,
+                Self::Install,
+                Self::ForceInstall,
+                Self::Restart,
+            ]
+            .into_iter()
+            .find(|op| op.id() == proc_id),
             _ => None,
         }
     }
@@ -67,6 +75,7 @@ mod tests {
             Operation::Subscribe,
             Operation::Check,
             Operation::Install,
+            Operation::ForceInstall,
             Operation::Restart,
         ] {
             let frame = encode(&operation.request()).unwrap();

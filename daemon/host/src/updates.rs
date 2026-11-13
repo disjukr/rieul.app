@@ -7,6 +7,7 @@ use tokio::sync::watch;
 pub enum UpdateCommand {
     Check,
     InstallConfirmed,
+    ForceInstallConfirmed,
 }
 pub type UpdateRequest<'a> = Pin<Box<dyn Future<Output = Result<UpdateStatus>> + Send + 'a>>;
 pub trait UpdateService: Send + Sync {

@@ -205,6 +205,9 @@ async fn serve<S: AsyncRead + AsyncWrite + Unpin>(
             let result = match operation {
                 Operation::Check => updater.request(UpdateCommand::Check).await,
                 Operation::Install => updater.request(UpdateCommand::InstallConfirmed).await,
+                Operation::ForceInstall => {
+                    updater.request(UpdateCommand::ForceInstallConfirmed).await
+                }
                 Operation::Restart => updater.restart().await,
                 _ => unreachable!(),
             };
@@ -337,6 +340,7 @@ mod tests {
             Operation::Subscribe,
             Operation::Check,
             Operation::Install,
+            Operation::ForceInstall,
             Operation::Restart,
         ] {
             let fixture = Fixture::new();
@@ -382,7 +386,12 @@ mod tests {
     }
     #[tokio::test]
     async fn unary_fixed_commands_and_oversized_frames_are_bounded() {
-        for operation in [Operation::Check, Operation::Install, Operation::Restart] {
+        for operation in [
+            Operation::Check,
+            Operation::Install,
+            Operation::ForceInstall,
+            Operation::Restart,
+        ] {
             let fixture = Fixture::new();
             let (mut client, server) = tokio::io::duplex(4096);
             let service = fixture.clone();

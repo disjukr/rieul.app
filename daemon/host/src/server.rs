@@ -405,7 +405,7 @@ async fn run_system_server_once(
                         if std::time::Instant::now()>=*deadline {
                             if let Err(err)=(hooks.report)(nonce,DrainState::Expired){warn!(?err,"maintenance report failed; keeping service available");drain=None;continue;}expired_nonce=Some(nonce.clone());drain=None;
                         } else if request.commit {
-                            // Only an idle, admission-blocked, scheduler-paused
+                            // Only an admission-blocked, scheduler-paused
                             // daemon can acknowledge exit. Worker never kills a
                             // busy server merely because a lease timer elapsed.
                             if let Err(err)=(hooks.report)(nonce,DrainState::Exiting){warn!(?err,"maintenance report failed; keeping service available");drain=None;continue;}return Ok(());
@@ -414,7 +414,7 @@ async fn run_system_server_once(
                         let scheduler=commands.pause_scheduler_for_update();
                         // Freeze mutation admission BEFORE observing live work. A
                         // completed CreateTerminalSession may leave a PTY behind.
-                        let (guard, workload)=observe_update_work(&admission, request.manual, async {
+                        let (guard, workload)=observe_update_work(&admission, request.manual, request.force, async {
                             Workload{connections:connections.load(std::sync::atomic::Ordering::SeqCst),terminals:terminals.sessions_snapshot().iter().filter(|session|session.exit.is_none()).count(),commands:commands.update_busy_jobs().await,agents:agents.update_live_runtimes(),active_calls:admission.active()}
                         }).await;
                         if scheduler.is_some() && guard.is_some() {
@@ -493,14 +493,15 @@ async fn run_system_server_once(
 async fn observe_update_work(
     admission: &Arc<crate::maintenance::WorkGate>,
     manual: bool,
+    force: bool,
     observe: impl std::future::Future<Output = crate::maintenance::Workload>,
 ) -> (
     Option<crate::maintenance::DrainGuard>,
     crate::maintenance::Workload,
 ) {
-    let guard = admission.begin_drain();
+    let guard = admission.begin_update_drain(manual && force);
     let workload = observe.await;
-    if workload.blocks_update(manual) {
+    if workload.blocks_update_with_force(manual, force) {
         (None, workload)
     } else {
         (guard, workload)
@@ -5083,6 +5084,7 @@ impl HostRpcHandler {
         let proc_id = match command {
             UpdateCommand::Check => ProcId::CheckForUpdates,
             UpdateCommand::InstallConfirmed => ProcId::InstallUpdateConfirmed,
+            UpdateCommand::ForceInstallConfirmed => unreachable!("force install is local only"),
         }
         .as_u64();
         if !self.updater_authorized().await? {
@@ -5113,6 +5115,7 @@ impl HostRpcHandler {
             Ok(status) => Ok(match command {
                 UpdateCommand::Check => RpcResponse::CheckForUpdates(status),
                 UpdateCommand::InstallConfirmed => RpcResponse::InstallUpdateConfirmed(status),
+                UpdateCommand::ForceInstallConfirmed => unreachable!("force install is local only"),
             }
             .into()),
             Err(error) => Ok(UnaryRpcOutcome::Message(error_message(
@@ -6121,7 +6124,7 @@ mod tests {
         done_rx.await.unwrap();
         assert_eq!(stale_sample, 0);
         assert_eq!(admission.active(), 0);
-        let (grant, work) = observe_update_work(&admission, true, async {
+        let (grant, work) = observe_update_work(&admission, true, false, async {
             assert!(
                 admission.enter().is_none(),
                 "snapshot must run under admission freeze"

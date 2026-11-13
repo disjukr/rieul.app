@@ -77,7 +77,7 @@ const rustBaseline = {
   // Additive codec and terminal recovery fields; existing tags stay unchanged.
   rpc: "76b12bc09752d0679ae2c2e3940e45cf4c7dd9a2ba3da51cac1730d8897f4722",
   // Imported optional stripe geometry; private command tags/fields unchanged.
-  ipc: "3a508ff34dd90bb0f4dc3493f5e351fb6ad22aeeac5cda5a21b4e92e395cc142",
+  ipc: "d4aaadf1e932ddd88a71a1688a0d7f8f1b3481cc6ca2072faff3e97c732e7827",
 };
 for (const [schema, hash] of Object.entries(rustBaseline))
   test(`Node Rust codegen preserves ${schema} baseline and is deterministic`, async () =>

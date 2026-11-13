@@ -1,9 +1,9 @@
 use super::{
+    SERVICE, STATE,
     launchd::{Control, Job},
     store::Dir,
-    SERVICE, STATE,
 };
-use anyhow::{ensure, Result};
+use anyhow::{Result, ensure};
 use rieul_daemon_host::maintenance::{DrainRequest, DrainState, MaintenanceHooks};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -29,6 +29,8 @@ pub(super) struct Intent {
     pub commit: bool,
     #[serde(default)]
     pub manual: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub force: bool,
 }
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -75,6 +77,7 @@ pub fn hooks() -> Result<Option<Arc<MaintenanceHooks>>> {
                         nonce: r.nonce,
                         commit: r.commit,
                         manual: r.manual,
+                        force: r.manual && r.force,
                     })
                 })
                 .transpose()
@@ -108,14 +111,16 @@ pub fn hooks() -> Result<Option<Arc<MaintenanceHooks>>> {
         }),
     })))
 }
-/// A worker only bootouts after the serving process acknowledges an idle exit.
+/// A worker only bootouts after the serving process acknowledges a gated exit.
 /// No timeout/busy/error path grants authority to kill an active daemon.
 pub(super) fn request_exit(
     state: &Dir,
     control: &mut impl Control,
     nonce: &str,
     manual: bool,
+    force: bool,
 ) -> Result<()> {
+    ensure!(!force || manual, "force requires explicit confirmation");
     ensure!(nonce_valid(nonce), "invalid drain nonce");
     let Some(job) = control.inspect(Job::System)? else {
         return Ok(());
@@ -157,6 +162,7 @@ pub(super) fn request_exit(
             nonce: nonce.into(),
             commit: false,
             manual,
+            force,
         },
     )?;
     let deadline = Instant::now() + Duration::from_secs(8);
@@ -178,6 +184,7 @@ pub(super) fn request_exit(
                                 nonce: nonce.into(),
                                 commit: true,
                                 manual,
+                                force,
                             },
                         )?;
                         committed = true;

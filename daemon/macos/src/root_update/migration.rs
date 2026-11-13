@@ -475,7 +475,7 @@ impl Steps for Native<'_> {
             }
             // A crash may have booted the registered service before a readiness
             // request was persisted. Never kill work to repair that ordering.
-            super::drain::request_exit(self.state, &mut self.control, &m.nonce, false)?;
+            super::drain::request_exit(self.state, &mut self.control, &m.nonce, false, false)?;
             self.control.stop(Job::System)?;
         }
         self.state.remove("ready.json")?;

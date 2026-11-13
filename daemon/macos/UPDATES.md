@@ -287,7 +287,8 @@ and stages while serving. Automatic dispatch requires zero connections and zero
 active work. The drain rechecks under scheduler/work admission gates. Reconnection
 cancels automatic drain; confirmed manual drain rejects new connections and
 closes existing clients, but still refuses live PTYs, commands, transfers and ACP
-runtimes. Even idle ACP runtimes currently defer; no force override is provided.
+runtimes. Even idle ACP runtimes defer ordinary installation. Explicit local
+force installation is described below.
 
 The Solid/Bunja client subscribes only while mounted, displays Checking immediately,
 rejects late revisions and old epochs, and cancels its stream on replacement or
@@ -319,3 +320,19 @@ native paths intentionally stay fixed, so current fixture tests prove engine and
 primitive contracts rather than a complete native adapter simulation. Review
 whether GUI stop-before-drain can be narrowed to avoid unnecessary GUI restarts
 on server-work deferral. No zero-downtime/port-handoff guarantee is made.
+
+### Force install
+
+The macOS tray's **Force Install Update…** action can promote a queued
+ordinary installation or request immediate installation of a verified update.
+It explicitly warns that terminals, commands, transfers, agents and Screen
+sessions can be interrupted. The installed helper accepts the corresponding
+`local-update force-install` operation through the same authenticated local
+socket. This operation is local only; the WebTransport update RPCs retain
+their existing behavior.
+
+The force request is bound to the prepared candidate's journal nonce. It skips
+the busy-work veto but still freezes new work and requires the serving
+daemon's grant and exit acknowledgement. Signature, notarization and rollback
+checks are unchanged. If the running daemon predates this command, the ordinary
+update path must be used once to bootstrap support.

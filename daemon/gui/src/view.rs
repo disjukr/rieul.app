@@ -98,6 +98,7 @@ impl View {
             (64, rieul_gui::updates::Action::Check),
             (128, rieul_gui::updates::Action::Install),
             (256, rieul_gui::updates::Action::Restart),
+            (512, rieul_gui::updates::Action::ForceInstall),
         ] {
             if events & flag != 0 {
                 let stamp = self.updates.confirmation();
@@ -106,6 +107,7 @@ impl View {
                         &self
                             .updates
                             .confirmation_title(action == rieul_gui::updates::Action::Restart),
+                        action == rieul_gui::updates::Action::ForceInstall,
                     );
                 dirty |= self.update_events();
                 if confirmed && stamp.is_some() && stamp == self.updates.confirmation() {

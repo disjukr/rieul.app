@@ -112,11 +112,17 @@ impl<'a, C: Control> NativeEffects<'a, C> {
             "update deferred: unmanaged or newly connected GUI still active"
         );
         let nonce = self.journal()?.nonce.clone();
-        let manual = self
+        let intent = self
             .state
             .load::<super::control::InstallIntent>("install-request.json")?
-            .is_some_and(|intent| intent.confirmed && intent.nonce == nonce);
-        drain::request_exit(self.state, &mut self.control, &nonce, manual)?;
+            .filter(|intent| intent.confirmed && intent.nonce == nonce);
+        drain::request_exit(
+            self.state,
+            &mut self.control,
+            &nonce,
+            intent.is_some(),
+            intent.is_some_and(|intent| intent.force),
+        )?;
         self.stopped_at = Some(drain::monotonic_ms()?);
         self.control.stop(Job::System)?;
         Ok(())

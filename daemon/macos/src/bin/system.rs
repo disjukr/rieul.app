@@ -79,6 +79,7 @@ enum Command {
 
 #[derive(Clone, Debug, clap::ValueEnum)]
 enum LocalUpdateAction {
+    ForceInstall,
     Subscribe,
     Check,
     Install,
@@ -108,6 +109,7 @@ async fn main() -> Result<()> {
                 LocalUpdateAction::Subscribe => Operation::Subscribe,
                 LocalUpdateAction::Check => Operation::Check,
                 LocalUpdateAction::Install => Operation::Install,
+                LocalUpdateAction::ForceInstall => Operation::ForceInstall,
                 LocalUpdateAction::Restart => Operation::Restart,
             };
             rieul_macos_daemon::local_update::helper(operation).await

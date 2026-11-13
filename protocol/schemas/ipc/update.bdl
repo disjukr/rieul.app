@@ -29,3 +29,9 @@ proc InstallLocalUpdateConfirmed = void -> UpdateStatus throws IpcProcError
 @ server - system
 @ client - gui,user
 proc RestartLocalDaemonConfirmed = void -> UpdateStatus throws IpcProcError
+
+@ id - 15
+@ stream - unary
+@ server - system
+@ client - gui,user
+proc ForceInstallLocalUpdateConfirmed = void -> UpdateStatus throws IpcProcError

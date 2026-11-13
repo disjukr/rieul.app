@@ -29,6 +29,8 @@ use std::{
 pub(super) struct InstallIntent {
     pub nonce: String,
     pub confirmed: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub force: bool,
 }
 struct Inner {
     status: UpdateStatus,
@@ -36,6 +38,7 @@ struct Inner {
     last_check: Option<Instant>,
     check_retry_at: Option<Instant>,
     pending_manual: bool,
+    pending_force: bool,
     last_dispatch: Option<Instant>,
 }
 #[derive(Clone)]
@@ -78,6 +81,7 @@ impl Controller {
         }
         snapshot
     }
+    #[cfg(test)]
     fn launch(
         &self,
         phase: UpdatePhase,
@@ -120,6 +124,10 @@ impl Controller {
         task: impl FnOnce(Controller) -> Result<()> + Send + 'static,
     ) -> Result<tokio::sync::watch::Receiver<Option<UpdateStatus>>> {
         let _command = self.command.lock().unwrap();
+        ensure!(
+            !self.inner.lock().unwrap().pending_force,
+            "a force installation is already pending"
+        );
         if !self.launch_locked(UpdatePhase::Checking, task) {
             ensure!(
                 self.inner.lock().unwrap().completion.is_some(),
@@ -136,9 +144,14 @@ impl Controller {
             .subscribe())
     }
     // Caller holds `command`, which also serializes worker admission.
-    fn queue_install(&self, status: UpdateStatus) -> Result<UpdateStatus> {
+    fn queue_install(&self, status: UpdateStatus, force: bool) -> Result<UpdateStatus> {
         let mut inner = self.inner.lock().unwrap();
-        if inner.pending_manual
+        if force && self.running.load(Ordering::SeqCst) {
+            anyhow::bail!(
+                "an updater operation is already running; retry force installation after it finishes"
+            );
+        }
+        if (inner.pending_manual && (!force || inner.pending_force))
             || (self.running.load(Ordering::SeqCst) && inner.completion.is_none())
         {
             return Ok(self.publish(&inner));
@@ -148,14 +161,15 @@ impl Controller {
             "no verified update ready for installation"
         );
         inner.pending_manual = true;
+        inner.pending_force = force;
         inner.status = status;
         inner.status.phase = UpdatePhase::Deferred;
-        inner.status.reason = Some("Installation requested; active terminal, command, transfer or agent work must finish first".into());
+        inner.status.reason = Some(if force { "Force installation requested; active sessions will be interrupted" } else { "Installation requested; active terminal, command, transfer or agent work must finish first" }.into());
         Ok(self.publish(&inner))
     }
     fn queue_restart_candidate(&self, status: UpdateStatus) -> Result<Option<UpdateStatus>> {
         if status.can_install {
-            self.queue_install(status).map(Some)
+            self.queue_install(status, false).map(Some)
         } else {
             Ok(None)
         }
@@ -180,7 +194,7 @@ impl Controller {
         let mut random = [0u8; 32];
         std::io::Read::read_exact(&mut std::fs::File::open("/dev/urandom")?, &mut random)?;
         let nonce: String = random.iter().map(|b| format!("{b:02x}")).collect();
-        let result = super::drain::request_exit(&state, &mut manager, &nonce, true);
+        let result = super::drain::request_exit(&state, &mut manager, &nonce, true, false);
         if result.is_err() {
             state.remove("drain-request.json")?;
         }
@@ -331,13 +345,13 @@ impl Controller {
         self.publish(&inner);
         Ok(())
     }
-    fn dispatch(self, manual: bool) -> Result<()> {
+    fn dispatch(self, manual: bool, force: bool) -> Result<()> {
         let state = Dir::open(Path::new(STATE), 0, true)?;
         if manual && !state.exists("journal.json")? {
             self.clone().check_candidate(true, false)?;
         }
         self.set(UpdatePhase::Installing, None);
-        runtime::dispatch_prepared(manual)
+        runtime::dispatch_prepared_with_force(manual, force)
     }
 }
 impl UpdateService for Controller {
@@ -402,11 +416,14 @@ impl UpdateService for Controller {
                     UpdateCommand::Check => Some(
                         self.join_check(|controller| controller.check_candidate(false, false))?,
                     ),
-                    UpdateCommand::InstallConfirmed => {
+                    UpdateCommand::InstallConfirmed | UpdateCommand::ForceInstallConfirmed => {
                         let _command = self.command.lock().unwrap();
                         // Return this accepted transition, even if a previous
                         // worker failure is concurrently observed by the watcher.
-                        return self.queue_install(self.status()?);
+                        return self.queue_install(
+                            self.status()?,
+                            request == UpdateCommand::ForceInstallConfirmed,
+                        );
                     }
                 }
             };
@@ -466,6 +483,9 @@ impl UpdateService for Controller {
         })
     }
     fn tick(&self, work: &Workload) {
+        let Ok(_command) = self.command.try_lock() else {
+            return;
+        };
         if self.running.load(Ordering::SeqCst) {
             return;
         }
@@ -473,13 +493,15 @@ impl UpdateService for Controller {
             return;
         };
         let manual = inner.pending_manual;
-        let blocked = work.blocks_update(manual);
+        let force = inner.pending_force;
+        let blocked = work.blocks_update_with_force(manual, force);
         // This six-hour cadence is an implementation default, not a user-stated
         // requirement. It is not active until the initial installer enables policy.
         let due = check_due(&inner, Instant::now());
-        let can_dispatch = inner
-            .last_dispatch
-            .is_none_or(|last| last.elapsed() >= Duration::from_secs(30));
+        let can_dispatch = force
+            || inner
+                .last_dispatch
+                .is_none_or(|last| last.elapsed() >= Duration::from_secs(30));
         drop(inner);
         let Ok(status) = self.status() else {
             return;
@@ -492,19 +514,22 @@ impl UpdateService for Controller {
         }
         if dispatch_allowed(&status, manual, can_dispatch, blocked) {
             self.inner.lock().unwrap().last_dispatch = Some(Instant::now());
-            if self.launch(UpdatePhase::Installing, move |controller| {
-                controller.dispatch(manual)
+            if self.launch_locked(UpdatePhase::Installing, move |controller| {
+                controller.dispatch(manual, force)
             }) {
-                self.inner.lock().unwrap().pending_manual = false;
+                let mut inner = self.inner.lock().unwrap();
+                inner.pending_manual = false;
+                inner.pending_force = false;
             }
-        } else if due
+        } else if !force
+            && due
             && (!status.can_install || status.phase == UpdatePhase::Failed)
             && !matches!(
                 status.phase,
                 UpdatePhase::Installing | UpdatePhase::Restarting
             )
         {
-            let _ = self.launch(UpdatePhase::Checking, |controller| controller.check());
+            let _ = self.launch_locked(UpdatePhase::Checking, |controller| controller.check());
         }
     }
 }
@@ -531,6 +556,7 @@ pub fn service() -> Result<Option<Arc<dyn UpdateService>>> {
             last_check: None,
             check_retry_at: None,
             pending_manual: false,
+            pending_force: false,
             last_dispatch: None,
         })),
         running: Arc::new(AtomicBool::new(false)),
@@ -657,6 +683,7 @@ mod result_tests {
                 last_check: None,
                 check_retry_at: None,
                 pending_manual: false,
+                pending_force: false,
                 last_dispatch: None,
             })),
             running: Arc::new(AtomicBool::new(false)),
@@ -704,6 +731,19 @@ mod result_tests {
         assert!(check_due(&inner, now + Duration::from_secs(6 * 60 * 60)));
     }
     #[test]
+    fn force_escalates_pending_install_and_cannot_be_downgraded() {
+        let c = fixture();
+        let mut staged = rieul_daemon_host::updates::unavailable();
+        staged.phase = UpdatePhase::Ready;
+        staged.can_install = true;
+        c.queue_install(staged.clone(), false).unwrap();
+        assert!(!c.inner.lock().unwrap().pending_force);
+        c.queue_install(staged.clone(), true).unwrap();
+        c.queue_install(staged, false).unwrap();
+        let inner = c.inner.lock().unwrap();
+        assert!(inner.pending_manual && inner.pending_force);
+    }
+    #[test]
     fn duplicate_install_during_dispatch_does_not_queue_an_unrequested_retry() {
         let c = fixture();
         let mut staged = rieul_daemon_host::updates::unavailable();
@@ -711,7 +751,7 @@ mod result_tests {
         staged.can_install = true;
         staged.target_version = Some("1.2.3".into());
         assert_eq!(
-            c.queue_install(staged.clone()).unwrap().phase,
+            c.queue_install(staged.clone(), false).unwrap().phase,
             UpdatePhase::Deferred
         );
         assert_eq!(
@@ -724,7 +764,7 @@ mod result_tests {
         c.running.store(true, Ordering::SeqCst);
         c.set(UpdatePhase::Installing, None);
         assert_eq!(
-            c.queue_install(staged).unwrap().phase,
+            c.queue_install(staged, false).unwrap().phase,
             UpdatePhase::Installing
         );
         assert!(!c.inner.lock().unwrap().pending_manual);
@@ -828,6 +868,7 @@ mod result_tests {
                 last_check: None,
                 check_retry_at: None,
                 pending_manual: false,
+                pending_force: false,
                 last_dispatch: None,
             })),
             running: Arc::new(AtomicBool::new(false)),
@@ -947,6 +988,7 @@ mod discovery_lock_tests {
                 last_check: Some(Instant::now()),
                 check_retry_at: None,
                 pending_manual: false,
+                pending_force: false,
                 last_dispatch: None,
             })),
             running: Arc::new(AtomicBool::new(false)),
