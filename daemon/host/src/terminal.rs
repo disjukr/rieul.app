@@ -47,8 +47,111 @@ struct TerminalSession {
     output_buffer: VecDeque<OutputRecord>,
     retained_output_bytes: usize,
     metadata_parser: TerminalMetadataParser,
+    screen: Option<TerminalScreen>,
     attach_owners: HashMap<String, u64>,
+    input_epoch: u64,
     closed: bool,
+}
+
+// The snapshot path uses a bounded, independently parsed VT viewport. Raw
+// output remains the fallback when the model cannot faithfully resume.
+const MAX_SNAPSHOT_CELLS: u64 = 64 * 1024;
+const MAX_SNAPSHOT_STRING_BYTES: usize = 16 * 1024;
+
+struct TerminalScreen {
+    parser: vt100::Parser,
+    boundary: VtBoundary,
+    utf8_pending: u8,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum VtBoundary {
+    Ground,
+    Escape,
+    Intermediate,
+    Csi,
+    String { osc: bool, len: usize },
+}
+
+impl TerminalScreen {
+    fn new(cols: u64, rows: u64) -> Option<Self> {
+        Self::fits(cols, rows).then(|| Self {
+            parser: vt100::Parser::new(rows as u16, cols as u16, 0),
+            boundary: VtBoundary::Ground,
+            utf8_pending: 0,
+        })
+    }
+
+    fn fits(cols: u64, rows: u64) -> bool {
+        cols > 0 && rows > 0 && cols.saturating_mul(rows) <= MAX_SNAPSHOT_CELLS
+    }
+
+    // Do not cut a raw continuation after an unfinished UTF-8 or VT sequence.
+    // Unsupported encodings disable the checkpoint rather than claiming a
+    // state that a fresh xterm parser cannot continue from.
+    fn process(&mut self, bytes: &[u8]) -> bool {
+        for &byte in bytes {
+            use VtBoundary::*;
+            if self.utf8_pending != 0 {
+                if !(0x80..=0xbf).contains(&byte) {
+                    return false;
+                }
+                self.utf8_pending -= 1;
+                continue;
+            }
+            self.boundary = match (self.boundary, byte) {
+                (String { osc: true, .. }, 7) | (_, 0x18 | 0x1a) => Ground,
+                (_, 0x1b) => Escape,
+                (String { len, .. }, _) if len >= MAX_SNAPSHOT_STRING_BYTES => return false,
+                (String { osc, len }, _) => String { osc, len: len + 1 },
+                (Escape, b'[') => Csi,
+                (Escape, b']' | b'P' | b'X' | b'^' | b'_') => String {
+                    osc: byte == b']',
+                    len: 0,
+                },
+                (Escape | Intermediate, 0x20..=0x2f) => Intermediate,
+                (Escape | Intermediate, 0x30..=0x7e) | (Csi, 0x40..=0x7e) => Ground,
+                (Ground, 0xc2..=0xdf) => {
+                    self.utf8_pending = 1;
+                    Ground
+                }
+                (Ground, 0xe0..=0xef) => {
+                    self.utf8_pending = 2;
+                    Ground
+                }
+                (Ground, 0xf0..=0xf4) => {
+                    self.utf8_pending = 3;
+                    Ground
+                }
+                (_, 0x80..=0xff) => return false,
+                (current, _) => current,
+            };
+        }
+        self.parser.process(bytes);
+        true
+    }
+
+    fn snapshot(&self, base_seq: u64) -> Option<TerminalEvent> {
+        let screen = self.parser.screen();
+        if self.boundary != VtBoundary::Ground
+            || self.utf8_pending != 0
+            || screen.alternate_screen()
+        {
+            return None;
+        }
+        let (rows, cols) = screen.size();
+        let bytes = screen.state_formatted();
+        // Keep snapshots subject to the same byte budget as legacy replay.
+        if bytes.len() > TERMINAL_OUTPUT_RETENTION_BYTES {
+            return None;
+        }
+        Some(TerminalEvent::ScreenSnapshot {
+            base_seq,
+            cols: u64::from(cols),
+            rows: u64::from(rows),
+            bytes,
+        })
+    }
 }
 
 pub trait TerminalBackend: Send + Sync {
@@ -390,7 +493,9 @@ impl TerminalManager {
             output_buffer: VecDeque::new(),
             retained_output_bytes: 0,
             metadata_parser: TerminalMetadataParser::new(),
+            screen: TerminalScreen::new(request.cols, request.rows),
             attach_owners: HashMap::new(),
+            input_epoch: 0,
             closed: false,
         }));
 
@@ -456,7 +561,8 @@ impl TerminalManager {
         guard.info.last_attached_at_ms = Some(now);
         let info = guard.info.clone();
         let primary_attach_id = guard.info.primary_attach_id.clone();
-        let replay = replay_events(&guard, request.after_seq);
+        let screen_snapshots = request.screen_snapshots == Some(true);
+        let replay = replay_events(&guard, request.after_seq, screen_snapshots);
         let receiver = guard.output_tx.subscribe();
         drop(guard);
         self.broadcast_table_upsert(&info);
@@ -467,6 +573,7 @@ impl TerminalManager {
             session: info,
             replay,
             receiver,
+            screen_snapshots,
         })
     }
 
@@ -494,15 +601,28 @@ impl TerminalManager {
 
         let previous_primary = guard.info.primary_attach_id.clone();
         let previous_size = (guard.info.cols, guard.info.rows);
-        guard.info.primary_attach_id = Some(request.attach_id.clone());
-        guard.info.cols = request.viewport_cols;
-        guard.info.rows = request.viewport_rows;
         guard
             .host
             .resize(request.viewport_cols, request.viewport_rows)?;
+        guard.info.primary_attach_id = Some(request.attach_id.clone());
+        guard.info.cols = request.viewport_cols;
+        guard.info.rows = request.viewport_rows;
+        if previous_size != (request.viewport_cols, request.viewport_rows) {
+            if TerminalScreen::fits(request.viewport_cols, request.viewport_rows) {
+                if let Some(screen) = &mut guard.screen {
+                    screen
+                        .parser
+                        .screen_mut()
+                        .set_size(request.viewport_rows as u16, request.viewport_cols as u16);
+                }
+            } else {
+                guard.screen = None;
+            }
+        }
 
         let info = guard.info.clone();
         if previous_primary.as_deref() != Some(request.attach_id.as_str()) {
+            guard.input_epoch = guard.input_epoch.wrapping_add(1);
             let _ = guard.output_tx.send(TerminalEvent::ControlChanged {
                 primary_attach_id: request.attach_id.clone(),
             });
@@ -520,17 +640,37 @@ impl TerminalManager {
         })
     }
 
+    pub fn begin_input(
+        &self,
+        terminal_session_id: &str,
+        attach_id: &str,
+        rpc_session_id: u64,
+    ) -> Result<u64, ServiceError> {
+        let session = self.get_session(terminal_session_id)?;
+        let guard = session.lock().expect("terminal session lock poisoned");
+        validate_attach_owner(&guard, attach_id, rpc_session_id)?;
+        if guard.info.primary_attach_id.as_deref() != Some(attach_id) {
+            return Err(ServiceError::OperationFailed(
+                "attach is not the live primary attach".to_string(),
+            ));
+        }
+        Ok(guard.input_epoch)
+    }
+
     pub fn write_input(
         &self,
         terminal_session_id: &str,
         attach_id: &str,
         bytes: &[u8],
         rpc_session_id: u64,
+        input_epoch: u64,
     ) -> Result<(), ServiceError> {
         let session = self.get_session(terminal_session_id)?;
         let mut guard = session.lock().expect("terminal session lock poisoned");
         validate_attach_owner(&guard, attach_id, rpc_session_id)?;
-        if guard.info.primary_attach_id.as_deref() != Some(attach_id) {
+        if guard.info.primary_attach_id.as_deref() != Some(attach_id)
+            || guard.input_epoch != input_epoch
+        {
             return Err(ServiceError::OperationFailed(
                 "attach is not the live primary attach".to_string(),
             ));
@@ -572,6 +712,13 @@ impl TerminalManager {
         let mut guard = session.lock().expect("terminal session lock poisoned");
         if guard.closed || bytes.is_empty() {
             return false;
+        }
+        if guard
+            .screen
+            .as_mut()
+            .is_some_and(|screen| !screen.process(&bytes))
+        {
+            guard.screen = None;
         }
         let metadata = guard.metadata_parser.push(&bytes);
         let seq = guard.info.latest_output_seq.saturating_add(1);
@@ -706,6 +853,7 @@ pub struct AttachedTerminal {
     pub session: TerminalSessionInfo,
     pub replay: Vec<TerminalEvent>,
     pub receiver: broadcast::Receiver<TerminalEvent>,
+    pub screen_snapshots: bool,
 }
 
 fn spawn_host_event_reader(
@@ -734,15 +882,32 @@ fn spawn_host_event_reader(
     });
 }
 
-fn replay_events(session: &TerminalSession, after_seq: Option<u64>) -> Vec<TerminalEvent> {
-    let Some(first_record) = session.output_buffer.front() else {
-        return Vec::new();
-    };
+fn replay_events(
+    session: &TerminalSession,
+    after_seq: Option<u64>,
+    screen_snapshots: bool,
+) -> Vec<TerminalEvent> {
+    let first_seq = session
+        .output_buffer
+        .front()
+        .map_or(session.info.latest_output_seq.saturating_add(1), |record| {
+            record.seq
+        });
+    let gap = after_seq.is_some_and(|seq| seq.saturating_add(1) < first_seq);
+    if screen_snapshots && (after_seq.is_none() || gap) && session.info.latest_output_seq != 0 {
+        if let Some(snapshot) = session
+            .screen
+            .as_ref()
+            .and_then(|screen| screen.snapshot(session.info.latest_output_seq))
+        {
+            return vec![snapshot];
+        }
+    }
     let mut events = Vec::new();
-    let min_requested_seq = after_seq.map_or(first_record.seq, |seq| seq.saturating_add(1));
-    if min_requested_seq < first_record.seq {
+    if gap || (screen_snapshots && after_seq.is_none() && first_seq > 1) {
         events.push(TerminalEvent::HistoryGap {
-            next_seq: first_record.seq,
+            next_seq: first_seq,
+            reconnect: None,
         });
     }
     events.extend(
@@ -1502,6 +1667,147 @@ fn operation_failed(err: impl std::fmt::Display) -> ServiceError {
 #[cfg(test)]
 mod tests {
     use super::{parse_osc_metadata, TerminalMetadata};
+
+    #[test]
+    fn snapshot_round_trips_display_and_omits_osc_side_effects() {
+        use super::{TerminalEvent, TerminalScreen};
+        let mut model = TerminalScreen::new(80, 24).unwrap();
+        assert!(model.process(b"first\r\n\x1b[31mred\x1b]52;c;YWJj\x07\x1b[?2004h"));
+        let TerminalEvent::ScreenSnapshot {
+            base_seq,
+            cols,
+            rows,
+            bytes,
+        } = model.snapshot(12).unwrap()
+        else {
+            panic!("expected snapshot");
+        };
+        assert_eq!((base_seq, cols, rows), (12, 80, 24));
+        assert!(!bytes.windows(2).any(|pair| pair == b"\x1b]"));
+        assert!(!bytes.contains(&7));
+        let mut restored = vt100::Parser::new(24, 80, 0);
+        restored.process(&bytes);
+        assert_eq!(
+            restored.screen().contents(),
+            model.parser.screen().contents()
+        );
+        assert_eq!(
+            restored.screen().cursor_position(),
+            model.parser.screen().cursor_position()
+        );
+        assert_eq!(
+            restored.screen().cell(1, 0),
+            model.parser.screen().cell(1, 0)
+        );
+        assert!(restored.screen().bracketed_paste());
+    }
+
+    #[test]
+    fn snapshot_waits_for_complete_ansi_utf8_and_normal_screen() {
+        use super::TerminalScreen;
+        let mut model = TerminalScreen::new(80, 24).unwrap();
+        assert!(model.process(b"\x1b["));
+        assert!(model.snapshot(1).is_none());
+        assert!(model.process(b"31m"));
+        assert!(model.process(&"한".as_bytes()[..2]));
+        assert!(model.snapshot(2).is_none());
+        assert!(model.process(&"한".as_bytes()[2..]));
+        assert!(model.snapshot(3).is_some());
+        assert!(model.process(b"\x1b[?1049h"));
+        assert!(model.snapshot(4).is_none());
+        assert!(model.process(b"\x1b[?1049l"));
+        assert!(model.snapshot(5).is_some());
+        assert!(TerminalScreen::new(1000, 1000).is_none());
+    }
+
+    #[test]
+    fn control_reacquisition_does_not_reauthorize_old_input_stream() {
+        use super::*;
+
+        struct Backend;
+        impl TerminalBackend for Backend {
+            fn available_shells(&self) -> Result<Vec<AvailableShellInfo>, ServiceError> {
+                Ok(vec![])
+            }
+            fn spawn(&self, _: &CreateTerminalSessionReq) -> Result<HostedTerminal, ServiceError> {
+                let (_, events) = mpsc::channel();
+                Ok(HostedTerminal {
+                    initial_cwd: None,
+                    control: Box::new(Control),
+                    events,
+                })
+            }
+        }
+
+        struct Control;
+        impl HostedTerminalControl for Control {
+            fn write_input(&mut self, _: &[u8]) -> Result<(), ServiceError> {
+                Ok(())
+            }
+            fn resize(&mut self, _: u64, _: u64) -> Result<(), ServiceError> {
+                Ok(())
+            }
+            fn close(&mut self) -> Result<(), ServiceError> {
+                Ok(())
+            }
+        }
+
+        let manager = TerminalManager::with_backend(Arc::new(Backend));
+        let info = manager
+            .create_session(
+                CreateTerminalSessionReq {
+                    cols: 80,
+                    rows: 24,
+                    cwd: None,
+                    launch: TerminalLaunchSpec {
+                        command: "shell".into(),
+                        args: vec![],
+                    },
+                    title: None,
+                },
+                "client".into(),
+            )
+            .unwrap();
+        let id = info.terminal_session_id;
+        let attach = |owner| {
+            manager
+                .attach(
+                    AttachTerminalSessionReq {
+                        terminal_session_id: id.clone(),
+                        after_seq: None,
+                        viewport_cols: 80,
+                        viewport_rows: 24,
+                        screen_snapshots: None,
+                    },
+                    owner,
+                )
+                .unwrap()
+                .attach_id
+        };
+        let take = |attach_id: &str, owner| {
+            manager
+                .take_control(
+                    TakeTerminalControlReq {
+                        terminal_session_id: id.clone(),
+                        attach_id: attach_id.into(),
+                        viewport_cols: 80,
+                        viewport_rows: 24,
+                    },
+                    owner,
+                )
+                .unwrap()
+        };
+        let a = attach(1);
+        let b = attach(2);
+        take(&a, 1);
+        let epoch = manager.begin_input(&id, &a, 1).unwrap();
+        assert!(manager.write_input(&id, &a, b"a", 1, epoch).is_ok());
+        take(&b, 2);
+        take(&a, 1);
+        assert!(manager.write_input(&id, &a, b"b", 1, epoch).is_err());
+        let new_epoch = manager.begin_input(&id, &a, 1).unwrap();
+        assert!(manager.write_input(&id, &a, b"c", 1, new_epoch).is_ok());
+    }
 
     #[cfg(windows)]
     use super::{

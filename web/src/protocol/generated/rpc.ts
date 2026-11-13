@@ -258,18 +258,20 @@ export interface AttachTerminalSessionReq {
   afterSeq?: number;
   viewportCols: number;
   viewportRows: number;
+  screenSnapshots?: boolean;
 }
 
 export type TerminalEvent =
   | { type: "attached"; attachId: string; primaryAttachId?: string; session: TerminalSessionInfo }
   | { type: "outputChunk"; seq: number; bytes: Uint8Array }
-  | { type: "historyGap"; nextSeq: number }
+  | { type: "historyGap"; nextSeq: number; reconnect?: boolean }
   | { type: "controlChanged"; primaryAttachId: string }
   | { type: "pseudoTerminalResized"; cols: number; rows: number }
   | { type: "sessionExited"; exit: TerminalExit }
   | { type: "sessionClosed"; reason: TerminalSessionCloseReason }
   | { type: "workingDirectoryChanged"; cwd: string }
   | { type: "titleChanged"; title: string }
+  | { type: "screenSnapshot"; baseSeq: number; cols: number; rows: number; bytes: Uint8Array }
 ;
 
 export interface TakeTerminalControlReq {
@@ -4220,6 +4222,7 @@ export function encodeAttachTerminalSessionReqValue(value: AttachTerminalSession
   if (value.afterSeq !== undefined) fields.set(2, u53(value.afterSeq));
   fields.set(3, u53(required(value.viewportCols, "AttachTerminalSessionReq.viewportCols")));
   fields.set(4, u53(required(value.viewportRows, "AttachTerminalSessionReq.viewportRows")));
+  if (value.screenSnapshots !== undefined) fields.set(5, bool(value.screenSnapshots));
   return fields;
 }
 
@@ -4230,6 +4233,7 @@ export function decodeAttachTerminalSessionReqValue(value: CborValue): AttachTer
     afterSeq: optionalField(fields.get(2), (value) => integer(value)),
     viewportCols: fieldOrDefault(fields.get(3), (value) => integer(value), () => 0),
     viewportRows: fieldOrDefault(fields.get(4), (value) => integer(value), () => 0),
+    screenSnapshots: optionalField(fields.get(5), (value) => boolValue(value)),
   };
 }
 
@@ -4251,6 +4255,7 @@ export function encodeTerminalEventValue(value: TerminalEvent): CborValue {
     case "historyGap": {
       const fields = new Map<number, CborValue>();
       fields.set(1, u53(required(value.nextSeq, "TerminalEvent.HistoryGap.nextSeq")));
+      if (value.reconnect !== undefined) fields.set(2, bool(value.reconnect));
       return [3, fields];
     }
     case "controlChanged": {
@@ -4284,6 +4289,14 @@ export function encodeTerminalEventValue(value: TerminalEvent): CborValue {
       fields.set(1, text(required(value.title, "TerminalEvent.TitleChanged.title")));
       return [9, fields];
     }
+    case "screenSnapshot": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, u53(required(value.baseSeq, "TerminalEvent.ScreenSnapshot.baseSeq")));
+      fields.set(2, u53(required(value.cols, "TerminalEvent.ScreenSnapshot.cols")));
+      fields.set(3, u53(required(value.rows, "TerminalEvent.ScreenSnapshot.rows")));
+      fields.set(4, bytes(required(value.bytes, "TerminalEvent.ScreenSnapshot.bytes")));
+      return [10, fields];
+    }
   }
 }
 
@@ -4307,6 +4320,7 @@ export function decodeTerminalEventValue(value: CborValue): TerminalEvent {
       return {
         type: "historyGap",
         nextSeq: fieldOrDefault(fields.get(1), (value) => integer(value), () => 0),
+        reconnect: optionalField(fields.get(2), (value) => boolValue(value)),
       };
     case 4:
       return {
@@ -4338,6 +4352,14 @@ export function decodeTerminalEventValue(value: CborValue): TerminalEvent {
       return {
         type: "titleChanged",
         title: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+    case 10:
+      return {
+        type: "screenSnapshot",
+        baseSeq: fieldOrDefault(fields.get(1), (value) => integer(value), () => 0),
+        cols: fieldOrDefault(fields.get(2), (value) => integer(value), () => 0),
+        rows: fieldOrDefault(fields.get(3), (value) => integer(value), () => 0),
+        bytes: fieldOrDefault(fields.get(4), (value) => bytesValue(value), () => new Uint8Array()),
       };
   }
   throw new Error(`unknown TerminalEvent variant ${variantId}`);

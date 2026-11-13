@@ -2545,6 +2545,15 @@ async fn handle_write_terminal_input_stream(
     };
     let rpc_session_id = rpc_session_id(&handler.session_state).await;
 
+    let input_epoch =
+        match handler
+            .terminals
+            .begin_input(&terminal_session_id, &attach_id, rpc_session_id)
+        {
+            Ok(epoch) => epoch,
+            Err(err) => return Ok(vec![terminal_service_error_message(proc_id, err)]),
+        };
+
     while let Some(payload) = handler.next_request_stream_chunk().await? {
         let bytes = match WriteTerminalInputReq::decode(&payload) {
             Ok(WriteTerminalInputReq::Chunk { bytes }) => bytes,
@@ -2556,11 +2565,13 @@ async fn handle_write_terminal_input_stream(
                 )]);
             }
         };
-        if let Err(err) =
-            handler
-                .terminals
-                .write_input(&terminal_session_id, &attach_id, &bytes, rpc_session_id)
-        {
+        if let Err(err) = handler.terminals.write_input(
+            &terminal_session_id,
+            &attach_id,
+            &bytes,
+            rpc_session_id,
+            input_epoch,
+        ) {
             return Ok(vec![terminal_service_error_message(proc_id, err)]);
         }
     }
@@ -2992,8 +3003,9 @@ async fn stream_attached_terminal(
     _proc_id: u64,
     attached: &mut AttachedTerminal,
 ) -> Result<()> {
-    write_reqres_message(
+    write_terminal_attach_event(
         send,
+        attached.screen_snapshots,
         stream_start_payload_message(
             TerminalEvent::Attached {
                 attach_id: attached.attach_id.clone(),
@@ -3006,39 +3018,105 @@ async fn stream_attached_terminal(
     .await?;
 
     for event in attached.replay.drain(..) {
-        write_reqres_message(send, stream_chunk_payload_message(event.encode())).await?;
+        write_terminal_attach_event(
+            send,
+            attached.screen_snapshots,
+            stream_chunk_payload_message(event.encode()),
+        )
+        .await?;
     }
 
     if let Some(exit) = attached.session.exit.clone() {
-        write_reqres_message(
+        write_terminal_attach_event(
             send,
+            attached.screen_snapshots,
             stream_chunk_payload_message(TerminalEvent::SessionExited { exit }.encode()),
         )
         .await?;
         return Ok(());
     }
 
+    let mut last_seq = attached.session.latest_output_seq;
+    let mut lagged = false;
     loop {
         match attached.receiver.recv().await {
             Ok(event) => {
+                if let TerminalEvent::OutputChunk { seq, .. } = &event {
+                    if lagged {
+                        write_terminal_attach_event(
+                            send,
+                            attached.screen_snapshots,
+                            stream_chunk_payload_message(
+                                TerminalEvent::HistoryGap {
+                                    next_seq: *seq,
+                                    reconnect: None,
+                                }
+                                .encode(),
+                            ),
+                        )
+                        .await?;
+                        lagged = false;
+                    }
+                    last_seq = *seq;
+                }
                 let terminal_done = matches!(
                     event,
                     TerminalEvent::SessionExited { .. } | TerminalEvent::SessionClosed { .. }
                 );
-                write_reqres_message(send, stream_chunk_payload_message(event.encode())).await?;
+                write_terminal_attach_event(
+                    send,
+                    attached.screen_snapshots,
+                    stream_chunk_payload_message(event.encode()),
+                )
+                .await?;
                 if terminal_done {
                     return Ok(());
                 }
             }
             Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
-                let next_seq = attached.session.latest_output_seq.saturating_add(1);
-                write_reqres_message(
-                    send,
-                    stream_chunk_payload_message(TerminalEvent::HistoryGap { next_seq }.encode()),
-                )
-                .await?;
+                if attached.screen_snapshots {
+                    write_terminal_attach_event(
+                        send,
+                        attached.screen_snapshots,
+                        stream_chunk_payload_message(
+                            TerminalEvent::HistoryGap {
+                                next_seq: last_seq.saturating_add(1),
+                                reconnect: Some(true),
+                            }
+                            .encode(),
+                        ),
+                    )
+                    .await?;
+                    return Ok(());
+                }
+                // Legacy peers get the actual next available raw sequence.
+                lagged = true;
             }
             Err(tokio::sync::broadcast::error::RecvError::Closed) => return Ok(()),
+        }
+    }
+}
+
+// A canceled frame write may leave bytes on the stream. Always reset the
+// stream on timeout; the receiver must recover on a new attachment.
+async fn write_terminal_attach_event(
+    send: &mut web_transport_quinn::SendStream,
+    bounded: bool,
+    message: ReqResMessage,
+) -> Result<()> {
+    if !bounded {
+        return write_reqres_message(send, message).await;
+    }
+    match tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        write_reqres_message(send, message),
+    )
+    .await
+    {
+        Ok(result) => result,
+        Err(_) => {
+            let _ = send.reset(0);
+            anyhow::bail!("terminal output stream stalled")
         }
     }
 }

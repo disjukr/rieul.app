@@ -272,6 +272,16 @@ live output only can pass the `latestOutputSeq` it has observed. If the
 requested history has fallen out of the daemon's retention buffer, the daemon
 reports `HistoryGap`.
 
+Clients can opt in to `screenSnapshots`. On a cold attach or an output history
+gap, a daemon with a valid terminal model can send a `ScreenSnapshot` instead
+of replaying old bytes. It describes the current viewport and its baseline
+`baseSeq`; the client resets and resizes the emulator, applies the repaint,
+then applies only output with a later sequence. This is not a complete scrollback
+or output log. If the daemon cannot represent the current state safely, it falls
+back to retained raw output. On a live gap with `reconnect: true`, open a new
+attach without an output cursor; do not continue the old viewport. Clients
+without snapshot support keep the raw replay contract.
+
 Current daemon implementations retain up to 1 MiB of raw terminal output per
 terminal session, including exited sessions retained for user cleanup. This is
 an implementation policy, not a wire contract. Older retained output is dropped
@@ -293,7 +303,10 @@ pseudo-terminal size changes.
 `WriteTerminalInput` starts by binding the input stream to one live attach owned
 by the current WebTransport session. If that attach stops being the live primary
 attach while the input stream is open, the daemon fails the stream with
-`WriteTerminalInputError.NotPrimaryAttach`.
+`WriteTerminalInputError.NotPrimaryAttach`. Keep one ordered input stream per
+control epoch instead of opening one RPC per input event. A response does not
+mean the shell executed the input. Never automatically resend uncertain input
+into a new attachment or control epoch.
 
 `TerminalSessionInfo.lastKnownCwd` is a best-effort hint for the last working
 directory the daemon learned for the hosted shell. The daemon may learn this

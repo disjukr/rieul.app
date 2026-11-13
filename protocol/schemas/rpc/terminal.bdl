@@ -6,9 +6,8 @@
 | paired client credentials. Terminal output is represented as an append-only
 | byte stream split into chunks with sequence numbers so reconnecting clients
 | can replay retained output before following live output. Output sequence
-| numbers start at 1; a session with no output has latestOutputSeq 0. Screen
-| snapshots are intentionally not part of this version; terminals are
-| synchronized by raw output replay.
+| numbers start at 1; a session with no output has latestOutputSeq 0. Opted-in clients may
+| receive a viewport checkpoint to recover after missing raw output.
 | Authorization, routing, and malformed wire messages are rieul-wire envelope
 | errors.
 
@@ -51,7 +50,8 @@ proc SubscribeAvailableShells = void -> AvailableShellsTableEvent throws Subscri
 | with live output. A client that wants live output only can pass the
 | latestOutputSeq it has observed. If the requested history is no longer
 | retained, the stream reports TerminalEvent.HistoryGap and then continues from
-| the oldest retained output or live output.
+| the oldest retained output or live output. An opted-in client can receive a
+| screen snapshot instead of replay on a cold attach or a retained-history gap.
 @ id - 15
 @ stream - server
 proc AttachTerminalSession = AttachTerminalSessionReq -> TerminalEvent throws AttachTerminalSessionError
@@ -302,6 +302,10 @@ struct AttachTerminalSessionReq {
   @ id - 4
   @ description - Client viewport row count for this attach.
   viewportRows: u53,
+
+  @ id - 5
+  @ description - Opt in to viewport checkpoints and live-lag reconnect.
+  screenSnapshots?: bool,
 }
 
 @ description - Terminal attach and output events.
@@ -345,6 +349,12 @@ union TerminalEvent {
   HistoryGap(
     @ id - 1
     nextSeq: u53,
+
+    @ id - 2
+    @ description
+    | If true, the live stream ends after this event. Open a new attach without
+    | afterSeq to recover both viewport and attachment metadata.
+    reconnect?: bool,
   ),
 
   @ id - 4
@@ -402,6 +412,25 @@ union TerminalEvent {
   TitleChanged(
     @ id - 1
     title: string,
+  ),
+
+  @ id - 10
+  @ description
+  | Replace the local viewport from a reset state using the daemon's repaint
+  | bytes. This does not reconstruct scrollback or replay terminal side effects.
+  | Apply subsequent OutputChunk events only if seq is greater than baseSeq.
+  ScreenSnapshot(
+    @ id - 1
+    baseSeq: u53,
+
+    @ id - 2
+    cols: u53,
+
+    @ id - 3
+    rows: u53,
+
+    @ id - 4
+    bytes: bytes,
   ),
 }
 

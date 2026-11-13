@@ -16,11 +16,12 @@ import {
 } from "../../src/state/workbench.ts";
 import { TerminalTool } from "../../src/view/workbench/tool/terminal/index.tsx";
 import {
+  decodeAttachTerminalSessionReqValue,
   encodeTerminalSessionInfoValue,
   encodeTerminalEventValue,
   ProcId,
 } from "../../src/protocol/generated/rpc.ts";
-import { encodeCbor } from "../../src/protocol/cbor.ts";
+import { decodeCbor, encodeCbor } from "../../src/protocol/cbor.ts";
 import {
   decodeReqResMessageSequence,
   encodeReqResMessageSequence,
@@ -42,6 +43,13 @@ function unused(): never {
   throw new Error("Unexpected terminal action");
 }
 const lateCreate = new URLSearchParams(location.search).has("late-create");
+const resume = new URLSearchParams(location.search).has("resume");
+const resumeCursors: Array<number | undefined> = [];
+Object.assign(window, { terminalResumeCursors: resumeCursors });
+let sendResumeEvent = (
+  _event: Parameters<typeof encodeTerminalEventValue>[0],
+) => {};
+let disconnectTerminal = () => {};
 const rpcMetrics = { creates: 0, closes: 0, tabWrites: 0, attaches: 0 };
 let updateTitle = () => {};
 const session = {
@@ -94,6 +102,24 @@ const transport = {
             };
           } else if (request.procId === ProcId.AttachTerminalSession) {
             rpcMetrics.attaches++;
+            if (resume && request.payload) {
+              const attach = decodeAttachTerminalSessionReqValue(
+                decodeCbor(request.payload),
+              );
+              resumeCursors.push(attach.afterSeq);
+              if (!attach.screenSnapshots)
+                throw new Error("Snapshots not requested");
+            }
+            sendResumeEvent = (event) =>
+              response.enqueue(
+                encodeReqResMessageSequence([
+                  {
+                    kind: ReqResMessageKind.ResponseStreamChunk,
+                    payload: encodeCbor(encodeTerminalEventValue(event)),
+                  },
+                ]),
+              );
+            disconnectTerminal = () => response.close();
             response.enqueue(
               encodeReqResMessageSequence([
                 {
@@ -139,7 +165,7 @@ const transport = {
 const overrides = [
   override(rpcSessionBunja, () =>
     rpcSessionStub(
-      lateCreate
+      lateCreate || resume
         ? {
             daemonInstanceId: createSignal<string | undefined>("daemon")[0],
             webTransport: async () => transport,
@@ -153,6 +179,7 @@ const overrides = [
       tool: "terminal",
       title: "Terminal",
       terminalLaunch: { command: "/bin/sh", args: [] },
+      ...(resume ? { terminalSessionId: session.terminalSessionId } : {}),
     });
     return {
       paneId: "pane",
@@ -207,6 +234,48 @@ function Fixture() {
         Clear selection
       </button>
       <button onClick={() => setShown(false)}>Remove terminal</button>
+      {resume && (
+        <>
+          <button
+            onClick={() =>
+              sendResumeEvent({
+                type: "screenSnapshot",
+                baseSeq: 5,
+                cols: 80,
+                rows: 24,
+                bytes: Uint8Array.of(83),
+              })
+            }
+          >
+            Send snapshot
+          </button>
+          <button
+            onClick={() =>
+              sendResumeEvent({
+                type: "outputChunk",
+                seq: 6,
+                bytes: Uint8Array.of(82),
+              })
+            }
+          >
+            Send output
+          </button>
+          <button onClick={() => disconnectTerminal()}>
+            Disconnect terminal
+          </button>
+          <button
+            onClick={() =>
+              sendResumeEvent({
+                type: "historyGap",
+                nextSeq: 10,
+                reconnect: true,
+              })
+            }
+          >
+            Lag terminal
+          </button>
+        </>
+      )}
       <button onClick={() => updateTitle()}>Publish terminal title</button>
       <button onClick={() => completeCreate()}>Resolve pending creation</button>
       <button onClick={() => setShown(true)}>Remount terminal</button>

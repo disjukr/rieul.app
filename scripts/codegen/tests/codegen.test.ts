@@ -74,8 +74,8 @@ const rustBaseline = {
   wire: "ef71c3825e1750fea98e7734423be01aec84aa0642765c7fe05d9388c1befd1a",
   "socket-wire":
     "72af8be28ae16e56d51180ab97c92e6884d7f25a810570e02e7bacf8b3b61109",
-  // Additive supported profiles / stripe geometry; existing RPC tags stay unchanged.
-  rpc: "a22fd166108208fbb3b3d0a6a3e29d74d16ce3fa191f28b053edc63f91ae11ab",
+  // Additive codec and terminal recovery fields; existing tags stay unchanged.
+  rpc: "76b12bc09752d0679ae2c2e3940e45cf4c7dd9a2ba3da51cac1730d8897f4722",
   // Imported optional stripe geometry; private command tags/fields unchanged.
   ipc: "3a508ff34dd90bb0f4dc3493f5e351fb6ad22aeeac5cda5a21b4e92e395cc142",
 };

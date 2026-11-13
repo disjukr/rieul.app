@@ -12,7 +12,14 @@ export class Terminal {
   open(host) { metrics.opened++; host.dataset.terminalOpened = "true"; }
   onData() { return { dispose() { metrics.inputDisposals++; } }; }
   attachCustomKeyEventHandler() {}
-  reset() {}
+  reset() { this.output = ""; }
+  resize(cols, rows) { this.cols = cols; this.rows = rows; }
+  write(bytes, callback) {
+    this.output = (this.output || "") + new TextDecoder().decode(bytes);
+    window.terminalFixtureOutput = this.output;
+    if (window.terminalFixtureHoldWrite) window.terminalFixtureApplyWrite = callback;
+    else callback();
+  }
   dispose() { metrics.disposed++; }
 }
 export default { Terminal };
@@ -236,4 +243,34 @@ test("terminal session persistence and title updates do not restart the current 
     .click();
   await expect.poll(async () => (await metrics(page)).disposed).toBe(1);
   expect(errors).toEqual([]);
+});
+
+test("reattach uses the applied sequence and live lag requests a fresh screen", async ({
+  page,
+}) => {
+  await fixture(page, false, "?resume");
+  await expect(
+    page.getByText("No machine selected", { exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Select paired machine" }).click();
+  await expect.poll(async () => (await metrics(page)).opened).toBe(1);
+  const cursors = () =>
+    page.evaluate(() => Reflect.get(window, "terminalResumeCursors"));
+  const output = () =>
+    page.evaluate(() => Reflect.get(window, "terminalFixtureOutput"));
+  await expect.poll(cursors).toEqual([undefined]);
+  await page.getByRole("button", { name: "Send snapshot" }).click();
+  await expect.poll(output).toEqual("S");
+  await page.evaluate(() =>
+    Reflect.set(window, "terminalFixtureHoldWrite", true),
+  );
+  await page.getByRole("button", { name: "Send output" }).click();
+  await expect.poll(output).toEqual("SR");
+  await page.getByRole("button", { name: "Disconnect terminal" }).click();
+  expect(await cursors()).toEqual([undefined]);
+  await page.evaluate(() => Reflect.get(window, "terminalFixtureApplyWrite")());
+  await expect.poll(cursors).toEqual([undefined, 6]);
+  await expect.poll(output).toEqual("SR");
+  await page.getByRole("button", { name: "Lag terminal" }).click();
+  await expect.poll(cursors).toEqual([undefined, 6, undefined]);
 });
