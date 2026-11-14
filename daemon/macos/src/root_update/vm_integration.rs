@@ -56,7 +56,7 @@ impl Source for FixtureSource {
         stage.sync()
     }
 }
-fn prepare_fixture(version: Version, fixtures: Dir, confirmed_retry: bool) -> Result<()> {
+pub(super) fn prepare_fixture(version: Version, fixtures: Dir, confirmed_retry: bool) -> Result<()> {
     let state = Dir::open(Path::new(STATE), 0, true)?;
     state.require_private()?;
     let old = {
@@ -110,6 +110,8 @@ fn prepare_fixture(version: Version, fixtures: Dir, confirmed_retry: bool) -> Re
 fn signed_native_guest_operation() -> Result<()> {
     let fixtures = guest_guard()?;
     match std::env::var("RIEUL_VM_TEST_OPERATION")?.as_str() {
+        "seed-device-churn-fixture" => super::device_repair_fixture::seed(fixtures),
+        "verify-device-repair-and-prepare-0.6.25" => super::device_repair_fixture::verify_and_prepare(fixtures),
         "prepare-0.0.2" => prepare_fixture(Version(0, 0, 2), fixtures, false),
         "prepare-0.0.3" => prepare_fixture(Version(0, 0, 3), fixtures, false),
         "prepare-retry-0.0.2" => prepare_fixture(Version(0, 0, 2), fixtures, true),
