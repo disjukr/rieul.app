@@ -2,7 +2,7 @@
 # Disposable GitHub-hosted ARM64 VM only. No signing credentials or live daemon.
 set -euo pipefail
 umask 077
-if [[ $# -ne 2 || "${GITHUB_ACTIONS:-}" != true ||
+if [[ $# -ne 3 || "${GITHUB_ACTIONS:-}" != true ||
       "${GITHUB_REPOSITORY:-}" != disjukr/rieul.app ||
       "${GITHUB_REF:-}" != refs/heads/main ||
       "${GITHUB_EVENT_NAME:-}" != workflow_dispatch ||
@@ -15,9 +15,10 @@ if [[ $# -ne 2 || "${GITHUB_ACTIONS:-}" != true ||
 fi
 console_uid="$(/usr/bin/stat -f %u /dev/console)"
 /bin/launchctl print "gui/$console_uid" >/dev/null 2>&1
-for label in app.rieul.daemon app.rieul.system app.rieul.update-worker; do
-  if output="$(sudo -n /bin/launchctl print "system/$label" 2>&1)"; then
-    echo 'Refusing test: existing Rieul service registration.' >&2
+for label in system/app.rieul.daemon system/app.rieul.system system/app.rieul.update-worker \
+  "gui/$console_uid/app.rieul.gui" "gui/$console_uid/app.rieul.user"; do
+  if output="$(sudo -n /bin/launchctl print "$label" 2>&1)"; then
+    echo 'Refusing test: existing Rieul service or GUI registration.' >&2
     exit 1
   else
     rc=$?
@@ -29,11 +30,14 @@ for label in app.rieul.daemon app.rieul.system app.rieul.update-worker; do
 done
 fixtures='/Library/Application Support/rieul-vm-fixtures'
 for target in "$fixtures" '/Applications/Rieul.app' '/Library/Application Support/rieul' \
-    /Library/LaunchDaemons/app.rieul.daemon.plist /Library/LaunchDaemons/app.rieul.system.plist; do
+    /Library/LaunchDaemons/app.rieul.daemon.plist /Library/LaunchDaemons/app.rieul.system.plist \
+    /Library/LaunchAgents/app.rieul.gui.plist /Library/LaunchAgents/app.rieul.user.plist; do
   [[ ! -e "$target" && ! -L "$target" ]] || { echo 'Refusing test: existing Rieul paths.' >&2; exit 1; }
 done
 repair_pkg="$1"
 test_binary="$2"
+repair_sha="$3"
+[[ "$repair_sha" =~ ^[a-f0-9]{64}$ ]]
 [[ -f "$repair_pkg" && ! -L "$repair_pkg" && -f "$test_binary" && -x "$test_binary" && ! -L "$test_binary" ]]
 work="$(mktemp -d "${RUNNER_TEMP:?}/rieul-repair-assets.XXXXXXXX")"
 trap '/bin/rm -rf -- "$work"' EXIT
@@ -57,6 +61,11 @@ pkg_verified() {
 asset 0.6.23 rieul-macos-desktop.pkg cf943516a51adfad1e78c203d6f12cda2a6ef18bf3eedac6f56184a30ea40132 "$work/old.pkg"
 pkg_verified "$work/old.pkg"
 pkg_verified "$repair_pkg"
+printf '%s  %s\n' "$repair_sha" "$repair_pkg" | /usr/bin/shasum -a 256 -c - >/dev/null
+/usr/sbin/pkgutil --expand-full "$repair_pkg" "$work/repair-expanded"
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+python3 "$script_dir/check-device-repair-package-shape.py" "$work/repair-expanded"
+/usr/bin/codesign --verify --strict -R '=anchor apple generic and identifier "rieul-macos-system" and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = "D379GLRLPV"' "$work/repair-expanded/Scripts/rieul-repair-bootstrap"
 asset 0.6.23 rieul-macos-update.tar e4396c367ea226eb07e8234c75df021ac6d706a90a71b43554b8bb9f9847ebd6 "$work/0.6.23.tar"
 asset 0.6.24 rieul-macos-update.tar 4493af6a4bbb56a1dbcb99be200c27526ed2be77335b5451d7df48560d667b63 "$work/0.6.24.tar"
 asset 0.6.25 rieul-macos-update.tar 23d803088106bea7ef6ce05f3d470b64431a5e8edc53bf5b7a1e35dc9f4a9ba6 "$work/0.6.25.tar"

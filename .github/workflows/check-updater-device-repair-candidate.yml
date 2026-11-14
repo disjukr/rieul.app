@@ -1,33 +1,41 @@
-name: Check isolated signed-fixture source without credentials
+name: Check macOS scripts-only repair package shape (unsigned)
 on:
   push:
     branches: ['test/updater-device-repair-native']
 permissions:
   contents: read
 jobs:
-  native-fixture-compile:
+  fake-package-shape:
     runs-on: macos-15
-    timeout-minutes: 30
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
-        with:
-          node-version: 24
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: 1.99.1
-      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
-      - run: pnpm install --frozen-lockfile
-      - name: Compile native fixture and run only nonprivileged tests
+      - name: Verify native expansion with fake unsigned scripts, never execute package
+        shell: bash
         run: |
-          cargo test --locked -p rieul-macos-daemon --features updater-device-repair --lib root_update::device_repair
+          set -euo pipefail
+          tmp="$(mktemp -d "$RUNNER_TEMP/repair-shape.XXXXXXXX")"
+          trap 'rm -rf -- "$tmp"' EXIT
+          mkdir -p "$tmp/scripts"
+          printf '#!/bin/sh\nexit 0\n' > "$tmp/scripts/postinstall"
+          printf '#!/bin/sh\nexit 0\n' > "$tmp/scripts/rieul-repair-bootstrap"
+          chmod 755 "$tmp/scripts/postinstall" "$tmp/scripts/rieul-repair-bootstrap"
+          /usr/bin/pkgbuild --nopayload --identifier app.rieul.updater-device-repair --version 1.0.0 --scripts "$tmp/scripts" "$tmp/fake.pkg"
+          /usr/sbin/pkgutil --expand-full "$tmp/fake.pkg" "$tmp/expanded"
+          python3 scripts/macos/check-device-repair-package-shape.py "$tmp/expanded"
+          touch "$tmp/expanded/Scripts/extra-file"
+          if python3 scripts/macos/check-device-repair-package-shape.py "$tmp/expanded"; then
+            echo 'Unexpected extra script was accepted' >&2
+            exit 1
+          fi
+      - name: Confirm the privileged fixture rejects branch push
+        shell: bash
+        run: |
           /bin/bash -n scripts/macos/test-signed-device-repair-fixture.sh
-      - name: Prove the privileged fixture rejects a branch push
-        run: |
-          if output="$(/bin/bash scripts/macos/test-signed-device-repair-fixture.sh no-pkg no-bin 2>&1)"; then
-            echo 'Fixture unexpectedly accepted an unauthorized workflow context.' >&2
+          if output="$(/bin/bash scripts/macos/test-signed-device-repair-fixture.sh no-pkg no-bin no-sha 2>&1)"; then
+            echo 'Fixture unexpectedly accepted unauthorized workflow context' >&2
             exit 1
           fi
           [[ "$output" == 'Refusing test outside guarded disposable hosted ARM64 VM.' ]]
