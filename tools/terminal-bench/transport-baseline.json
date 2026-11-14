@@ -1,0 +1,198 @@
+{
+  "base_commit": "75c281929b8a9563266e080251ed56cc6c880acd",
+  "build": "cargo test --release",
+  "observer": "Rust quinn client, complete event decode and vt100 application; not browser/xterm or rsh",
+  "logical_cores": 9,
+  "runs": [
+    {
+      "profile": "local",
+      "repeat": 1,
+      "exit_code": 0,
+      "metrics": {
+        "rtt_ms": 0.0,
+        "down_bps": 0.0,
+        "loss": 0.0,
+        "echo_samples": 100.0,
+        "p50_ms": 0.217,
+        "p95_ms": 0.338,
+        "bulk_payload_bytes": 2097152.0,
+        "decoded_output_bytes": 2097163.0,
+        "read_pause_ms": 500.0,
+        "drain_after_pause_ms": 31.057,
+        "same_connection_reattach_first_echo_ms": 0.974,
+        "new_connection_auth_reattach_first_echo_ms": 2.873
+      }
+    },
+    {
+      "profile": "wan_200ms_512k",
+      "repeat": 1,
+      "exit_code": 0,
+      "metrics": {
+        "rtt_ms": 200.0,
+        "down_bps": 512000.0,
+        "loss": 0.0,
+        "echo_samples": 100.0,
+        "p50_ms": 203.63,
+        "p95_ms": 236.393,
+        "bulk_payload_bytes": 2097152.0,
+        "decoded_output_bytes": 2097163.0,
+        "read_pause_ms": 500.0,
+        "drain_after_pause_ms": 33423.102,
+        "same_connection_reattach_first_echo_ms": 620.08,
+        "new_connection_auth_reattach_first_echo_ms": 1559.673
+      }
+    },
+    {
+      "profile": "local",
+      "repeat": 2,
+      "exit_code": 0,
+      "metrics": {
+        "rtt_ms": 0.0,
+        "down_bps": 0.0,
+        "loss": 0.0,
+        "echo_samples": 100.0,
+        "p50_ms": 0.219,
+        "p95_ms": 0.406,
+        "bulk_payload_bytes": 2097152.0,
+        "decoded_output_bytes": 2097163.0,
+        "read_pause_ms": 500.0,
+        "drain_after_pause_ms": 27.186,
+        "same_connection_reattach_first_echo_ms": 1.307,
+        "new_connection_auth_reattach_first_echo_ms": 2.965
+      }
+    },
+    {
+      "profile": "wan_200ms_512k",
+      "repeat": 2,
+      "exit_code": 0,
+      "metrics": {
+        "rtt_ms": 200.0,
+        "down_bps": 512000.0,
+        "loss": 0.0,
+        "echo_samples": 100.0,
+        "p50_ms": 203.473,
+        "p95_ms": 205.987,
+        "bulk_payload_bytes": 2097152.0,
+        "decoded_output_bytes": 2097163.0,
+        "read_pause_ms": 500.0,
+        "drain_after_pause_ms": 33421.403,
+        "same_connection_reattach_first_echo_ms": 618.994,
+        "new_connection_auth_reattach_first_echo_ms": 1560.838
+      }
+    },
+    {
+      "profile": "local",
+      "repeat": 3,
+      "exit_code": 0,
+      "metrics": {
+        "rtt_ms": 0.0,
+        "down_bps": 0.0,
+        "loss": 0.0,
+        "echo_samples": 100.0,
+        "p50_ms": 0.324,
+        "p95_ms": 0.64,
+        "bulk_payload_bytes": 2097152.0,
+        "decoded_output_bytes": 2097163.0,
+        "read_pause_ms": 500.0,
+        "drain_after_pause_ms": 33.515,
+        "same_connection_reattach_first_echo_ms": 1.747,
+        "new_connection_auth_reattach_first_echo_ms": 3.413
+      }
+    },
+    {
+      "profile": "wan_200ms_512k",
+      "repeat": 3,
+      "exit_code": 0,
+      "metrics": {
+        "rtt_ms": 200.0,
+        "down_bps": 512000.0,
+        "loss": 0.0,
+        "echo_samples": 100.0,
+        "p50_ms": 203.292,
+        "p95_ms": 205.261,
+        "bulk_payload_bytes": 2097152.0,
+        "decoded_output_bytes": 2097163.0,
+        "read_pause_ms": 500.0,
+        "drain_after_pause_ms": 33433.798,
+        "same_connection_reattach_first_echo_ms": 618.34,
+        "new_connection_auth_reattach_first_echo_ms": 1559.577
+      }
+    },
+    {
+      "profile": "local",
+      "repeat": 4,
+      "exit_code": 0,
+      "metrics": {
+        "rtt_ms": 0.0,
+        "down_bps": 0.0,
+        "loss": 0.0,
+        "echo_samples": 100.0,
+        "p50_ms": 0.272,
+        "p95_ms": 0.511,
+        "bulk_payload_bytes": 2097152.0,
+        "decoded_output_bytes": 2097163.0,
+        "read_pause_ms": 500.0,
+        "drain_after_pause_ms": 31.151,
+        "same_connection_reattach_first_echo_ms": 1.434,
+        "new_connection_auth_reattach_first_echo_ms": 2.759
+      }
+    },
+    {
+      "profile": "wan_200ms_512k",
+      "repeat": 4,
+      "exit_code": 0,
+      "metrics": {
+        "rtt_ms": 200.0,
+        "down_bps": 512000.0,
+        "loss": 0.0,
+        "echo_samples": 100.0,
+        "p50_ms": 203.336,
+        "p95_ms": 205.313,
+        "bulk_payload_bytes": 2097152.0,
+        "decoded_output_bytes": 2097163.0,
+        "read_pause_ms": 500.0,
+        "drain_after_pause_ms": 33394.012,
+        "same_connection_reattach_first_echo_ms": 618.074,
+        "new_connection_auth_reattach_first_echo_ms": 1570.962
+      }
+    },
+    {
+      "profile": "local",
+      "repeat": 5,
+      "exit_code": 0,
+      "metrics": {
+        "rtt_ms": 0.0,
+        "down_bps": 0.0,
+        "loss": 0.0,
+        "echo_samples": 100.0,
+        "p50_ms": 0.304,
+        "p95_ms": 0.616,
+        "bulk_payload_bytes": 2097152.0,
+        "decoded_output_bytes": 2097163.0,
+        "read_pause_ms": 500.0,
+        "drain_after_pause_ms": 28.746,
+        "same_connection_reattach_first_echo_ms": 1.143,
+        "new_connection_auth_reattach_first_echo_ms": 3.103
+      }
+    },
+    {
+      "profile": "wan_200ms_512k",
+      "repeat": 5,
+      "exit_code": 0,
+      "metrics": {
+        "rtt_ms": 200.0,
+        "down_bps": 512000.0,
+        "loss": 0.0,
+        "echo_samples": 100.0,
+        "p50_ms": 203.5,
+        "p95_ms": 206.378,
+        "bulk_payload_bytes": 2097152.0,
+        "decoded_output_bytes": 2097163.0,
+        "read_pause_ms": 500.0,
+        "drain_after_pause_ms": 33422.295,
+        "same_connection_reattach_first_echo_ms": 618.161,
+        "new_connection_auth_reattach_first_echo_ms": 1556.686
+      }
+    }
+  ]
+}
