@@ -4,7 +4,60 @@ import { readFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import assert from "node:assert/strict";
+const diagnosticMode = process.env.RIEUL_WT_DIAGNOSTIC === "1";
+let phase = "metadata";
+let vite, browser;
+function stopVite() {
+  try {
+    if (vite?.pid) process.kill(-vite.pid, "SIGTERM");
+  } catch {}
+}
+function safeFailure(error) {
+  return {
+    name: /^(Error|TypeError|DOMException|WebTransportError|RpcError|AssertionError|TimeoutError)$/.test(
+      error?.name,
+    )
+      ? error.name
+      : "UnknownError",
+    code:
+      Number.isInteger(error?.code) && error.code >= 0 && error.code <= 65535
+        ? error.code
+        : error?.code === "ERR_ASSERTION"
+          ? "ERR_ASSERTION"
+          : null,
+  };
+}
+function reportFailure(error, failurePhase = phase) {
+  console.log(
+    JSON.stringify({
+      kind: "replay_control_result",
+      status: "failed",
+      phase: failurePhase,
+      error: safeFailure(error),
+    }),
+  );
+}
+if (diagnosticMode) {
+  let failing = false;
+  const failed = async (error) => {
+    if (failing) return;
+    failing = true;
+    reportFailure(error);
+    stopVite();
+    try {
+      await Promise.race([
+        browser?.close().catch(() => {}),
+        new Promise((resolve) => setTimeout(resolve, 500)),
+      ]);
+    } finally {
+      process.exit(1);
+    }
+  };
+  process.once("uncaughtException", failed);
+  process.once("unhandledRejection", failed);
+}
 const fixture = JSON.parse(await readFile(process.argv[2], "utf8"));
+fixture.wtDiagnostic = diagnosticMode;
 // Optional longer observation; still prerecorded media, never live capture/input.
 const measuredFrameGoal = Number(process.env.RIEUL_SCREEN_MEASURE_FRAMES ?? 0);
 assert.ok(
@@ -14,7 +67,8 @@ assert.ok(
 );
 fixture.measuredFrameGoal = measuredFrameGoal;
 const url = "http://127.0.0.1:5193";
-const vite = spawn(
+phase = "vite";
+vite = spawn(
   "pnpm",
   [
     "--dir",
@@ -33,7 +87,6 @@ const vite = spawn(
     detached: true,
   },
 );
-let browser;
 try {
   for (let i = 0; i < 100; i++) {
     try {
@@ -41,6 +94,7 @@ try {
     } catch {}
     await new Promise((r) => setTimeout(r, 100));
   }
+  phase = "browser_start";
   browser = await chromium.launch({
     executablePath:
       process.env.RIEUL_TEST_CHROME ??
@@ -48,8 +102,12 @@ try {
     headless: true,
   });
   const page = await browser.newPage();
-  page.on("pageerror", (e) => console.error(e));
+  page.on("pageerror", (error) =>
+    diagnosticMode ? reportFailure(error, "page_error") : console.error(error),
+  );
+  phase = "page_load";
   await page.goto(url);
+  phase = "evaluate";
   const result = await page.evaluate(async (fixture) => {
     const { authenticateWebTransport } = await import(
       "/src/protocol/client.ts"
@@ -65,17 +123,65 @@ try {
     const { DesktopInputChannel } = await import(
       "/src/protocol/desktop-input.ts"
     );
-    const transport = new WebTransport(fixture.url, {
-      serverCertificateHashes: [
-        {
-          algorithm: "sha-256",
-          value: Uint8Array.from(fixture.hash.match(/../g), (x) =>
-            parseInt(x, 16),
-          ),
-        },
-      ],
+    const diagnostic = {
+      constructor: "pending",
+      ready: "pending",
+      closed: "pending",
+      intentionalClose: false,
+    };
+    const safeTransportError = (error) => ({
+      name: /^(WebTransportError|DOMException|TypeError|Error)$/.test(
+        error?.name,
+      )
+        ? error.name
+        : "UnknownError",
+      source: ["session", "stream"].includes(error?.source)
+        ? error.source
+        : null,
+      code:
+        Number.isInteger(error?.streamErrorCode) &&
+        error.streamErrorCode >= 0 &&
+        error.streamErrorCode <= 4294967295
+          ? error.streamErrorCode
+          : null,
     });
-    await transport.ready;
+    let transport;
+    try {
+      transport = new WebTransport(fixture.url, {
+        serverCertificateHashes: [
+          {
+            algorithm: "sha-256",
+            value: Uint8Array.from(fixture.hash.match(/../g), (x) =>
+              parseInt(x, 16),
+            ),
+          },
+        ],
+      });
+      diagnostic.constructor = "resolved";
+      transport.closed.then(
+        () => {
+          diagnostic.intentionalClose = diagnostic.closeRequested === true;
+          diagnostic.closed = "resolved";
+        },
+        (error) => {
+          diagnostic.intentionalClose = diagnostic.closeRequested === true;
+          diagnostic.closed = "rejected";
+          diagnostic.closedError = safeTransportError(error);
+        },
+      );
+      await transport.ready;
+      diagnostic.ready = "resolved";
+    } catch (error) {
+      diagnostic.phase =
+        diagnostic.constructor === "pending" ? "constructor" : "ready";
+      diagnostic[diagnostic.phase] = "rejected";
+      diagnostic.error = safeTransportError(error);
+      if (!fixture.wtDiagnostic) throw error;
+      diagnostic.closeRequested = true;
+      transport?.close();
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      return { transportSetupFailed: true, transportDiagnostic: diagnostic };
+    }
     // No anonymous capability access even though this test uses only generated pixels.
     let denied = false;
     try {
@@ -264,6 +370,7 @@ try {
       };
     };
     const result = {
+      transportDiagnostic: diagnostic,
       browserTappedMediaBytes: fixture.measuredFrameGoal
         ? browserTappedMediaBytes
         : null,
@@ -296,10 +403,27 @@ try {
       codecs,
     };
     receiver.close();
+    diagnostic.closeRequested = true;
     transport.close();
     abort.abort();
+    if (fixture.wtDiagnostic)
+      await Promise.race([
+        transport.closed.catch(() => {}),
+        new Promise((resolve) => setTimeout(resolve, 100)),
+      ]);
     return result;
   }, fixture);
+  phase = "assertions";
+  if (diagnosticMode)
+    console.log(
+      JSON.stringify({
+        kind: "wt_transport_diagnostic",
+        browserVersion: browser.version(),
+        scope: "recorded_replay_control_not_live_capture",
+        ...result.transportDiagnostic,
+      }),
+    );
+  assert.ok(!result.transportSetupFailed, "WebTransport setup failed");
   if (process.env.RIEUL_EXPECT_WORKER === "1")
     assert.equal(result.execution, "worker", JSON.stringify(result));
   assert.equal(Object.keys(result.frames).length, 2, JSON.stringify(result));
@@ -359,12 +483,23 @@ try {
   assert.ok(result.groups >= 4);
   assert.equal(result.cancelledStreams, 1);
   assert.deepEqual(result.errors, []);
-  console.log(
-    "PASS: pre-encoded VideoToolbox synthetic GOP → incremental helper IPC → authenticated WebTransport → Chrome; two independent displays, fresh GOPs, render feedback, requested refresh, disconnect held-key cleanup checked by Rust fixture",
-  );
+  if (diagnosticMode)
+    console.log(
+      JSON.stringify({
+        kind: "replay_control_result",
+        status: "passed",
+        phase: "replay_assertions",
+        scope: "prerecorded_ipc_webtransport_browser_no_capture",
+      }),
+    );
+  else
+    console.log(
+      "PASS: pre-encoded VideoToolbox synthetic GOP → incremental helper IPC → authenticated WebTransport → Chrome; two independent displays, fresh GOPs, render feedback, requested refresh, disconnect held-key cleanup checked by Rust fixture",
+    );
 } finally {
-  await browser?.close();
   try {
-    process.kill(-vite.pid, "SIGTERM");
-  } catch {}
+    await browser?.close();
+  } finally {
+    stopVite();
+  }
 }

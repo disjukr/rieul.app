@@ -5,13 +5,13 @@ on:
       scenario:
         description: Isolated capability gate or live synthetic scroll observation
         type: choice
-        options: [capability, scroll]
+        options: [capability, scroll, replay_control]
         default: capability
 permissions:
   contents: read
 jobs:
   probe:
-    if: github.repository == 'disjukr/rieul.app' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.scenario != 'scroll'
+    if: github.repository == 'disjukr/rieul.app' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.scenario == 'capability'
     runs-on: macos-15
     timeout-minutes: 3
     steps:
@@ -36,11 +36,13 @@ jobs:
         shell: bash
         run: '"$RUNNER_TEMP/rieul-screen-capability"'
   scroll:
-    if: github.repository == 'disjukr/rieul.app' && github.ref == 'refs/heads/screen-hosted-live-scroll-test' && github.event_name == 'workflow_dispatch' && inputs.scenario == 'scroll'
+    if: github.repository == 'disjukr/rieul.app' && github.ref == 'refs/heads/screen-hosted-live-scroll-test' && github.event_name == 'workflow_dispatch' && (inputs.scenario == 'scroll' || inputs.scenario == 'replay_control')
     runs-on: macos-15
     timeout-minutes: 15
     env:
-      RIEUL_HOSTED_SCREEN_SCROLL: "1"
+      RIEUL_HOSTED_SCREEN_SCROLL: ${{ inputs.scenario == 'scroll' && '1' || '0' }}
+      RIEUL_WT_DIAGNOSTIC: "1"
+      RIEUL_FIXTURE_TEST: ${{ inputs.scenario == 'replay_control' && 'browser_hardware_ipc_two_displays_and_disconnect_release' || 'browser_live_hosted_scroll' }}
       RIEUL_TEST_CHROME: /Applications/Google Chrome.app/Contents/MacOS/Google Chrome
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -56,6 +58,7 @@ jobs:
       - name: Restore existing locked project dependencies
         run: pnpm install --frozen-lockfile
       - name: Compile hosted-only synthetic producer
+        if: inputs.scenario == 'scroll'
         shell: bash
         run: |
           test "$RUNNER_ENVIRONMENT" = github-hosted
@@ -71,8 +74,9 @@ jobs:
             -framework ScreenCaptureKit -framework VideoToolbox -framework ApplicationServices \
             -o "$RUNNER_TEMP/rieul-screen-live"
       - name: Build release test fixture without running capture
-        run: cargo test --release --locked -p rieul-daemon-host browser_live_hosted_scroll --no-run
+        run: cargo test --release --locked -p rieul-daemon-host "$RIEUL_FIXTURE_TEST" --no-run
       - name: Observe one bounded synthetic scroll functional run
+        if: inputs.scenario == 'scroll'
         shell: bash
         run: |
           uptime
@@ -83,3 +87,13 @@ jobs:
           "$RIEUL_TEST_CHROME" --version
           printf '{"repetition":1,"scope":"temporary-branch functional prerequisite only; damage/paintover unmeasured"}\n'
           cargo test --release --locked -p rieul-daemon-host browser_live_hosted_scroll -- --ignored --nocapture
+      - name: Run one recorded replay WebTransport control without capture
+        if: inputs.scenario == 'replay_control'
+        shell: bash
+        run: |
+          test "$RIEUL_HOSTED_SCREEN_SCROLL" = 0
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          test "$RUNNER_ARCH" = ARM64
+          sw_vers
+          "$RIEUL_TEST_CHROME" --version
+          cargo test --release --locked -p rieul-daemon-host "$RIEUL_FIXTURE_TEST" -- --ignored --nocapture
