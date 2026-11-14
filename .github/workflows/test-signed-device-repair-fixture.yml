@@ -1,0 +1,193 @@
+# REVIEW DRAFT ONLY. Pin reviewed fixture commit before intentionally enabling.
+name: Validate signed device repair in disposable macOS fixture
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+env:
+  REVIEWED_SHA: 23c59bc30592b651db1e2f5ea78b6fbf09c528c0
+jobs:
+  sign-and-exercise-disposable-fixture:
+    if: github.repository == 'disjukr/rieul.app' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Pin reviewed main source before building or loading certificates
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$REVIEWED_SHA" =~ ^[0-9a-f]{40}$ ]]
+          git merge-base --is-ancestor "$REVIEWED_SHA" origin/main
+          git checkout --detach "$REVIEWED_SHA"
+          [[ "$(uname -m)" == arm64 ]]
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
+        with:
+          toolchain: 1.99.1
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
+      - run: pnpm install --frozen-lockfile
+      - run: cargo build --locked --release -p rieul-macos-daemon --features updater-device-repair --bin rieul-macos-system
+      - name: Compile isolated fixture before certificate access
+        id: fixture-binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test --locked -p rieul-macos-daemon --lib --no-run --message-format json > "$RUNNER_TEMP/rieul-test-binaries.jsonl"
+          fixture="$(python3 - "$RUNNER_TEMP/rieul-test-binaries.jsonl" <<'PYCODE'
+          import json, sys
+          values = [json.loads(line) for line in open(sys.argv[1])]
+          paths = [row['executable'] for row in values if row.get('target', {}).get('name') == 'rieul_macos_daemon' and row.get('profile', {}).get('test') is True and row.get('executable')]
+          if len(paths) != 1:
+              raise SystemExit('cannot identify reviewed fixture test executable')
+          print(paths[0])
+          PYCODE
+          )"
+          test -x "$fixture"
+          printf 'path=%s\n' "$fixture" >> "$GITHUB_OUTPUT"
+      - name: Assert disposable host and capture original runner keychains before secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          ./scripts/macos/test-signed-device-repair-fixture.sh --probe-only
+          before="$RUNNER_TEMP/rieul-repair-keychains-before"
+          [[ ! -e "$before" && ! -L "$before" ]]
+          /bin/mkdir -m 700 "$before"
+          /usr/bin/security list-keychains -d user > "$before/list"
+          /usr/bin/security default-keychain -d user > "$before/default"
+          python3 - "$before" <<'PYCODE'
+          import pathlib, shlex, sys
+          root = pathlib.Path(sys.argv[1])
+          if not shlex.split((root / "list").read_text()) or len(shlex.split((root / "default").read_text())) != 1:
+              raise SystemExit("runner keychain state cannot be restored exactly")
+          PYCODE
+          identities="$(/usr/bin/security find-identity -v)"
+          [[ "$identities" != *'(D379GLRLPV)'* ]]
+      - name: Sign and notarize only the reviewed scripts-only repair fixture
+        id: package
+        shell: bash
+        env:
+          APPLICATION_CERT_P12: ${{ secrets.MACOS_APPLICATION_CERT_P12 }}
+          APPLICATION_CERT_PASSWORD: ${{ secrets.MACOS_APPLICATION_CERT_PASSWORD }}
+          INSTALLER_CERT_P12: ${{ secrets.MACOS_INSTALLER_CERT_P12 }}
+          INSTALLER_CERT_PASSWORD: ${{ secrets.MACOS_INSTALLER_CERT_PASSWORD }}
+          APPLE_API_PRIVATE_KEY: ${{ secrets.APPLE_API_PRIVATE_KEY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          umask 077
+          [[ "$(git rev-parse HEAD)" == "$REVIEWED_SHA" ]]
+          secure="$RUNNER_TEMP/rieul-device-repair-signing"
+          [[ ! -e "$secure" && ! -L "$secure" ]]
+          /bin/mkdir -m 700 "$secure"
+          keychain="$secure/repair.keychain-db"
+          before="$RUNNER_TEMP/rieul-repair-keychains-before"
+          cleanup() {
+            local failed=0
+            if [[ -e "$keychain" || -L "$keychain" ]]; then
+              /usr/bin/security delete-keychain "$keychain" >/dev/null 2>&1 || failed=1
+            fi
+            python3 - "$before" <<'PYCODE' || failed=1
+          import pathlib, shlex, subprocess, sys
+          root = pathlib.Path(sys.argv[1])
+          security = "/usr/bin/security"
+          initial = shlex.split((root / "list").read_text())
+          [default] = shlex.split((root / "default").read_text())
+          subprocess.run([security, "list-keychains", "-d", "user", "-s", *initial], check=True)
+          subprocess.run([security, "default-keychain", "-d", "user", "-s", default], check=True)
+          PYCODE
+            /bin/rm -rf -- "$secure" || failed=1
+            [[ ! -e "$secure" && ! -L "$secure" ]] || failed=1
+            return "$failed"
+          }
+          finish() {
+            local rc=$?
+            trap - EXIT
+            cleanup || rc=1
+            exit "$rc"
+          }
+          trap finish EXIT
+          password="$(/usr/bin/openssl rand -base64 32)"
+          /usr/bin/security create-keychain -p "$password" "$keychain"
+          /usr/bin/security set-keychain-settings -lut 3600 "$keychain"
+          /usr/bin/security unlock-keychain -p "$password" "$keychain"
+          printf '%s' "${APPLICATION_CERT_P12:?}" | /usr/bin/base64 -D > "$secure/application.p12"
+          printf '%s' "${INSTALLER_CERT_P12:?}" | /usr/bin/base64 -D > "$secure/installer.p12"
+          printf '%s' "${APPLE_API_PRIVATE_KEY:?}" | /usr/bin/base64 -D > "$secure/notary-api-key.p8"
+          import_identity() {
+            local path="$1" pass="$2"
+            if ! /usr/bin/security import "$path" -k "$keychain" -P "$pass" -A -t cert -f pkcs12 2>"$secure/import-error"; then
+              [[ "$(cat "$secure/import-error")" == 'security: SecKeychainItemImport: The specified item already exists in the keychain.' ]]
+            fi
+            /bin/rm -f -- "$path" "$secure/import-error"
+          }
+          import_identity "$secure/application.p12" "${APPLICATION_CERT_PASSWORD:?}"
+          import_identity "$secure/installer.p12" "${INSTALLER_CERT_PASSWORD:?}"
+          unset APPLICATION_CERT_P12 APPLICATION_CERT_PASSWORD INSTALLER_CERT_P12 INSTALLER_CERT_PASSWORD APPLE_API_PRIVATE_KEY
+          curl --fail --silent --show-error --location             https://www.apple.com/certificateauthority/DeveloperIDG2CA.cer --output "$secure/DeveloperIDG2CA.cer"
+          digest="$(/usr/bin/openssl x509 -inform DER -in "$secure/DeveloperIDG2CA.cer" -noout -fingerprint -sha256 | cut -d= -f2 | tr -d ':')"
+          [[ "$digest" == F16CD3C54C7F83CEA4BF1A3E6A0819C8AAA8E4A1528FD144715F350643D2DF3A ]]
+          if ! /usr/bin/security find-certificate -c 'Developer ID Certification Authority' "$keychain" >/dev/null 2>&1; then
+            /usr/bin/security import "$secure/DeveloperIDG2CA.cer" -k "$keychain"
+          fi
+          /usr/bin/security set-key-partition-list -S apple-tool:,apple: -k "$password" "$keychain" >/dev/null
+          /usr/bin/security list-keychains -d user -s "$keychain"
+          /usr/bin/security default-keychain -d user -s "$keychain"
+          app_id="$(/usr/bin/security find-identity -v -p codesigning "$keychain" | awk -F'"' '/Developer ID Application:.*\(D379GLRLPV\)/ {print $2; exit}')"
+          installer_id="$(/usr/bin/security find-identity -v "$keychain" | awk -F'"' '/Developer ID Installer:.*\(D379GLRLPV\)/ {print $2; exit}')"
+          [[ -n "$app_id" && -n "$installer_id" ]]
+          out="$RUNNER_TEMP/rieul-repair-handoff"
+          /bin/mkdir -m 700 "$out"
+          helper="$secure/rieul-macos-system"
+          /usr/bin/install -m 0755 target/release/rieul-macos-system "$helper"
+          /usr/bin/codesign --force --options runtime --timestamp --identifier rieul-macos-system             --keychain "$keychain" --sign "$app_id" "$helper"
+          package="$out/rieul-updater-device-repair.pkg"
+          ./scripts/macos/package-updater-device-repair.sh "$helper" "$installer_id" "$package"
+          xcrun notarytool submit "$package" --key "$secure/notary-api-key.p8"             --key-id "${APPLE_API_KEY_ID:?}" --issuer "${APPLE_API_ISSUER_ID:?}" --wait
+          python3 scripts/macos/stapler-retry.py staple "$package"
+          python3 scripts/macos/stapler-retry.py validate "$package"
+          /usr/sbin/spctl --assess --type install "$package"
+          /usr/sbin/pkgutil --expand-full "$package" "$secure/expanded"
+          python3 scripts/macos/check-device-repair-package-shape.py "$secure/expanded"
+          echo "sha=$(/usr/bin/shasum -a 256 "$package" | cut -d ' ' -f1)" >> "$GITHUB_OUTPUT"
+      - name: Ensure signing material was removed before any fixture execution
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          secure="$RUNNER_TEMP/rieul-device-repair-signing"
+          [[ ! -e "$secure" && ! -L "$secure" ]]
+          before="$RUNNER_TEMP/rieul-repair-keychains-before"
+          if [[ -d "$before" && ! -L "$before" ]]; then
+            /usr/bin/security list-keychains -d user | /usr/bin/cmp -s "$before/list" -
+            /usr/bin/security default-keychain -d user | /usr/bin/cmp -s "$before/default" -
+          fi
+          identities="$(/usr/bin/security find-identity -v)"
+          [[ "$identities" != *'(D379GLRLPV)'* ]]
+          for var in APPLICATION_CERT_P12 APPLICATION_CERT_PASSWORD INSTALLER_CERT_P12 INSTALLER_CERT_PASSWORD APPLE_API_PRIVATE_KEY APPLE_API_KEY_ID APPLE_API_ISSUER_ID; do
+            if /usr/bin/printenv "$var" >/dev/null; then exit 1; fi
+          done
+      - name: Guard and exercise signed package on this disposable runner
+        shell: bash
+        env:
+          REPAIR_SHA: ${{ steps.package.outputs.sha }}
+          FIXTURE_EXEC: ${{ steps.fixture-binary.outputs.path }}
+        run: |
+          set -euo pipefail
+          [[ "$(git rev-parse HEAD)" == "$REVIEWED_SHA" ]]
+          ./scripts/macos/test-signed-device-repair-fixture.sh \
+            "$RUNNER_TEMP/rieul-repair-handoff/rieul-updater-device-repair.pkg" "$FIXTURE_EXEC" "$REPAIR_SHA"
+      - name: Discard the unshared fixture output
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          /bin/rm -rf -- "$RUNNER_TEMP/rieul-repair-handoff" "$RUNNER_TEMP/rieul-repair-keychains-before"
+          [[ ! -e "$RUNNER_TEMP/rieul-repair-handoff" ]]
