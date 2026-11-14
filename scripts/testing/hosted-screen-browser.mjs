@@ -4,7 +4,6 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
 const origin = "http://127.0.0.1:5193";
-const fixturePage = `${origin}/__hosted-screen-browser-fixture`;
 const warmup = 5;
 const measured = 40;
 const deadlineMs = 45_000;
@@ -515,18 +514,12 @@ try {
   stage = "browser_start";
   browser = await chromium.launch({
     executablePath:
+      process.env.RIEUL_TEST_CHROME ??
       "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
     headless: true,
-    timeout: 5000,
   });
-  const page = await browser.newPage({ viewport: { width: 800, height: 600 } });
-  await page.route(fixturePage, (route) =>
-    route.fulfill({
-      contentType: "text/html",
-      body: "<!doctype html><title>Rieul hosted Screen fixture</title><body></body>",
-    }),
-  );
-  await page.goto(fixturePage, { timeout: 5000 });
+  const page = await browser.newPage();
+  await page.goto(origin);
   stage = "browser_evaluate";
   const result = await page.evaluate(observeScroll, {
     url,
