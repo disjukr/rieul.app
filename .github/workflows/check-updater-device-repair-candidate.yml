@@ -1,41 +1,56 @@
-name: Check macOS scripts-only repair package shape (unsigned)
+name: Check default and opt-in macOS repair builds (unsigned)
 on:
   push:
     branches: ['test/updater-device-repair-native']
 permissions:
   contents: read
 jobs:
-  fake-package-shape:
+  verify-feature-boundary:
     runs-on: macos-15
-    timeout-minutes: 10
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
-      - name: Verify native expansion with fake unsigned scripts, never execute package
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
+        with:
+          toolchain: 1.99.1
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
+      - run: pnpm install --frozen-lockfile
+      - name: Verify default test build and selection of the guarded fixture, without running it
         shell: bash
         run: |
           set -euo pipefail
-          tmp="$(mktemp -d "$RUNNER_TEMP/repair-shape.XXXXXXXX")"
-          trap 'rm -rf -- "$tmp"' EXIT
-          mkdir -p "$tmp/scripts"
-          printf '#!/bin/sh\nexit 0\n' > "$tmp/scripts/postinstall"
-          printf '#!/bin/sh\nexit 0\n' > "$tmp/scripts/rieul-repair-bootstrap"
-          chmod 755 "$tmp/scripts/postinstall" "$tmp/scripts/rieul-repair-bootstrap"
-          /usr/bin/pkgbuild --nopayload --identifier app.rieul.updater-device-repair --version 1.0.0 --scripts "$tmp/scripts" "$tmp/fake.pkg"
-          /usr/sbin/pkgutil --expand-full "$tmp/fake.pkg" "$tmp/expanded"
-          python3 scripts/macos/check-device-repair-package-shape.py "$tmp/expanded"
-          touch "$tmp/expanded/Scripts/extra-file"
-          if python3 scripts/macos/check-device-repair-package-shape.py "$tmp/expanded"; then
-            echo 'Unexpected extra script was accepted' >&2
+          messages="$RUNNER_TEMP/rieul-test-binaries.jsonl"
+          if ! cargo test --locked -p rieul-macos-daemon --lib --no-run --message-format json > "$messages"; then
+            python3 - "$messages" <<'PY'
+          import json, sys
+          for line in open(sys.argv[1]):
+              row = json.loads(line)
+              if row.get('reason') == 'compiler-message':
+                  m = row['message']
+                  if m.get('level') == 'error':
+                      print(m.get('rendered') or m['message'], file=sys.stderr)
+          PY
             exit 1
           fi
-      - name: Confirm the privileged fixture rejects branch push
-        shell: bash
+          fixture="$(python3 - "$messages" <<'PY'
+          import json, sys
+          values = [json.loads(line) for line in open(sys.argv[1])]
+          paths = [row['executable'] for row in values if row.get('target', {}).get('name') == 'rieul_macos_daemon' and row.get('profile', {}).get('test') is True and row.get('executable')]
+          if len(paths) != 1:
+              raise SystemExit('cannot identify reviewed fixture test executable')
+          print(paths[0])
+          PY
+          )"
+          test -x "$fixture"
+          "$fixture" --list > "$RUNNER_TEMP/rieul-test-list"
+          grep -Fx 'root_update::vm_integration::signed_native_guest_operation: test' "$RUNNER_TEMP/rieul-test-list"
+          cargo test --locked -p rieul-macos-daemon --lib root_update::device_repair
+      - name: Verify opt-in build and all focused native repair tests
         run: |
-          /bin/bash -n scripts/macos/test-signed-device-repair-fixture.sh
-          if output="$(/bin/bash scripts/macos/test-signed-device-repair-fixture.sh no-pkg no-bin no-sha 2>&1)"; then
-            echo 'Fixture unexpectedly accepted unauthorized workflow context' >&2
-            exit 1
-          fi
-          [[ "$output" == 'Refusing test outside guarded disposable hosted ARM64 VM.' ]]
+          cargo check --locked -p rieul-macos-daemon --features updater-device-repair --bin rieul-macos-system
+          cargo test --locked -p rieul-macos-daemon --features updater-device-repair --lib root_update::device_repair
