@@ -5,7 +5,7 @@ on:
 permissions:
   contents: read
 env:
-  REVIEWED_SHA: 23c59bc30592b651db1e2f5ea78b6fbf09c528c0
+  REVIEWED_SHA: 02d491eeb390f9541aff262018fcb62908a8f4ec
 jobs:
   sign-and-exercise-disposable-fixture:
     if: github.repository == 'disjukr/rieul.app' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
@@ -38,7 +38,18 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cargo test --locked -p rieul-macos-daemon --lib --no-run --message-format json > "$RUNNER_TEMP/rieul-test-binaries.jsonl"
+          if ! cargo test --locked -p rieul-macos-daemon --lib --no-run --message-format json > "$RUNNER_TEMP/rieul-test-binaries.jsonl"; then
+            python3 - "$RUNNER_TEMP/rieul-test-binaries.jsonl" <<'PYCODE'
+          import json, sys
+          for line in open(sys.argv[1]):
+              row = json.loads(line)
+              if row.get('reason') == 'compiler-message':
+                  m = row['message']
+                  if m.get('level') == 'error':
+                      print(m.get('rendered') or m['message'], file=sys.stderr)
+          PYCODE
+            exit 1
+          fi
           fixture="$(python3 - "$RUNNER_TEMP/rieul-test-binaries.jsonl" <<'PYCODE'
           import json, sys
           values = [json.loads(line) for line in open(sys.argv[1])]
