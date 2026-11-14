@@ -34,6 +34,38 @@ struct Migration {
     identity: Identity,
     nonce: String,
 }
+/// A successfully completed migration may leave its receipt behind until the
+/// first regular update finishes. Only that exact old-runtime binding is
+/// harmless when retiring an unrelated pre-swap update.
+#[cfg(feature = "updater-device-repair")]
+pub(super) fn check_old_readiness(
+    state: &Dir,
+    update_nonce: &str,
+    old_digest: &str,
+) -> Result<()> {
+    let request: Option<Request> = state.load("start-request.json")?;
+    let receipt: Option<receipt::Receipt> = state.load("ready.json")?;
+    match (request, receipt) {
+        (None, None) => Ok(()),
+        (Some(request), Some(receipt)) => {
+            request.validate()?;
+            ensure!(
+                state
+                    .load::<Migration>("migration-result.json")?
+                    .is_some_and(|m| m.schema == 1
+                        && m.phase == Phase::Complete
+                        && m.nonce == request.nonce
+                        && m.nonce != update_nonce
+                        && m.identity.daemon_sha256 == old_digest)
+                    && request.daemon_sha256 == old_digest
+                    && receipt::matches(&receipt, &request, receipt.pid, old_digest),
+                "unexpected start or readiness evidence"
+            );
+            Ok(())
+        }
+        _ => anyhow::bail!("incomplete start or readiness evidence"),
+    }
+}
 /// A migration worker holds the state lock while waiting for readiness.
 /// Startup must inspect its atomic record without acquiring that same lock.
 /// Only the bound runtime and a live fixed-identity system worker may authorize

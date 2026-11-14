@@ -1,7 +1,7 @@
 //! The single public destination is not a protected directory. Never use its
 //! exchanged-out entry as executable input without private-storage validation.
 use super::store::Dir;
-use anyhow::{ensure, Result};
+use anyhow::{Result, ensure};
 use std::{
     ffi::CString,
     fs::File,
@@ -44,9 +44,7 @@ impl AppDestination {
     pub fn fixture(path: &Path) -> Result<Self> {
         Self::open_at(path, unsafe { libc::geteuid() })
     }
-    /// A held directory descriptor prevents parent substitution. Identity is
-    /// checked before AND after the swap; a racing entry is never trusted.
-    pub fn identity(&self) -> Result<(u64, u64)> {
+    pub fn open_entry(&self) -> Result<File> {
         let fd = unsafe {
             libc::openat(
                 self.file.as_raw_fd(),
@@ -55,9 +53,20 @@ impl AppDestination {
             )
         };
         ensure!(fd >= 0, "app entry is absent or not a directory");
-        let file = unsafe { File::from_raw_fd(fd) };
-        let m = file.metadata()?;
+        Ok(unsafe { File::from_raw_fd(fd) })
+    }
+    /// A held directory descriptor prevents parent substitution. Identity is
+    /// checked before AND after the swap; a racing entry is never trusted.
+    pub fn identity(&self) -> Result<(u64, u64)> {
+        let m = self.open_entry()?.metadata()?;
         Ok((m.dev(), m.ino()))
+    }
+    #[cfg(all(target_os = "macos", feature = "updater-device-repair"))]
+    pub fn repair_volume(&self) -> Result<(u64, [u8; 16])> {
+        Ok((
+            self.file.metadata()?.dev(),
+            super::device_repair::volume_uuid(&self.file)?,
+        ))
     }
     #[cfg(target_os = "macos")]
     pub fn exchange(&self, stage: &Dir, old: (u64, u64), new: (u64, u64)) -> Result<()> {
@@ -78,15 +87,9 @@ impl AppDestination {
         Ok(())
     }
     pub fn snapshot(&self, stage: &Dir) -> Result<(u64, u64)> {
-        let fd = unsafe {
-            libc::openat(
-                self.file.as_raw_fd(),
-                c"Rieul.app".as_ptr(),
-                libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
-            )
-        };
-        ensure!(fd >= 0, "cannot snapshot installed app");
-        let file = unsafe { File::from_raw_fd(fd) };
+        self.snapshot_entry(self.open_entry()?, stage)
+    }
+    pub fn snapshot_entry(&self, file: File, stage: &Dir) -> Result<(u64, u64)> {
         let source = Dir::from_directory(file, self.path.join("Rieul.app"), 0)?;
         let identity = source.identity()?;
         source.copy_contents(&stage.create_dir("Rieul.app", 0o755)?)?;

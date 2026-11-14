@@ -83,3 +83,55 @@ Intel and universal/mixed-architecture candidates are rejected before replacemen
 Signature, digest, version and database gates still apply. This does not delete
 old release assets or modify an existing Intel installation. Pure header tests run
 without executing a candidate or changing host services.
+
+## Schema-1 device-number repair (separate package)
+
+`updater-device-repair` is an opt-in build feature, **off** for normal daemon
+and installer builds. Build `rieul-macos-system` with that feature, sign the
+helper using the official Developer ID Application identity and hardened
+runtime, then run `scripts/macos/package-updater-device-repair.sh` with that
+helper, the official Developer ID Installer identity and a new output path.
+The no-payload PKG must be notarized and stapled. Verify package signature,
+Gatekeeper installer assessment, and stapling before running the signed VM
+fixture (release pipeline or artifact publication is not automatic).
+
+The separate explicit Installer operation neither stops nor restarts a daemon.
+It accepts only an administrator-requested, pre-swap, matching failed attempt
+with unchanged inodes, confirmed current same-volume aliases, and verified old
+and staged signed bundles. A schema-1 journal has no historical volume UUID, so
+a current same-volume check cannot prove historical identity. Do not use this
+as automatic journal recovery or relax normal update validation.
+
+The operation archives the validated candidate runtime stage (if any), then
+atomically renames the active journal to a private nonce-scoped archive. The
+journal remains intact; configuration, pairing state, DB, installed binaries,
+launchd jobs and policy are untouched. The original `incoming` app and worker
+result stay in their original locations until the standard updater next
+prepares/dispatches a new attempt. Normal preparation discards the obsolete
+incoming release and keeps independently validated newer release data. If
+repair already completed but Installer reporting was interrupted, do not keep
+rerunning the package: confirm the old service is healthy, then use **Check for
+Updates**, check the target version, and **Install** through the regular signed
+update path. If the already-installed daemon is parked, normal recovery of the
+old service is a separate administrator step.
+
+Before distributing, test on a disposable Apple Silicon VM with a real
+official-signed, notarized protected installation:
+
+1. Start the old healthy runtime with pairing and configuration state. Stage
+   a newer official candidate and inject only divergent historical device
+   numbers into a test v1 `Prepared` journal (alternate: reproduce real number
+   churn over reboot). Bind the test hard failure to that attempt.
+2. Run the notarized repair PKG through macOS Installer. Confirm both signed
+   snapshot checks and APFS descriptor UUID queries pass, no protected binary,
+   daemon PID, version, pairing/configuration or DB changes, and only verified
+   pre-swap staging records are archived.
+3. In another snapshot, interrupt after candidate-runtime archival but before
+   journal retirement. The active record must remain resumable/fail-closed;
+   opening the repair again must not replace the preserved archive.
+4. Check and install the newest official release directly (not the discarded
+   candidate). Confirm the standard service/DB readiness and pairing.
+5. Repeat with live worker, unexpected journal phase, mismatched nonce/old
+   runtime hash, replaced root-protected staged app, wrong inode/current
+   volume, missing or invalid signed manifests, and preexisting swap evidence.
+   Every case must leave the active journal and staging aliases untouched.
