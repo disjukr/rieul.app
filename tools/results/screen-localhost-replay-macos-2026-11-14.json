@@ -1,0 +1,151 @@
+{
+  "scope": "prerecorded 640x480 synthetic H.264 via helper IPC and localhost WebTransport to browser worker decode/render; no capture, contemporaneous encoding, desktop input, physical scanout, or reference-product comparison",
+  "sourceCommit": "75c281929b8a9563266e080251ed56cc6c880acd",
+  "hostBuild": "cargo test debug",
+  "warmup": "first five rendered feedback samples per track excluded from decode/render quantiles; byte count and observation duration include warmup/startup/recovery",
+  "byteScope": "application media stream chunks observed at browser main-thread tap; may include queued chunks later abandoned; excludes deliberately canceled third stream, RPC/input/feedback, QUIC/TLS/UDP/IP overhead",
+  "verdict": "diagnostic observations only; performance improvement and live interaction latency unmeasured; bottleneck not profiled",
+  "runs": [
+    {
+      "browserVersion": "157.0.8103.52",
+      "execution": "worker",
+      "tracks": [
+        {
+          "trackId": 1,
+          "codec": "avc1.42002a",
+          "width": 640,
+          "height": 480,
+          "fps": 60
+        },
+        {
+          "trackId": 2,
+          "codec": "avc1.42002a",
+          "width": 640,
+          "height": 480,
+          "fps": 60
+        }
+      ],
+      "browserTappedMediaBytes": 104746,
+      "observationMs": 4043.5,
+      "warmupFramesPerTrack": 5,
+      "frameGoal": 60,
+      "decodeMicros": {
+        "count": 113,
+        "p50": 69900,
+        "p95": 93100
+      },
+      "renderMicros": {
+        "count": 113,
+        "p50": 4200,
+        "p95": 5900
+      },
+      "firstFrameMs": {
+        "fixture": 130.90000000037253,
+        "fixture-1": 202.7000000011176
+      },
+      "frames": {
+        "fixture": 63,
+        "fixture-1": 60
+      },
+      "feedback": 205,
+      "maxObject": 2,
+      "receiptsHeld": 0,
+      "recoveredGroups": 0,
+      "groups": 82
+    },
+    {
+      "browserVersion": "157.0.8103.52",
+      "execution": "worker",
+      "tracks": [
+        {
+          "trackId": 1,
+          "codec": "avc1.42002a",
+          "width": 640,
+          "height": 480,
+          "fps": 60
+        },
+        {
+          "trackId": 2,
+          "codec": "avc1.42002a",
+          "width": 640,
+          "height": 480,
+          "fps": 60
+        }
+      ],
+      "browserTappedMediaBytes": 132646,
+      "observationMs": 5027.0999999996275,
+      "warmupFramesPerTrack": 5,
+      "frameGoal": 60,
+      "decodeMicros": {
+        "count": 122,
+        "p50": 69600,
+        "p95": 102200
+      },
+      "renderMicros": {
+        "count": 122,
+        "p50": 4300,
+        "p95": 6600
+      },
+      "firstFrameMs": {
+        "fixture-1": 222.09999999962747,
+        "fixture": 232.7000000011176
+      },
+      "frames": {
+        "fixture-1": 72,
+        "fixture": 60
+      },
+      "feedback": 254,
+      "maxObject": 2,
+      "receiptsHeld": 0,
+      "recoveredGroups": 0,
+      "groups": 101
+    },
+    {
+      "browserVersion": "157.0.8103.52",
+      "execution": "worker",
+      "tracks": [
+        {
+          "trackId": 1,
+          "codec": "avc1.42002a",
+          "width": 640,
+          "height": 480,
+          "fps": 60
+        },
+        {
+          "trackId": 2,
+          "codec": "avc1.42002a",
+          "width": 640,
+          "height": 480,
+          "fps": 60
+        }
+      ],
+      "browserTappedMediaBytes": 130239,
+      "observationMs": 5195.0999999996275,
+      "warmupFramesPerTrack": 5,
+      "frameGoal": 60,
+      "decodeMicros": {
+        "count": 140,
+        "p50": 68200,
+        "p95": 101800
+      },
+      "renderMicros": {
+        "count": 140,
+        "p50": 4100,
+        "p95": 6100
+      },
+      "firstFrameMs": {
+        "fixture": 215,
+        "fixture-1": 224.09999999962747
+      },
+      "frames": {
+        "fixture": 90,
+        "fixture-1": 60
+      },
+      "feedback": 264,
+      "maxObject": 2,
+      "receiptsHeld": 0,
+      "recoveredGroups": 0,
+      "groups": 97
+    }
+  ]
+}

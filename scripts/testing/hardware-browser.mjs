@@ -5,6 +5,14 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import assert from "node:assert/strict";
 const fixture = JSON.parse(await readFile(process.argv[2], "utf8"));
+// Optional longer observation; still prerecorded media, never live capture/input.
+const measuredFrameGoal = Number(process.env.RIEUL_SCREEN_MEASURE_FRAMES ?? 0);
+assert.ok(
+  Number.isInteger(measuredFrameGoal) &&
+    (measuredFrameGoal === 0 || measuredFrameGoal >= 16) &&
+    measuredFrameGoal <= 120,
+);
+fixture.measuredFrameGoal = measuredFrameGoal;
 const url = "http://127.0.0.1:5193";
 const vite = spawn(
   "pnpm",
@@ -97,6 +105,11 @@ try {
     let receiver, input, configuration, attachId, control;
     let streamsSeen = 0,
       cancelledStreams = 0;
+    let browserTappedMediaBytes = 0;
+    const decodeMicros = [],
+      renderMicros = [];
+    const observedByTrack = new Map();
+    const warmupFramesPerTrack = fixture.measuredFrameGoal ? 5 : 0;
     const media = {
       incomingUnidirectionalStreams:
         transport.incomingUnidirectionalStreams.pipeThrough(
@@ -107,7 +120,18 @@ try {
                 void stream.cancel();
                 return;
               }
-              controller.enqueue(stream);
+              controller.enqueue(
+                fixture.measuredFrameGoal
+                  ? stream.pipeThrough(
+                      new TransformStream({
+                        transform(chunk, bytes) {
+                          browserTappedMediaBytes += chunk.byteLength;
+                          bytes.enqueue(chunk);
+                        },
+                      }),
+                    )
+                  : stream,
+              );
             },
           }),
         ),
@@ -124,7 +148,10 @@ try {
       maxObject = 0;
     const heldGroups = new Set(),
       recoveredGroups = new Set();
-    const frameGoal = fixture.continuous ? 40 : 8;
+    const frameGoal = Math.max(
+      fixture.measuredFrameGoal,
+      fixture.continuous ? 40 : 8,
+    );
     let refreshRequested = false;
     const started = performance.now();
     const firstFrameMs = {};
@@ -167,6 +194,14 @@ try {
             firstFrameMs[id] ??= performance.now() - started;
           },
           (stats) => {
+            if (stats.objectId !== undefined) {
+              const count = (observedByTrack.get(stats.trackId) ?? 0) + 1;
+              observedByTrack.set(stats.trackId, count);
+              if (count > warmupFramesPerTrack) {
+                decodeMicros.push(stats.decodeMicros);
+                renderMicros.push(stats.renderMicros);
+              }
+            }
             const group = `${stats.trackId}:${stats.groupId}`;
             groups.add(group);
             maxObject = Math.max(maxObject, stats.objectId ?? 0);
@@ -205,7 +240,8 @@ try {
     if (configuration.tracks.length !== 2)
       throw new Error("missing independent display tracks");
     input.send({ type: "physicalKey", usage: 225, down: true, repeat: false });
-    const until = performance.now() + 15000;
+    const until =
+      performance.now() + (fixture.measuredFrameGoal ? 45000 : 15000);
     while (
       performance.now() < until &&
       (Object.keys(frames).length !== 2 ||
@@ -216,7 +252,33 @@ try {
     }
     // Allow reliable feedback/input to reach the fixture before abrupt disconnect.
     await new Promise((r) => setTimeout(r, 150));
+    const quantiles = (samples) => {
+      const sorted = samples.toSorted((a, b) => a - b);
+      return {
+        count: sorted.length,
+        p50: sorted[Math.max(0, Math.ceil(sorted.length * 0.5) - 1)] ?? null,
+        p95:
+          sorted[
+            Math.min(sorted.length - 1, Math.ceil(sorted.length * 0.95) - 1)
+          ] ?? null,
+      };
+    };
     const result = {
+      browserTappedMediaBytes: fixture.measuredFrameGoal
+        ? browserTappedMediaBytes
+        : null,
+      observationMs: performance.now() - started,
+      warmupFramesPerTrack,
+      frameGoal,
+      tracks: configuration.tracks.map((track) => ({
+        trackId: track.trackId,
+        codec: track.codec.codec,
+        width: track.viewport.width,
+        height: track.viewport.height,
+        fps: track.viewport.fps,
+      })),
+      decodeMicros: quantiles(decodeMicros),
+      renderMicros: quantiles(renderMicros),
       frames,
       execution: receiver.execution,
       workerFailure: receiver.workerFailure,
@@ -242,7 +304,7 @@ try {
     assert.equal(result.execution, "worker", JSON.stringify(result));
   assert.equal(Object.keys(result.frames).length, 2, JSON.stringify(result));
   for (const count of Object.values(result.frames))
-    assert.ok(count >= (fixture.continuous ? 40 : 8), JSON.stringify(result));
+    assert.ok(count >= result.frameGoal, JSON.stringify(result));
   for (const p of Object.values(result.pixels))
     assert.ok(
       Math.max(...p) < (fixture.stripes ? 70 : 8),
@@ -260,6 +322,15 @@ try {
       } else assert.ok(Math.min(...p) > 150, JSON.stringify(result));
   console.log(
     JSON.stringify({
+      browserVersion: browser.version(),
+      execution: result.execution,
+      tracks: result.tracks,
+      browserTappedMediaBytes: result.browserTappedMediaBytes,
+      observationMs: result.observationMs,
+      warmupFramesPerTrack: result.warmupFramesPerTrack,
+      frameGoal: result.frameGoal,
+      decodeMicros: result.decodeMicros,
+      renderMicros: result.renderMicros,
       firstFrameMs: result.firstFrameMs,
       frames: result.frames,
       feedback: result.feedback,
