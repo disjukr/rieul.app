@@ -174,7 +174,7 @@ async function observeScroll(fixture) {
     try {
       await rpc.getDesktopCapabilities(transport);
     } catch (e) {
-      denied = e instanceof RpcError && e.code === "permissionDenied";
+      denied = e instanceof RpcError && e.code === "unauthorized";
     }
     if (!denied) throw new Error("auth gate");
     stage = "authenticate";
