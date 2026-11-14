@@ -54,6 +54,9 @@ enum Command {
     #[cfg(target_os = "macos")]
     #[command(hide = true)]
     MigrateUpdater,
+    #[cfg(all(target_os = "macos", feature = "updater-device-repair"))]
+    #[command(hide = true)]
+    RepairPreparedDevice,
     Run {
         #[arg(long)]
         listen: Option<SocketAddr>,
@@ -119,6 +122,8 @@ async fn main() -> Result<()> {
                 .await
         }
         Command::MigrateUpdater => rieul_macos_daemon::root_update::prepare_migration(),
+        #[cfg(feature = "updater-device-repair")]
+        Command::RepairPreparedDevice => rieul_macos_daemon::root_update::repair_prepared_device(),
         Command::InternalUpdateWorker => rieul_macos_daemon::root_update::run_worker(),
         Command::Run { listen, config } => {
             let config_path = config.unwrap_or_else(macos_system_config_path);

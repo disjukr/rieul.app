@@ -9,6 +9,10 @@ mod archive;
 #[cfg(target_os = "macos")]
 mod control;
 mod destination;
+#[cfg(any(test, all(target_os = "macos", feature = "updater-device-repair")))]
+mod device_repair;
+#[cfg(all(target_os = "macos", feature = "updater-device-repair"))]
+pub use device_repair::repair as repair_prepared_device;
 mod drain;
 mod gate;
 #[cfg(target_os = "macos")]

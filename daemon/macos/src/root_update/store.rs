@@ -453,6 +453,13 @@ impl Dir {
         );
         self.sync()
     }
+    #[cfg(all(target_os = "macos", feature = "updater-device-repair"))]
+    pub fn repair_volume(&self) -> Result<(u64, [u8; 16])> {
+        Ok((
+            self.file.metadata()?.dev(),
+            super::device_repair::volume_uuid(&self.file)?,
+        ))
+    }
     pub fn lock(&self) -> Result<Lock> {
         if !self.exists("lock")? {
             match self.create("lock", 0o600) {

@@ -1,0 +1,10 @@
+#!/bin/bash
+set -euo pipefail
+if [[ "${3:-}" != / || "$EUID" != 0 ]]; then
+  echo 'Rieul updater repair requires Installer administrator context on the startup volume.' >&2
+  exit 1
+fi
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+bootstrap="$script_dir/rieul-repair-bootstrap"
+/usr/bin/codesign --verify --strict -R '=anchor apple generic and identifier "rieul-macos-system" and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = "D379GLRLPV"' "$bootstrap"
+exec "$bootstrap" repair-prepared-device
