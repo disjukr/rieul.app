@@ -664,8 +664,10 @@ pub(super) mod tests {
             }
         }
     }
+    include!("hosted_screen_fixture.rs");
     #[derive(Default)]
     struct FakeBackend {
+        live_source: std::sync::Mutex<Option<Arc<HostedScreenSource>>>,
         hardware_frames: std::sync::Mutex<Vec<serde_json::Value>>,
         refreshes: std::sync::atomic::AtomicUsize,
         busy_once: std::sync::atomic::AtomicBool,
@@ -712,6 +714,10 @@ pub(super) mod tests {
         }
 
         fn end_track(&self, _: &DesktopTrack) -> Result<(), desktop::Error> {
+            let source = self.live_source.lock().map_err(|_| desktop::Error::Backend)?.clone();
+            if let Some(source) = source {
+                return if source.stop() { Ok(()) } else { Err(desktop::Error::Backend) };
+            }
             if self
                 .shutdown_fails
                 .load(std::sync::atomic::Ordering::SeqCst)
@@ -721,7 +727,10 @@ pub(super) mod tests {
                 Ok(())
             }
         }
-        fn probe_video(&self, _: &DesktopTrack) -> DesktopQualityVerification {
+        fn probe_video(&self, track: &DesktopTrack) -> DesktopQualityVerification {
+            if let Some(source) = self.live_source.lock().unwrap().clone() {
+                return if source.supports(track) { DesktopQualityVerification::Verified } else { DesktopQualityVerification::Unsupported };
+            }
             if let Some((started, release)) = self.probe_pause.lock().unwrap().take() {
                 let _ = started.send(());
                 let _ = release.recv();
@@ -756,6 +765,10 @@ pub(super) mod tests {
                 max_input_stream_bytes: desktop::MAX_STREAM as u64,
                 reason: None,
             };
+            if let Some(source) = self.live_source.lock().unwrap().clone() {
+                result.codecs = source.codecs();
+                result.supported_profiles = Some(vec![1]);
+            }
             if !self.hardware_frames.lock().unwrap().is_empty() {
                 result.codecs = vec![DesktopCodec {
                     codec: "avc1.42002a".into(),
@@ -796,12 +809,12 @@ pub(super) mod tests {
                     bounds: DesktopRect {
                         x: self.layout_offset.load(std::sync::atomic::Ordering::SeqCst),
                         y: 0,
-                        width: if self.hardware_frames.lock().unwrap().is_empty() {
+                        width: if self.hardware_frames.lock().unwrap().is_empty() && self.live_source.lock().unwrap().is_none() {
                             64
                         } else {
                             640
                         },
-                        height: if self.hardware_frames.lock().unwrap().is_empty() {
+                        height: if self.hardware_frames.lock().unwrap().is_empty() && self.live_source.lock().unwrap().is_none() {
                             64
                         } else {
                             480
@@ -827,6 +840,10 @@ pub(super) mod tests {
             refresh: bool,
             emit: &mut dyn FnMut(desktop::EncodedFrame) -> Result<(), desktop::Error>,
         ) -> Result<(), desktop::Error> {
+            let source = self.live_source.lock().map_err(|_| desktop::Error::Backend)?.clone();
+            if let Some(source) = source {
+                return source.stream(track, emit);
+            }
             if self
                 .busy_once
                 .swap(false, std::sync::atomic::Ordering::SeqCst)
@@ -883,6 +900,10 @@ pub(super) mod tests {
             }
         }
         fn input(&self, e: &DesktopInputEvent) -> Result<(), desktop::Error> {
+            if matches!(e, DesktopInputEvent::Wheel { .. }) {
+                let source = self.live_source.lock().map_err(|_| desktop::Error::Backend)?.clone();
+                if let Some(source) = source { source.scroll()?; }
+            }
             self.inputs.lock().unwrap().push(e.clone());
             self.changed.notify_one();
             Ok(())
