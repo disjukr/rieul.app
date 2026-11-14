@@ -47,7 +47,7 @@ pub use crate::generated::rpc::{
     SubscribeProcessSocketsInUseReq, SubscribeProcessesError, SubscribeRootsError,
     SubscribeSchedulesError, SubscribeSchedulesReq, SubscribeTrashItemsError,
     SubscribeWindowDetailError, SubscribeWindowDetailReq, SubscribeWindowsError,
-    TakeTerminalControlError, TakeTerminalControlReq, TakeTerminalControlRes, TerminalEvent,
+    TakeTerminalControlError, TakeTerminalControlReq, TakeTerminalControlRes, TerminalAttachControlResult, TerminalEvent,
     TerminalExit, TerminalLaunchSpec, TerminalSessionCloseReason, TerminalSessionInfo,
     TerminalSessionKey, TerminalSessionsTableEvent, TrashItem, TrashItemSize,
     TrashItemsSubscriptionCloseReason, TrashItemsTableEvent, UpdateScheduleError,
@@ -673,3 +673,6 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod terminal_control_wire_tests;

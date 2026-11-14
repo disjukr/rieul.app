@@ -259,10 +259,17 @@ export interface AttachTerminalSessionReq {
   viewportCols: number;
   viewportRows: number;
   screenSnapshots?: boolean;
+  requestControl?: boolean;
 }
 
+export type TerminalAttachControlResult =
+  | { type: "notAttempted" }
+  | { type: "granted"; primaryAttachId: string }
+  | { type: "rejected"; error: TakeTerminalControlError }
+;
+
 export type TerminalEvent =
-  | { type: "attached"; attachId: string; primaryAttachId?: string; session: TerminalSessionInfo }
+  | { type: "attached"; attachId: string; primaryAttachId?: string; session: TerminalSessionInfo; controlResult?: TerminalAttachControlResult }
   | { type: "outputChunk"; seq: number; bytes: Uint8Array }
   | { type: "historyGap"; nextSeq: number; reconnect?: boolean }
   | { type: "controlChanged"; primaryAttachId: string }
@@ -4223,6 +4230,7 @@ export function encodeAttachTerminalSessionReqValue(value: AttachTerminalSession
   fields.set(3, u53(required(value.viewportCols, "AttachTerminalSessionReq.viewportCols")));
   fields.set(4, u53(required(value.viewportRows, "AttachTerminalSessionReq.viewportRows")));
   if (value.screenSnapshots !== undefined) fields.set(5, bool(value.screenSnapshots));
+  if (value.requestControl !== undefined) fields.set(6, bool(value.requestControl));
   return fields;
 }
 
@@ -4234,7 +4242,48 @@ export function decodeAttachTerminalSessionReqValue(value: CborValue): AttachTer
     viewportCols: fieldOrDefault(fields.get(3), (value) => integer(value), () => 0),
     viewportRows: fieldOrDefault(fields.get(4), (value) => integer(value), () => 0),
     screenSnapshots: optionalField(fields.get(5), (value) => boolValue(value)),
+    requestControl: optionalField(fields.get(6), (value) => boolValue(value)),
   };
+}
+
+export function encodeTerminalAttachControlResultValue(value: TerminalAttachControlResult): CborValue {
+  switch (value.type) {
+    case "notAttempted": {
+      const fields = new Map<number, CborValue>();
+      return [0, fields];
+    }
+    case "granted": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.primaryAttachId, "TerminalAttachControlResult.Granted.primaryAttachId")));
+      return [1, fields];
+    }
+    case "rejected": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, encodeTakeTerminalControlErrorValue(required(value.error, "TerminalAttachControlResult.Rejected.error")));
+      return [2, fields];
+    }
+  }
+}
+
+export function decodeTerminalAttachControlResultValue(value: CborValue): TerminalAttachControlResult {
+  const [variantId, fields] = expectUnion(value);
+  switch (variantId) {
+    case 0:
+      return {
+        type: "notAttempted",
+      };
+    case 1:
+      return {
+        type: "granted",
+        primaryAttachId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+    case 2:
+      return {
+        type: "rejected",
+        error: fieldOrDefault(fields.get(1), (value) => decodeTakeTerminalControlErrorValue(value), () => defaultTakeTerminalControlError()),
+      };
+  }
+  throw new Error(`unknown TerminalAttachControlResult variant ${variantId}`);
 }
 
 export function encodeTerminalEventValue(value: TerminalEvent): CborValue {
@@ -4244,6 +4293,7 @@ export function encodeTerminalEventValue(value: TerminalEvent): CborValue {
       fields.set(1, text(required(value.attachId, "TerminalEvent.Attached.attachId")));
       if (value.primaryAttachId !== undefined) fields.set(2, text(value.primaryAttachId));
       fields.set(3, encodeTerminalSessionInfoValue(required(value.session, "TerminalEvent.Attached.session")));
+      if (value.controlResult !== undefined) fields.set(4, encodeTerminalAttachControlResultValue(value.controlResult));
       return [1, fields];
     }
     case "outputChunk": {
@@ -4309,6 +4359,7 @@ export function decodeTerminalEventValue(value: CborValue): TerminalEvent {
         attachId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
         primaryAttachId: optionalField(fields.get(2), (value) => textValue(value)),
         session: fieldOrDefault(fields.get(3), (value) => decodeTerminalSessionInfoValue(value), () => defaultTerminalSessionInfo()),
+        controlResult: optionalField(fields.get(4), (value) => decodeTerminalAttachControlResultValue(value)),
       };
     case 2:
       return {
@@ -13156,6 +13207,12 @@ function defaultAttachTerminalSessionReq(): AttachTerminalSessionReq {
     terminalSessionId: "",
     viewportCols: 0,
     viewportRows: 0,
+  };
+}
+
+function defaultTerminalAttachControlResult(): TerminalAttachControlResult {
+  return {
+    type: "notAttempted",
   };
 }
 

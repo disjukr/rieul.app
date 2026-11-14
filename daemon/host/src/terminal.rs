@@ -12,7 +12,7 @@ use anyhow::Result;
 use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, MasterPty, PtySize};
 use rieul_daemon_core::rpc::{
     AttachTerminalSessionReq, AvailableShellInfo, CreateTerminalSessionReq, TakeTerminalControlReq,
-    TakeTerminalControlRes, TerminalEvent, TerminalExit, TerminalLaunchSpec,
+    TakeTerminalControlRes, TakeTerminalControlError, TerminalAttachControlResult, TerminalEvent, TerminalExit, TerminalLaunchSpec,
     TerminalSessionCloseReason, TerminalSessionInfo, TerminalSessionKey,
     TerminalSessionsTableEvent, MAX_U53,
 };
@@ -559,6 +559,20 @@ impl TerminalManager {
             .attach_owners
             .insert(attach_id.clone(), rpc_session_id);
         guard.info.last_attached_at_ms = Some(now);
+        let control_result = if request.request_control == Some(true) {
+            let live_primary = guard.info.primary_attach_id.as_ref()
+                .is_some_and(|primary| guard.attach_owners.contains_key(primary));
+            if guard.info.exit.is_some() || live_primary {
+                Some(TerminalAttachControlResult::NotAttempted)
+            } else {
+                Some(match acquire_control(&mut guard, &attach_id, request.viewport_cols, request.viewport_rows) {
+                    Ok(result) => TerminalAttachControlResult::Granted { primary_attach_id: result.primary_attach_id },
+                    Err(error) => TerminalAttachControlResult::Rejected { error: attach_control_error(error) },
+                })
+            }
+        } else {
+            None
+        };
         let info = guard.info.clone();
         let primary_attach_id = guard.info.primary_attach_id.clone();
         let screen_snapshots = request.screen_snapshots == Some(true);
@@ -574,6 +588,7 @@ impl TerminalManager {
             replay,
             receiver,
             screen_snapshots,
+            control_result,
         })
     }
 
@@ -601,45 +616,11 @@ impl TerminalManager {
         let mut guard = session.lock().expect("terminal session lock poisoned");
         validate_attach_owner(&guard, &request.attach_id, rpc_session_id)?;
 
-        let previous_primary = guard.info.primary_attach_id.clone();
-        let previous_size = (guard.info.cols, guard.info.rows);
-        guard
-            .host
-            .resize(request.viewport_cols, request.viewport_rows)?;
-        guard.info.primary_attach_id = Some(request.attach_id.clone());
-        guard.info.cols = request.viewport_cols;
-        guard.info.rows = request.viewport_rows;
-        if previous_size != (request.viewport_cols, request.viewport_rows) {
-            if TerminalScreen::fits(request.viewport_cols, request.viewport_rows) {
-                if let Some(screen) = &mut guard.screen {
-                    screen
-                        .parser
-                        .screen_mut()
-                        .set_size(request.viewport_rows as u16, request.viewport_cols as u16);
-                }
-            } else {
-                guard.screen = None;
-            }
-        }
-
+        let result = acquire_control(&mut guard, &request.attach_id, request.viewport_cols, request.viewport_rows)?;
         let info = guard.info.clone();
-        if previous_primary.as_deref() != Some(request.attach_id.as_str()) {
-            guard.input_epoch = guard.input_epoch.wrapping_add(1);
-            let _ = guard.output_tx.send(TerminalEvent::ControlChanged {
-                primary_attach_id: request.attach_id.clone(),
-            });
-        }
-        if previous_size != (request.viewport_cols, request.viewport_rows) {
-            let _ = guard.output_tx.send(TerminalEvent::PseudoTerminalResized {
-                cols: request.viewport_cols,
-                rows: request.viewport_rows,
-            });
-        }
         drop(guard);
         self.broadcast_table_upsert(&info);
-        Ok(TakeTerminalControlRes {
-            primary_attach_id: request.attach_id,
-        })
+        Ok(result)
     }
 
     pub fn begin_input(
@@ -856,6 +837,49 @@ pub struct AttachedTerminal {
     pub replay: Vec<TerminalEvent>,
     pub receiver: broadcast::Receiver<TerminalEvent>,
     pub screen_snapshots: bool,
+    pub control_result: Option<TerminalAttachControlResult>,
+}
+
+fn acquire_control(session: &mut TerminalSession, attach_id: &str, cols: u64, rows: u64) -> Result<TakeTerminalControlRes, ServiceError> {
+    let previous_primary = session.info.primary_attach_id.clone();
+    let previous_size = (session.info.cols, session.info.rows);
+    // The only fallible operation precedes all authority, parser and epoch changes.
+    session.host.resize(cols, rows)?;
+    session.info.primary_attach_id = Some(attach_id.into());
+    session.info.cols = cols;
+    session.info.rows = rows;
+    if previous_size != (cols, rows) {
+        if TerminalScreen::fits(cols, rows) {
+            if let Some(screen) = &mut session.screen {
+                screen.parser.screen_mut().set_size(rows as u16, cols as u16);
+            }
+        } else {
+            session.screen = None;
+        }
+    }
+    if previous_primary.as_deref() != Some(attach_id) {
+        session.input_epoch = session.input_epoch.wrapping_add(1);
+        let _ = session.output_tx.send(TerminalEvent::ControlChanged { primary_attach_id: attach_id.into() });
+    }
+    if previous_size != (cols, rows) {
+        let _ = session.output_tx.send(TerminalEvent::PseudoTerminalResized { cols, rows });
+    }
+    Ok(TakeTerminalControlRes { primary_attach_id: attach_id.into() })
+}
+
+pub(crate) fn attach_control_error(error: ServiceError) -> TakeTerminalControlError {
+    let message = error.to_string();
+    match error {
+        ServiceError::PermissionDenied => TakeTerminalControlError::PermissionDenied { message },
+        ServiceError::NotFound => TakeTerminalControlError::NotFound { message },
+        ServiceError::OperationFailed(cause) if cause.contains("attach not found") => {
+            TakeTerminalControlError::AttachNotFound { message }
+        }
+        ServiceError::OperationFailed(cause) if cause.contains("terminal size is invalid") => {
+            TakeTerminalControlError::InvalidSize { message }
+        }
+        _ => TakeTerminalControlError::Failed { message },
+    }
 }
 
 fn spawn_host_event_reader(
@@ -1780,6 +1804,7 @@ mod tests {
                         viewport_cols: 80,
                         viewport_rows: 24,
                         screen_snapshots: None,
+                        request_control: None,
                     },
                     owner,
                 )
@@ -1973,3 +1998,6 @@ mod tests {
         assert!(shells.iter().all(|shell| shell.args == ["-l"]));
     }
 }
+
+#[cfg(test)]
+mod control_tests;

@@ -306,6 +306,31 @@ struct AttachTerminalSessionReq {
   @ id - 5
   @ description - Opt in to viewport checkpoints and live-lag reconnect.
   screenSnapshots?: bool,
+
+  @ id - 6
+  @ description
+  | Explicitly request control only if no live primary attachment exists.
+  | Absent or false leaves control unchanged. A live primary is never replaced
+  | by this option. Attached.controlResult acknowledges support and outcome.
+  requestControl?: bool,
+}
+
+@ description - Outcome of an explicitly requested non-preemptive control acquisition.
+union TerminalAttachControlResult {
+  @ id - 0
+  NotAttempted(),
+
+  @ id - 1
+  Granted(
+    @ id - 1
+    primaryAttachId: string,
+  ),
+
+  @ id - 2
+  Rejected(
+    @ id - 1
+    error: TakeTerminalControlError,
+  ),
 }
 
 @ description - Terminal attach and output events.
@@ -323,6 +348,14 @@ union TerminalEvent {
 
     @ id - 3
     session: TerminalSessionInfo,
+
+    @ id - 4
+    @ description
+    | Present only when requestControl is true. Absence means this optional
+    | operation was not negotiated. NotAttempted leaves authority unchanged;
+    | clients may use the existing explicit TakeTerminalControl RPC. Rejected
+    | is a settled failure for this attachment, not a request to retry.
+    controlResult?: TerminalAttachControlResult,
   ),
 
   @ id - 2

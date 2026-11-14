@@ -17,6 +17,9 @@ import {
 import { TerminalTool } from "../../src/view/workbench/tool/terminal/index.tsx";
 import {
   decodeAttachTerminalSessionReqValue,
+  decodeTakeTerminalControlReqValue,
+  decodeWriteTerminalInputReqValue,
+  encodeTakeTerminalControlResValue,
   encodeTerminalSessionInfoValue,
   encodeTerminalEventValue,
   ProcId,
@@ -42,6 +45,49 @@ const memoryStorage = {
 function unused(): never {
   throw new Error("Unexpected terminal action");
 }
+const controlFixture = new URLSearchParams(location.search).has("control");
+const [focused, setFocused] = createSignal(controlFixture);
+const [width, setWidth] = createSignal(640);
+let completeAttach = (_event: "granted" | "notAttempted" | "rejected") => {};
+let heldTransport: Promise<void> | undefined;
+let releaseTransport = () => {};
+let transportWaits = 0;
+const controlReplies: Array<() => void> = [];
+const attachRequests: Array<
+  ReturnType<typeof decodeAttachTerminalSessionReqValue>
+> = [];
+const controlRequests: Array<
+  ReturnType<typeof decodeTakeTerminalControlReqValue>
+> = [];
+const inputRequests: Array<
+  ReturnType<typeof decodeWriteTerminalInputReqValue>
+> = [];
+Object.assign(window, {
+  terminalControlFixture: {
+    attachRequests,
+    controlRequests,
+    inputRequests,
+    get transportWaits() {
+      return transportWaits;
+    },
+    holdNextTransport() {
+      heldTransport = new Promise((resolve) => {
+        releaseTransport = resolve;
+      });
+    },
+    releaseTransport: () => releaseTransport(),
+    setFocused,
+    resize(cols: number, rows: number) {
+      Reflect.set(window, "terminalFixtureSize", { cols, rows });
+      setWidth((value) => value + 100);
+    },
+    completeAttach: (event: "granted" | "notAttempted" | "rejected") =>
+      completeAttach(event),
+    completeControl: () => controlReplies.shift()?.(),
+    sendEvent: (event: Parameters<typeof encodeTerminalEventValue>[0]) =>
+      sendResumeEvent(event),
+  },
+});
 const lateCreate = new URLSearchParams(location.search).has("late-create");
 const resume = new URLSearchParams(location.search).has("resume");
 const resumeCursors: Array<number | undefined> = [];
@@ -66,6 +112,7 @@ Object.assign(window, { terminalRpcFixture: rpcMetrics });
 const transport = {
   async createBidirectionalStream() {
     let response!: ReadableStreamDefaultController<Uint8Array>;
+    let inputStream = false;
     return {
       readable: new ReadableStream<Uint8Array>({
         start(controller) {
@@ -75,6 +122,18 @@ const transport = {
       writable: new WritableStream<Uint8Array>({
         write(bytes) {
           const request = decodeReqResMessageSequence(bytes)[0];
+          if (
+            controlFixture &&
+            (request.kind === ReqResMessageKind.RequestStreamStart ||
+              request.kind === ReqResMessageKind.RequestStreamChunk) &&
+            request.payload
+          ) {
+            inputStream = true;
+            inputRequests.push(
+              decodeWriteTerminalInputReqValue(decodeCbor(request.payload)),
+            );
+            return;
+          }
           if (request.kind !== ReqResMessageKind.RequestUnary)
             throw new Error("Unexpected request kind");
           if (request.procId === ProcId.CreateTerminalSession) {
@@ -110,6 +169,13 @@ const transport = {
               if (!attach.screenSnapshots)
                 throw new Error("Snapshots not requested");
             }
+            if (controlFixture && request.payload) {
+              attachRequests.push(
+                decodeAttachTerminalSessionReqValue(
+                  decodeCbor(request.payload),
+                ),
+              );
+            }
             sendResumeEvent = (event) =>
               response.enqueue(
                 encodeReqResMessageSequence([
@@ -120,20 +186,37 @@ const transport = {
                 ]),
               );
             disconnectTerminal = () => response.close();
-            response.enqueue(
-              encodeReqResMessageSequence([
-                {
-                  kind: ReqResMessageKind.ResponseStreamChunk,
-                  payload: encodeCbor(
-                    encodeTerminalEventValue({
-                      type: "attached",
-                      attachId: "attach",
-                      session,
-                    }),
-                  ),
-                },
-              ]),
-            );
+            if (controlFixture) {
+              const attached = sendResumeEvent;
+              completeAttach = (outcome) => {
+                const primaryAttachId =
+                  outcome === "granted" ? "attach" : undefined;
+                attached({
+                  type: "attached",
+                  attachId: "attach",
+                  primaryAttachId,
+                  session: { ...session, primaryAttachId },
+                  controlResult:
+                    outcome === "granted"
+                      ? { type: "granted", primaryAttachId: "attach" }
+                      : outcome === "rejected"
+                        ? {
+                            type: "rejected",
+                            error: {
+                              type: "invalidSize",
+                              message: "Fixture refused terminal control",
+                            },
+                          }
+                        : { type: "notAttempted" },
+                });
+              };
+            } else {
+              sendResumeEvent({
+                type: "attached",
+                attachId: "attach",
+                session,
+              });
+            }
             updateTitle = () =>
               response.enqueue(
                 encodeReqResMessageSequence([
@@ -148,6 +231,30 @@ const transport = {
                   },
                 ]),
               );
+          } else if (
+            request.procId === ProcId.TakeTerminalControl &&
+            controlFixture &&
+            request.payload
+          ) {
+            const take = decodeTakeTerminalControlReqValue(
+              decodeCbor(request.payload),
+            );
+            controlRequests.push(take);
+            controlReplies.push(() => {
+              response.enqueue(
+                encodeReqResMessageSequence([
+                  {
+                    kind: ReqResMessageKind.ResponseUnaryOk,
+                    payload: encodeCbor(
+                      encodeTakeTerminalControlResValue({
+                        primaryAttachId: take.attachId,
+                      }),
+                    ),
+                  },
+                ]),
+              );
+              response.close();
+            });
           } else if (request.procId === ProcId.CloseTerminalSession) {
             rpcMetrics.closes++;
             response.enqueue(
@@ -158,6 +265,16 @@ const transport = {
             response.close();
           } else throw new Error(`Unexpected procedure ${request.procId}`);
         },
+        close() {
+          if (inputStream) {
+            response.enqueue(
+              encodeReqResMessageSequence([
+                { kind: ReqResMessageKind.ResponseUnaryOk },
+              ]),
+            );
+            response.close();
+          }
+        },
       }),
     };
   },
@@ -165,10 +282,18 @@ const transport = {
 const overrides = [
   override(rpcSessionBunja, () =>
     rpcSessionStub(
-      lateCreate || resume
+      lateCreate || resume || controlFixture
         ? {
             daemonInstanceId: createSignal<string | undefined>("daemon")[0],
-            webTransport: async () => transport,
+            webTransport: async () => {
+              const wait = heldTransport;
+              if (wait) {
+                heldTransport = undefined;
+                transportWaits++;
+                await wait;
+              }
+              return transport;
+            },
           }
         : {},
     ),
@@ -179,7 +304,9 @@ const overrides = [
       tool: "terminal",
       title: "Terminal",
       terminalLaunch: { command: "/bin/sh", args: [] },
-      ...(resume ? { terminalSessionId: session.terminalSessionId } : {}),
+      ...(resume || controlFixture
+        ? { terminalSessionId: session.terminalSessionId }
+        : {}),
     });
     return {
       paneId: "pane",
@@ -187,7 +314,7 @@ const overrides = [
       tab,
       active: createSignal(true)[0],
       dirty: createSignal(false)[0],
-      focused: createSignal(false)[0],
+      focused,
       showClose: createSignal(false)[0],
       selectTab: unused,
       setDaemonClientDetailId: unused,
@@ -279,7 +406,7 @@ function Fixture() {
       <button onClick={() => updateTitle()}>Publish terminal title</button>
       <button onClick={() => completeCreate()}>Resolve pending creation</button>
       <button onClick={() => setShown(true)}>Remount terminal</button>
-      <div style={{ width: "640px", height: "480px" }}>
+      <div style={{ width: `${width()}px`, height: "480px" }}>
         <MachineIdContext value={() => selected()?.id}>
           <MachineBaseUrlContext value={() => selected()?.baseUrl}>
             <Show when={shown()}>

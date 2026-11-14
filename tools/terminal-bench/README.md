@@ -179,3 +179,26 @@ cargo test --release -p rieul-daemon-host --lib terminal_transport_measurement -
 The lifecycle-only stage timings include lease probes and are **not performance
 benchmark results**. The fix changes no control acquisition, input epoch, terminal
 size, replay policy or protocol field. No attach-and-control optimization is included.
+
+## Optional non-preemptive control experiment
+
+Compare the unchanged full workload with explicit legacy control acquisition and
+with the optional vacancy-only request:
+
+```sh
+python3 tools/terminal-bench/run_transport.py --runs 5 --control-mode compare --output /tmp/terminal-control.json
+```
+
+This alternates legacy/fast per profile and reverses arm order on alternating
+repeats. Individual modes can also be selected. The default remains `legacy`.
+The runner removes lifecycle-only flags so the echo/bulk workload cannot be
+silently replaced by the cancellation regression.
+
+The fixture reports actual Granted, NotAttempted and missing/legacy outcomes,
+plus explicit Take RPC counts in cold/same-connection/new-connection order.
+A fast request never preempts a live primary. A missed vacancy or an older host
+uses the existing explicit control RPC; a typed rejection is not silently retried.
+The negotiated success path can remove one serial control round trip. Measure
+actual grant rates and completed recovery, not just the cost of the skipped RPC.
+Do not interpret this as local echo prediction, faster bulk delivery, browser
+prompt readiness, or rsh parity.

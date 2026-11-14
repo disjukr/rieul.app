@@ -20,6 +20,13 @@ import {
   writeTerminalInput,
 } from "../../../../protocol/generated/client.ts";
 import { TerminalInputStream } from "./input-stream.ts";
+import {
+  allowsNewTerminalInput,
+  allowsTerminalControlRequest,
+  requestTerminalAttachControl,
+  terminalAttachControl,
+  type TerminalAttachControl,
+} from "./attach-control.ts";
 import { callServerStream, RpcError } from "../../../../protocol/client.ts";
 import { attachTerminalSessionProc } from "../../../../protocol/generated/rpc.ts";
 import type {
@@ -50,6 +57,12 @@ interface TerminalRuntime {
     dispose: () => void;
   }>;
   resizeObserver: ResizeObserver;
+}
+interface DeferredTerminalResize {
+  generation: number;
+  attachId: string;
+  control: TerminalAttachControl | undefined;
+  waitingOn?: Promise<void>;
 }
 interface TerminalStatus {
   phase:
@@ -91,6 +104,10 @@ export function TerminalTool() {
   const terminalSessionIdRef = { current: undefined as string | undefined };
   const attachIdRef = { current: undefined as string | undefined };
   const primaryAttachIdRef = { current: undefined as string | undefined };
+  const attachControlRef = {
+    current: undefined as TerminalAttachControl | undefined,
+  };
+  const controlVersionRef = { current: 0 };
   const latestSeqRef = { current: undefined as number | undefined };
   const stopAttachRef = { current: undefined as (() => void) | undefined };
   const generationRef = { current: 0 };
@@ -99,6 +116,9 @@ export function TerminalTool() {
   };
   const takeControlPromiseRef = {
     current: undefined as Promise<void> | undefined,
+  };
+  const deferredResizeRef = {
+    current: undefined as DeferredTerminalResize | undefined,
   };
   const replayOutputUntilSeqRef = { current: undefined as number | undefined };
   const suppressReplayGeneratedInputRef = { current: false };
@@ -136,7 +156,7 @@ export function TerminalTool() {
   createEffect(focused, (value) => {
     if (!value) return;
     fitTerminal();
-    void takeCurrentControl();
+    void takeCurrentControl(true);
   });
   createEffect(
     () => ({ info: sessionInfo(), state: tabState() }),
@@ -212,7 +232,7 @@ export function TerminalTool() {
     installTerminalClipboardShortcuts(terminal);
     const resizeObserver = new ResizeObserver(() => {
       fitTerminal();
-      void takeCurrentControl();
+      void takeCurrentControl(true);
     });
     resizeObserver.observe(host);
     return {
@@ -307,6 +327,7 @@ export function TerminalTool() {
     terminalSessionIdRef.current = undefined;
     attachIdRef.current = undefined;
     primaryAttachIdRef.current = undefined;
+    attachControlRef.current = undefined;
     takeControlPromiseRef.current = undefined;
     replayOutputUntilSeqRef.current = undefined;
     suppressReplayGeneratedInputRef.current =
@@ -390,7 +411,8 @@ export function TerminalTool() {
       try {
         const transport = await session.webTransport();
         if (!current()) return;
-        const size = activeRef.current
+        const requestControl = activeRef.current;
+        const size = requestControl
           ? terminalSize(runtime.terminal)
           : (sessionInfo() ?? terminalDimensions());
         for await (const event of callServerStream(
@@ -402,6 +424,7 @@ export function TerminalTool() {
             viewportCols: size.cols,
             viewportRows: size.rows,
             screenSnapshots: true,
+            requestControl: requestControl || undefined,
           },
           AbortSignal.any([controller.signal, attempt.signal]),
         )) {
@@ -431,7 +454,9 @@ export function TerminalTool() {
           stopTerminalInput();
           attachIdRef.current = undefined;
           primaryAttachIdRef.current = undefined;
+          attachControlRef.current = undefined;
           takeControlPromiseRef.current = undefined;
+          deferredResizeRef.current = undefined;
         }
       }
       if (!current() || terminalSessionFinishedRef.current) return;
@@ -460,9 +485,11 @@ export function TerminalTool() {
   }
   async function handleTerminalEvent(event: TerminalEvent, generation: number) {
     switch (event.type) {
-      case "attached":
+      case "attached": {
+        const control = terminalAttachControl(event, activeRef.current);
+        attachControlRef.current = control;
         attachIdRef.current = event.attachId;
-        primaryAttachIdRef.current = event.primaryAttachId;
+        primaryAttachIdRef.current = control.primaryAttachId;
         replayOutputUntilSeqRef.current =
           suppressReplayGeneratedInputRef.current
             ? event.session.latestOutputSeq
@@ -476,16 +503,31 @@ export function TerminalTool() {
           });
           return;
         }
+        if (control.refusal !== undefined) {
+          setStatus({ phase: "error", message: control.refusal });
+          return;
+        }
+        const ownsControl = isLivePrimaryAttach();
         setStatus({
-          phase:
-            event.primaryAttachId === event.attachId ? "attached" : "viewing",
-          message:
-            event.primaryAttachId === event.attachId
-              ? "Terminal attached"
-              : "Terminal attached in view mode",
+          phase: ownsControl ? "attached" : "viewing",
+          message: ownsControl
+            ? "Terminal attached"
+            : "Terminal attached in view mode",
         });
-        if (activeRef.current) void ensureCurrentControl();
+        if (activeRef.current) {
+          if (!ownsControl) {
+            void ensureCurrentControl();
+          } else if (runtimeRef.current) {
+            const size = terminalSize(runtimeRef.current.terminal);
+            if (
+              event.session.cols !== size.cols ||
+              event.session.rows !== size.rows
+            )
+              void takeCurrentControl();
+          }
+        }
         return;
+      }
       case "outputChunk":
         if (event.seq <= (latestSeqRef.current ?? 0)) return;
         await writeTerminalOutput(
@@ -519,14 +561,18 @@ export function TerminalTool() {
       }
       case "historyGap":
         resetTerminalIfReady();
-        setStatus({
-          phase: "viewing",
-          message: `Output history resumes at ${event.nextSeq}`,
-        });
+        if (attachControlRef.current?.refusal === undefined) {
+          setStatus({
+            phase: "viewing",
+            message: `Output history resumes at ${event.nextSeq}`,
+          });
+        }
         return;
       case "controlChanged":
         if (event.primaryAttachId !== attachIdRef.current) stopTerminalInput();
         primaryAttachIdRef.current = event.primaryAttachId;
+        controlVersionRef.current++;
+        if (attachControlRef.current?.refusal !== undefined) return;
         setStatus({
           phase:
             event.primaryAttachId === attachIdRef.current
@@ -537,6 +583,7 @@ export function TerminalTool() {
               ? "Terminal attached"
               : "Another view has control",
         });
+        if (isLivePrimaryAttach()) reconcileDeferredResize();
         return;
       case "pseudoTerminalResized":
         if (isTerminalGridBounded(event.cols, event.rows)) {
@@ -589,7 +636,12 @@ export function TerminalTool() {
   function queueTerminalInput(data: string) {
     const terminalSessionId = terminalSessionIdRef.current;
     const attachId = attachIdRef.current;
-    if (!terminalSessionId || !attachId || terminalSessionFinishedRef.current)
+    if (
+      !terminalSessionId ||
+      !attachId ||
+      terminalSessionFinishedRef.current ||
+      !allowsNewTerminalInput(attachControlRef.current, activeRef.current)
+    )
       return;
     const generation = generationRef.current;
     let stream = inputStreamRef.current;
@@ -615,21 +667,36 @@ export function TerminalTool() {
       generation === generationRef.current &&
       attachId === attachIdRef.current &&
       inputStreamRef.current === stream;
+    const canStart = () =>
+      current() &&
+      isLivePrimaryAttach() &&
+      allowsNewTerminalInput(attachControlRef.current, activeRef.current);
     async function* requests(): AsyncGenerator<WriteTerminalInputReq> {
-      if (!current()) return;
+      if (!canStart()) return;
       yield { type: "writeTerminalInputStart", terminalSessionId, attachId };
+      let sentInput = false;
       for await (const bytes of stream.read()) {
-        if (!current() || !isLivePrimaryAttach()) return;
+        if (
+          !current() ||
+          !isLivePrimaryAttach() ||
+          (!sentInput && !canStart())
+        )
+          return;
+        sentInput = true;
         yield { type: "writeTerminalInputChunk", bytes };
       }
     }
     try {
       if (!(await ensureCurrentControl()) || !current()) return;
       const transport = await rpcSession().webTransport();
-      if (!current() || !isLivePrimaryAttach()) return;
+      if (!canStart()) return;
       await writeTerminalInput(transport, requests());
     } catch (err) {
-      if (current() && !isStalePrimaryAttachError(err)) {
+      if (
+        current() &&
+        allowsNewTerminalInput(attachControlRef.current, activeRef.current) &&
+        !isStalePrimaryAttachError(err)
+      ) {
         setStatus({ phase: "error", message: errorMessage(err) });
       }
     } finally {
@@ -667,51 +734,124 @@ export function TerminalTool() {
     return attachId !== undefined && primaryAttachIdRef.current === attachId;
   }
   async function ensureCurrentControl() {
-    if (isLivePrimaryAttach()) return true;
-    if (terminalSessionFinishedRef.current || !activeRef.current) return false;
-    if (!takeControlPromiseRef.current) {
-      const promise = takeCurrentControl().finally(() => {
-        if (takeControlPromiseRef.current === promise) {
-          takeControlPromiseRef.current = undefined;
-        }
-      });
-      takeControlPromiseRef.current = promise;
+    if (!allowsNewTerminalInput(attachControlRef.current, activeRef.current)) {
+      return false;
     }
-    await takeControlPromiseRef.current;
-    return isLivePrimaryAttach();
+    if (!isLivePrimaryAttach()) await takeCurrentControl();
+    return (
+      isLivePrimaryAttach() &&
+      allowsNewTerminalInput(attachControlRef.current, activeRef.current)
+    );
   }
-  async function takeCurrentControl() {
+  function takeCurrentControl(resize = false) {
+    const attachId = attachIdRef.current;
+    const control = attachControlRef.current;
     const generation = generationRef.current;
-    const currentMachine = machineRef.current;
+    if (
+      !attachId ||
+      terminalSessionFinishedRef.current ||
+      !allowsTerminalControlRequest(control, activeRef.current)
+    )
+      return;
+    const pending = takeControlPromiseRef.current;
+    if (resize && pending) {
+      deferredResizeRef.current ??= { generation, attachId, control };
+      reconcileDeferredResize();
+      return pending;
+    }
+    if (resize && isLivePrimaryAttach()) deferredResizeRef.current = undefined;
+    return requestTerminalAttachControl(
+      attachControlRef.current,
+      activeRef.current,
+      isLivePrimaryAttach(),
+      takeControlPromiseRef,
+      requestTerminalControl,
+    );
+  }
+  function reconcileDeferredResize() {
+    const intent = deferredResizeRef.current;
+    if (!intent) return;
+    if (
+      generationRef.current !== intent.generation ||
+      attachIdRef.current !== intent.attachId ||
+      attachControlRef.current !== intent.control ||
+      terminalSessionFinishedRef.current
+    ) {
+      deferredResizeRef.current = undefined;
+      return;
+    }
+    if (intent.waitingOn) return;
+    const pending = takeControlPromiseRef.current;
+    if (pending) {
+      intent.waitingOn = pending;
+      void pending.then(() => {
+        if (deferredResizeRef.current !== intent) return;
+        intent.waitingOn = undefined;
+        reconcileDeferredResize();
+      });
+      return;
+    }
+    if (
+      !isLivePrimaryAttach() ||
+      !allowsTerminalControlRequest(intent.control, activeRef.current)
+    )
+      return;
+    const controlVersion = controlVersionRef.current;
+    intent.waitingOn = requestTerminalControl(intent);
+    void intent.waitingOn.then(() => {
+      if (deferredResizeRef.current !== intent) return;
+      intent.waitingOn = undefined;
+      // A new ownership event can arrive while the transport wait unwinds.
+      if (controlVersionRef.current !== controlVersion)
+        reconcileDeferredResize();
+    });
+  }
+  async function requestTerminalControl(resizeIntent?: DeferredTerminalResize) {
+    const generation = generationRef.current;
     const runtime = runtimeRef.current;
     const terminalSessionId = terminalSessionIdRef.current;
     const attachId = attachIdRef.current;
-    if (
-      terminalSessionFinishedRef.current ||
-      !activeRef.current ||
-      !currentMachine ||
-      !runtime ||
-      !terminalSessionId ||
-      !attachId
-    )
+    const control = attachControlRef.current;
+    if (!machineRef.current || !runtime || !terminalSessionId || !attachId)
       return;
-    const size = terminalSize(runtime.terminal);
-    const previous = lastSizeRef.current;
-    lastSizeRef.current = size;
-    setTerminalDimensions(size);
+    const current = () =>
+      generationRef.current === generation &&
+      attachIdRef.current === attachId &&
+      attachControlRef.current === control &&
+      !terminalSessionFinishedRef.current;
+    const canRequest = () =>
+      current() &&
+      allowsTerminalControlRequest(control, activeRef.current) &&
+      (!resizeIntent ||
+        (deferredResizeRef.current === resizeIntent && isLivePrimaryAttach()));
+    if (!canRequest()) return;
+    let size = terminalSize(runtime.terminal);
     try {
-      const response = await takeTerminalControl(
-        await rpcSession().webTransport(),
-        {
-          terminalSessionId,
-          attachId,
-          viewportCols: size.cols,
-          viewportRows: size.rows,
-        },
-      );
+      const transport = await rpcSession().webTransport();
+      if (!canRequest()) return;
+      const previous = lastSizeRef.current;
+      if (resizeIntent) {
+        // The daemon may have restored xterm to the earlier requested size.
+        if (!fitTerminal()) return;
+        size = terminalSize(runtime.terminal);
+        deferredResizeRef.current = undefined;
+        if (size.cols === previous?.cols && size.rows === previous?.rows)
+          return;
+      }
+      lastSizeRef.current = size;
+      setTerminalDimensions(size);
+      const controlVersion = controlVersionRef.current;
+      const response = await takeTerminalControl(transport, {
+        terminalSessionId,
+        attachId,
+        viewportCols: size.cols,
+        viewportRows: size.rows,
+      });
+      if (!current()) return;
+      // A newer stream event wins over an asynchronous unary response.
       if (
-        generationRef.current !== generation ||
-        attachIdRef.current !== attachId
+        controlVersionRef.current !== controlVersion &&
+        primaryAttachIdRef.current !== response.primaryAttachId
       )
         return;
       primaryAttachIdRef.current = response.primaryAttachId;
@@ -733,30 +873,36 @@ export function TerminalTool() {
           : current,
       );
     } catch (err) {
-      if (generationRef.current !== generation) return;
+      if (!current()) return;
       setStatus({ phase: "error", message: errorMessage(err) });
     }
   }
   function fitTerminal() {
     const runtime = runtimeRef.current;
-    if (!runtime) return;
+    if (!runtime) return false;
     try {
       runtime.fitAddon.fit();
       setTerminalDimensions(terminalSize(runtime.terminal));
+      return true;
     } catch {
       // xterm fit can fail while the pane is hidden or not yet measurable.
+      return false;
     }
   }
   function stopCurrentAttach() {
     generationRef.current++;
+    deferredResizeRef.current = undefined;
+    attachControlRef.current = undefined;
     stopTerminalInput();
     stopAttachRef.current?.();
     stopAttachRef.current = undefined;
   }
   function clearTerminalSessionReference() {
+    deferredResizeRef.current = undefined;
     terminalSessionIdRef.current = undefined;
     attachIdRef.current = undefined;
     primaryAttachIdRef.current = undefined;
+    attachControlRef.current = undefined;
     takeControlPromiseRef.current = undefined;
     replayOutputUntilSeqRef.current = undefined;
     suppressReplayGeneratedInputRef.current = false;

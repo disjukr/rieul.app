@@ -3025,6 +3025,7 @@ async fn stream_attached_terminal(
                 attach_id: attached.attach_id.clone(),
                 primary_attach_id: attached.primary_attach_id.clone(),
                 session: attached.session.clone(),
+                control_result: attached.control_result.clone(),
             }
             .encode(),
         ),

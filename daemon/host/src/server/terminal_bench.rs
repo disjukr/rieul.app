@@ -108,7 +108,7 @@ async fn attach(
     session: &web_transport_quinn::Session,
     id: &str,
     after_seq: Option<u64>,
-) -> Result<(Reader, String)> {
+) -> Result<(Reader, String, bool)> {
     let started = Instant::now();
     let mut reader = invoke(
         session,
@@ -121,6 +121,9 @@ async fn attach(
                     viewport_cols: 80,
                     viewport_rows: 24,
                     screen_snapshots: Some(true),
+                    request_control: (std::env::var("RIEUL_BENCH_CONTROL_MODE").as_deref()
+                        == Ok("fast"))
+                    .then_some(true),
                 }
                 .encode(),
             ),
@@ -129,12 +132,41 @@ async fn attach(
     .await?;
     reader.last_seq = after_seq;
     match reader.event().await? {
-        TerminalEvent::Attached { attach_id, .. } => {
+        TerminalEvent::Attached {
+            attach_id,
+            primary_attach_id,
+            control_result,
+            ..
+        } => {
+            let granted = match control_result {
+                Some(rieul_daemon_core::rpc::TerminalAttachControlResult::Granted {
+                    primary_attach_id: granted,
+                }) => {
+                    anyhow::ensure!(
+                        granted == attach_id
+                            && primary_attach_id.as_deref() == Some(attach_id.as_str()),
+                        "mismatched control grant"
+                    );
+                    println!("attach_control_granted=1 attach_control_not_attempted=0 attach_control_legacy=0");
+                    true
+                }
+                Some(rieul_daemon_core::rpc::TerminalAttachControlResult::NotAttempted) => {
+                    println!("attach_control_granted=0 attach_control_not_attempted=1 attach_control_legacy=0");
+                    false
+                }
+                None => {
+                    println!("attach_control_granted=0 attach_control_not_attempted=0 attach_control_legacy=1");
+                    false
+                }
+                Some(rieul_daemon_core::rpc::TerminalAttachControlResult::Rejected { error }) => {
+                    bail!("fixture control rejected: {error:?}")
+                }
+            };
             println!(
                 "attach_response_ms={:.3}",
                 started.elapsed().as_secs_f64() * 1000.0
             );
-            Ok((reader, attach_id))
+            Ok((reader, attach_id, granted))
         }
         other => bail!("unexpected attach: {other:?}"),
     }
@@ -143,20 +175,24 @@ async fn control(
     session: &web_transport_quinn::Session,
     id: &str,
     attach_id: &str,
+    granted: bool,
 ) -> Result<web_transport_quinn::SendStream> {
     let started = Instant::now();
-    unary(
-        session,
-        ProcId::TakeTerminalControl,
-        TakeTerminalControlReq {
-            terminal_session_id: id.into(),
-            attach_id: attach_id.into(),
-            viewport_cols: 80,
-            viewport_rows: 24,
-        }
-        .encode(),
-    )
-    .await?;
+    if !granted {
+        unary(
+            session,
+            ProcId::TakeTerminalControl,
+            TakeTerminalControlReq {
+                terminal_session_id: id.into(),
+                attach_id: attach_id.into(),
+                viewport_cols: 80,
+                viewport_rows: 24,
+            }
+            .encode(),
+        )
+        .await?;
+    }
+    println!("explicit_control_calls={}", usize::from(!granted));
     println!(
         "take_control_response_ms={:.3}",
         started.elapsed().as_secs_f64() * 1000.0
@@ -470,10 +506,10 @@ async fn run_terminal_measurement(
     )?;
     let id = &info.terminal_session_id;
     let result = async {
-        let (mut reader, attach_id) = attach(&session, id, None).await?;
+        let (mut reader, attach_id, granted) = attach(&session, id, None).await?;
         let mut parser = vt100::Parser::new(24, 80, 0);
         let mut last_seq = reader.marker(&mut parser, "READY").await?;
-        let mut send = control(&session, id, &attach_id).await?;
+        let mut send = control(&session, id, &attach_id, granted).await?;
         if !lifecycle_only {
             let mut times = vec![];
             for n in 0..100 {
@@ -521,8 +557,8 @@ async fn run_terminal_measurement(
         };
         drop(send);
         let start = Instant::now();
-        let (mut resumed, attach_id) = attach(&session, id, Some(last_seq)).await?;
-        let mut send = control(&session, id, &attach_id).await?;
+        let (mut resumed, attach_id, granted) = attach(&session, id, Some(last_seq)).await?;
+        let mut send = control(&session, id, &attach_id, granted).await?;
         input(&mut send, b"R").await?;
         let last_seq = resumed.marker(&mut parser, "ECHO-R").await?;
         println!(
@@ -565,8 +601,8 @@ async fn run_terminal_measurement(
         } else {
             true
         };
-        let (mut resumed, attach_id) = attach(&session, id, Some(last_seq)).await?;
-        let mut send = control(&session, id, &attach_id).await?;
+        let (mut resumed, attach_id, granted) = attach(&session, id, Some(last_seq)).await?;
+        let mut send = control(&session, id, &attach_id, granted).await?;
         let echo_started = Instant::now();
         input(&mut send, b"S").await?;
         parser = vt100::Parser::new(24, 80, 0);

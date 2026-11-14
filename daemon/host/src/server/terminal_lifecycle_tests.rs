@@ -57,6 +57,7 @@ fn attach(manager: &SharedTerminalManager, id: &str, owner: u64) -> AttachedTerm
                 viewport_cols: 80,
                 viewport_rows: 24,
                 screen_snapshots: None,
+                request_control: None,
             },
             owner,
         )
@@ -141,4 +142,28 @@ async fn aborted_stream_future_drops_attachment_without_revoking_new_primary() {
     manager
         .write_input(&id, &current.attach_id, b"new stream", 2, epoch)
         .unwrap();
+}
+
+#[test]
+fn attach_rejection_preserves_existing_public_take_error_statuses() {
+    let fixtures: [fn() -> ServiceError; 5] = [
+        || ServiceError::PermissionDenied,
+        || ServiceError::NotFound,
+        || ServiceError::OperationFailed("fixture resize failed".into()),
+        || ServiceError::OperationFailed("fixture: attach not found".into()),
+        || ServiceError::OperationFailed("fixture: terminal size is invalid".into()),
+    ];
+    for fixture in fixtures {
+        let ReqResMessage::ResponseUnaryError {
+            error,
+            error_kind: RpcErrorKind::Method,
+        } = terminal_service_error_message(ProcId::TakeTerminalControl.as_u64(), fixture())
+        else {
+            panic!("expected existing typed Take error")
+        };
+        assert_eq!(
+            crate::terminal::attach_control_error(fixture()).encode(),
+            error
+        );
+    }
 }
