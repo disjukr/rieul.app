@@ -80,6 +80,50 @@ jobs:
           PYCODE
           identities="$(/usr/bin/security find-identity -v)"
           [[ "$identities" != *'(D379GLRLPV)'* ]]
+      - name: Preflight pinned OpenSSL 3 CMS and exact public recipient before certificate access
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          ssl=/opt/homebrew/opt/openssl@3/bin/openssl
+          [[ -x "$ssl" && "$("$ssl" version)" == 'OpenSSL 3.'* ]]
+          recipient="$RUNNER_TEMP/rieul-repair-recipient"
+          [[ ! -e "$recipient" && ! -L "$recipient" ]]
+          /bin/mkdir -m 700 "$recipient"
+          cat > "$recipient/public.pem" <<'PEM'
+          -----BEGIN CERTIFICATE-----
+          MIIERTCCAq2gAwIBAgIUXbIA3rH5Fo3aFiyzlGQQm7pRhXswDQYJKoZIhvcNAQEL
+          BQAwKjEoMCYGA1UEAwwfUmlldWwgcmVjb3Zlcnkgb25lLXRpbWUgaGFuZG9mZjAe
+          Fw0yNjExMTQwMzI4NDFaFw0yNjExMTYwMzI4NDFaMCoxKDAmBgNVBAMMH1JpZXVs
+          IHJlY292ZXJ5IG9uZS10aW1lIGhhbmRvZmYwggGiMA0GCSqGSIb3DQEBAQUAA4IB
+          jwAwggGKAoIBgQCTTYhPBlT1K6nqem2t/gZtvkaGuwlzRDRfTU3XsMUWXN4YVATv
+          ZuKtlLjewZOKeluA7rKIqo8EpTV4NhHzOBIBBwqPZNowGbHOvbZNVa+fRe01H8a7
+          KaO0XhR/8Fwoz6X7Cv7L7tZfuOcpWuLf4FihZByKcJbBwB/n+TyRrypa8FZmwjJv
+          BAPYEtpihnK7IQhCCTsaiKuD2DeMBAGM3EdjNYjR+uNDUBv/rmDYouEqJN1fZVPT
+          k5n3yPaLtnbd5GXNqIYCoW79zX4ZcmPODdKKNzunFXrtwsnUDa8ACj8awdwHBQpE
+          Urn/fuHKZicATPsd1SVWLelVvxqfHuNj73tZEWOMCsQSLKIhz9AcqZDdJUTVHdmK
+          5zNoLQMsfamdFX8a6dHzhzesxOq19hS6D7az0zNrzQD9wZRzxDwQ7SEALTvletnv
+          /tKWzemrgWswxEQDN4Bj7CxWD63QbQNA8579PqUEwh04aHllh+ta7rdmFe/8oy+9
+          S8upkOX5PEq/gIsCAwEAAaNjMGEwHQYDVR0OBBYEFGuVGrRGqUfKeEeNBMh6UECM
+          YiQ+MB8GA1UdIwQYMBaAFGuVGrRGqUfKeEeNBMh6UECMYiQ+MA8GA1UdEwEB/wQF
+          MAMBAf8wDgYDVR0PAQH/BAQDAgUgMA0GCSqGSIb3DQEBCwUAA4IBgQAjwC08SIyj
+          FOItzEhYzFvn7T/pFJYgHMM6mjt8yD1cG34SMZUWPUUx9SP7Iff2BlIQfnukQ5Sr
+          uvhb0cndcVJDtNaE8t8CbuG8JHxa29a+9XhLwUoDXce3n8eGPMhOpiVJskBopQPY
+          gr/dFJuXRqW0m2xrCE8LEw8GQKG0G2ijt81QDW/c/Q7nJMBQYYA2gLJQorPFHwdp
+          ZiJgpAqQk2FBkx7jXs1ChWDzG5BR2t0ItKRmogp/znIWhmfwhTCoUR/CeSRRz3pP
+          jIF8ql+pkSkTmcklBUgQ06YAUCiuG9U21JQV78bMm5bfrBUjhhk36HKX3VlUmwec
+          7psLrDHwt/+u7Uxfw9ub+pD6e2FDh47GmKYGn0S7mZri1b3FALiDRoiFqFfKlRZZ
+          CA/dpQekPq+y/4ofXuBtr8dvasxxSZZ/KvCwWjn5aur6YgBM8NkgpkMFbbjYbjhp
+          Vd9lt1a/xE3Ue5s8vei/WmcSyMi+ZjkZm5FwBnr2AAyUMbQccnJ2uLA=
+          -----END CERTIFICATE-----
+          PEM
+          fingerprint="$("$ssl" x509 -in "$recipient/public.pem" -outform DER | "$ssl" dgst -sha256 -r | /usr/bin/awk '{print toupper($1)}')"
+          [[ "$fingerprint" == '4FEA38C0CED2B04AC8F392C5723C6F768D2771B9B5884B33C1714B82DE2B2538' ]]
+          printf 'CMS capability probe\n' | "$ssl" cms -encrypt -binary -aes-256-gcm \
+            -recip "$recipient/public.pem" -keyopt rsa_padding_mode:oaep -keyopt rsa_oaep_md:sha256 -keyopt rsa_mgf1_md:sha256 \
+            -outform DER -out "$recipient/probe.cms"
+          "$ssl" cms -cmsout -inform DER -in "$recipient/probe.cms" -noout
+          /bin/rm -- "$recipient/probe.cms"
       - name: Sign and notarize only the reviewed scripts-only repair fixture
         id: package
         shell: bash
@@ -186,6 +230,7 @@ jobs:
             if /usr/bin/printenv "$var" >/dev/null; then exit 1; fi
           done
       - name: Guard and exercise signed package on this disposable runner
+        id: exercise
         shell: bash
         env:
           REPAIR_SHA: ${{ steps.package.outputs.sha }}
@@ -195,10 +240,52 @@ jobs:
           [[ "$(git rev-parse HEAD)" == "$REVIEWED_SHA" ]]
           ./scripts/macos/test-signed-device-repair-fixture.sh \
             "$RUNNER_TEMP/rieul-repair-handoff/rieul-updater-device-repair.pkg" "$FIXTURE_EXEC" "$REPAIR_SHA"
+      - name: Encrypt only that fixture-verified package for the pinned owner recipient
+        id: encrypt
+        if: ${{ success() && steps.exercise.outcome == 'success' }}
+        shell: bash
+        env:
+          REPAIR_SHA: ${{ steps.package.outputs.sha }}
+        run: |
+          set -euo pipefail
+          umask 077
+          ssl=/opt/homebrew/opt/openssl@3/bin/openssl
+          [[ -x "$ssl" && "$("$ssl" version)" == 'OpenSSL 3.'* ]]
+          recipient="$RUNNER_TEMP/rieul-repair-recipient/public.pem"
+          [[ -f "$recipient" && ! -L "$recipient" ]]
+          fingerprint="$("$ssl" x509 -in "$recipient" -outform DER | "$ssl" dgst -sha256 -r | /usr/bin/awk '{print toupper($1)}')"
+          [[ "$fingerprint" == '4FEA38C0CED2B04AC8F392C5723C6F768D2771B9B5884B33C1714B82DE2B2538' ]]
+          plain="$RUNNER_TEMP/rieul-repair-handoff/rieul-updater-device-repair.pkg"
+          [[ "$REPAIR_SHA" =~ ^[a-f0-9]{64}$ && -f "$plain" && ! -L "$plain" ]]
+          [[ "$(/usr/bin/shasum -a 256 "$plain" | /usr/bin/awk '{print $1}')" == "$REPAIR_SHA" ]]
+          out="$RUNNER_TEMP/rieul-repair-owner-only"
+          [[ ! -e "$out" && ! -L "$out" ]]
+          /bin/mkdir -m 700 "$out"
+          "$ssl" cms -encrypt -binary -aes-256-gcm \
+            -in "$plain" -recip "$recipient" -keyopt rsa_padding_mode:oaep -keyopt rsa_oaep_md:sha256 -keyopt rsa_mgf1_md:sha256 \
+            -outform DER -out "$out/rieul-updater-device-repair.pkg.cms"
+          [[ -s "$out/rieul-updater-device-repair.pkg.cms" ]]
+          printf 'Fixture-tested package SHA-256: %s\n' "$REPAIR_SHA"
+          printf 'Encrypted CMS SHA-256: %s\n' "$(/usr/bin/shasum -a 256 "$out/rieul-updater-device-repair.pkg.cms" | /usr/bin/awk '{print $1}')"
       - name: Discard the unshared fixture output
         if: always()
         shell: bash
         run: |
           set -euo pipefail
-          /bin/rm -rf -- "$RUNNER_TEMP/rieul-repair-handoff" "$RUNNER_TEMP/rieul-repair-keychains-before"
+          /bin/rm -rf -- "$RUNNER_TEMP/rieul-repair-handoff" "$RUNNER_TEMP/rieul-repair-keychains-before" "$RUNNER_TEMP/rieul-repair-recipient"
           [[ ! -e "$RUNNER_TEMP/rieul-repair-handoff" ]]
+      - name: Upload only owner-encrypted DER ciphertext
+        if: ${{ success() && steps.encrypt.outcome == 'success' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: rieul-macos-updater-repair-owner-encrypted
+          path: ${{ runner.temp }}/rieul-repair-owner-only/rieul-updater-device-repair.pkg.cms
+          if-no-files-found: error
+          retention-days: 1
+      - name: Discard runner-local ciphertext copy
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          /bin/rm -rf -- "$RUNNER_TEMP/rieul-repair-owner-only"
+          [[ ! -e "$RUNNER_TEMP/rieul-repair-owner-only" ]]
