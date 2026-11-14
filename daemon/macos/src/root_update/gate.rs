@@ -50,7 +50,7 @@ pub(super) fn announce_force(data: &Dir) -> Result<File> {
     // The worker holds its transaction lock; no other code in this process
     // may open/close this inode during the handoff (locks are process-scoped).
     let file = data.open_write(FORCE_INTENT)?;
-    record_lock(&file, libc::F_SETLK, libc::F_WRLCK)?;
+    record_lock(&file, libc::F_SETLK, libc::F_WRLCK as libc::c_short)?;
     Ok(file)
 }
 
@@ -59,18 +59,21 @@ fn force_requested_at(data: &Dir) -> Result<bool> {
         return Ok(false);
     }
     let file = data.read_file(FORCE_INTENT)?;
-    Ok(record_lock(&file, libc::F_GETLK, libc::F_RDLCK)? == libc::F_WRLCK)
+    Ok(
+        record_lock(&file, libc::F_GETLK, libc::F_RDLCK as libc::c_short)?
+            == libc::F_WRLCK as libc::c_short,
+    )
 }
 
-fn record_lock(file: &File, command: libc::c_int, kind: libc::c_int) -> Result<libc::c_int> {
+fn record_lock(file: &File, command: libc::c_int, kind: libc::c_short) -> Result<libc::c_short> {
     // Zero start/length covers the whole file starting at SEEK_SET.
     let mut lock: libc::flock = unsafe { std::mem::zeroed() };
-    lock.l_type = kind as _;
+    lock.l_type = kind;
     lock.l_whence = libc::SEEK_SET as _;
     if unsafe { libc::fcntl(file.as_raw_fd(), command, &mut lock) } == -1 {
         return Err(std::io::Error::last_os_error().into());
     }
-    Ok(lock.l_type.into())
+    Ok(lock.l_type)
 }
 
 pub fn force_requested() -> Result<bool> {
@@ -153,7 +156,7 @@ mod tests {
         let intent = announce_force(&data).unwrap();
         // A GUI-readable descriptor cannot fake the privileged write lock.
         let readonly = data.read_file(FORCE_INTENT).unwrap();
-        assert!(record_lock(&readonly, libc::F_SETLK, libc::F_WRLCK).is_err());
+        assert!(record_lock(&readonly, libc::F_SETLK, libc::F_WRLCK as libc::c_short).is_err());
         let child_query = |expected: &str| {
             assert!(
                 std::process::Command::new(std::env::current_exe().unwrap())
