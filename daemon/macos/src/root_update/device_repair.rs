@@ -64,7 +64,7 @@ fn failed_attempt_matches(
         && error == Some("unknown app entry")
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", feature = "updater-device-repair"))]
 pub(super) fn volume_uuid(fd: &std::fs::File) -> Result<[u8; 16]> {
     use std::os::fd::AsRawFd;
     let mut attributes = libc::attrlist {
@@ -97,7 +97,7 @@ pub(super) fn volume_uuid(fd: &std::fs::File) -> Result<[u8; 16]> {
     Ok(buf[4..].try_into()?)
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", feature = "updater-device-repair"))]
 fn file_entry(file: &std::fs::File) -> Result<Entry> {
     use std::os::unix::fs::MetadataExt;
     let m = file.metadata()?;
@@ -108,7 +108,7 @@ fn file_entry(file: &std::fs::File) -> Result<Entry> {
     })
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", feature = "updater-device-repair"))]
 pub fn repair() -> Result<()> {
     use super::{
         DAEMON_ID, DATABASE_SCHEMA, SERVICE, STATE, Version,
@@ -324,7 +324,7 @@ mod tests {
         );
     }
 
-    #[cfg(target_os = "macos")]
+    #[cfg(all(target_os = "macos", feature = "updater-device-repair"))]
     #[test]
     fn darwin_volume_uuid_reads_nonzero_uuid_from_directory_descriptors() {
         let root = tempfile::tempdir().unwrap();
