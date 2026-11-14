@@ -30,7 +30,7 @@ pub use migration::prepare as prepare_migration;
 #[cfg(target_os = "macos")]
 pub use runtime::{startup as service_startup, worker as run_worker};
 mod launchd;
-pub use gate::shared as gui_update_guard;
+pub use gate::{force_requested as gui_force_update_requested, shared as gui_update_guard};
 mod preparation;
 mod receipt;
 #[cfg(target_os = "macos")]

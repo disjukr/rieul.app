@@ -294,6 +294,22 @@ impl Dir {
             )
         })
     }
+    pub(super) fn open_write(&self, name: &str) -> Result<File> {
+        let f = file(unsafe {
+            libc::openat(
+                self.file.as_raw_fd(),
+                component(name)?.as_ptr(),
+                libc::O_WRONLY | libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK,
+            )
+        })?;
+        let m = f.metadata()?;
+        ensure!(
+            m.is_file() && m.uid() == self.uid && m.mode() & 0o022 == 0 && m.nlink() == 1,
+            "unsafe regular file"
+        );
+        no_acl(f.as_raw_fd())?;
+        Ok(f)
+    }
     pub fn read_file(&self, name: &str) -> Result<File> {
         self.read_file_after_open(name, |_| Ok(()))
     }

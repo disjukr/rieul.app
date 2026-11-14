@@ -90,6 +90,17 @@ impl<'a, C: Control> NativeEffects<'a, C> {
             );
         }
 
+        let nonce = self.journal()?.nonce.clone();
+        let intent = self
+            .state
+            .load::<super::control::InstallIntent>("install-request.json")?
+            .filter(|intent| intent.confirmed && intent.nonce == nonce);
+        let force = intent.as_ref().is_some_and(|intent| intent.force);
+        let _force_handoff = if force && self.barrier.is_none() {
+            Some(gate::announce_force(&self.data)?)
+        } else {
+            None
+        };
         let mut sessions: Sessions = self.state.load("gui-sessions.json")?.unwrap_or_default();
         for uid in self.control.sessions()? {
             if self.control.discover_gui(uid)?.is_some() && !sessions.uids.contains(&uid) {
@@ -105,23 +116,22 @@ impl<'a, C: Control> NativeEffects<'a, C> {
             self.control.stop(Job::Gui(*uid))?;
         }
         if self.barrier.is_none() {
-            self.barrier = gate::exclusive(&self.data)?;
+            self.barrier = if force {
+                gate::wait_exclusive(&self.data, Duration::from_secs(12))?
+            } else {
+                gate::exclusive(&self.data)?
+            };
         }
         ensure!(
             self.barrier.is_some(),
             "update deferred: unmanaged or newly connected GUI still active"
         );
-        let nonce = self.journal()?.nonce.clone();
-        let intent = self
-            .state
-            .load::<super::control::InstallIntent>("install-request.json")?
-            .filter(|intent| intent.confirmed && intent.nonce == nonce);
         drain::request_exit(
             self.state,
             &mut self.control,
             &nonce,
             intent.is_some(),
-            intent.is_some_and(|intent| intent.force),
+            force,
         )?;
         self.stopped_at = Some(drain::monotonic_ms()?);
         self.control.stop(Job::System)?;

@@ -336,3 +336,11 @@ the busy-work veto but still freezes new work and requires the serving
 daemon's grant and exit acknowledgement. Signature, notarization and rollback
 checks are unchanged. If the running daemon predates this command, the ordinary
 update path must be used once to bootstrap support.
+
+When a force update encounters a running GUI, the verified worker briefly
+holds a root-writable intent lock while waiting for the existing exclusive
+GUI barrier. Current launchers pause new launches and stop their own bundled
+GUI child on that request, including manual launches of the installed app. The worker
+never skips the exclusive barrier or terminates arbitrary processes. Older
+launchers do not see the intent; close a legacy manual GUI once to bootstrap
+the new version. Unknown lock holders still cause bounded deferral.
