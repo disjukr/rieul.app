@@ -238,6 +238,14 @@ static bool visible_scene(NSWindow *window, NSScreen *screen, CGDirectDisplayID 
         (window.occlusionState & NSWindowOcclusionStateVisible);
 }
 
+static bool skipped_startup(NSString *reason, NSDictionary *readiness) {
+    return json_record(Startup, @{
+        @"status": @"skipped", @"functionalResult": @"not_run",
+        @"performanceResult": @"not_measured", @"reason": reason,
+        @"readiness": readiness ?: @{}
+    });
+}
+
 static void finish(Producer *producer, NSWindow *window, NSString *failure) {
     if (producer->finishing) return;
     producer->finishing = true;
@@ -384,9 +392,7 @@ int main(void) {
             @"h264Codec": h264 ?: NSNull.null, @"hevcCodec": hevc ?: NSNull.null
         } mutableCopy];
         if (!(permissions & 1) || (!h264 && !hevc)) {
-            startup[@"status"] = @"skipped";
-            startup[@"reason"] = !(permissions & 1) ? @"capture_permission_or_console_unavailable" : @"required_hardware_encoder_unavailable";
-            return json_record(Startup, startup) ? 0 : 1;
+            return skipped_startup(!(permissions & 1) ? @"capture_permission_or_console_unavailable" : @"required_hardware_encoder_unavailable", nil) ? 0 : 1;
         }
         [NSApplication sharedApplication];
         [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
@@ -394,9 +400,7 @@ int main(void) {
         NSScreen *screen = NSScreen.mainScreen;
         CGDirectDisplayID display = [screen.deviceDescription[@"NSScreenNumber"] unsignedIntValue];
         if (!screen || CGDisplayPixelsWide(display) < Width || CGDisplayPixelsHigh(display) < Height) {
-            startup[@"status"] = @"skipped";
-            startup[@"reason"] = @"no_suitable_runner_display";
-            return json_record(Startup, startup) ? 0 : 1;
+            return skipped_startup(@"no_suitable_runner_display", nil) ? 0 : 1;
         }
         double scale = CGDisplayPixelsWide(display) / CGDisplayBounds(display).size.width;
         NSWindow *window = [[NSWindow alloc] initWithContentRect:screen.frame styleMask:NSWindowStyleMaskBorderless backing:NSBackingStoreBuffered defer:NO];
@@ -417,14 +421,27 @@ int main(void) {
         atomic_init(&producer->groupPending, false);
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 45 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{ _exit(75); });
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 250 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
-            if (!visible_scene(window, screen, display)) {
-                startup[@"status"] = @"skipped";
-                startup[@"reason"] = @"synthetic_window_not_visible_on_target_screen";
-                exit(json_record(Startup, startup) ? 0 : 1);
-            }
-            startup[@"status"] = @"ready";
-            if (!json_record(Startup, startup)) exit(1);
-            commands(producer, window, screen, display, scene, h264, hevc);
+            uint64_t deadline = micros() + 2000000;
+            [NSTimer scheduledTimerWithTimeInterval:0.05 repeats:YES block:^(NSTimer *timer) {
+                [scene setNeedsDisplay:YES];
+                [scene displayIfNeeded];
+                if (micros() < deadline && visible_scene(window, screen, display)) {
+                    [timer invalidate];
+                    startup[@"status"] = @"ready";
+                    if (!json_record(Startup, startup)) exit(1);
+                    commands(producer, window, screen, display, scene, h264, hevc);
+                } else if (micros() >= deadline) {
+                    [timer invalidate];
+                    NSDictionary *readiness = @{
+                        @"screenMatches": [window.screen.deviceDescription[@"NSScreenNumber"] unsignedIntValue] == display ? @YES : @NO,
+                        @"frameMatches": NSEqualRects(window.frame, screen.frame) ? @YES : @NO,
+                        @"windowVisible": window.isVisible ? @YES : @NO,
+                        @"occlusionVisible": (window.occlusionState & NSWindowOcclusionStateVisible) ? @YES : @NO,
+                        @"applicationActive": NSApp.isActive ? @YES : @NO
+                    };
+                    exit(skipped_startup(@"synthetic_window_not_visible_on_target_screen", readiness) ? 0 : 1);
+                }
+            }];
         });
         [NSApp run];
         return 70;

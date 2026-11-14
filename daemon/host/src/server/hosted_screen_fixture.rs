@@ -408,6 +408,35 @@ fn hosted_screen_record_rejects_unbounded_and_nonfixture_payloads() {
     let record = read_hosted_screen_record(&mut &bytes[..]).unwrap();
     assert_eq!(record.payload, [42]);
 }
+fn hosted_screen_skip_result(startup: &serde_json::Value) -> serde_json::Value {
+    let mut readiness = serde_json::Map::new();
+    for key in [
+        "screenMatches",
+        "frameMatches",
+        "windowVisible",
+        "occlusionVisible",
+        "applicationActive",
+    ] {
+        if let Some(value) = startup["readiness"][key].as_bool() {
+            readiness.insert(key.into(), value.into());
+        }
+    }
+    let reason = startup["reason"]
+        .as_str()
+        .filter(|v| v.len() <= 96 && v.bytes().all(|c| c.is_ascii_lowercase() || c == b'_'))
+        .unwrap_or("native_fixture_unavailable");
+    serde_json::json!({"kind":"hosted_screen_scroll_result","status":"skipped","functionalResult":"not_run","performanceResult":"not_measured","reason":reason,"readiness":readiness})
+}
+#[test]
+fn hosted_screen_skip_has_no_performance_numbers() {
+    let result = hosted_screen_skip_result(
+        &serde_json::json!({"reason":"synthetic_window_not_visible_on_target_screen","width":640,"fpsTarget":60,"probeWallMs":2,"readiness":{"windowVisible":false,"applicationActive":true}}),
+    );
+    assert_eq!(result["status"], "skipped");
+    assert_eq!(result["performanceResult"], "not_measured");
+    assert_eq!(result["readiness"]["windowVisible"], false);
+    assert!(!result.to_string().chars().any(|c| c.is_ascii_digit()));
+}
 #[cfg(target_os = "macos")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "manual hosted disposable synthetic capture only; never run on a personal Mac"]
@@ -418,10 +447,26 @@ async fn browser_live_hosted_scroll() {
     );
     let source = Arc::new(HostedScreenSource::spawn());
     if source.startup["status"] == "skipped" {
+        let result = hosted_screen_skip_result(&source.startup);
+        println!("{}", result);
         println!(
-            "{}",
-            serde_json::json!({"scope":"hosted live Screen fixture","status":"skipped","nativeStartup":source.startup})
+            "::notice title=SKIPPED Screen scroll scenario::Not a functional pass; no performance measurements. Reason {}",
+            result["reason"].as_str().unwrap()
         );
+        if let Some(path) = std::env::var_os("GITHUB_STEP_SUMMARY") {
+            use std::io::Write;
+            if let Ok(mut file) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(path)
+            {
+                let _ = writeln!(
+                    file,
+                    "## SKIPPED Screen scroll scenario\nNot a functional pass. No performance measurements were collected.\nReason: `{}`.",
+                    result["reason"].as_str().unwrap()
+                );
+            }
+        }
         return;
     }
     assert_eq!(source.startup["status"], "ready");
