@@ -1,0 +1,31 @@
+name: Screen capture capability probe
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  probe:
+    if: github.repository == 'disjukr/rieul.app' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
+    runs-on: macos-15
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Compile isolated capability probe
+        shell: bash
+        run: |
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          test "$RUNNER_OS" = macOS
+          test "$RUNNER_ARCH" = ARM64
+          test "$(uname -m)" = arm64
+          test "$(id -un)" = runner
+          clang -arch arm64 -fobjc-arc -mmacosx-version-min=13.0 \
+            scripts/testing/macos-screen-capability.m daemon/macos/native/desktop.m \
+            -framework Foundation -framework Security -framework AppKit \
+            -framework CoreGraphics -framework CoreMedia -framework CoreVideo \
+            -framework ScreenCaptureKit -framework VideoToolbox -framework ApplicationServices \
+            -o "$RUNNER_TEMP/rieul-screen-capability"
+      - name: Probe existing permission and hardware only
+        shell: bash
+        run: '"$RUNNER_TEMP/rieul-screen-capability"'
