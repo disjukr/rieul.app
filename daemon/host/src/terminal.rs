@@ -582,7 +582,9 @@ impl TerminalManager {
             return;
         };
         let mut guard = session.lock().expect("terminal session lock poisoned");
-        guard.attach_owners.remove(attach_id);
+        if guard.attach_owners.remove(attach_id).is_none() {
+            return;
+        }
         guard.info.last_detached_at_ms = Some(current_unix_ms());
         let info = guard.info.clone();
         drop(guard);

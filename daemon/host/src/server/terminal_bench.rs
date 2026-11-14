@@ -196,6 +196,96 @@ async fn input(send: &mut web_transport_quinn::SendStream, bytes: &[u8]) -> Resu
     .await?;
     Ok(())
 }
+#[derive(Debug, PartialEq, Eq)]
+enum InputLeaseProbe {
+    Accepted,
+    AttachNotFound,
+    PermissionDenied,
+}
+async fn input_lease_probe(
+    session: &web_transport_quinn::Session,
+    id: &str,
+    attach_id: &str,
+) -> Result<InputLeaseProbe> {
+    tokio::time::timeout(
+        Duration::from_secs(2),
+        input_lease_probe_inner(session, id, attach_id),
+    )
+    .await
+    .context("input lease probe timed out")?
+}
+async fn input_lease_probe_inner(
+    session: &web_transport_quinn::Session,
+    id: &str,
+    attach_id: &str,
+) -> Result<InputLeaseProbe> {
+    let mut reader = invoke(
+        session,
+        ReqResMessage::RequestStreamStart {
+            proc_id: ProcId::WriteTerminalInput.as_u64(),
+            payload: Some(
+                WriteTerminalInputReq::Start {
+                    terminal_session_id: id.into(),
+                    attach_id: attach_id.into(),
+                }
+                .encode(),
+            ),
+        },
+    )
+    .await?;
+    match reader.next().await? {
+        ReqResMessage::ResponseUnaryOk { .. } => Ok(InputLeaseProbe::Accepted),
+        ReqResMessage::ResponseUnaryError {
+            error,
+            error_kind: RpcErrorKind::Method,
+        } => match rieul_daemon_core::rpc::WriteTerminalInputError::decode(&error)? {
+            rieul_daemon_core::rpc::WriteTerminalInputError::AttachNotFound { .. } => {
+                Ok(InputLeaseProbe::AttachNotFound)
+            }
+            rieul_daemon_core::rpc::WriteTerminalInputError::PermissionDenied { .. } => {
+                Ok(InputLeaseProbe::PermissionDenied)
+            }
+            other => bail!("unexpected lease error: {other:?}"),
+        },
+        other => bail!("unexpected lease response: {other:?}"),
+    }
+}
+async fn wait_for_detached(
+    session: &web_transport_quinn::Session,
+    id: &str,
+    attach_id: &str,
+    label: &str,
+) -> Result<bool> {
+    let start = Instant::now();
+    loop {
+        let remaining = Duration::from_secs(2).saturating_sub(start.elapsed());
+        let result = match tokio::time::timeout(
+            remaining,
+            input_lease_probe(session, id, attach_id),
+        )
+        .await
+        {
+            Ok(result) => result?,
+            Err(_) => {
+                println!("{label}_detached=0 {label}_probe_timeout=1");
+                return Ok(false);
+            }
+        };
+        if result == InputLeaseProbe::AttachNotFound {
+            println!(
+                "{label}_detached=1 {label}_cleanup_ms={:.3}",
+                start.elapsed().as_secs_f64() * 1000.0
+            );
+            return Ok(true);
+        }
+        if start.elapsed() > Duration::from_secs(2) {
+            println!("{label}_detached=0 {label}_last_lease={result:?}");
+            return Ok(false);
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+}
+
 fn quantile(values: &mut [f64], fraction: f64) -> f64 {
     values.sort_by(f64::total_cmp);
     values[((values.len() - 1) as f64 * fraction).ceil() as usize]
@@ -204,6 +294,39 @@ fn quantile(values: &mut [f64], fraction: f64) -> f64 {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "manual loopback terminal transport benchmark"]
 async fn terminal_transport_measurement() -> Result<()> {
+    run_terminal_measurement(
+        std::env::var_os("RIEUL_BENCH_LIFECYCLE_ONLY").is_some(),
+        std::env::var_os("RIEUL_BENCH_EXPECT_CLEANUP").is_some(),
+        true,
+    )
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn terminal_attachment_lifecycle() -> Result<()> {
+    run_terminal_measurement(true, true, false).await
+}
+
+async fn run_terminal_measurement(
+    lifecycle_only: bool,
+    expect_cleanup: bool,
+    use_env_profile: bool,
+) -> Result<()> {
+    let rtt_ms = if use_env_profile {
+        std::env::var("RIEUL_BENCH_RTT_MS").unwrap_or("0".into())
+    } else {
+        "0".into()
+    };
+    let down_bps = if use_env_profile {
+        std::env::var("RIEUL_BENCH_DOWN_BPS").unwrap_or("0".into())
+    } else {
+        "0".into()
+    };
+    let loss = if use_env_profile {
+        std::env::var("RIEUL_BENCH_LOSS").unwrap_or("0".into())
+    } else {
+        "0".into()
+    };
     let dir = tempfile::tempdir()?;
     let cert = rcgen::generate_simple_self_signed(vec!["localhost".into()])?;
     fs::write(dir.path().join("cert.pem"), cert.cert.pem())?;
@@ -275,11 +398,11 @@ async fn terminal_transport_measurement() -> Result<()> {
             "--server",
             &port.to_string(),
             "--rtt-ms",
-            &std::env::var("RIEUL_BENCH_RTT_MS").unwrap_or("0".into()),
+            &rtt_ms,
             "--down-bps",
-            &std::env::var("RIEUL_BENCH_DOWN_BPS").unwrap_or("0".into()),
+            &down_bps,
             "--loss",
-            &std::env::var("RIEUL_BENCH_LOSS").unwrap_or("0".into()),
+            &loss,
             "--seed",
             "42",
         ])
@@ -305,9 +428,7 @@ async fn terminal_transport_measurement() -> Result<()> {
         .parse()?;
     println!(
         "profile rtt_ms={} down_bps={} loss={}",
-        std::env::var("RIEUL_BENCH_RTT_MS").unwrap_or("0".into()),
-        std::env::var("RIEUL_BENCH_DOWN_BPS").unwrap_or("0".into()),
-        std::env::var("RIEUL_BENCH_LOSS").unwrap_or("0".into())
+        rtt_ms, down_bps, loss
     );
     let client = web_transport_quinn::ClientBuilder::new()
         .with_server_certificates(vec![cert.cert.der().clone()])?;
@@ -328,7 +449,7 @@ async fn terminal_transport_measurement() -> Result<()> {
         invoke(&session, auth.clone()).await?.next().await?,
         ReqResMessage::SessionAuthenticated
     ));
-    let script="import os,tty,signal\nsignal.alarm(180)\ntty.setraw(0)\nos.write(1,b'READY')\nwhile True:\n b=os.read(0,1)\n if b==b'!':\n  for i in range(512): os.write(1,b'x'*4096)\n  os.write(1,b'\\r\\nBULK-DONE')\n else: os.write(1,b'\\r\\nECHO-'+b)\n";
+    let script="import os,tty,signal\nsignal.alarm(180)\ntty.setraw(0)\nos.write(1,b'READY')\nwhile True:\n b=os.read(0,1)\n if b==b'!':\n  for i in range(512): os.write(1,b'x'*4096)\n  os.write(1,b'\\r\\nBULK-DONE')\n elif b==b'~': break\n else: os.write(1,b'\\r\\nECHO-'+b)\n";
     let info = TerminalSessionInfo::decode(
         &unary(
             &session,
@@ -351,40 +472,53 @@ async fn terminal_transport_measurement() -> Result<()> {
     let result = async {
         let (mut reader, attach_id) = attach(&session, id, None).await?;
         let mut parser = vt100::Parser::new(24, 80, 0);
-        reader.marker(&mut parser, "READY").await?;
+        let mut last_seq = reader.marker(&mut parser, "READY").await?;
         let mut send = control(&session, id, &attach_id).await?;
-        let mut times = vec![];
-        for n in 0..100 {
-            let byte = b'A' + (n % 26) as u8;
+        if !lifecycle_only {
+            let mut times = vec![];
+            for n in 0..100 {
+                let byte = b'A' + (n % 26) as u8;
+                let start = Instant::now();
+                input(&mut send, &[byte]).await?;
+                reader
+                    .marker(&mut parser, &format!("ECHO-{}", byte as char))
+                    .await?;
+                times.push(start.elapsed().as_secs_f64() * 1000.0);
+                parser = vt100::Parser::new(24, 80, 0);
+            }
+            println!(
+                "echo_samples=100 p50_ms={:.3} p95_ms={:.3}",
+                quantile(&mut times, 0.5),
+                quantile(&mut times, 0.95)
+            );
+            let before = reader.output_bytes;
+            let stats_before = web_transport_quinn::quinn::Connection::stats(&session);
+            input(&mut send, b"!").await?;
+            tokio::time::sleep(Duration::from_millis(500)).await;
+            let pause_stats = web_transport_quinn::quinn::Connection::stats(&session);
             let start = Instant::now();
-            input(&mut send, &[byte]).await?;
-            reader
-                .marker(&mut parser, &format!("ECHO-{}", byte as char))
-                .await?;
-            times.push(start.elapsed().as_secs_f64() * 1000.0);
-            parser = vt100::Parser::new(24, 80, 0);
+            last_seq = reader.marker(&mut parser, "BULK-DONE").await?;
+            let stats = web_transport_quinn::quinn::Connection::stats(&session);
+            println!("bulk_udp_rx_bytes={} pause_udp_rx_bytes={} stream_blocked_frames={} connection_blocked_frames={} quic_rtt_ms={:.3}",stats.udp_rx.bytes-stats_before.udp_rx.bytes,pause_stats.udp_rx.bytes-stats_before.udp_rx.bytes,stats.frame_rx.stream_data_blocked-stats_before.frame_rx.stream_data_blocked,stats.frame_rx.data_blocked-stats_before.frame_rx.data_blocked,stats.path.rtt.as_secs_f64()*1000.0);
+            println!("bulk_payload_bytes=2097152 decoded_output_bytes={} read_pause_ms=500 drain_after_pause_ms={:.3}",reader.output_bytes-before,start.elapsed().as_secs_f64()*1000.0);
+            anyhow::ensure!(
+                reader.output_bytes - before == 2097152 + 11,
+                "incorrect burst byte count"
+            );
+            anyhow::ensure!(reader.x_bytes == 2097152, "incorrect burst contents");
         }
-        println!(
-            "echo_samples=100 p50_ms={:.3} p95_ms={:.3}",
-            quantile(&mut times, 0.5),
-            quantile(&mut times, 0.95)
-        );
-        let before = reader.output_bytes;
-        let stats_before = web_transport_quinn::quinn::Connection::stats(&session);
-        input(&mut send, b"!").await?;
-        tokio::time::sleep(Duration::from_millis(500)).await;
-        let pause_stats = web_transport_quinn::quinn::Connection::stats(&session);
-        let start = Instant::now();
-        let last_seq = reader.marker(&mut parser, "BULK-DONE").await?;
-        let stats = web_transport_quinn::quinn::Connection::stats(&session);
-        println!("bulk_udp_rx_bytes={} pause_udp_rx_bytes={} stream_blocked_frames={} connection_blocked_frames={} quic_rtt_ms={:.3}",stats.udp_rx.bytes-stats_before.udp_rx.bytes,pause_stats.udp_rx.bytes-stats_before.udp_rx.bytes,stats.frame_rx.stream_data_blocked-stats_before.frame_rx.stream_data_blocked,stats.frame_rx.data_blocked-stats_before.frame_rx.data_blocked,stats.path.rtt.as_secs_f64()*1000.0);
-        println!("bulk_payload_bytes=2097152 decoded_output_bytes={} read_pause_ms=500 drain_after_pause_ms={:.3}",reader.output_bytes-before,start.elapsed().as_secs_f64()*1000.0);
-        anyhow::ensure!(
-            reader.output_bytes - before == 2097152 + 11,
-            "incorrect burst byte count"
-        );
-        anyhow::ensure!(reader.x_bytes == 2097152, "incorrect burst contents");
+        if lifecycle_only {
+            anyhow::ensure!(
+                input_lease_probe(&session, id, &attach_id).await? == InputLeaseProbe::Accepted,
+                "live attachment unexpectedly lost"
+            );
+        }
         reader.recv.stop(0)?;
+        let quiet_clean = if lifecycle_only {
+            wait_for_detached(&session, id, &attach_id, "quiet_cancel").await?
+        } else {
+            true
+        };
         drop(send);
         let start = Instant::now();
         let (mut resumed, attach_id) = attach(&session, id, Some(last_seq)).await?;
@@ -395,7 +529,15 @@ async fn terminal_transport_measurement() -> Result<()> {
             "same_connection_reattach_first_echo_ms={:.3}",
             start.elapsed().as_secs_f64() * 1000.0
         );
-        resumed.recv.stop(0)?;
+        let previous_attach_id = attach_id.clone();
+        if lifecycle_only {
+            anyhow::ensure!(
+                input_lease_probe(&session, id, &attach_id).await? == InputLeaseProbe::Accepted,
+                "attachment was not live before connection close"
+            );
+        } else {
+            resumed.recv.stop(0)?;
+        }
         drop(send);
         session.close(0, b"reconnect fixture");
         let start = Instant::now();
@@ -418,6 +560,11 @@ async fn terminal_transport_measurement() -> Result<()> {
             "new_auth_response_ms={:.3}",
             auth_started.elapsed().as_secs_f64() * 1000.0
         );
+        let session_clean = if lifecycle_only {
+            wait_for_detached(&session, id, &previous_attach_id, "session_close").await?
+        } else {
+            true
+        };
         let (mut resumed, attach_id) = attach(&session, id, Some(last_seq)).await?;
         let mut send = control(&session, id, &attach_id).await?;
         let echo_started = Instant::now();
@@ -432,6 +579,30 @@ async fn terminal_transport_measurement() -> Result<()> {
             "new_connection_auth_reattach_first_echo_ms={:.3}",
             start.elapsed().as_secs_f64() * 1000.0
         );
+        if lifecycle_only {
+            anyhow::ensure!(
+                input_lease_probe(&session, id, &attach_id).await? == InputLeaseProbe::Accepted,
+                "new live attachment lost during old cleanup"
+            );
+            input(&mut send, b"~").await?;
+            tokio::time::timeout(Duration::from_secs(2), async {
+                loop {
+                    if matches!(resumed.event().await?, TerminalEvent::SessionExited { .. }) {
+                        break;
+                    }
+                }
+                Ok::<(), anyhow::Error>(())
+            })
+            .await
+            .context("normal terminal exit timed out")??;
+            let normal_clean = wait_for_detached(&session, id, &attach_id, "normal_exit").await?;
+            if expect_cleanup {
+                anyhow::ensure!(
+                    quiet_clean && session_clean && normal_clean,
+                    "terminal attachment cleanup regression"
+                );
+            }
+        }
 
         Ok::<(), anyhow::Error>(())
     }

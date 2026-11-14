@@ -2992,11 +2992,24 @@ async fn stream_attach_terminal_session(
         }
     };
 
-    let terminal_session_id = attached.terminal_session_id.clone();
-    let attach_id = attached.attach_id.clone();
-    let result = stream_attached_terminal(send, proc_id, &mut attached).await;
-    terminals.detach(&terminal_session_id, &attach_id);
-    result
+    let _cleanup = TerminalAttachmentCleanup {
+        terminals,
+        terminal_session_id: attached.terminal_session_id.clone(),
+        attach_id: attached.attach_id.clone(),
+    };
+    stream_attached_terminal(send, proc_id, &mut attached).await
+}
+
+struct TerminalAttachmentCleanup {
+    terminals: SharedTerminalManager,
+    terminal_session_id: String,
+    attach_id: String,
+}
+
+impl Drop for TerminalAttachmentCleanup {
+    fn drop(&mut self) {
+        self.terminals.detach(&self.terminal_session_id, &self.attach_id);
+    }
 }
 
 async fn stream_attached_terminal(
@@ -3040,7 +3053,14 @@ async fn stream_attached_terminal(
     let mut last_seq = attached.session.latest_output_seq;
     let mut lagged = false;
     loop {
-        match attached.receiver.recv().await {
+        let event = tokio::select! {
+            stopped = send.stopped() => {
+                stopped?;
+                return Ok(());
+            }
+            event = attached.receiver.recv() => event,
+        };
+        match event {
             Ok(event) => {
                 if let TerminalEvent::OutputChunk { seq, .. } = &event {
                     if lagged {
@@ -7356,3 +7376,6 @@ mod tests {
 
 #[cfg(all(test, unix))]
 mod terminal_bench;
+
+#[cfg(test)]
+mod terminal_lifecycle_tests;

@@ -123,8 +123,10 @@ batch and is not replaced silently.
 
 Normal completion closes the synthetic terminal, closes the connection, aborts
 the isolated host task and reaps the relay. Errors also attempt terminal cleanup;
-the synthetic PTY has a 180-second safety alarm. The test is ignored in normal
-suites and registered only on Unix. It needs `python3` at `/usr/bin/python3`.
+the synthetic PTY has a 180-second safety alarm. The performance test is ignored
+in normal suites and registered only on Unix. A fast local lifecycle regression
+uses the same fixture in the normal Unix host suite. Both need `python3` at
+`/usr/bin/python3`.
 A single custom profile can be run with `RIEUL_BENCH_RTT_MS`,
 `RIEUL_BENCH_DOWN_BPS`, and `RIEUL_BENCH_LOSS` before this command:
 
@@ -142,3 +144,38 @@ interval, not terminal payload alone. Received UDP payload bytes exclude UDP/IP
 headers. Received blocked-frame counts are protocol evidence, not proof that a
 zero count means no backpressure. The reported QUIC RTT is a smoothed estimate
 after the bulk transfer, not the nominal relay RTT.
+
+## Attachment cancellation regression
+
+The browser already cancels the readable response on abort and generator cleanup.
+The host formerly waited for another PTY event before noticing an idle stopped
+stream, and task abort could skip the manual detach after the stream await.
+A bounded real-transport regression distinguishes a removed attachment from a
+still-registered owner with a zero-byte input stream. It sends Start and
+half-close only, never a synthetic key or extra terminal output to trigger cleanup.
+
+```sh
+cargo test --release -p rieul-daemon-host --lib terminal_attachment_lifecycle
+```
+
+This normal Unix test validates quiet readable cancellation, full connection
+closure with its attachment still open, normal PTY exit, and preservation of the
+new live attachment. Unit tests
+also cover an aborted task dropping its exact attachment without revoking a newer
+primary, unchanged new-owner input epochs, and duplicate detach without duplicate
+table events. The lease probes and normal exit wait are bounded to two seconds.
+The regression passed after the lifecycle fix; before the fix, quiet cancellation
+still accepted the old input lease and connection closure retained the wrong-session
+owner after two seconds, while normal exit already detached correctly.
+
+A single shaped lifecycle diagnostic can also be run without the echo/bulk workload:
+
+```sh
+RIEUL_BENCH_LIFECYCLE_ONLY=1 RIEUL_BENCH_EXPECT_CLEANUP=1 \
+RIEUL_BENCH_RTT_MS=200 RIEUL_BENCH_DOWN_BPS=512000 \
+cargo test --release -p rieul-daemon-host --lib terminal_transport_measurement -- --ignored --nocapture
+```
+
+The lifecycle-only stage timings include lease probes and are **not performance
+benchmark results**. The fix changes no control acquisition, input epoch, terminal
+size, replay policy or protocol field. No attach-and-control optimization is included.
