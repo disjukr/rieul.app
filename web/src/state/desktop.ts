@@ -157,6 +157,27 @@ export const desktopBunja = bunja(() => {
   let previewCapture = false;
   let previewRequestedIds = new Set<string>();
   let previewKey = "";
+  let previewRetryTimer: ReturnType<typeof setTimeout> | undefined;
+  let previewRetryDelay = 1000;
+  let previewMessage: string | undefined;
+  function clearPreviewMessage() {
+    if (previewMessage !== undefined && message() === previewMessage)
+      setMessage(undefined);
+    previewMessage = undefined;
+  }
+  const [previewRetry, setPreviewRetry] = createSignal(0);
+  function retryPreviews() {
+    clearTimeout(previewRetryTimer);
+    previewRetryTimer = setTimeout(
+      () => {
+        previewRetryTimer = undefined;
+        previewKey = "";
+        setPreviewRetry((revision) => revision + 1);
+      },
+      Math.round(previewRetryDelay * (0.8 + Math.random() * 0.4)),
+    );
+    previewRetryDelay = Math.min(10_000, previewRetryDelay * 2);
+  }
   function matchesSelectedView(next: DesktopConfiguration) {
     return (
       !catalogMode() ||
@@ -227,6 +248,10 @@ export const desktopBunja = bunja(() => {
     previewCapture = false;
     previewRequestedIds = new Set();
     previewKey = "";
+    clearTimeout(previewRetryTimer);
+    previewRetryTimer = undefined;
+    previewRetryDelay = 1000;
+    previewMessage = undefined;
     clearTimeout(retryTimer);
     retryTimer = undefined;
     if (!preserveSelection) setSelectedDisplayId(undefined);
@@ -529,6 +554,7 @@ export const desktopBunja = bunja(() => {
       return;
     const token = generation,
       version = ++configVersion;
+    let previewRequestPending = false;
     setBusy(true);
     try {
       send({ type: "releaseAll" });
@@ -549,6 +575,7 @@ export const desktopBunja = bunja(() => {
           ? Math.max(1, selected.length) * 125_000
           : 20_000_000;
       video?.prepareConfiguration();
+      previewRequestPending = purpose === "preview";
       const next =
         purpose === "selected" && catalogMode() && scopedSelectionSupported()
           ? await selectExistingDesktop(transport, {
@@ -594,12 +621,38 @@ export const desktopBunja = bunja(() => {
                 };
               }),
             });
-      if (token === generation && version === configVersion)
+      previewRequestPending = false;
+      if (token === generation && version === configVersion) {
         await applyConfiguration(next, token);
+        if (purpose === "preview" && token === generation) {
+          previewRetryDelay = 1000;
+          clearPreviewMessage();
+        }
+      }
     } catch (error) {
-      if (token === generation) failed(error);
+      if (token !== generation || version !== configVersion) return;
+      if (
+        previewRequestPending &&
+        error instanceof RpcError &&
+        ["busy", "limitExceeded", "staleEpoch"].includes(error.code)
+      ) {
+        // A rejected optional preview request does not invalidate discovery.
+        // Reopen the prepared media gate for the still-current configuration.
+        try {
+          await video?.configure(
+            configuration() ?? { layoutEpoch, totalBitrate: 1, tracks: [] },
+          );
+        } catch (restoreError) {
+          if (token === generation) failed(restoreError);
+          return;
+        }
+        if (token !== generation || version !== configVersion) return;
+        previewMessage = `Screen previews temporarily unavailable. Retrying… ${error.message}`;
+        setMessage(previewMessage);
+        retryPreviews();
+      } else failed(error);
     } finally {
-      if (token === generation) {
+      if (token === generation && version === configVersion) {
         setBusy(false);
         drainOwnerRelease();
       }
@@ -1144,6 +1197,7 @@ export const desktopBunja = bunja(() => {
             busy: busy(),
             managed: managed(),
             cap: maxViewports(),
+            retry: previewRetry(),
           })),
           (snapshot) => {
             if (
@@ -1179,7 +1233,12 @@ export const desktopBunja = bunja(() => {
             ]);
             if (key === previewKey) return;
             previewKey = key;
-            if (!ids.length && !untrack(configuration)?.tracks.length) return;
+            clearTimeout(previewRetryTimer);
+            previewRetryTimer = undefined;
+            if (!ids.length && !untrack(configuration)?.tracks.length) {
+              clearPreviewMessage();
+              return;
+            }
             untrack(
               () => void configure(ids, attachId(), undefined, "preview"),
             );

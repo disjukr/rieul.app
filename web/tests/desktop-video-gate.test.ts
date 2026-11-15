@@ -534,3 +534,40 @@ test("preparing one monitor preserves peer rendering and adopts only its own ear
     else Reflect.deleteProperty(globalThis, "Worker");
   }
 });
+
+test("rejected preview request can restore committed media after preparing a new configuration", async () => {
+  const restore = decoder(),
+    source = transport();
+  const drawn: string[] = [],
+    failures: string[] = [];
+  const receiver = new DesktopVideoReceiver(
+    source.transport,
+    "attach",
+    (id) => {
+      drawn.push(id);
+    },
+    () => {},
+    (error) => failures.push(error),
+  );
+  try {
+    const committed = config();
+    await receiver.configure(committed);
+    source.incoming.enqueue(group(1, undefined, true, "attach", 1));
+    await tick();
+    assert.deepEqual(drawn, ["first"]);
+    receiver.prepareConfiguration();
+    source.incoming.enqueue(group(1, undefined, true, "attach", 2));
+    await tick();
+    assert.deepEqual(drawn, ["first"]);
+    await receiver.configure(committed);
+    await tick();
+    assert.deepEqual(drawn, ["first", "first"]);
+    source.incoming.enqueue(group(1, undefined, true, "attach", 3));
+    await tick();
+    assert.deepEqual(drawn, ["first", "first", "first"]);
+    assert.deepEqual(failures, []);
+  } finally {
+    receiver.close();
+    restore();
+  }
+});

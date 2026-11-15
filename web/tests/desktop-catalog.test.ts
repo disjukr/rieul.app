@@ -13,10 +13,12 @@ import {
   type DesktopConfiguration,
   type DesktopQualitySupport,
   type AttachDesktopReq,
+  type DesktopInputEvent,
 } from "../src/protocol/generated/rpc.ts";
 import { DesktopDisplayIdScope } from "../src/state/desktop-scopes.ts";
 import { MachineIdScope } from "../src/state/machine-scopes.ts";
 import { rpcSessionStub } from "./helpers/rpc-session.ts";
+import type { DesktopVideoStats } from "../src/protocol/desktop-video.ts";
 import { RpcError } from "../src/protocol/client.ts";
 const displays = ["first", "second"].map((displayId) => ({
   displayId,
@@ -34,6 +36,8 @@ const renderers = new Map<
   string,
   (viewportId: string, frame: VideoFrame) => boolean
 >();
+const feedbackReceivers = new Map<string, (stats: DesktopVideoStats) => void>();
+const sentInput: { attachId: string; event: DesktopInputEvent }[] = [];
 let stripeCodec = false;
 const fixtureCodec = () => (stripeCodec ? "avc1.fixture" : "fixture");
 let encoderCapacity = Infinity;
@@ -49,14 +53,14 @@ function reserveEncoderSlots(id: string, slots: number) {
     (encoderSlots.get(id) ?? 0) +
     slots;
   if (total > encoderCapacity)
-    throw new RpcError("limit", "Synthetic encoder capacity reached");
+    throw new RpcError("limitExceeded", "Synthetic encoder capacity reached");
   encoderSlots.set(id, slots);
 }
 let receiverCount = 0;
 let queryCount = 0;
 let capabilityError: Error | undefined;
 let releaseError = false;
-let flushError = false;
+let flushError: boolean | Error = false;
 let configureReceiver:
   | ((configuration: DesktopConfiguration) => Promise<void>)
   | undefined;
@@ -89,6 +93,7 @@ mock.module("../src/protocol/generated/client.ts", {
         codecs: [{ codec: fixtureCodec(), hardware: false }],
         supportedProfiles: [1, 2],
         maxViewports: 8,
+        feedback: true,
       };
     },
     configureDesktopViewports: async (
@@ -225,12 +230,20 @@ mock.module("../src/protocol/desktop-session.ts", {
 mock.module("../src/protocol/desktop-input.ts", {
   namedExports: {
     DesktopInputChannel: class {
+      constructor(
+        _transport: unknown,
+        private attachId: string,
+      ) {}
       abort() {}
-      send() {
+      send(event: DesktopInputEvent) {
+        sentInput.push({ attachId: this.attachId, event });
         return true;
       }
       async flush() {
-        if (flushError) throw new Error("Flush failed");
+        if (flushError)
+          throw flushError instanceof Error
+            ? flushError
+            : new Error("Flush failed");
       }
     },
     bindDesktopInput: (
@@ -252,9 +265,11 @@ mock.module("../src/protocol/desktop-video.ts", {
         _transport: unknown,
         attachId: string,
         render: (viewportId: string, frame: VideoFrame) => boolean,
+        feedback: (stats: DesktopVideoStats) => void,
       ) {
         receiverCount++;
         renderers.set(attachId, render);
+        feedbackReceivers.set(attachId, feedback);
       }
       prepareConfiguration() {}
       requestRefresh() {}
@@ -1276,3 +1291,291 @@ test("selected profile2 recovers when it races a preview capacity reduction with
     else Reflect.deleteProperty(globalThis, "OffscreenCanvas");
   }
 });
+
+for (const code of ["limitExceeded", "busy", "staleEpoch"]) {
+  test(`catalog ${code} retries previews without replacing its descriptor attachment`, async (t) => {
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    t.mock.method(Math, "random", () => 0.5);
+    const f = fixture(true),
+      catalog = f.consumer(undefined);
+    let stop: (() => void) | undefined;
+    try {
+      await flush();
+      const id = catalog.value.attachId()!,
+        attempts = sequence;
+      let rejected = false;
+      beforePreviewConfigure = async () => {
+        if (!rejected) {
+          rejected = true;
+          throw new RpcError(code, "Synthetic preview unavailable");
+        }
+      };
+      stop = catalog.value.registerPreviewSurface("first", {
+        isConnected: true,
+        width: 320,
+        height: 180,
+        getContext: () => ({ drawImage() {} }),
+      } as unknown as HTMLCanvasElement);
+      await flush();
+      assert.equal(rejected, true);
+      assert.equal(catalog.value.phase(), "viewing");
+      assert.equal(catalog.value.attachId(), id);
+      assert.deepEqual(catalog.value.displays(), displays);
+      assert.equal(streams.get(id)!.signal.aborted, false);
+      assert.match(catalog.value.message()!, /preview/i);
+      t.mock.timers.tick(1000);
+      await flush();
+      assert.equal(sequence, attempts);
+      assert.equal(catalog.value.attachId(), id);
+      assert.equal(
+        catalog.value.configuration()?.tracks[0]?.viewport.displayId,
+        "first",
+      );
+      assert.equal(catalog.value.message(), undefined);
+    } finally {
+      beforePreviewConfigure = undefined;
+      stop?.();
+      f.close();
+    }
+  });
+}
+
+const previewCanvas = () =>
+  ({
+    isConnected: true,
+    width: 320,
+    height: 180,
+    getContext: () => ({ drawImage() {} }),
+  }) as unknown as HTMLCanvasElement;
+
+test("stale preview rejection consumes a newer layout on the same attachment", async () => {
+  const f = fixture(true),
+    catalog = f.consumer(undefined),
+    pending = deferred<void>();
+  let stop: (() => void) | undefined;
+  try {
+    await flush();
+    const id = catalog.value.attachId()!;
+    beforePreviewConfigure = async (request) => {
+      if (request.layoutEpoch === 1) {
+        await pending.promise;
+        throw new RpcError("staleEpoch", "Screen: Stale");
+      }
+    };
+    stop = catalog.value.registerPreviewSurface("first", previewCanvas());
+    await flush();
+    const nextDisplays = [
+      { ...displays[0]!, bounds: { x: 0, y: 0, width: 720, height: 1280 } },
+    ];
+    streams
+      .get(id)!
+      .push({ type: "layout", layoutEpoch: 2, displays: nextDisplays });
+    await flush();
+    pending.resolve();
+    await flush();
+    assert.equal(catalog.value.attachId(), id);
+    assert.equal(streams.get(id)!.signal.aborted, false);
+    assert.deepEqual(catalog.value.displays(), nextDisplays);
+    assert.equal(catalog.value.configuration()?.layoutEpoch, 2);
+    assert.equal(
+      catalog.value.configuration()?.tracks[0]?.viewport.crop.height,
+      1280,
+    );
+    assert.equal(catalog.value.message(), undefined);
+  } finally {
+    pending.resolve();
+    beforePreviewConfigure = undefined;
+    stop?.();
+    f.close();
+  }
+});
+
+test("preview backoff stays bounded, preserves committed media, and stops with demand", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  t.mock.method(Math, "random", () => 0.5);
+  const f = fixture(true),
+    catalog = f.consumer(undefined);
+  const stops: (() => void)[] = [];
+  try {
+    await flush();
+    const id = catalog.value.attachId()!,
+      attached = sequence;
+    stops.push(catalog.value.registerPreviewSurface("first", previewCanvas()));
+    await flush();
+    const committed = catalog.value.configuration()!,
+      restores: DesktopConfiguration[] = [];
+    configureReceiver = async (next) => {
+      restores.push(next);
+    };
+    let failures = 0;
+    beforePreviewConfigure = async () => {
+      failures++;
+      throw new RpcError("busy", "Screen: Busy");
+    };
+    stops.push(catalog.value.registerPreviewSurface("second", previewCanvas()));
+    await flush();
+    assert.equal(failures, 1);
+    assert.equal(restores.at(-1), committed);
+    assert.equal(catalog.value.configuration(), committed);
+    for (const delay of [1000, 2000, 4000, 8000, 10000, 10000]) {
+      const before: number = failures;
+      t.mock.timers.tick(delay - 1);
+      await flush();
+      assert.equal(failures, before);
+      t.mock.timers.tick(1);
+      await flush();
+      assert.equal(failures, before + 1);
+      assert.equal(catalog.value.attachId(), id);
+    }
+    beforePreviewConfigure = undefined;
+    for (const stop of stops) stop();
+    await flush();
+    assert.deepEqual(catalog.value.configuration()?.tracks, []);
+    const requests = configurations.length;
+    t.mock.timers.tick(60_000);
+    await flush();
+    assert.equal(configurations.length, requests);
+    assert.equal(sequence, attached);
+    assert.equal(catalog.value.message(), undefined);
+  } finally {
+    configureReceiver = undefined;
+    beforePreviewConfigure = undefined;
+    for (const stop of stops) stop();
+    f.close();
+  }
+});
+
+for (const error of [
+  new RpcError("permissionDenied", "No permission"),
+  new Error("Transport failed"),
+]) {
+  test(`preview ${error.message} still invalidates a failed attachment`, async () => {
+    const f = fixture(true),
+      catalog = f.consumer(undefined);
+    let stop: (() => void) | undefined;
+    try {
+      await flush();
+      const id = catalog.value.attachId()!;
+      beforePreviewConfigure = async () => {
+        throw error;
+      };
+      stop = catalog.value.registerPreviewSurface("first", previewCanvas());
+      await flush();
+      assert.equal(catalog.value.phase(), "error");
+      assert.equal(catalog.value.attachId(), undefined);
+      assert.equal(streams.get(id)!.signal.aborted, true);
+      assert.equal(catalog.value.message(), error.message);
+    } finally {
+      beforePreviewConfigure = undefined;
+      stop?.();
+      f.close();
+    }
+  });
+}
+
+test("closing a catalog cancels its pending preview retry", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const f = fixture(true),
+    catalog = f.consumer(undefined);
+  let stop: (() => void) | undefined;
+  try {
+    await flush();
+    beforePreviewConfigure = async () => {
+      throw new RpcError("busy", "Screen: Busy");
+    };
+    stop = catalog.value.registerPreviewSurface("first", previewCanvas());
+    await flush();
+    catalog.release();
+    await flush();
+    const count = configurations.length,
+      attached = sequence;
+    t.mock.timers.tick(60_000);
+    await flush();
+    assert.equal(configurations.length, count);
+    assert.equal(sequence, attached);
+    assert.equal(catalog.value.phase(), "idle");
+  } finally {
+    beforePreviewConfigure = undefined;
+    stop?.();
+    f.close();
+  }
+});
+
+test("catalog keeps acknowledging preview frames during a retry without acquiring control", async () => {
+  const f = fixture(true),
+    catalog = f.consumer(undefined);
+  let stop: (() => void) | undefined;
+  try {
+    await flush();
+    const id = catalog.value.attachId()!,
+      before = controls.length;
+    beforePreviewConfigure = async () => {
+      throw new RpcError("busy", "Screen: Busy");
+    };
+    stop = catalog.value.registerPreviewSurface("first", previewCanvas());
+    await flush();
+    const stats: DesktopVideoStats = {
+      trackId: 1,
+      codecEpoch: 1,
+      groupId: 1,
+      objectId: 1,
+      decodeMicros: 1,
+      renderMicros: 1,
+      queueDepth: 0,
+      requestKeyframe: false,
+    };
+    const count = sentInput.length;
+    for (let objectId = 1; objectId <= 3; objectId++)
+      feedbackReceivers.get(id)!({ ...stats, objectId });
+    assert.deepEqual(
+      sentInput.slice(count),
+      [1, 2, 3].map((objectId) => ({
+        attachId: id,
+        event: { type: "feedback", ...stats, objectId },
+      })),
+    );
+    assert.equal(controls.length, before);
+    assert.equal(catalog.value.controlling(), false);
+    assert.equal(catalog.value.attachId(), id);
+  } finally {
+    beforePreviewConfigure = undefined;
+    stop?.();
+    f.close();
+  }
+});
+
+for (const failure of ["flush", "decode", "restore"] as const) {
+  test(`preview ${failure} errors cannot be mistaken for retryable RPC rejections`, async () => {
+    const f = fixture(true),
+      catalog = f.consumer(undefined);
+    let stop: (() => void) | undefined;
+    try {
+      await flush();
+      const id = catalog.value.attachId()!,
+        requests = configurations.length;
+      const error = new RpcError("busy", `Synthetic ${failure} failure`);
+      if (failure === "flush") flushError = error;
+      else
+        configureReceiver = async () => {
+          throw error;
+        };
+      if (failure === "restore")
+        beforePreviewConfigure = async () => {
+          throw new RpcError("staleEpoch", "Screen: Stale");
+        };
+      stop = catalog.value.registerPreviewSurface("first", previewCanvas());
+      await flush();
+      assert.equal(catalog.value.phase(), "error");
+      assert.equal(catalog.value.attachId(), undefined);
+      assert.equal(streams.get(id)!.signal.aborted, true);
+      assert.equal(catalog.value.message(), error.message);
+      if (failure === "flush") assert.equal(configurations.length, requests);
+    } finally {
+      flushError = false;
+      configureReceiver = undefined;
+      beforePreviewConfigure = undefined;
+      stop?.();
+      f.close();
+    }
+  });
+}
