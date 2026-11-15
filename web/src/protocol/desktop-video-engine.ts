@@ -10,6 +10,7 @@ interface TrackState {
   config: VideoDecoderConfig;
   decoder: VideoDecoder | StripeDecoder;
   group: number;
+  generation: number;
   stream?: ReadableStream<Uint8Array>;
   abort?: AbortController;
   makeDecoder: () => VideoDecoder | StripeDecoder;
@@ -193,6 +194,7 @@ export class DesktopVideoEngine {
         makeDecoder,
         decoder: makeDecoder(),
         group: 0,
+        generation,
         timings: new Map(),
       });
       this.tracks.set(track.trackId, state);
@@ -271,7 +273,7 @@ export class DesktopVideoEngine {
   ): Promise<void> {
     let state: TrackState | undefined;
     let groupId = 0;
-    const generation = this.generation;
+    let generation: number | undefined;
     let decodeWaitBudgetMs = 33;
     try {
       for await (const object of readDesktopGroup(
@@ -292,12 +294,14 @@ export class DesktopVideoEngine {
             this.closed ||
             first.attachId !== this.attachId ||
             !current ||
+            current.generation !== this.generation ||
             first.codecEpoch !== current.track.codecEpoch ||
             first.layoutEpoch !== this.layoutEpoch ||
             first.groupId <= current.group
           )
             return;
           state = current;
+          generation = current.generation;
           groupId = first.groupId;
           // The old group may still be flow-controlled; abandon it as one unit.
           if (current.stream && current.stream !== stream)
