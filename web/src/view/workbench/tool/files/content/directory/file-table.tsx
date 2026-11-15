@@ -82,7 +82,6 @@ export function FileTable(props: FileTableProps) {
         class={className(
           styles.fileHead({ className: "file-head" }).class,
           "modified",
-          styles.hideInNarrowContainer().class,
         )}
         role="columnheader"
         data-file-table-head
@@ -149,7 +148,6 @@ export function FileTable(props: FileTableProps) {
                   class={className(
                     `${styles.fileCellBase({ className: "file-cell" }).class} font-500 text-rieul-text-3`,
                     "modified",
-                    styles.hideInNarrowContainer().class,
                   )}
                 >
                   {formatDate(entry.modifiedAtMs)}
@@ -194,7 +192,6 @@ export function FileTable(props: FileTableProps) {
             class={className(
               `${styles.fileCellBase({ className: "file-cell" }).class} font-500 text-rieul-text-3`,
               "modified",
-              styles.hideInNarrowContainer().class,
             )}
           />
         </div>
@@ -285,11 +282,25 @@ namespace styles {
     lineHeight: 1.38,
     "@container workbench-tab-page (max-width:680px)": {
       gridTemplateColumns: "minmax(200px,1fr) 96px 88px",
+      selectors: { "& .modified": { display: "none" } },
     },
-  });
-  export const hideInNarrowContainer = style({
-    "@container workbench-tab-page (max-width:680px)": {
-      display: "none",
+    "@container workbench-tab-page (max-width:500px)": {
+      gridTemplateColumns: "minmax(0,1fr)",
+      gridTemplateRows: "21px",
+      gridAutoRows: "46px",
+      selectors: {
+        "& .file-head.kind, & .file-head.size": { display: "none" },
+        "& .file-row": {
+          gridTemplateColumns: "minmax(0,1fr) auto",
+          gridTemplateRows: "25px 18px",
+          height: "46px",
+          minHeight: "46px",
+        },
+        "& .file-row .name": { gridColumn: "1/-1" },
+        "& .file-row .kind, & .file-row .size": { fontSize: "10px" },
+        "& .file-row .kind": { paddingLeft: "33px" },
+        "& .file-row .size": { justifyContent: "flex-end" },
+      },
     },
   });
   export const fileHead = style({

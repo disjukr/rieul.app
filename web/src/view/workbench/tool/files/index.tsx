@@ -286,7 +286,7 @@ export function FilesTool() {
       return;
     }
     currentSelectEntry(entry);
-    const tabId = currentPaneState.addFilesTab();
+    const tabId = currentPaneState.addFilesTab({ filesView: "roots" });
     writeExplorerFileNavigationState(
       currentMachine?.id,
       tabId,
