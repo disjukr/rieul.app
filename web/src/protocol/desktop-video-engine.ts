@@ -5,7 +5,10 @@ import type {
 } from "./generated/rpc.ts";
 import { StripeDecoder, validStripeLayout } from "./desktop-stripe.ts";
 import { readDesktopGroup } from "./desktop-media.ts";
-import { desktopMediaPort } from "./desktop-media-router.ts";
+import {
+  desktopMediaPort,
+  desktopMediaRevision,
+} from "./desktop-media-router.ts";
 const DECODER_SERVICE_BUDGET_MS = 500;
 interface TrackState {
   track: DesktopTrack;
@@ -13,6 +16,7 @@ interface TrackState {
   decoder: VideoDecoder | StripeDecoder;
   group: number;
   generation: number;
+  mediaRevision: number;
   stream?: ReadableStream<Uint8Array>;
   abort?: AbortController;
   makeDecoder: () => VideoDecoder | StripeDecoder;
@@ -54,7 +58,15 @@ export class DesktopVideoEngine {
       this.mediaPort.transport.incomingUnidirectionalStreams.getReader();
     void this.receive();
   }
-  async configure(configuration: DesktopConfiguration): Promise<void> {
+  async configure(
+    configuration: DesktopConfiguration,
+    mediaRevision?: number,
+  ): Promise<void> {
+    const revision =
+      mediaRevision ??
+      (this.firstConfiguredGeneration
+        ? this.mediaPort.advance()
+        : this.mediaPort.revision());
     const generation = ++this.generation;
     for (const state of this.tracks.values()) state.abort?.abort();
     if (configuration.tracks.length > 8)
@@ -122,6 +134,7 @@ export class DesktopVideoEngine {
               if (
                 !this.closed &&
                 generation === this.generation &&
+                revision === this.mediaPort.revision() &&
                 this.tracks.get(track.trackId) === state &&
                 state.decoder === decoder &&
                 timing?.groupId === state.group
@@ -135,6 +148,7 @@ export class DesktopVideoEngine {
               rendered &&
               !this.closed &&
               generation === this.generation &&
+              revision === this.mediaPort.revision() &&
               this.tracks.get(track.trackId) === state &&
               state.decoder === decoder &&
               timing?.groupId === state.group
@@ -154,6 +168,7 @@ export class DesktopVideoEngine {
             if (
               !this.closed &&
               generation === this.generation &&
+              revision === this.mediaPort.revision() &&
               this.tracks.get(track.trackId) === state &&
               state.decoder === decoder
             ) {
@@ -179,6 +194,7 @@ export class DesktopVideoEngine {
         decoder: makeDecoder(),
         group: 0,
         generation,
+        mediaRevision: revision,
         timings: new Map(),
       });
       this.tracks.set(track.trackId, state);
@@ -233,6 +249,7 @@ export class DesktopVideoEngine {
         signal.aborted ||
         this.closed ||
         generation !== this.generation ||
+        state.mediaRevision !== this.mediaPort.revision() ||
         this.tracks.get(state.track.trackId) !== state ||
         state.group !== groupId ||
         state.decoder !== decoder ||
@@ -277,6 +294,7 @@ export class DesktopVideoEngine {
     let groupId = 0;
     let generation: number | undefined;
     const admissionGeneration = this.configuredGeneration;
+    const mediaRevision = desktopMediaRevision(stream);
     let decodeWaitBudgetMs = 33;
     let startup = false;
     try {
@@ -289,6 +307,8 @@ export class DesktopVideoEngine {
             first.attachId !== this.attachId ||
             !current ||
             current.generation !== this.generation ||
+            current.mediaRevision !== mediaRevision ||
+            current.mediaRevision !== this.mediaPort.revision() ||
             current.generation !==
               (admissionGeneration || this.firstConfiguredGeneration) ||
             first.codecEpoch !== current.track.codecEpoch ||
@@ -332,6 +352,7 @@ export class DesktopVideoEngine {
           controller.signal.aborted ||
           generation !== this.generation ||
           !state ||
+          state.mediaRevision !== this.mediaPort.revision() ||
           this.tracks.get(object.trackId) !== state ||
           state.group !== groupId
         )
@@ -349,6 +370,7 @@ export class DesktopVideoEngine {
             this.closed ||
             controller.signal.aborted ||
             generation !== this.generation ||
+            state.mediaRevision !== this.mediaPort.revision() ||
             this.tracks.get(object.trackId) !== state ||
             state.group !== groupId ||
             state.decoder !== decoder ||
@@ -397,6 +419,7 @@ export class DesktopVideoEngine {
       if (
         state &&
         generation === this.generation &&
+        state.mediaRevision === this.mediaPort.revision() &&
         this.tracks.get(state.track.trackId) === state &&
         state.group === groupId &&
         !this.closed
@@ -420,7 +443,11 @@ export class DesktopVideoEngine {
   requestRefresh(viewportId: string): void {
     if (this.closed) return;
     for (const state of this.tracks.values())
-      if (state.track.viewport.viewportId === viewportId && state.group > 0) {
+      if (
+        state.track.viewport.viewportId === viewportId &&
+        state.group > 0 &&
+        state.mediaRevision === this.mediaPort.revision()
+      ) {
         this.stats({
           trackId: state.track.trackId,
           codecEpoch: state.track.codecEpoch,

@@ -1,4 +1,7 @@
-import { desktopMediaSource } from "./desktop-media-router.ts";
+import {
+  desktopMediaSource,
+  tagDesktopMediaRevision,
+} from "./desktop-media-router.ts";
 import { DesktopVideoEngine } from "./desktop-video-engine.ts";
 import type { DesktopConfiguration } from "./generated/rpc.ts";
 const scope = self as unknown as {
@@ -7,6 +10,7 @@ const scope = self as unknown as {
 };
 let engine: DesktopVideoEngine | undefined;
 let incoming: ReadableStreamDefaultController<ReadableStream<Uint8Array>>;
+let mediaRevision = 0;
 let generation = 0,
   configuring = false,
   closed = false,
@@ -40,7 +44,10 @@ scope.onmessage = async ({ data }) => {
       },
     });
     engine = new DesktopVideoEngine(
-      desktopMediaSource(streams, data.attachId),
+      desktopMediaSource(streams, data.attachId, {
+        revision: () => mediaRevision,
+        advance: () => ++mediaRevision,
+      }),
       data.attachId,
       (viewportId, frame) => {
         if (configuring) return;
@@ -55,7 +62,12 @@ scope.onmessage = async ({ data }) => {
         const frame = viewportId ? frames.get(viewportId) : undefined;
         if (viewportId) frames.delete(viewportId);
         if (!frame) {
-          scope.postMessage({ type: "stats", generation, stats });
+          scope.postMessage({
+            type: "stats",
+            generation,
+            mediaRevision,
+            stats,
+          });
           return;
         }
         if (outstanding.size >= 3) {
@@ -63,6 +75,7 @@ scope.onmessage = async ({ data }) => {
           scope.postMessage({
             type: "stats",
             generation,
+            mediaRevision,
             stats: {
               ...stats,
               objectId: undefined,
@@ -79,6 +92,7 @@ scope.onmessage = async ({ data }) => {
             type: "frame",
             id,
             generation,
+            mediaRevision,
             viewportId,
             frame,
             stats: {
@@ -89,8 +103,15 @@ scope.onmessage = async ({ data }) => {
           [frame],
         );
       },
-      (message) => scope.postMessage({ type: "failed", message }),
-      (codec) => scope.postMessage({ type: "codecFailed", generation, codec }),
+      (message) =>
+        scope.postMessage({ type: "failed", mediaRevision, message }),
+      (codec) =>
+        scope.postMessage({
+          type: "codecFailed",
+          generation,
+          mediaRevision,
+          codec,
+        }),
       (stream) => {
         liveStreams.delete(stream);
         scope.postMessage({ type: "streamDone", id: ids.get(stream) });
@@ -109,6 +130,16 @@ scope.onmessage = async ({ data }) => {
     return;
   }
   if (data.type === "stream") {
+    if (
+      !Number.isSafeInteger(data.mediaRevision) ||
+      data.mediaRevision < 0 ||
+      data.mediaRevision !== mediaRevision
+    ) {
+      void data.stream.cancel().catch(() => {});
+      scope.postMessage({ type: "streamDone", id: data.id });
+      return;
+    }
+    tagDesktopMediaRevision(data.stream, data.mediaRevision);
     liveStreams.add(data.stream);
     ids.set(data.stream, data.id);
     incoming.enqueue(data.stream);
@@ -116,10 +147,13 @@ scope.onmessage = async ({ data }) => {
   }
   if (data.type === "configure") {
     generation = data.id;
+    mediaRevision = data.mediaRevision;
     configuring = true;
     clearFrames();
     try {
-      await engine!.configure(data.configuration);
+      if (!Number.isSafeInteger(mediaRevision) || mediaRevision < 0)
+        throw new Error("Invalid screen media revision");
+      await engine!.configure(data.configuration, mediaRevision);
       if (generation === data.id) {
         configuration = data.configuration;
         configuring = false;

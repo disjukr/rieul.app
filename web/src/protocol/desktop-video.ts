@@ -1,7 +1,10 @@
 import type { DesktopCodec, DesktopConfiguration } from "./generated/rpc.ts";
 import { DesktopVideoEngine } from "./desktop-video-engine.ts";
 import { DesktopMediaGate } from "./desktop-video-gate.ts";
-import { desktopMediaPort } from "./desktop-media-router.ts";
+import {
+  desktopMediaPort,
+  desktopMediaSource,
+} from "./desktop-media-router.ts";
 export type { DesktopVideoStats } from "./desktop-video-engine.ts";
 /** Client policy only; never infer hardware use from WebCodecs preference hints.
  * The browser currently has no authoritative per-decoder hardware attestation.
@@ -66,6 +69,9 @@ export class DesktopVideoReceiver {
   private ready: Promise<void>;
   private configurationKey = "";
   private activeConfigurations = 0;
+  private pendingMediaRevision?: number;
+  private configurationMediaRevision = -1;
+  private latestConfigurationKey = "";
   workerFailure?: string;
   get execution(): "starting" | "worker" | "main" | "closed" {
     return this.closed
@@ -81,9 +87,11 @@ export class DesktopVideoReceiver {
     this.mediaGate = new DesktopMediaGate(
       this.mediaPort.transport.incomingUnidirectionalStreams,
     );
-    args[0] = {
-      incomingUnidirectionalStreams: this.mediaGate.streams,
-    } as WebTransport;
+    args[0] = desktopMediaSource(
+      this.mediaGate.streams,
+      args[1],
+      this.mediaPort,
+    );
     this.ready = (async () => {
       let worker:
         | import("./desktop-video-worker-client.ts").WorkerVideoReceiver
@@ -121,19 +129,34 @@ export class DesktopVideoReceiver {
     })();
   }
   prepareConfiguration(): void {
+    if (this.closed) return;
     this.mediaGate.prepare();
+    this.pendingMediaRevision = this.mediaPort.advance();
   }
   async configure(configuration: DesktopConfiguration): Promise<void> {
+    if (this.closed) return;
     const revision = this.mediaGate.prepare();
+    const key = JSON.stringify(configuration);
     const hadPendingConfiguration = this.activeConfigurations++ > 0;
+    const mediaRevision =
+      this.pendingMediaRevision ??
+      (hadPendingConfiguration && key !== this.latestConfigurationKey
+        ? this.mediaPort.advance()
+        : this.mediaPort.revision());
+    this.pendingMediaRevision = undefined;
+    this.latestConfigurationKey = key;
     try {
       await this.ready;
       if (this.closed) return;
-      const key = JSON.stringify(configuration);
-      if (key !== this.configurationKey || hadPendingConfiguration)
-        await this.inner!.configure(configuration);
+      if (
+        key !== this.configurationKey ||
+        hadPendingConfiguration ||
+        mediaRevision !== this.configurationMediaRevision
+      )
+        await this.inner!.configure(configuration, mediaRevision);
       if (this.mediaGate.current(revision)) {
         this.configurationKey = key;
+        this.configurationMediaRevision = mediaRevision;
         this.mediaGate.release(revision);
       }
     } catch (error) {

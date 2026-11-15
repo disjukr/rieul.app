@@ -100,6 +100,7 @@ test("worker acknowledgements follow actual render, stale frames close, and stre
     worker.receive({
       type: "frame",
       generation: id,
+      mediaRevision: 0,
       id: 1,
       viewportId: "screen",
       frame: frame(),
@@ -112,6 +113,7 @@ test("worker acknowledgements follow actual render, stale frames close, and stre
     worker.receive({
       type: "frame",
       generation: id - 1,
+      mediaRevision: 0,
       id: 2,
       viewportId: "screen",
       frame: frame(),
@@ -156,6 +158,7 @@ test("worker acknowledgements follow actual render, stale frames close, and stre
     worker.receive({
       type: "frame",
       generation: id,
+      mediaRevision: 0,
       id: 3,
       viewportId: "screen",
       frame: frame(),
@@ -243,6 +246,7 @@ test("missing render surface suppresses receipt but releases frame; restoration 
     const message = {
       type: "frame",
       generation: id,
+      mediaRevision: 0,
       id: 1,
       viewportId: "screen",
       frame: {
@@ -324,9 +328,19 @@ test("worker forwards HEVC configuration and only current codec failures", async
     assert.deepEqual(message.configuration, configuration);
     worker.receive({ type: "configured", id: message.id });
     await configuring;
-    worker.receive({ type: "codecFailed", generation: message.id - 1, codec });
+    worker.receive({
+      type: "codecFailed",
+      generation: message.id - 1,
+      mediaRevision: message.mediaRevision,
+      codec,
+    });
     assert.deepEqual(failures, []);
-    worker.receive({ type: "codecFailed", generation: message.id, codec });
+    worker.receive({
+      type: "codecFailed",
+      generation: message.id,
+      mediaRevision: message.mediaRevision,
+      codec,
+    });
     assert.deepEqual(failures, [codec]);
     receiver.close();
     worker.receive({ type: "closed" });
@@ -466,6 +480,137 @@ test("facade reservation survives unsupported worker fallback and closes without
   } finally {
     for (const receiver of receivers) receiver.close();
     if (old) Object.defineProperty(globalThis, "Worker", old);
+    else Reflect.deleteProperty(globalThis, "Worker");
+  }
+});
+
+test("worker frames from retired media revision cannot pass a current generation", async () => {
+  const previous = Object.getOwnPropertyDescriptor(globalThis, "Worker");
+  Object.defineProperty(globalThis, "Worker", {
+    configurable: true,
+    value: FakeWorker,
+  });
+  let drawn = 0,
+    closed = 0;
+  const receiver = new WorkerVideoReceiver(
+    { incomingUnidirectionalStreams: new ReadableStream() } as WebTransport,
+    "a",
+    () => {
+      drawn++;
+    },
+    () => {},
+    assert.fail,
+  );
+  try {
+    await receiver.ready;
+    const configuration: DesktopConfiguration = {
+      tracks: [],
+      layoutEpoch: 1,
+      totalBitrate: 1,
+    };
+    const first = receiver.configure(configuration);
+    await tick();
+    const worker = FakeWorker.last;
+    const old = worker.sent.filter((m) => m.type === "configure").at(-1)!;
+    worker.receive({ type: "configured", id: old.id });
+    await first;
+    const second = receiver.configure(configuration);
+    await tick();
+    const current = worker.sent.filter((m) => m.type === "configure").at(-1)!;
+    worker.receive({ type: "configured", id: current.id });
+    await second;
+    assert.equal(old.mediaRevision, 0);
+    assert.equal(current.mediaRevision, 1);
+    const frame = () => ({
+      close() {
+        closed++;
+      },
+    });
+    worker.receive({
+      type: "frame",
+      id: 1,
+      generation: current.id,
+      mediaRevision: old.mediaRevision,
+      viewportId: "v",
+      frame: frame(),
+      stats: { renderMicros: 0 },
+    });
+    assert.equal(drawn, 0);
+    assert.equal(closed, 1);
+    worker.receive({
+      type: "frame",
+      id: 2,
+      generation: current.id,
+      mediaRevision: current.mediaRevision,
+      viewportId: "v",
+      frame: frame(),
+      stats: { renderMicros: 0 },
+    });
+    assert.equal(drawn, 1);
+    assert.equal(closed, 2);
+    receiver.close();
+    worker.receive({ type: "closed" });
+  } finally {
+    receiver.close();
+    if (previous) Object.defineProperty(globalThis, "Worker", previous);
+    else Reflect.deleteProperty(globalThis, "Worker");
+  }
+});
+
+test("worker transfer rejects untagged intake instead of adopting the latest revision", async () => {
+  const { desktopMediaSource } = await import(
+    "../src/protocol/desktop-media-router.ts"
+  );
+  const previous = Object.getOwnPropertyDescriptor(globalThis, "Worker");
+  Object.defineProperty(globalThis, "Worker", {
+    configurable: true,
+    value: FakeWorker,
+  });
+  let incoming!: ReadableStreamDefaultController<ReadableStream<Uint8Array>>;
+  const source = desktopMediaSource(
+    new ReadableStream({
+      start(c) {
+        incoming = c;
+      },
+    }),
+    "a",
+  );
+  let canceled = 0;
+  const receiver = new WorkerVideoReceiver(
+    source,
+    "a",
+    () => assert.fail("untagged frame"),
+    () => {},
+    assert.fail,
+  );
+  try {
+    await receiver.ready;
+    receiver.start();
+    const configuring = receiver.configure({
+      tracks: [],
+      layoutEpoch: 1,
+      totalBitrate: 1,
+    });
+    await tick();
+    const worker = FakeWorker.last,
+      message = worker.sent.find((m) => m.type === "configure");
+    worker.receive({ type: "configured", id: message.id });
+    await configuring;
+    incoming.enqueue(
+      new ReadableStream({
+        cancel() {
+          canceled++;
+        },
+      }),
+    );
+    await tick();
+    assert.equal(worker.sent.filter((m) => m.type === "stream").length, 0);
+    assert.equal(canceled, 1);
+    receiver.close();
+    worker.receive({ type: "closed" });
+  } finally {
+    receiver.close();
+    if (previous) Object.defineProperty(globalThis, "Worker", previous);
     else Reflect.deleteProperty(globalThis, "Worker");
   }
 });

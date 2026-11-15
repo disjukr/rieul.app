@@ -30,16 +30,22 @@ const config = (epoch = 1, viewportId = "first"): DesktopConfiguration => ({
     },
   ],
 });
-function group(epoch = 1, cancel = () => {}, close = true) {
+function group(
+  epoch = 1,
+  cancel = () => {},
+  close = true,
+  attachId = "attach",
+  groupId = epoch,
+) {
   const body = encodeCbor(
     encodeDesktopMediaObjectValue({
-      attachId: "attach",
+      attachId,
       layoutEpoch: 1,
       trackId: 1,
       codecEpoch: epoch,
-      groupId: epoch,
+      groupId,
       objectId: 0,
-      timestampMicros: epoch,
+      timestampMicros: groupId,
       keyframe: true,
       data: new Uint8Array([1]),
     }),
@@ -192,14 +198,19 @@ for (const failure of [false, true]) {
 class WorkerFixture {
   static last: WorkerFixture;
   onmessage?: (event: { data: Record<string, unknown> }) => void;
-  sent: { type: string; id?: number; stream?: ReadableStream<Uint8Array> }[] =
-    [];
+  sent: {
+    type: string;
+    id?: number;
+    mediaRevision?: number;
+    stream?: ReadableStream<Uint8Array>;
+  }[] = [];
   constructor() {
     WorkerFixture.last = this;
   }
   postMessage(message: {
     type: string;
     id?: number;
+    mediaRevision?: number;
     stream?: ReadableStream<Uint8Array>;
   }) {
     this.sent.push(message);
@@ -264,6 +275,7 @@ test("worker receives complete queued key only after configuration acknowledgeme
       data: {
         type: "frame",
         generation: configure.id,
+        mediaRevision: configure.mediaRevision,
         id: 1,
         viewportId: "first",
         frame: {
@@ -407,6 +419,7 @@ test("worker restore sends a superseding configure instead of trusting the last 
       data: {
         type: "frame",
         generation: pending.id,
+        mediaRevision: pending.mediaRevision,
         id: 1,
         viewportId: "other",
         frame: frame(),
@@ -418,6 +431,7 @@ test("worker restore sends a superseding configure instead of trusting the last 
       data: {
         type: "frame",
         generation: latest.id,
+        mediaRevision: latest.mediaRevision,
         id: 2,
         viewportId: "first",
         frame: frame(),
@@ -427,6 +441,95 @@ test("worker restore sends a superseding configure instead of trusting the last 
     assert.equal(drawn, 1);
   } finally {
     receiver.close();
+    if (previous) Object.defineProperty(globalThis, "Worker", previous);
+    else Reflect.deleteProperty(globalThis, "Worker");
+  }
+});
+
+test("prepared same-key configuration adopts new early media without a second advance", async () => {
+  const restore = decoder(),
+    previous = Object.getOwnPropertyDescriptor(globalThis, "Worker");
+  Object.defineProperty(globalThis, "Worker", {
+    configurable: true,
+    value: undefined,
+  });
+  const source = transport(),
+    drawn: string[] = [];
+  const receiver = new DesktopVideoReceiver(
+    source.transport,
+    "attach",
+    (id) => {
+      drawn.push(id);
+    },
+    () => {},
+    assert.fail,
+  );
+  try {
+    await receiver.configure(config());
+    source.incoming.enqueue(group());
+    await tick();
+    assert.deepEqual(drawn, ["first"]);
+    receiver.prepareConfiguration();
+    source.incoming.enqueue(group());
+    await tick();
+    assert.deepEqual(drawn, ["first"]);
+    await receiver.configure(config());
+    await tick();
+    assert.deepEqual(drawn, ["first", "first"]);
+  } finally {
+    receiver.close();
+    restore();
+    if (previous) Object.defineProperty(globalThis, "Worker", previous);
+    else Reflect.deleteProperty(globalThis, "Worker");
+  }
+});
+
+test("preparing one monitor preserves peer rendering and adopts only its own early media", async () => {
+  const restore = decoder(),
+    previous = Object.getOwnPropertyDescriptor(globalThis, "Worker");
+  Object.defineProperty(globalThis, "Worker", {
+    configurable: true,
+    value: undefined,
+  });
+  const source = transport(),
+    draws = { a: 0, b: 0 };
+  const a = new DesktopVideoReceiver(
+    source.transport,
+    "a",
+    () => {
+      draws.a++;
+    },
+    () => {},
+    assert.fail,
+  );
+  const b = new DesktopVideoReceiver(
+    source.transport,
+    "b",
+    () => {
+      draws.b++;
+    },
+    () => {},
+    assert.fail,
+  );
+  try {
+    await a.configure(config());
+    await b.configure(config());
+    source.incoming.enqueue(group(1, () => {}, true, "a"));
+    source.incoming.enqueue(group(1, () => {}, true, "b"));
+    await tick();
+    assert.deepEqual(draws, { a: 1, b: 1 });
+    a.prepareConfiguration();
+    source.incoming.enqueue(group(1, () => {}, true, "a", 2));
+    source.incoming.enqueue(group(1, () => {}, true, "b", 2));
+    await tick();
+    assert.deepEqual(draws, { a: 1, b: 2 });
+    await a.configure(config());
+    await tick();
+    assert.deepEqual(draws, { a: 2, b: 2 });
+  } finally {
+    a.close();
+    b.close();
+    restore();
     if (previous) Object.defineProperty(globalThis, "Worker", previous);
     else Reflect.deleteProperty(globalThis, "Worker");
   }

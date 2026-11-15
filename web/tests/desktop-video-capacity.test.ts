@@ -166,6 +166,7 @@ async function setup(initialConfiguration = true) {
   if (initialConfiguration) await engine.configure(config);
   function group(id: number) {
     let media!: ReadableStreamDefaultController<Uint8Array>;
+    let canceled = false;
     incoming.enqueue(
       new ReadableStream<Uint8Array>({
         start(c) {
@@ -173,6 +174,7 @@ async function setup(initialConfiguration = true) {
         },
         cancel() {
           counts.cancels++;
+          canceled = true;
         },
       }),
     );
@@ -194,10 +196,12 @@ async function setup(initialConfiguration = true) {
         const bytes = new Uint8Array(body.length + 4);
         new DataView(bytes.buffer).setUint32(0, body.length);
         bytes.set(body, 4);
+        if (canceled) return false;
         media.enqueue(bytes);
+        return true;
       },
       close() {
-        media.close();
+        if (!canceled) media.close();
       },
     };
   }
@@ -435,7 +439,7 @@ test("old track generation cannot admit first object during pending reconfigurat
     };
     try {
       const configuring = f.engine.configure(config);
-      g.feed(0);
+      assert.equal(g.feed(0), false);
       await tick();
       await f.engine.closedStreams();
       assert.equal(f.counts.submits, 0);
@@ -460,7 +464,7 @@ test("completed same-epoch reconfiguration rejects an old unbound stream", () =>
     const old = f.group(1);
     await tick();
     await f.engine.configure(config);
-    old.feed(0);
+    assert.equal(old.feed(0), false);
     old.close();
     await tick();
     await f.engine.closedStreams();
@@ -481,7 +485,7 @@ test("startup exception does not span a second applied configuration", () =>
     await tick();
     await f.engine.configure(config);
     await f.engine.configure(config);
-    old.feed(0);
+    assert.equal(old.feed(0), false);
     old.close();
     await tick();
     await f.engine.closedStreams();
@@ -501,7 +505,7 @@ test("empty tracks after initialization do not reopen the startup exception", ()
     const old = f.group(1);
     await tick();
     await f.engine.configure(config);
-    old.feed(0);
+    assert.equal(old.feed(0), false);
     old.close();
     await tick();
     await f.engine.closedStreams();

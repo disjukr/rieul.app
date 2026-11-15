@@ -1,7 +1,10 @@
 import type { DesktopConfiguration } from "./generated/rpc.ts";
 import type { DesktopVideoStats } from "./desktop-video-engine.ts";
 
-import { desktopMediaPort } from "./desktop-media-router.ts";
+import {
+  desktopMediaPort,
+  desktopMediaRevision,
+} from "./desktop-media-router.ts";
 
 export class WorkerVideoReceiver {
   private mediaPort?: ReturnType<typeof desktopMediaPort>;
@@ -10,10 +13,12 @@ export class WorkerVideoReceiver {
   private closed = false;
   private reader?: ReadableStreamDefaultReader<ReadableStream<Uint8Array>>;
   private generation = 0;
+  private configurationMediaRevision?: number;
   private sequence = 0;
   private streams = new Set<number>();
   private pending?: {
     id: number;
+    mediaRevision: number;
     resolve: () => void;
     reject: (error: Error) => void;
   };
@@ -70,7 +75,11 @@ export class WorkerVideoReceiver {
         if (data.type === "frame") {
           const frame = data.frame as VideoFrame;
           try {
-            if (!this.closed && data.generation === this.generation) {
+            if (
+              !this.closed &&
+              data.generation === this.generation &&
+              data.mediaRevision === this.mediaPort?.revision()
+            ) {
               const start = performance.now();
               if (this.render(data.viewportId, frame) !== false)
                 this.stats({
@@ -93,16 +102,30 @@ export class WorkerVideoReceiver {
         if (data.type === "configured" && this.pending?.id === data.id) {
           const pending = this.pending!;
           this.pending = undefined;
-          data.error
-            ? pending.reject(new Error(data.error))
-            : pending.resolve();
+          if (data.error) pending.reject(new Error(data.error));
+          else {
+            this.configurationMediaRevision = pending.mediaRevision;
+            pending.resolve();
+          }
         }
         if (data.type === "streamDone") this.streams.delete(data.id);
-        if (data.type === "stats" && data.generation === this.generation)
+        if (
+          data.type === "stats" &&
+          data.generation === this.generation &&
+          data.mediaRevision === this.mediaPort?.revision()
+        )
           this.stats(data.stats);
-        if (data.type === "codecFailed" && data.generation === this.generation)
+        if (
+          data.type === "codecFailed" &&
+          data.generation === this.generation &&
+          data.mediaRevision === this.mediaPort?.revision()
+        )
           this.codecFailed?.(data.codec);
-        if (data.type === "failed") this.failed(data.message);
+        if (
+          data.type === "failed" &&
+          data.mediaRevision === this.mediaPort?.revision()
+        )
+          this.failed(data.message);
       };
       this.worker.onerror = (event) => {
         const error = new Error(
@@ -118,7 +141,7 @@ export class WorkerVideoReceiver {
   }
   start(): void {
     if (this.closed || this.reader) return;
-    this.mediaPort = desktopMediaPort(this.transport, this.attachId);
+    this.mediaPort ??= desktopMediaPort(this.transport, this.attachId);
     this.reader =
       this.mediaPort.transport.incomingUnidirectionalStreams.getReader();
     void this.receive();
@@ -135,11 +158,20 @@ export class WorkerVideoReceiver {
           void next.value.cancel().catch(() => {});
           continue;
         }
+        const mediaRevision = desktopMediaRevision(next.value);
+        if (
+          mediaRevision === undefined ||
+          mediaRevision !== this.mediaPort!.revision()
+        ) {
+          void next.value.cancel().catch(() => {});
+          continue;
+        }
         const id = ++this.sequence;
         try {
-          this.worker.postMessage({ type: "stream", id, stream: next.value }, [
-            next.value,
-          ]);
+          this.worker.postMessage(
+            { type: "stream", id, stream: next.value, mediaRevision },
+            [next.value],
+          );
           this.streams.add(id);
         } catch (error) {
           void next.value.cancel().catch(() => {});
@@ -155,18 +187,35 @@ export class WorkerVideoReceiver {
       } catch {}
     }
   }
-  async configure(configuration: DesktopConfiguration): Promise<void> {
+  async configure(
+    configuration: DesktopConfiguration,
+    mediaRevision?: number,
+  ): Promise<void> {
     await this.ready;
     if (this.closed) return;
     this.pending?.resolve();
     const id = ++this.generation;
+    this.mediaPort ??= desktopMediaPort(this.transport, this.attachId);
+    const revision =
+      mediaRevision ??
+      (this.configurationMediaRevision === undefined
+        ? this.mediaPort.revision()
+        : this.mediaPort.advance());
     return new Promise((resolve, reject) => {
-      this.pending = { id, resolve, reject };
-      this.worker.postMessage({ type: "configure", id, configuration });
+      this.pending = { id, mediaRevision: revision, resolve, reject };
+      this.worker.postMessage({
+        type: "configure",
+        id,
+        configuration,
+        mediaRevision: revision,
+      });
     });
   }
   requestRefresh(viewportId: string): void {
-    if (!this.closed)
+    if (
+      !this.closed &&
+      this.configurationMediaRevision === this.mediaPort?.revision()
+    )
       this.worker.postMessage({
         type: "refresh",
         generation: this.generation,
