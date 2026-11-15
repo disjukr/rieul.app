@@ -80,8 +80,8 @@ test("catalog fits mixed-DPI negative and vertical host layout through narrow re
       .poll(async () => {
         const container = (await nav.boundingBox())!;
         const expectedScale = Math.min(
-          container.width / 3000,
-          container.height / 1920,
+          (container.width - 8) / 3000,
+          (container.height - 8) / 1920,
         );
         return Math.abs(
           (await first.boundingBox())!.width - expectedScale * 1920,
@@ -190,10 +190,17 @@ test("wide catalog fills available width and mobile list immediately follows the
   });
   await expect
     .poll(async () => (await tile.boundingBox())!.width)
-    .toBeCloseTo(600, 0);
+    .toBeCloseTo(596, 0);
   await expect(
     page.getByRole("navigation", { name: "Monitor list", exact: true }),
   ).toHaveCount(0);
+  for (const colorScheme of ["light", "dark"] as const) {
+    await page.emulateMedia({ colorScheme });
+    await expect(nav).toHaveCSS("background-color", "rgb(0, 0, 0)");
+  }
+  const wideStage = (await nav.boundingBox())!;
+  const wideTile = (await tile.boundingBox())!;
+  expect(wideTile.x - wideStage.x).toBeCloseTo(4, 1);
   const canvas = await tile.locator("canvas").elementHandle();
   await page.setViewportSize({ width: 390, height: 700 });
   const list = page.getByRole("navigation", {
@@ -203,12 +210,16 @@ test("wide catalog fills available width and mobile list immediately follows the
   await expect(list).toBeVisible();
   await expect
     .poll(async () => (await nav.boundingBox())!.height)
-    .toBeCloseTo((390 * 180) / 640, 0);
+    .toBeCloseTo((382 * 180) / 640 + 8, 0);
   const [stage, rows] = await Promise.all([
     nav.boundingBox(),
     list.boundingBox(),
   ]);
   expect(rows!.y).toBeCloseTo(stage!.y + stage!.height, 1);
+  const mobileTile = (await tile.boundingBox())!;
+  expect(mobileTile.x - stage!.x).toBeCloseTo(4, 1);
+  expect(mobileTile.y - stage!.y).toBeCloseTo(4, 1);
+  await expect(list).not.toHaveCSS("background-color", "rgb(0, 0, 0)");
   expect(rows!.height).toBeGreaterThanOrEqual(88);
   expect(rows!.y + rows!.height).toBeLessThan(700);
   await expect(nav.locator("canvas")).toHaveCount(2);

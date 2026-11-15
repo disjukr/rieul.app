@@ -454,7 +454,7 @@ function DesktopCatalogView(props: { onSelect: (displayId: string) => void }) {
           narrow()
             ? {
                 flex: "0 0 auto",
-                height: `${Math.min((paneSize().width * arrangement().height) / arrangement().width, Math.max(80, paneSize().height * 0.65))}px`,
+                height: `${Math.min((Math.max(0, paneSize().width - 8) * arrangement().height) / arrangement().width + 8, Math.max(80, paneSize().height * 0.65))}px`,
               }
             : undefined
         }
@@ -788,6 +788,7 @@ namespace styles {
   });
   export const catalog = style({
     position: "relative",
+    backgroundColor: "#000",
     flex: "1 1 0",
     minWidth: "0",
     minHeight: "0",
