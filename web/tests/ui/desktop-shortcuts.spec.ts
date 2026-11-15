@@ -116,7 +116,7 @@ test("moving a real Workbench Screen content route preserves selected display an
   await expect(
     first.getByRole("navigation", { name: "Displays" }),
   ).toBeVisible();
-  await expect(first.getByLabel("Display second", { exact: true })).toHaveCount(
-    0,
-  );
+  await expect(
+    first.locator('canvas[aria-label="Display second"]'),
+  ).toHaveCount(0);
 });
