@@ -124,6 +124,7 @@ impl InputState {
     }
 }
 pub struct MacDesktop {
+    windows: Result<crate::windows::NativeWindows, Error>,
     shutdown_uncertain: std::sync::atomic::AtomicBool,
     tracks: Mutex<BTreeMap<(u64, u64), Arc<Mutex<Capture>>>>,
     input: Mutex<InputState>,
@@ -136,6 +137,7 @@ impl MacDesktop {
             return Err(Error::Unauthorized);
         }
         Ok(Self {
+            windows: crate::windows::NativeWindows::new(),
             shutdown_uncertain: Default::default(),
             tracks: Mutex::new(BTreeMap::new()),
             input: Mutex::new(InputState::default()),
@@ -360,6 +362,9 @@ fn hevc_fits(actual: &str, advertised: &str) -> bool {
 }
 
 impl Backend for MacDesktop {
+    fn supports_window_snapshot(&self) -> bool { true }
+    fn window_snapshot(&self) -> Result<Vec<WindowDetail>, Error> { self.windows.as_ref().map_err(|e| *e)?.snapshot() }
+
     fn input_sources(&self) -> Result<DesktopInputSources, Error> {
         self.native_input_sources(None)
     }

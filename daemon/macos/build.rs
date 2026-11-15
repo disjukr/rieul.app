@@ -4,6 +4,7 @@ fn main() {
     }
     cc::Build::new()
         .file("native/desktop.m")
+        .file("native/windows.m")
         .flag("-fobjc-arc")
         .flag("-mmacosx-version-min=13.0")
         .compile("rieul_desktop");
@@ -22,4 +23,5 @@ fn main() {
         println!("cargo:rustc-link-lib=framework={framework}");
     }
     println!("cargo:rerun-if-changed=native/desktop.m");
+    println!("cargo:rerun-if-changed=native/windows.m");
 }

@@ -76,8 +76,8 @@ const rustBaseline = {
     "72af8be28ae16e56d51180ab97c92e6884d7f25a810570e02e7bacf8b3b61109",
   // Additive input-source and read-only display inventory RPCs; existing tags unchanged.
   rpc: "59760b56f18b55ea3ca9b297e522216ed396f5937d424de1d2620c78e7b4221b",
-  // Imported RPCs and input-source private commands; existing private tags unchanged.
-  ipc: "892f2dd7ecb23b2602acc772d830b3113070fcce0ac86a59fdc8fb828df73bc5",
+  // Additive WindowSnapshot and optional Ping/Done feature negotiation; existing tags unchanged.
+  ipc: "d6811bf5d8d289227a30414a9d632b77f8f1d977d08cce28c9bbcd08c538a205",
 };
 for (const [schema, hash] of Object.entries(rustBaseline))
   test(`Node Rust codegen preserves ${schema} baseline and is deterministic`, async () =>

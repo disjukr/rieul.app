@@ -5,6 +5,7 @@
 | native input and captures; EOF, timeout or malformed messages release them.
 
 import rieul.ipc.common { IpcProcError }
+import rieul.rpc.window { WindowDetail }
 import rieul.rpc.desktop {
   DesktopCapabilities, DesktopDisplay, DesktopEvent, DesktopInputEvent,
   DesktopViewport, DesktopTrack, DesktopQualityVerification, DesktopInputSources,
@@ -78,6 +79,9 @@ union UserDesktopCommand {
     @ id - 1
     track: DesktopTrack,
   ),
+  @ id - 12
+  WindowSnapshot(
+  ),
 }
 struct UserDesktopResponse {
   @ id - 1
@@ -103,6 +107,9 @@ union UserDesktopResult {
   ),
   @ id - 0
   Done(
+    @ id - 1
+    @ description - Present only on an explicit Ping by helpers supporting WindowSnapshot.
+    windowSnapshot?: bool,
   ),
   @ id - 1
   Capabilities(
@@ -123,6 +130,11 @@ union UserDesktopResult {
   Failed(
     @ id - 1
     code: string,
+  ),
+  @ id - 9
+  WindowSnapshot(
+    @ id - 1
+    rows: WindowDetail[],
   ),
 }
 struct UserDesktopFrame {

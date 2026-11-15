@@ -3,7 +3,7 @@
 use crate::maintenance::{WorkGate, WorkGuard};
 use rieul_daemon_core::generated::rpc::{
     DesktopControlAction, DesktopInputEvent, DesktopInputFrame, DesktopKeyboardMode,
-    DesktopQualityPolicy, DesktopTrack, DesktopViewport,
+    DesktopQualityPolicy, DesktopTrack, DesktopViewport, WindowDetail,
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -21,10 +21,13 @@ pub const PROFILE: u64 = 1;
 pub const MAX_FRAME: usize = 16 * 1024;
 pub const MAX_STREAM: usize = 8 * 1024 * 1024;
 pub const MAX_VIEWPORTS: usize = 8;
+pub const MAX_WINDOW_ROWS: usize = 512;
+pub const MAX_WINDOW_TITLE_BYTES: usize = 512;
+pub const MAX_WINDOW_ID_BYTES: usize = 128;
 pub const LEASE_MS: u64 = 15_000;
 const MAX_SAFE: u64 = 9_007_199_254_740_991;
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Error {
     Unauthorized,
     NotFound,
@@ -824,6 +827,15 @@ mod viewport_tests {
 /// Platform adapters return only features actually implemented and OS-authorized.
 /// The default server has no adapter; constructing a fixture never touches an OS desktop.
 pub trait Backend: Send + Sync {
+    /// Whether this native helper implements promptless window metadata.
+    fn supports_window_snapshot(&self) -> bool {
+        false
+    }
+    /// The current desktop login's read-only metadata; no capture or input.
+    fn window_snapshot(&self) -> Result<Vec<WindowDetail>, Error> {
+        Err(Error::Unsupported)
+    }
+
     /// Current host session only. Never enables an input source or prompts for access.
     fn input_sources(&self) -> Result<rieul_daemon_core::generated::rpc::DesktopInputSources, Error> {
         Err(Error::Unsupported)

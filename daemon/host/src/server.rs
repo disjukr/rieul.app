@@ -3389,12 +3389,30 @@ async fn stream_process_modules_subscription(
     }
 }
 
+// Poll cancellation first, including when a timer or native scan is already ready.
+// Keep service calls inside the operation future so an already-stopped peer does not start a scan.
+async fn window_subscription_step<T>(
+    stopped: impl Future,
+    operation: impl Future<Output = T>,
+) -> Option<T> {
+    tokio::select! {
+        biased;
+        _ = stopped => None,
+        result = operation => Some(result),
+    }
+}
+
 async fn stream_windows_subscription(
     send: &mut web_transport_quinn::SendStream,
     windows: SharedWindowService,
     proc_id: u64,
 ) -> Result<()> {
-    let details = match windows.windows().await {
+    let Some(snapshot) =
+        window_subscription_step(send.stopped(), async { windows.windows().await }).await
+    else {
+        return Ok(());
+    };
+    let details = match snapshot {
         Ok(details) => details,
         Err(err) => {
             write_reqres_message(send, stream_service_error_message(proc_id, err)).await?;
@@ -3410,8 +3428,15 @@ async fn stream_windows_subscription(
 
     let mut interval = tokio::time::interval(WINDOWS_SUBSCRIPTION_POLL_INTERVAL);
     loop {
-        interval.tick().await;
-        let next_details = match windows.windows().await {
+        let Some(snapshot) = window_subscription_step(send.stopped(), async {
+            interval.tick().await;
+            windows.windows().await
+        })
+        .await
+        else {
+            return Ok(());
+        };
+        let next_details = match snapshot {
             Ok(details) => details,
             Err(err) => {
                 write_reqres_message(send, stream_service_error_message(proc_id, err)).await?;
@@ -3432,7 +3457,21 @@ async fn stream_window_detail_subscription(
     proc_id: u64,
     window_id: String,
 ) -> Result<()> {
-    let Some(mut detail) = window_detail_snapshot(&windows, &window_id).await? else {
+    let Some(snapshot) = window_subscription_step(send.stopped(), async {
+        window_detail_snapshot(&windows, &window_id).await
+    })
+    .await
+    else {
+        return Ok(());
+    };
+    let snapshot = match snapshot {
+        Ok(detail) => detail,
+        Err(err) => {
+            write_reqres_message(send, stream_service_error_message(proc_id, err)).await?;
+            return Ok(());
+        }
+    };
+    let Some(mut detail) = snapshot else {
         write_reqres_message(
             send,
             stream_error_message(proc_id, "not_found", "window not found"),
@@ -3454,8 +3493,22 @@ async fn stream_window_detail_subscription(
 
     let mut interval = tokio::time::interval(WINDOWS_SUBSCRIPTION_POLL_INTERVAL);
     loop {
-        interval.tick().await;
-        let Some(next_detail) = window_detail_snapshot(&windows, &window_id).await? else {
+        let Some(snapshot) = window_subscription_step(send.stopped(), async {
+            interval.tick().await;
+            window_detail_snapshot(&windows, &window_id).await
+        })
+        .await
+        else {
+            return Ok(());
+        };
+        let snapshot = match snapshot {
+            Ok(detail) => detail,
+            Err(err) => {
+                write_reqres_message(send, stream_service_error_message(proc_id, err)).await?;
+                return Ok(());
+            }
+        };
+        let Some(next_detail) = snapshot else {
             write_reqres_message(
                 send,
                 stream_chunk_payload_message(WindowDetailEvent::Closed.encode()),
@@ -5957,6 +6010,108 @@ mod tests {
         CompletePairingRequest, CreateNodeOp, DeleteMode, FsEntryKind, ReadFileReq,
         StartPairingRequest, WriteFileResult, WriteFileStart,
     };
+
+    struct TestWindowService {
+        scans: AtomicU64,
+        unavailable: bool,
+    }
+
+    impl WindowService for TestWindowService {
+        fn windows(&self) -> BoxFutureResult<'_, Vec<WindowDetail>> {
+            self.scans.fetch_add(1, Ordering::SeqCst);
+            Box::pin(async {
+                if self.unavailable {
+                    Err(ServiceError::OperationFailed("helper unavailable".into()))
+                } else {
+                    Ok(Vec::new())
+                }
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn window_subscription_cancellation_prevents_even_ready_scans() {
+        let service = TestWindowService {
+            scans: AtomicU64::new(0),
+            unavailable: false,
+        };
+        let snapshot = window_subscription_step(std::future::ready(()), async {
+            service.windows().await
+        })
+        .await;
+        assert!(snapshot.is_none());
+        assert_eq!(service.scans.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn window_subscription_cancels_while_idle_without_another_scan() {
+        let service = TestWindowService {
+            scans: AtomicU64::new(0),
+            unavailable: false,
+        };
+        let first = service.windows().await.unwrap();
+        assert!(windows_patch(&window_info_rows(&first), &window_info_rows(&first)).is_none());
+        let snapshot = window_subscription_step(async { tokio::task::yield_now().await }, async {
+            tokio::time::sleep(Duration::from_secs(60)).await;
+            service.windows().await
+        })
+        .await;
+        assert!(snapshot.is_none());
+        assert_eq!(service.scans.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn window_subscription_cancels_an_in_flight_operation() {
+        let started = tokio::sync::Notify::new();
+        let snapshot = window_subscription_step(started.notified(), async {
+            started.notify_one();
+            std::future::pending::<()>().await
+        })
+        .await;
+        assert!(snapshot.is_none());
+    }
+
+    #[tokio::test]
+    async fn window_detail_distinguishes_missing_from_service_unavailable() {
+        let missing: SharedWindowService = Arc::new(TestWindowService {
+            scans: AtomicU64::new(0),
+            unavailable: false,
+        });
+        assert!(window_detail_snapshot(&missing, "missing")
+            .await
+            .unwrap()
+            .is_none());
+        let unavailable: SharedWindowService = Arc::new(TestWindowService {
+            scans: AtomicU64::new(0),
+            unavailable: true,
+        });
+        let err = window_detail_snapshot(&unavailable, "missing")
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(&err, ServiceError::OperationFailed(message) if message == "helper unavailable")
+        );
+        let response = stream_service_error_message(ProcId::SubscribeWindowDetail.as_u64(), err);
+        assert!(matches!(
+            response,
+            ReqResMessage::ResponseStreamErrorEnd { .. }
+        ));
+        assert_eq!(response.error_kind(), Some(RpcErrorKind::Method));
+    }
+
+    #[test]
+    fn window_subscription_errors_remain_typed_terminal_errors() {
+        for proc_id in [ProcId::SubscribeWindows, ProcId::SubscribeWindowDetail] {
+            for err in [
+                ServiceError::PermissionDenied,
+                ServiceError::OperationFailed("helper unavailable".into()),
+            ] {
+                let response = stream_service_error_message(proc_id.as_u64(), err);
+                assert!(matches!(response, ReqResMessage::ResponseStreamErrorEnd { .. }));
+                assert_eq!(response.error_kind(), Some(RpcErrorKind::Method));
+            }
+        }
+    }
 
     #[test]
     fn creates_startup_config_when_missing() {

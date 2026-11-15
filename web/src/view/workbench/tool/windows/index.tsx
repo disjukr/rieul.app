@@ -13,11 +13,13 @@ import {
   KeyRound,
   Loader2,
 } from "../../../../solid/icons.tsx";
+import { callServerStream, RpcError } from "../../../../protocol/client.ts";
 import {
-  subscribeWindowDetail,
-  subscribeWindows,
-} from "../../../../protocol/generated/client.ts";
-import { ProcId, type WindowInfo } from "../../../../protocol/generated/rpc.ts";
+  ProcId,
+  subscribeWindowDetailProc,
+  subscribeWindowsProc,
+  type WindowInfo,
+} from "../../../../protocol/generated/rpc.ts";
 import { machineModalBunja } from "../../../../state/machine-modal.ts";
 import { machineStoreBunja } from "../../../../state/machine-store.ts";
 import { rpcSessionBunja } from "../../../../state/rpc-session.ts";
@@ -34,7 +36,7 @@ import {
 } from "../../../ui/property-list.tsx";
 interface WindowsState {
   message?: string;
-  phase: "idle" | "loading" | "ready" | "error" | "unsupported";
+  phase: "idle" | "loading" | "ready" | "error" | "unavailable";
   rows: WindowInfo[];
 }
 interface WindowsRpcSession {
@@ -43,7 +45,7 @@ interface WindowsRpcSession {
 interface WindowDetailState {
   detail?: WindowDetail;
   message?: string;
-  phase: "idle" | "loading" | "ready" | "closed" | "error" | "unsupported";
+  phase: "idle" | "loading" | "ready" | "error" | "unavailable";
 }
 
 export function WindowsTool() {
@@ -164,9 +166,8 @@ function WindowsBreadcrumb(props: WindowsBreadcrumbProps) {
                 label:
                   props.selectedWindowId === undefined
                     ? "Overview"
-                    : props.selectedWindowId,
+                    : "Details",
                 muted: props.selectedWindowId === undefined,
-                title: props.selectedWindowId,
               },
             ]}
           />
@@ -227,24 +228,24 @@ function WindowListView(props: WindowListViewProps) {
         rowsRef.current = [];
         setState({
           message: "This daemon does not support window subscriptions.",
-          phase: "unsupported",
+          phase: "unavailable",
           rows: [],
         });
         return;
       }
-      let cancelled = false;
-      let iterator: AsyncGenerator<WindowsTableEvent> | undefined;
-      setState((current) => ({
-        ...current,
-        phase: "loading",
-      }));
+      const controller = new AbortController();
+      rowsRef.current = [];
+      setState({ phase: "loading", rows: [] });
       void (async () => {
         try {
           const transport = await snapshotRpcSession.webTransport();
-          if (cancelled) return;
-          iterator = subscribeWindows(transport);
-          for await (const event of iterator) {
-            if (cancelled) return;
+          for await (const event of callServerStream(
+            transport,
+            subscribeWindowsProc,
+            undefined,
+            controller.signal,
+          )) {
+            if (controller.signal.aborted) return;
             const rows = applyWindowsEvent(rowsRef.current, event);
             rowsRef.current = rows;
             setState({
@@ -252,8 +253,15 @@ function WindowListView(props: WindowListViewProps) {
               rows,
             });
           }
+          if (controller.signal.aborted) return;
+          rowsRef.current = [];
+          setState({
+            message: "The window list is no longer available.",
+            phase: "unavailable",
+            rows: [],
+          });
         } catch (err) {
-          if (cancelled) return;
+          if (controller.signal.aborted) return;
           rowsRef.current = [];
           setState({
             message: err instanceof Error ? err.message : String(err),
@@ -262,16 +270,13 @@ function WindowListView(props: WindowListViewProps) {
           });
         }
       })();
-      return () => {
-        cancelled = true;
-        void iterator?.return(undefined);
-      };
+      return () => controller.abort();
     },
   );
   return (
     <>
       {(() => {
-        if (state().phase === "loading" || props.daemonInfoPhase !== "ready") {
+        if (state().phase === "loading" || state().phase === "idle") {
           return (
             <section {...styles.emptyWorkspace()}>
               <Loader2 size={24} className={styles.loader2().class} />
@@ -279,12 +284,12 @@ function WindowListView(props: WindowListViewProps) {
             </section>
           );
         }
-        if (state().phase === "unsupported" || state().phase === "error") {
+        if (state().phase === "unavailable" || state().phase === "error") {
           return (
             <section {...styles.emptyWorkspace()}>
               <AppWindow size={28} />
               <h2>
-                {state().phase === "unsupported"
+                {state().phase === "unavailable"
                   ? "Windows unavailable"
                   : "Failed to load windows"}
               </h2>
@@ -403,45 +408,47 @@ function WindowDetailView(props: WindowDetailViewProps) {
       if (!snapshotSupported) {
         setState({
           message: "This daemon does not support window detail subscriptions.",
-          phase: "unsupported",
+          phase: "unavailable",
         });
         return;
       }
-      let cancelled = false;
-      let iterator: AsyncGenerator<WindowDetailEvent> | undefined;
+      const controller = new AbortController();
       setState({
         phase: "loading",
       });
       void (async () => {
         try {
           const transport = await snapshotRpcSession.webTransport();
-          if (cancelled) return;
-          iterator = subscribeWindowDetail(transport, {
-            windowId: snapshotWindowId,
-          });
-          for await (const event of iterator) {
-            if (cancelled) return;
+          for await (const event of callServerStream(
+            transport,
+            subscribeWindowDetailProc,
+            { windowId: snapshotWindowId },
+            controller.signal,
+          )) {
+            if (controller.signal.aborted) return;
             setState((current) => applyWindowDetailEvent(current, event));
             if (event.type === "closed") return;
           }
+          if (!controller.signal.aborted) setState(windowNoLongerAvailable());
         } catch (err) {
-          if (cancelled) return;
-          setState({
-            message: err instanceof Error ? err.message : String(err),
-            phase: "error",
-          });
+          if (controller.signal.aborted) return;
+          setState(
+            err instanceof RpcError && err.code === "notFound"
+              ? windowNoLongerAvailable()
+              : {
+                  message: err instanceof Error ? err.message : String(err),
+                  phase: "error",
+                },
+          );
         }
       })();
-      return () => {
-        cancelled = true;
-        void iterator?.return(undefined);
-      };
+      return () => controller.abort();
     },
   );
   return (
     <>
       {(() => {
-        if (state().phase === "loading" || props.daemonInfoPhase !== "ready") {
+        if (state().phase === "loading" || state().phase === "idle") {
           return (
             <section {...styles.emptyWorkspace()}>
               <Loader2 size={24} className={styles.loader2().class} />
@@ -449,12 +456,12 @@ function WindowDetailView(props: WindowDetailViewProps) {
             </section>
           );
         }
-        if (state().phase === "unsupported" || state().phase === "error") {
+        if (state().phase === "unavailable" || state().phase === "error") {
           return (
             <section {...styles.emptyWorkspace()}>
               <AppWindow size={28} />
               <h2>
-                {state().phase === "unsupported"
+                {state().phase === "unavailable"
                   ? "Window detail unavailable"
                   : "Failed to load window"}
               </h2>
@@ -477,9 +484,7 @@ function WindowDetailView(props: WindowDetailViewProps) {
               onOpenProcess={props.onOpenProcess}
             />
             <footer {...styles.windowsFooter()}>
-              {state().phase === "closed"
-                ? "Window closed"
-                : state().detail!.info.windowId}
+              {state().detail!.info.windowId}
             </footer>
           </div>
         );
@@ -502,7 +507,7 @@ function WindowDetailSummary(props: WindowDetailSummaryProps) {
               <PropertyList>
                 <WindowDetailItem
                   label="Title"
-                  value={windowTitle(_value().info)}
+                  value={_value().info.title?.trim() || "Unknown"}
                 />
                 <WindowDetailItem
                   label="Window ID"
@@ -625,7 +630,7 @@ function applyWindowDetailEvent(
               ...current.detail,
               info: event.info,
             },
-            phase: current.phase === "closed" ? "closed" : "ready",
+            phase: "ready",
           }
         : current;
     case "stateChanged":
@@ -635,7 +640,7 @@ function applyWindowDetailEvent(
               ...current.detail,
               state: event.state,
             },
-            phase: current.phase === "closed" ? "closed" : "ready",
+            phase: "ready",
           }
         : current;
     case "boundsChanged":
@@ -645,15 +650,18 @@ function applyWindowDetailEvent(
               ...current.detail,
               bounds: event.bounds,
             },
-            phase: current.phase === "closed" ? "closed" : "ready",
+            phase: "ready",
           }
         : current;
     case "closed":
-      return {
-        ...current,
-        phase: "closed",
-      };
+      return windowNoLongerAvailable();
   }
+}
+function windowNoLongerAvailable(): WindowDetailState {
+  return {
+    message: "Return to Windows to refresh the list.",
+    phase: "unavailable",
+  };
 }
 function applyWindowsEvent(
   currentRows: WindowInfo[],
@@ -690,7 +698,12 @@ function compareOptionalNumber(
   return left - right;
 }
 function windowTitle(window: WindowInfo): string {
-  return window.title || window.windowId;
+  return (
+    window.title?.trim() ||
+    (window.processId === undefined
+      ? "Untitled window"
+      : `Untitled window (PID ${window.processId})`)
+  );
 }
 function booleanLabel(value: boolean | undefined): string {
   if (value === undefined) return "Unknown";

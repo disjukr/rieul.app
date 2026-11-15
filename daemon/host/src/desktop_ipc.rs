@@ -1,6 +1,9 @@
 //! Bounded private user-session channel. OS peer authentication belongs to connectors.
 //! Recovery is explicit and generation fenced; only uncertain input releases cross generations.
-use crate::desktop::{Backend, EncodedFrame, Error, MAX_FRAME, MAX_STREAM, MAX_VIEWPORTS, PROFILE};
+use crate::desktop::{
+    Backend, EncodedFrame, Error, MAX_FRAME, MAX_STREAM, MAX_VIEWPORTS, MAX_WINDOW_ID_BYTES,
+    MAX_WINDOW_ROWS, MAX_WINDOW_TITLE_BYTES, PROFILE,
+};
 use ipc::{
     UserDesktopCommand, UserDesktopFrame, UserDesktopRequest, UserDesktopResponse,
     UserDesktopResult,
@@ -19,6 +22,26 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 const REQUEST_LIMIT: usize = 64 * 1024;
 const RESPONSE_LIMIT: usize = 17 * 1024 * 1024;
 const STREAM: u64 = 1;
+const DONE: UserDesktopResult = UserDesktopResult::Done { window_snapshot: None };
+
+fn validate_windows(rows: &[WindowDetail]) -> Result<(), Error> {
+    let mut ids = std::collections::BTreeSet::new();
+    if rows.len() > MAX_WINDOW_ROWS {
+        return Err(Error::Limit);
+    }
+    for row in rows {
+        let id = &row.info.window_id;
+        if id.len() > MAX_WINDOW_ID_BYTES
+            || row.info.title.as_ref().is_some_and(|t| t.len() > MAX_WINDOW_TITLE_BYTES)
+        {
+            return Err(Error::Limit);
+        }
+        if id.is_empty() || !ids.insert(id) {
+            return Err(Error::Invalid);
+        }
+    }
+    Ok(())
+}
 pub trait Channel: AsyncRead + AsyncWrite + Send + Unpin {}
 impl<T: AsyncRead + AsyncWrite + Send + Unpin> Channel for T {}
 pub type Connection = Box<dyn Channel>;
@@ -78,6 +101,21 @@ fn result(value: Result<UserDesktopResult, Error>) -> UserDesktopResult {
 }
 fn execute(backend: &dyn Backend, command: UserDesktopCommand) -> Result<UserDesktopResult, Error> {
     Ok(match command {
+        UserDesktopCommand::WindowSnapshot => {
+            if !backend.supports_window_snapshot() {
+                return Err(Error::Unsupported);
+            }
+            let rows = backend.window_snapshot()?;
+            validate_windows(&rows)?;
+            UserDesktopResult::WindowSnapshot {
+                rows: rows.into_iter()
+                    .map(|row| {
+                        let bytes = row.try_encode().map_err(|_| Error::Invalid)?;
+                        ipc::WindowDetail::decode(&bytes).map_err(|_| Error::Invalid)
+                    })
+                    .collect::<Result<_, _>>()?,
+            }
+        }
         UserDesktopCommand::InputSources => UserDesktopResult::InputSources {
             value: ipc::DesktopInputSources::decode(&backend.input_sources()?.encode()).map_err(|_| Error::Invalid)?,
         },
@@ -98,7 +136,7 @@ fn execute(backend: &dyn Backend, command: UserDesktopCommand) -> Result<UserDes
                 return Err(Error::Invalid);
             }
             backend.recover_input(&keys, &buttons)?;
-            UserDesktopResult::Done
+            DONE
         }
         UserDesktopCommand::ProbeVideo { track } => {
             let track = DesktopTrack::decode(&track.encode()).map_err(|_| Error::Invalid)?;
@@ -112,7 +150,9 @@ fn execute(backend: &dyn Backend, command: UserDesktopCommand) -> Result<UserDes
                 .map_err(|_| Error::Invalid)?,
             }
         }
-        UserDesktopCommand::Ping => UserDesktopResult::Done,
+        UserDesktopCommand::Ping => UserDesktopResult::Done {
+            window_snapshot: backend.supports_window_snapshot().then_some(true),
+        },
         UserDesktopCommand::Capabilities => UserDesktopResult::Capabilities {
             value: ipc::DesktopCapabilities::decode(&backend.capabilities().encode())
                 .map_err(|_| Error::Invalid)?,
@@ -136,12 +176,12 @@ fn execute(backend: &dyn Backend, command: UserDesktopCommand) -> Result<UserDes
                 .map(|v| DesktopViewport::decode(&v.encode()).map_err(|_| Error::Invalid))
                 .transpose()?;
             backend.input_viewport(&event, viewport.as_ref())?;
-            UserDesktopResult::Done
+            DONE
         }
         UserDesktopCommand::EndTrack { track } => {
             backend
                 .end_track(&DesktopTrack::decode(&track.encode()).map_err(|_| Error::Invalid)?)?;
-            UserDesktopResult::Done
+            DONE
         }
         UserDesktopCommand::StreamGroup { .. } => return Err(Error::Unsupported),
     })
@@ -191,6 +231,7 @@ pub async fn serve_until<S: Channel + 'static>(
         BTreeMap::<(u64, u64), (ipc::DesktopTrack, Arc<tokio::sync::Mutex<()>>)>::new();
     let mut groups = tokio::task::JoinSet::new();
     let mut probes = tokio::task::JoinSet::new();
+    let mut snapshots = tokio::task::JoinSet::new();
     let outcome = async {
         loop {
             let message = tokio::select! {
@@ -210,13 +251,14 @@ pub async fn serve_until<S: Channel + 'static>(
             if matches!(request.command, UserDesktopCommand::RecoverInput { .. }) && !initial_request { return Err(Error::Invalid); }
             if request.request_id == 0 {
                 if !matches!(request.command, UserDesktopCommand::Ping) { return Err(Error::Invalid); }
-                tx.send(UserDesktopResponse { request_id: 0, result: UserDesktopResult::Done }).await.map_err(|_| Error::Backend)?;
+                tx.send(UserDesktopResponse { request_id: 0, result: DONE }).await.map_err(|_| Error::Backend)?;
                 continue;
             }
             if request.request_id <= last { return Err(Error::Stale); }
             last = request.request_id;
             while groups.try_join_next().is_some() {}
             while probes.try_join_next().is_some() {}
+            while snapshots.try_join_next().is_some() {}
             if let UserDesktopCommand::StreamGroup { track, .. } = &request.command {
                 let key = (track.track_id, track.codec_epoch);
                 if tracks.len() >= 32 && !tracks.contains_key(&key) { return Err(Error::Limit); }
@@ -237,19 +279,24 @@ pub async fn serve_until<S: Channel + 'static>(
                                 count+=1; bytes=bytes.checked_add(f.data.len()).ok_or(Error::Limit)?;
                                 if count>240 || f.data.len()>4*1024*1024 || bytes>16*1024*1024 { return Err(Error::Limit); }
                                 frames.blocking_send(UserDesktopResponse {request_id:request.request_id,result:UserDesktopResult::GroupFrame {frame:UserDesktopFrame {timestamp_micros:f.timestamp_micros,keyframe:f.keyframe,data:f.data}}}).map_err(|_|Error::Stale)
-                            }).map(|_|UserDesktopResult::Done)))
+                            }).map(|_|DONE)))
                         } else { result(execute(backend.as_ref(), request.command)) }
                     }).await.unwrap_or(UserDesktopResult::Failed { code: "Backend".into() });
                     let _ = tx.send(UserDesktopResponse { request_id: request.request_id, result: response }).await;
                 });
-            } else if matches!(request.command, UserDesktopCommand::ProbeVideo { .. }) {
-                // A bounded synthetic probe must not block the IPC reader/input channel.
-                if !probes.is_empty() {
+            } else if matches!(request.command, UserDesktopCommand::ProbeVideo { .. } | UserDesktopCommand::WindowSnapshot) {
+                // Keep a blocking metadata scan separate from encoder probes and media/input.
+                let workers = if matches!(request.command, UserDesktopCommand::WindowSnapshot) {
+                    &mut snapshots
+                } else {
+                    &mut probes
+                };
+                if !workers.is_empty() {
                     tx.send(UserDesktopResponse { request_id: request.request_id, result: result(Err(Error::Busy)) }).await.map_err(|_| Error::Backend)?;
                     continue;
                 }
                 let backend = backend.clone(); let tx = tx.clone();
-                probes.spawn(async move {
+                workers.spawn(async move {
                     let response = tokio::task::spawn_blocking(move || result(execute(backend.as_ref(), request.command))).await
                         .unwrap_or(UserDesktopResult::Failed { code: "Backend".into() });
                     let _ = tx.send(UserDesktopResponse { request_id: request.request_id, result: response }).await;
@@ -281,6 +328,8 @@ pub async fn serve_until<S: Channel + 'static>(
     })
     .await
     .map_err(|_| Error::Backend)?;
+    // Metadata cannot own input/capture; never put its completion before release.
+    while snapshots.join_next().await.is_some() {}
     cleanup?;
     outcome
 }
@@ -316,6 +365,12 @@ struct Call {
     bytes: usize,
     overflow: bool,
 }
+impl Call {
+    fn is_window_request(&self) -> bool {
+        // Numbered Ping is the compatibility probe; heartbeat Ping is not queued.
+        matches!(self.command, UserDesktopCommand::Ping | UserDesktopCommand::WindowSnapshot)
+    }
+}
 /// Lazy connection; neither construction nor GUI startup captures the desktop.
 pub struct Proxy {
     sender: tokio::sync::mpsc::Sender<Call>,
@@ -323,6 +378,7 @@ pub struct Proxy {
     ready: Arc<std::sync::atomic::AtomicBool>,
     minimum_codec_epoch: Arc<std::sync::atomic::AtomicU64>,
     recovery: std::sync::Mutex<()>,
+    window_support: std::sync::Mutex<Option<(u64, bool)>>,
     uncertain_captures: std::sync::Mutex<Vec<(u64, crate::maintenance::WorkGuard)>>,
 }
 impl Proxy {
@@ -354,17 +410,19 @@ impl Proxy {
             ready,
             minimum_codec_epoch,
             recovery: Default::default(),
+            window_support: Default::default(),
             uncertain_captures: Default::default(),
         }
     }
     fn call(&self, command: UserDesktopCommand) -> Result<UserDesktopResult, Error> {
-        self.call_inner(command, false, 0)
+        self.call_inner(command, false, 0, self.generation())
     }
     fn call_inner(
         &self,
         command: UserDesktopCommand,
         recovery: bool,
         minimum_codec_epoch: u64,
+        generation: u64,
     ) -> Result<UserDesktopResult, Error> {
         let (tx, rx) = mpsc::sync_channel(1);
         self.sender
@@ -375,7 +433,7 @@ impl Proxy {
                     terminal: None,
                 },
                 deadline: Instant::now() + Duration::from_secs(3),
-                generation: self.generation(),
+                generation,
                 recovery,
                 minimum_codec_epoch,
                 frames: 0,
@@ -503,10 +561,15 @@ async fn proxy_worker(
                 match &call.command {
                     UserDesktopCommand::StreamGroup { track, .. } | UserDesktopCommand::EndTrack { track }
                         if track.codec_epoch < minimum_codec_epoch.load(std::sync::atomic::Ordering::SeqCst) => {
-                            let result = if matches!(call.command, UserDesktopCommand::EndTrack { .. }) { Ok(UserDesktopResult::Done) } else { Err(Error::Stale) };
+                            let result = if matches!(call.command, UserDesktopCommand::EndTrack { .. }) { Ok(DONE) } else { Err(Error::Stale) };
                             let _=call.reply.send(result); continue;
                         },
                     _=>(),
+                }
+                if call.is_window_request() && pending.values().any(Call::is_window_request)
+                {
+                    let _ = call.reply.try_send(Err(Error::Busy));
+                    continue;
                 }
                 next = next.checked_add(1).filter(|id| *id <= 9_007_199_254_740_991).ok_or(Error::Limit)?;
                 if Instant::now() >= call.deadline { let _=call.reply.send(Err(Error::Stale)); continue; }
@@ -527,7 +590,7 @@ async fn proxy_worker(
                     };
                     first_response=false;
                     let response = UserDesktopResponse::decode(&payload).map_err(|_| Error::Invalid)?;
-                    if response.request_id == 0 { if !matches!(response.result, UserDesktopResult::Done) {return Err(Error::Invalid);} continue; }
+                    if response.request_id == 0 { if !matches!(response.result, UserDesktopResult::Done { .. }) {return Err(Error::Invalid);} continue; }
                     if let UserDesktopResult::GroupFrame { frame } = &response.result {
                         let call=pending.get_mut(&response.request_id).ok_or(Error::Stale)?;
                         if !matches!(call.command,UserDesktopCommand::StreamGroup {..}) || Instant::now()>=call.deadline {return Err(Error::Stale);}
@@ -537,21 +600,35 @@ async fn proxy_worker(
                         continue;
                     }
                     let call = pending.remove(&response.request_id).ok_or(Error::Stale)?;
-                    if Instant::now() >= call.deadline { let _=call.reply.try_send(Err(Error::Stale)); return Err(Error::Stale); }
+                    if Instant::now() >= call.deadline {
+                        let _ = call.reply.try_send(Err(Error::Stale));
+                        if call.is_window_request() {
+                            continue;
+                        }
+                        return Err(Error::Stale);
+                    }
                     if matches!(call.command,UserDesktopCommand::StreamGroup {..}) {
                         let value=if call.overflow {Err(Error::Busy)} else {Ok(response.result)};
                         // A separate one-slot terminal channel cannot be starved by media frames.
                         let _=call.reply.try_send(value);continue;
                     }
-                    if matches!(response.result, UserDesktopResult::Done) {
+                    if matches!(response.result, UserDesktopResult::Done { .. }) {
                         ledger.ack(&call.command, response.request_id);
                         if call.recovery { minimum_codec_epoch.store(call.minimum_codec_epoch, std::sync::atomic::Ordering::SeqCst); ready.store(true, std::sync::atomic::Ordering::SeqCst); }
                     } else if call.recovery { let _=call.reply.send(Err(Error::Backend)); return Err(Error::Backend); }
                     if call.generation == 0 && !call.recovery { ready.store(true, std::sync::atomic::Ordering::SeqCst); }
-                    if call.reply.send(Ok(response.result)).is_err() { return Err(Error::Stale); }
+                    if call.is_window_request() {
+                        let _ = call.reply.try_send(Ok(response.result));
+                    } else if call.reply.send(Ok(response.result)).is_err() {
+                        return Err(Error::Stale);
+                    }
                 },
                 _ = heartbeat.tick() => {
-                    if pending.values().any(|c| Instant::now() >= c.deadline) { return Err(Error::Stale); }
+                    if first_request {
+                        continue;
+                    }
+                    if pending.values().any(|c| Instant::now() >= c.deadline
+                        && !c.is_window_request()) { return Err(Error::Stale); }
                     write(&mut output, Message::RequestStreamChunk { payload: UserDesktopRequest { request_id:0, command:UserDesktopCommand::Ping }.encode(), stream_id:STREAM }, REQUEST_LIMIT).await?;
                 }
             }
@@ -568,6 +645,50 @@ async fn proxy_worker(
     }
 }
 impl Backend for Proxy {
+    fn window_snapshot(&self) -> Result<Vec<WindowDetail>, Error> {
+        let generation = self.generation();
+        let supported = {
+            let mut cache = self.window_support.lock().map_err(|_| Error::Backend)?;
+            match *cache {
+                Some((previous, supported)) if previous == generation => supported,
+                _ => {
+                    // A numbered Ping takes the existing, cheap path in older helpers.
+                    // Unknown commands would otherwise retire the owning Screen channel.
+                    let UserDesktopResult::Done { window_snapshot } =
+                        self.call_inner(UserDesktopCommand::Ping, false, 0, generation)?
+                    else {
+                        return Err(Error::Invalid);
+                    };
+                    let supported = window_snapshot == Some(true);
+                    *cache = Some((generation, supported));
+                    supported
+                }
+            }
+        };
+        if !supported {
+            return Err(Error::Unsupported);
+        }
+        let UserDesktopResult::WindowSnapshot { rows } =
+            self.call_inner(UserDesktopCommand::WindowSnapshot, false, 0, generation)?
+        else {
+            return Err(Error::Invalid);
+        };
+        if self.generation() != generation {
+            return Err(Error::Stale);
+        }
+        if rows.len() > MAX_WINDOW_ROWS {
+            return Err(Error::Limit);
+        }
+        let rows = rows.into_iter()
+            .map(|row| {
+                let bytes = row.try_encode().map_err(|_| Error::Invalid)?;
+                WindowDetail::decode(&bytes).map_err(|_| Error::Invalid)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        validate_windows(&rows)?;
+        Ok(rows)
+    }
+
     fn input_sources(&self) -> Result<DesktopInputSources, Error> {
         match self.call(UserDesktopCommand::InputSources)? {
             UserDesktopResult::InputSources { value } => DesktopInputSources::decode(&value.encode()).map_err(|_| Error::Invalid),
@@ -595,8 +716,9 @@ impl Backend for Proxy {
                 },
                 true,
                 minimum_codec_epoch,
+                expected,
             )? {
-                UserDesktopResult::Done => (),
+                UserDesktopResult::Done { .. } => (),
                 _ => return Err(Error::Backend),
             }
         }
@@ -685,7 +807,7 @@ impl Backend for Proxy {
                 .map(|v| ipc::DesktopViewport::decode(&v.encode()).map_err(|_| Error::Invalid))
                 .transpose()?,
         })? {
-            UserDesktopResult::Done => Ok(()),
+            UserDesktopResult::Done { .. } => Ok(()),
             _ => Err(Error::Backend),
         }
     }
@@ -700,7 +822,7 @@ impl Backend for Proxy {
         match self.call(UserDesktopCommand::EndTrack {
             track: ipc::DesktopTrack::decode(&track.encode()).map_err(|_| Error::Invalid)?,
         })? {
-            UserDesktopResult::Done => Ok(()),
+            UserDesktopResult::Done { .. } => Ok(()),
             _ => Err(Error::Backend),
         }
     }
@@ -777,7 +899,7 @@ impl Backend for Proxy {
                         .err();
                     }
                 }
-                UserDesktopResult::Done => return cancelled.map_or(Ok(()), Err),
+                UserDesktopResult::Done { .. } => return cancelled.map_or(Ok(()), Err),
                 UserDesktopResult::Failed { code } if code == "Busy" => return Err(Error::Busy),
                 UserDesktopResult::Failed { .. } => return Err(Error::Backend),
                 _ => return Err(Error::Invalid),
@@ -826,6 +948,13 @@ mod tests {
         inputs: Mutex<Vec<DesktopInputEvent>>,
         stopped: AtomicUsize,
         rates: Mutex<Vec<(u64, u64, u64)>>,
+        window_scan: Mutex<
+            Option<(
+                tokio::sync::oneshot::Sender<()>,
+                std::sync::mpsc::Receiver<()>,
+            )>,
+        >,
+        windows: Option<Vec<WindowDetail>>,
         probe_pause: Mutex<
             Option<(
                 tokio::sync::oneshot::Sender<()>,
@@ -834,6 +963,16 @@ mod tests {
         >,
     }
     impl Backend for Fake {
+        fn supports_window_snapshot(&self) -> bool {
+            self.windows.is_some()
+        }
+        fn window_snapshot(&self) -> Result<Vec<WindowDetail>, Error> {
+            if let Some((started, release)) = self.window_scan.lock().unwrap().take() {
+                let _ = started.send(());
+                let _ = release.recv();
+            }
+            self.windows.clone().ok_or(Error::Unsupported)
+        }
         fn stream_group_at_rate(
             &self,
             t: &DesktopTrack,
@@ -878,6 +1017,181 @@ mod tests {
             self.stopped.fetch_add(1, Ordering::SeqCst);
             Ok(())
         }
+    }
+
+    fn window_fixture() -> WindowDetail {
+        WindowDetail {
+            info: WindowInfo {
+                window_id: "fixture-epoch-25".into(),
+                process_id: Some(17),
+                title: None,
+                focused: None,
+            },
+            state: WindowState {
+                visible: Some(false),
+                minimized: None,
+                maximized: None,
+            },
+            bounds: Some(WindowBounds {
+                x: -800,
+                y: 50,
+                width: 640,
+                height: 480,
+            }),
+        }
+    }
+
+    fn test_proxy(client: tokio::io::DuplexStream) -> Arc<Proxy> {
+        let client = Mutex::new(Some(client));
+        Arc::new(Proxy::new(Arc::new(move || {
+            let stream = client.lock().unwrap().take();
+            Box::pin(async move {
+                stream
+                    .map(|s| Box::new(s) as Connection)
+                    .ok_or(Error::Backend)
+            })
+        })))
+    }
+
+    #[tokio::test]
+    async fn old_desktop_peer_never_receives_unknown_windows_command() {
+        // The legacy generated codecs emit [0, {}] for both Ping and Done.
+        const LEGACY_DONE: &[u8] = &[0x82, 0, 0xa0];
+        assert_eq!(UserDesktopCommand::Ping.encode(), LEGACY_DONE);
+        assert_eq!(DONE.encode(), LEGACY_DONE);
+        assert_eq!(UserDesktopResult::decode(LEGACY_DONE).unwrap(), DONE);
+
+        let (client, mut server) = tokio::io::duplex(8192);
+        let proxy = test_proxy(client);
+        let client_task = tokio::task::spawn_blocking(move || {
+            assert_eq!(proxy.window_snapshot(), Err(Error::Unsupported));
+            assert_eq!(proxy.window_snapshot(), Err(Error::Unsupported));
+            assert_eq!(proxy.call(UserDesktopCommand::Displays).unwrap(),
+                UserDesktopResult::Displays { values: vec![] });
+            assert_eq!(proxy.generation(), 0);
+        });
+        let mut reader = Reader::default();
+        let mut sequence = vec![];
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while sequence.len() < 2 {
+                let message = reader.read(&mut server, REQUEST_LIMIT).await.unwrap();
+                let (payload, first) = match message {
+                    Message::RequestStreamStart { payload: Some(p), .. } => (p, true),
+                    Message::RequestStreamChunk { payload: p, .. } => (p, false),
+                    other => panic!("unexpected message: {other:?}"),
+                };
+                let request = UserDesktopRequest::decode(&payload).unwrap();
+                // An old helper would close on any unknown command, so only
+                // speak the pre-feature Ping and Displays variants in this fixture.
+                let result = match request.command {
+                    UserDesktopCommand::Ping => DONE,
+                    UserDesktopCommand::Displays => UserDesktopResult::Displays { values: vec![] },
+                    other => panic!("old helper received {other:?}"),
+                };
+                if request.request_id != 0 {
+                    sequence.push(request.command);
+                }
+                let payload = UserDesktopResponse { request_id: request.request_id, result }.encode();
+                let reply = if first {
+                    Message::ResponseStreamStart { payload: Some(payload), stream_id: STREAM }
+                } else {
+                    Message::ResponseStreamChunk { payload, stream_id: STREAM }
+                };
+                write(&mut server, reply, RESPONSE_LIMIT).await.unwrap();
+            }
+            client_task.await.unwrap();
+        }).await.unwrap();
+        assert_eq!(sequence, vec![UserDesktopCommand::Ping, UserDesktopCommand::Displays]);
+    }
+
+    #[tokio::test]
+    async fn blocked_window_snapshot_does_not_block_screen_calls_or_replace_channel() {
+        let (started, entered) = tokio::sync::oneshot::channel();
+        let (release, wait) = mpsc::channel();
+        let backend = Arc::new(Fake {
+            window_scan: Mutex::new(Some((started, wait))),
+            windows: Some(vec![window_fixture()]),
+            ..Default::default()
+        });
+        let (client, server) = tokio::io::duplex(8192);
+        let server = tokio::spawn(serve(server, backend.clone()));
+        let proxy = test_proxy(client);
+        let p = proxy.clone();
+        let scan = tokio::task::spawn_blocking(move || p.window_snapshot());
+        tokio::time::timeout(Duration::from_secs(2), entered).await.unwrap().unwrap();
+        assert!(backend.inputs.lock().unwrap().is_empty());
+        let p = proxy.clone();
+        tokio::time::timeout(Duration::from_secs(2), tokio::task::spawn_blocking(move || {
+            assert_eq!(p.window_snapshot(), Err(Error::Busy));
+            p.input(&DesktopInputEvent::PhysicalKey { usage: 4, down: true, repeat: false }).unwrap();
+        })).await.unwrap().unwrap();
+        assert!(!scan.is_finished());
+        assert_eq!(backend.inputs.lock().unwrap().len(), 1);
+        release.send(()).unwrap();
+        assert_eq!(scan.await.unwrap(), Ok(vec![window_fixture()]));
+        assert_eq!(proxy.generation(), 0);
+        drop(proxy);
+        assert!(server.await.unwrap().is_err());
+    }
+
+    #[tokio::test]
+    async fn late_window_snapshot_cannot_expire_the_shared_screen_channel() {
+        let (started, entered) = tokio::sync::oneshot::channel();
+        let (release, wait) = mpsc::channel();
+        let backend = Arc::new(Fake {
+            window_scan: Mutex::new(Some((started, wait))),
+            windows: Some(vec![window_fixture()]),
+            ..Default::default()
+        });
+        let (client, server) = tokio::io::duplex(8192);
+        let (stop_tx, stop_rx) = tokio::sync::oneshot::channel();
+        let server = tokio::spawn(serve_until(server, backend, async {
+            let _ = stop_rx.await;
+        }));
+        let proxy = test_proxy(client);
+        let p = proxy.clone();
+        let scan = tokio::task::spawn_blocking(move || p.window_snapshot());
+        tokio::time::timeout(Duration::from_secs(2), entered).await.unwrap().unwrap();
+        assert!(matches!(
+            tokio::time::timeout(Duration::from_secs(5), scan).await.unwrap().unwrap(),
+            Err(Error::Stale | Error::Backend)
+        ));
+        let p = proxy.clone();
+        tokio::task::spawn_blocking(move || {
+            assert_eq!(p.window_snapshot(), Err(Error::Busy));
+            assert_eq!(p.call(UserDesktopCommand::Displays).unwrap(),
+                UserDesktopResult::Displays { values: vec![] });
+        }).await.unwrap();
+        release.send(()).unwrap();
+
+        // Wait for the tombstoned reply to drain; no sleep assumptions about
+        // which task sees the native worker completion first.
+        tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                let p = proxy.clone();
+                match tokio::task::spawn_blocking(move || p.window_snapshot()).await.unwrap() {
+                    Ok(rows) => {
+                        assert_eq!(rows, vec![window_fixture()]);
+                        break;
+                    }
+                    Err(Error::Busy) => tokio::time::sleep(Duration::from_millis(10)).await,
+                    other => panic!("shared channel lost: {other:?}"),
+                }
+            }
+        }).await.unwrap();
+        assert_eq!(proxy.generation(), 0);
+        stop_tx.send(()).unwrap();
+        assert!(server.await.unwrap().is_err());
+    }
+
+    #[test]
+    fn malformed_window_snapshot_is_rejected_before_encoding() {
+        let mut row = window_fixture();
+        row.info.title = Some("界".repeat(MAX_WINDOW_TITLE_BYTES));
+        assert_eq!(validate_windows(&[row]), Err(Error::Limit));
+        let row = window_fixture();
+        assert_eq!(validate_windows(&[row.clone(), row]), Err(Error::Invalid));
+        assert_eq!(validate_windows(&vec![window_fixture(); MAX_WINDOW_ROWS + 1]), Err(Error::Limit));
     }
 
     struct Streaming {
@@ -1299,7 +1613,7 @@ mod tests {
             assert!(
                 matches!(replies.get(&2),Some(UserDesktopResult::Failed {code}) if code=="Busy")
             );
-            assert!(matches!(replies.get(&3), Some(UserDesktopResult::Done)));
+            assert!(matches!(replies.get(&3), Some(UserDesktopResult::Done { .. })));
             assert_eq!(backend.inputs.lock().unwrap().len(), 1);
             assert!(!replies.contains_key(&1));
             drop(release);

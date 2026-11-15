@@ -140,6 +140,7 @@ async fn main() -> Result<()> {
                 None
             };
             let desktop_backend = rieul_macos_daemon::desktop_ipc::proxy(&config_path);
+            let windows = Arc::new(rieul_macos_daemon::windows::MacWindowService::new(desktop_backend.clone()));
             let updates = rieul_macos_daemon::root_update::update_service()?;
             let local_ready = Arc::new(std::sync::atomic::AtomicBool::new(false));
             let _local_updates = match &updates {
@@ -161,7 +162,7 @@ async fn main() -> Result<()> {
                 listen,
                 config_path,
                 Arc::new(MacFileService::default()),
-                None,
+                Some(windows),
                 Some(Arc::new(MacProcessResourcesInUseService)),
                 Some(Arc::new(MacProcessSocketsInUseService)),
                 Some(Arc::new(MacProcessModulesService)),

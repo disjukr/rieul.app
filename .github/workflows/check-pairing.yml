@@ -83,6 +83,7 @@ jobs:
           cargo test -p rieul-macos-daemon --lib root_update --locked
           cargo test -p rieul-macos-daemon --lib local_update --locked
           cargo test -p rieul-macos-daemon --lib desktop_ipc --locked
+          cargo test -p rieul-macos-daemon --lib windows --locked
           cargo test -p rieul-daemon-host --lib --locked
       - name: Build installer wrapper and validate signed PKG payload without installation
         run: |
