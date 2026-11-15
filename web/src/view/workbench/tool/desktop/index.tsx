@@ -10,6 +10,7 @@ import { DesktopDisplayIdContext } from "../../../../state/desktop-context.ts";
 import {
   DesktopQualityVerification,
   type DesktopTrack,
+  type DesktopDisplay,
 } from "../../../../protocol/generated/rpc.ts";
 
 export function DesktopTool(props: { active?: boolean } = {}) {
@@ -372,35 +373,107 @@ function DesktopCatalogView(props: { onSelect: (displayId: string) => void }) {
     >
       {(desktop().message() ||
         desktop().availabilityMessage() ||
-        desktop().phase() !== "viewing") && (
-        <p
-          {...styles.status({ className: "rieul-desktop-status" })}
-          role="status"
-        >
-          {desktop().message() ??
-            desktop().availabilityMessage() ??
-            "Connecting to displays…"}
-        </p>
+        desktop().phase() !== "viewing" ||
+        !desktop().displays().length) && (
+        <header {...styles.toolbar()}>
+          <details name="screen-toolbar-panel" {...styles.toolbarDisclosure()}>
+            <summary aria-label="Connection status">
+              {desktop().phase() === "connecting"
+                ? "Connecting…"
+                : desktop().phase() === "viewing" &&
+                    !desktop().displays().length
+                  ? "No displays"
+                  : "Status !"}
+            </summary>
+            <div {...styles.toolbarPanel()}>
+              <p role="status">
+                {desktop().message() ??
+                  desktop().availabilityMessage() ??
+                  (desktop().phase() === "viewing"
+                    ? "No displays are available."
+                    : "Connecting to displays…")}
+              </p>
+            </div>
+          </details>
+        </header>
       )}
       <nav {...styles.catalog()} aria-label="Displays">
         <For each={desktop().displays()}>
           {(display) => (
-            <Button
-              disabled={desktop().phase() !== "viewing" || desktop().busy()}
+            <button
+              type="button"
+              {...styles.previewTile()}
+              aria-label={`Display ${display.displayId}`}
+              title={`Open display ${display.displayId}`}
+              disabled={desktop().phase() !== "viewing"}
               onClick={() => props.onSelect(display.displayId)}
             >
-              Display {display.displayId}
-              <span {...styles.displayMetadata()}>
-                {display.bounds.width} × {display.bounds.height}
-              </span>
-            </Button>
+              <DesktopPreview display={display} />
+            </button>
           )}
         </For>
       </nav>
-      {desktop().phase() === "viewing" && !desktop().displays().length && (
-        <p {...styles.help()}>No displays are available.</p>
-      )}
     </section>
+  );
+}
+function DesktopPreview(props: { display: DesktopDisplay }) {
+  const desktop = useBunja(managedDesktopBunja);
+  const [canvas, setCanvas] = createSignal<HTMLCanvasElement>();
+  createEffect(
+    createMemo(() => ({
+      canvas: canvas(),
+      model: desktop(),
+      display: props.display,
+    })),
+    ({ canvas, model, display }) => {
+      if (!canvas) return;
+      const scale = Math.min(
+        1,
+        320 / display.bounds.width,
+        180 / display.bounds.height,
+      );
+      canvas.width = Math.max(
+        2,
+        Math.floor((display.bounds.width * scale) / 2) * 2,
+      );
+      canvas.height = Math.max(
+        2,
+        Math.floor((display.bounds.height * scale) / 2) * 2,
+      );
+      let stop: (() => void) | undefined;
+      let visible = false;
+      const sync = () => {
+        if (visible && !canvas.ownerDocument.hidden)
+          stop ??= model.registerPreviewSurface(display.displayId, canvas);
+        else {
+          stop?.();
+          stop = undefined;
+        }
+      };
+      const observer = new IntersectionObserver(([entry]) => {
+        visible = entry.isIntersecting;
+        sync();
+      });
+      observer.observe(canvas);
+      canvas.ownerDocument.addEventListener("visibilitychange", sync);
+      return () => {
+        observer.disconnect();
+        canvas.ownerDocument.removeEventListener("visibilitychange", sync);
+        stop?.();
+      };
+    },
+  );
+  return (
+    <>
+      <canvas
+        ref={setCanvas}
+        class="rieul-desktop-preview-canvas"
+        aria-hidden="true"
+      />
+      {!desktop().previewAvailable(props.display.displayId) && (
+        <span {...styles.previewPending()}>Preview paused</span>
+      )}
+    </>
   );
 }
 function DesktopSurface(props: { track: DesktopTrack; viewer: symbol }) {
@@ -564,8 +637,43 @@ namespace styles {
     backgroundColor: theme.bgPrimary,
     boxShadow: "0 6px 20px #0004",
   });
+  export const previewPending = style({
+    position: "absolute",
+    bottom: "6px",
+    right: "6px",
+    padding: "2px 6px",
+    fontSize: "11px",
+    backgroundColor: theme.bgPrimary,
+    color: theme.textSecondary,
+    borderRadius: theme.radiusSm,
+    pointerEvents: "none",
+  });
+  export const previewTile = style({
+    position: "relative",
+    display: "block",
+    padding: "0",
+    height: "clamp(90px, 25cqh, 180px)",
+    overflow: "hidden",
+    backgroundColor: theme.bgInverse,
+    border: "1px solid",
+    borderColor: theme.borderLight,
+    borderRadius: theme.radiusMd,
+    cursor: "pointer",
+    selectors: {
+      "&:focus-visible": {
+        outline: "2px solid",
+        outlineColor: theme.focus,
+        outlineOffset: "2px",
+      },
+      "&:disabled": { opacity: 0.6, cursor: "default" },
+    },
+  });
   export const catalog = style({
     display: "grid",
+    flex: "1 1 0",
+    minHeight: "0",
+    overflow: "auto",
+    alignContent: "start",
     overflowWrap: "anywhere",
     gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 220px), 1fr))",
     gap: "12px",
@@ -719,6 +827,13 @@ namespace styles {
 }
 
 global({
+  ".rieul-desktop-preview-canvas": {
+    display: "block",
+    width: "100%",
+    height: "100%",
+    objectFit: "contain",
+    pointerEvents: "none",
+  },
   ".rieul-desktop-canvas": {
     display: "block",
     width: "100%",

@@ -16,6 +16,7 @@ import {
 import { rpcSessionBunja } from "./rpc-session.ts";
 import { DesktopDisplayIdScope } from "./desktop-scopes.ts";
 import { MachineIdScope } from "./machine-scopes.ts";
+import { desktopPreviewsBunja } from "./desktop-previews.ts";
 import {
   configureDesktopViewports,
   selectExistingDesktop,
@@ -55,6 +56,7 @@ export const desktopBunja = bunja(() => {
   bunja.use(MachineIdScope);
   const displayId = bunja.use(DesktopDisplayIdScope);
   const rpc = bunja.use(rpcSessionBunja);
+  const previews = bunja.use(desktopPreviewsBunja);
   const [sessionMode, setSessionMode] = createSignal<
     "manual" | "active" | "suspended"
   >("manual");
@@ -93,6 +95,7 @@ export const desktopBunja = bunja(() => {
     const info = rpc.daemonInfo();
     return (
       info.phase === "ready" &&
+      (!managed() || displayId !== undefined) &&
       (!catalogMode() || scopedSelectionSupported()) &&
       [ProcId.QueryDesktopQualitySupport, ProcId.SetDesktopQuality].every(
         (id) => info.daemonInfo.supportedProcIds.includes(id),
@@ -120,7 +123,9 @@ export const desktopBunja = bunja(() => {
     );
   });
   const serverOwnsGeometry = createMemo(
-    () => automaticDisplays() || (catalogMode() && scopedSelectionSupported()),
+    () =>
+      automaticDisplays() ||
+      (catalogMode() && displayId !== undefined && scopedSelectionSupported()),
   );
   const availabilityMessage = createMemo(() => {
     const info = rpc.daemonInfo();
@@ -147,6 +152,20 @@ export const desktopBunja = bunja(() => {
     renew: ReturnType<typeof setInterval> | undefined;
   let eventsAbort: AbortController | undefined,
     attachTimeout: ReturnType<typeof setTimeout> | undefined;
+  let stopPreviewPublisher: (() => void) | undefined;
+  let previewCapture = false;
+  let previewRequestedIds = new Set<string>();
+  let previewKey = "";
+  function matchesSelectedView(next: DesktopConfiguration) {
+    return (
+      !catalogMode() ||
+      next.tracks.every((track) =>
+        previewCapture && displayId === undefined
+          ? previewRequestedIds.has(track.viewport.displayId)
+          : track.viewport.displayId === selectedDisplayId(),
+      )
+    );
+  }
   let configKey = "",
     configVersion = 0,
     newestCodecEpoch = 0,
@@ -202,6 +221,11 @@ export const desktopBunja = bunja(() => {
   function disconnect(preserveSelection = false) {
     generation++;
     invalidateSelectedView();
+    stopPreviewPublisher?.();
+    stopPreviewPublisher = undefined;
+    previewCapture = false;
+    previewRequestedIds = new Set();
+    previewKey = "";
     clearTimeout(retryTimer);
     retryTimer = undefined;
     if (!preserveSelection) setSelectedDisplayId(undefined);
@@ -350,13 +374,7 @@ export const desktopBunja = bunja(() => {
     };
   }
   async function applyConfiguration(next: DesktopConfiguration, token: number) {
-    if (
-      catalogMode() &&
-      next.tracks.some(
-        (track) => track.viewport.displayId !== selectedDisplayId(),
-      )
-    )
-      return;
+    if (!matchesSelectedView(next)) return;
     const nextCodecEpoch = Math.max(0, ...next.tracks.map((t) => t.codecEpoch));
     if (next.tracks.length && nextCodecEpoch < newestCodecEpoch) return;
     const key = JSON.stringify(next);
@@ -415,10 +433,7 @@ export const desktopBunja = bunja(() => {
       applyRevision !== configurationRevision ||
       selectedRevision !== selectionRevision ||
       next.layoutEpoch !== layoutEpoch ||
-      (catalogMode() &&
-        next.tracks.some(
-          (track) => track.viewport.displayId !== selectedDisplayId(),
-        ))
+      !matchesSelectedView(next)
     )
       return;
     newestCodecEpoch = Math.max(newestCodecEpoch, nextCodecEpoch);
@@ -502,6 +517,7 @@ export const desktopBunja = bunja(() => {
     ids: string[],
     attachment = attachId(),
     layout?: DesktopDisplay[],
+    purpose: "selected" | "preview" = "selected",
   ) {
     if (automaticDisplays() || !transport || !attachment || (busy() && !layout))
       return;
@@ -515,10 +531,20 @@ export const desktopBunja = bunja(() => {
       const selected = (layout ?? displays())
         .filter((d) => ids.includes(d.displayId))
         .slice(0, maxViewports());
-      const totalBitrate = 20_000_000;
+      if (purpose === "preview") {
+        invalidateSelectedView();
+        previewCapture = true;
+        previewRequestedIds = new Set(
+          selected.map((display) => display.displayId),
+        );
+      }
+      const totalBitrate =
+        purpose === "preview"
+          ? Math.max(1, selected.length) * 125_000
+          : 20_000_000;
       video?.prepareConfiguration();
       const next =
-        catalogMode() && scopedSelectionSupported()
+        purpose === "selected" && catalogMode() && scopedSelectionSupported()
           ? await selectExistingDesktop(transport, {
               attachId: attachment,
               expectedLayoutEpoch: layoutEpoch,
@@ -533,8 +559,10 @@ export const desktopBunja = bunja(() => {
               viewports: selected.map((d) => {
                 const scale = Math.min(
                   1,
-                  (outputHeight() * 16) / 9 / d.bounds.width,
-                  outputHeight() / d.bounds.height,
+                  (purpose === "preview" ? 320 : (outputHeight() * 16) / 9) /
+                    d.bounds.width,
+                  (purpose === "preview" ? 180 : outputHeight()) /
+                    d.bounds.height,
                 );
                 return {
                   viewportId: d.displayId,
@@ -553,7 +581,7 @@ export const desktopBunja = bunja(() => {
                     2,
                     Math.floor((d.bounds.height * scale) / 2) * 2,
                   ),
-                  fps: 60,
+                  fps: purpose === "preview" ? 1 : 60,
                   bitrate: Math.floor(
                     totalBitrate / Math.max(1, selected.length),
                   ),
@@ -629,6 +657,7 @@ export const desktopBunja = bunja(() => {
       eventsAbort = new AbortController();
       currentProfile =
         !fullFrame &&
+        !(managed() && displayId === undefined) &&
         caps.supportedProfiles?.includes(2) &&
         typeof OffscreenCanvas !== "undefined" &&
         /^(avc1|hev1)\./.test(codecs[0] ?? "")
@@ -710,6 +739,17 @@ export const desktopBunja = bunja(() => {
                       continue;
                     ctx.drawImage(frame, 0, 0, canvas.width, canvas.height);
                     drawn = true;
+                  }
+                  if (displayId !== undefined && drawn) {
+                    stopPreviewPublisher ??=
+                      previews.registerPublisher(displayId);
+                    previews.publish(displayId, frame);
+                  } else if (
+                    displayId === undefined &&
+                    previewCapture &&
+                    !previews.hasPublisher(viewportId)
+                  ) {
+                    drawn = previews.publish(viewportId, frame) || drawn;
                   }
                   return drawn;
                 },
@@ -848,6 +888,12 @@ export const desktopBunja = bunja(() => {
     };
   }
   async function setAction(action: DesktopControlAction, viewer?: symbol) {
+    if (
+      managed() &&
+      displayId === undefined &&
+      action !== DesktopControlAction.Release
+    )
+      return;
     if (
       !transport ||
       !attachId() ||
@@ -1073,6 +1119,49 @@ export const desktopBunja = bunja(() => {
             }
           },
         );
+        createEffect(
+          createMemo(() => ({
+            ids: previews.previewIds(),
+            publishers: previews.publisherIds(),
+            displays: displays(),
+            ready: phase() === "viewing",
+            busy: busy(),
+            managed: managed(),
+            cap: maxViewports(),
+          })),
+          (snapshot) => {
+            if (
+              displayId !== undefined ||
+              !snapshot.managed ||
+              !snapshot.ready ||
+              snapshot.busy
+            )
+              return;
+            const needed = new Set(snapshot.ids),
+              published = new Set(snapshot.publishers);
+            const ids = snapshot.displays
+              .filter(
+                (display) =>
+                  needed.has(display.displayId) &&
+                  !published.has(display.displayId),
+              )
+              .map((display) => display.displayId)
+              .slice(0, Math.min(8, snapshot.cap));
+            const key = JSON.stringify([
+              layoutEpoch,
+              ids,
+              snapshot.displays
+                .filter((display) => ids.includes(display.displayId))
+                .map((display) => display.bounds),
+            ]);
+            if (key === previewKey) return;
+            previewKey = key;
+            if (!ids.length && !untrack(configuration)?.tracks.length) return;
+            untrack(
+              () => void configure(ids, attachId(), undefined, "preview"),
+            );
+          },
+        );
         return dispose;
       }),
     );
@@ -1118,6 +1207,12 @@ export const desktopBunja = bunja(() => {
     disconnect,
     configure,
     registerSurface,
+    registerPreviewSurface: previews.registerPreview,
+    previewAvailable: (id: string) =>
+      previews.publisherIds().includes(id) ||
+      !!configuration()?.tracks.some(
+        (track) => track.viewport.displayId === id,
+      ),
     registerViewer,
     ownsInput: (viewer: symbol) => inputOwner() === viewer,
     openWindow,

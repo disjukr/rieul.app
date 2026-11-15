@@ -294,7 +294,7 @@ function fixture(scoped = false) {
       cleanups.push(entry.mount());
       return entry.value;
     },
-    consumer(displayId: string, machineId = "machine") {
+    consumer(displayId: string | undefined, machineId = "machine") {
       const entry = store.get(
         managedDesktopBunja,
         createReadScopeFn(
@@ -777,3 +777,272 @@ for (const failure of ["release", "flush"]) {
     }
   });
 }
+
+test("catalog previews use one bounded legacy attachment without control or canvas input", async () => {
+  const f = fixture(true),
+    catalog = f.consumer(undefined);
+  const beforeControls = controls.length,
+    beforeSelections = selections.length;
+  const canvases = displays.map(
+    () =>
+      ({
+        isConnected: true,
+        width: 320,
+        height: 180,
+        getContext: () => ({ drawImage() {} }),
+      }) as unknown as HTMLCanvasElement,
+  );
+  const stops: (() => void)[] = [];
+  try {
+    await flush();
+    const id = catalog.value.attachId()!;
+    for (let i = 0; i < displays.length; i++)
+      stops.push(
+        catalog.value.registerPreviewSurface(
+          displays[i]!.displayId,
+          canvases[i]!,
+        ),
+      );
+    await flush();
+    const request = configurations.at(-1)!;
+    assert.equal(request.attachId, id);
+    assert.equal(request.viewports.length, 2);
+    assert.equal(request.totalBitrate, 250_000);
+    for (const viewport of request.viewports) {
+      assert.equal(viewport.fps, 1);
+      assert.ok(viewport.width <= 320 && viewport.height <= 180);
+      assert.equal(viewport.bitrate, 125_000);
+      assert.deepEqual(
+        viewport.crop,
+        displays.find((display) => display.displayId === viewport.displayId)!
+          .bounds,
+      );
+    }
+    await catalog.value.acquire();
+    await catalog.value.takeover();
+    assert.equal(controls.length, beforeControls);
+    assert.equal(selections.length, beforeSelections);
+    assert.equal(
+      canvases.some((canvas) => inputBindings.has(canvas)),
+      false,
+    );
+    for (const stop of stops.splice(0)) stop();
+    await flush();
+    assert.deepEqual(configurations.at(-1)?.viewports, []);
+    assert.equal(catalog.value.attachId(), id);
+    catalog.release();
+    await flush();
+    assert.equal(detached.includes(id), true);
+  } finally {
+    for (const stop of stops) stop();
+    f.close();
+  }
+});
+test("catalog preview reuses only a usable full publisher and resumes low-rate capture after its failure", async (t) => {
+  let now = 0;
+  t.mock.method(performance, "now", () => now);
+  const f = fixture(true),
+    catalog = f.consumer(undefined),
+    full = f.consumer("first");
+  let previewDraws = 0,
+    fullDraws = 0;
+  const previewCanvas = {
+    isConnected: true,
+    width: 320,
+    height: 180,
+    getContext: () => ({
+      drawImage() {
+        previewDraws++;
+      },
+    }),
+  } as unknown as HTMLCanvasElement;
+  const fullCanvas = {
+    isConnected: true,
+    width: 1280,
+    height: 720,
+    addEventListener() {},
+    removeEventListener() {},
+    getContext: () => ({
+      drawImage() {
+        fullDraws++;
+      },
+    }),
+  } as unknown as HTMLCanvasElement;
+  let stopPreview: (() => void) | undefined,
+    stopSurface: (() => void) | undefined;
+  try {
+    await flush();
+    stopPreview = catalog.value.registerPreviewSurface("first", previewCanvas);
+    await flush();
+    assert.deepEqual(
+      configurations.at(-1)?.viewports.map((viewport) => viewport.displayId),
+      ["first"],
+    );
+    stopSurface = full.value.registerSurface("first", fullCanvas);
+    const fullId = full.value.attachId()!;
+    renderers.get(fullId)!("first", {} as VideoFrame);
+    await flush();
+    assert.equal(previewDraws, 1);
+    assert.equal(fullDraws, 1);
+    assert.deepEqual(configurations.at(-1)?.viewports, []);
+    now = 500;
+    renderers.get(fullId)!("first", {} as VideoFrame);
+    assert.equal(previewDraws, 1);
+    assert.equal(fullDraws, 2);
+    now = 1000;
+    renderers.get(fullId)!("first", {} as VideoFrame);
+    assert.equal(previewDraws, 2);
+    assert.equal(fullDraws, 3);
+    streams.get(fullId)!.push(undefined);
+    await flush();
+    assert.deepEqual(
+      configurations.at(-1)?.viewports.map((viewport) => viewport.displayId),
+      ["first"],
+    );
+    assert.equal(configurations.at(-1)?.viewports[0]?.fps, 1);
+  } finally {
+    stopSurface?.();
+    stopPreview?.();
+    f.close();
+  }
+});
+test("visible catalog demand is capped at eight exact monitor IDs and advances when one leaves", async () => {
+  const f = fixture(true),
+    catalog = f.consumer(undefined),
+    stops: (() => void)[] = [];
+  try {
+    await flush();
+    const many = Array.from({ length: 9 }, (_, index) => ({
+      ...displays[0]!,
+      displayId: `opaque-monitor-${index}`,
+    }));
+    streams
+      .get(catalog.value.attachId()!)!
+      .push({ type: "layout", layoutEpoch: 2, displays: many });
+    await flush();
+    for (const display of many)
+      stops.push(
+        catalog.value.registerPreviewSurface(display.displayId, {
+          isConnected: true,
+          width: 320,
+          height: 180,
+          getContext: () => ({ drawImage() {} }),
+        } as unknown as HTMLCanvasElement),
+      );
+    await flush();
+    assert.equal(catalog.value.displays().length, 9);
+    assert.deepEqual(
+      configurations.at(-1)?.viewports.map((viewport) => viewport.displayId),
+      many.slice(0, 8).map((display) => display.displayId),
+    );
+    assert.equal(configurations.at(-1)?.totalBitrate, 1_000_000);
+    stops.shift()!();
+    await flush();
+    assert.deepEqual(
+      configurations.at(-1)?.viewports.map((viewport) => viewport.displayId),
+      many.slice(1).map((display) => display.displayId),
+    );
+  } finally {
+    for (const stop of stops) stop();
+    f.close();
+  }
+});
+
+test("a broken preview canvas cannot interrupt a full monitor renderer", async () => {
+  const f = fixture(true),
+    catalog = f.consumer(undefined),
+    full = f.consumer("first");
+  let fullDraws = 0;
+  let stopPreview: (() => void) | undefined,
+    stopSurface: (() => void) | undefined;
+  try {
+    await flush();
+    stopPreview = catalog.value.registerPreviewSurface("first", {
+      isConnected: true,
+      width: 320,
+      height: 180,
+      getContext: () => ({
+        drawImage() {
+          throw new Error("Detached preview context");
+        },
+      }),
+    } as unknown as HTMLCanvasElement);
+    stopSurface = full.value.registerSurface("first", {
+      isConnected: true,
+      width: 1280,
+      height: 720,
+      addEventListener() {},
+      removeEventListener() {},
+      getContext: () => ({
+        drawImage() {
+          fullDraws++;
+        },
+      }),
+    } as unknown as HTMLCanvasElement);
+    assert.doesNotThrow(() =>
+      renderers.get(full.value.attachId()!)!("first", {} as VideoFrame),
+    );
+    assert.equal(fullDraws, 1);
+    assert.equal(full.value.phase(), "viewing");
+    let replacementDraws = 0;
+    const replacementStop = catalog.value.registerPreviewSurface("first", {
+      isConnected: true,
+      width: 320,
+      height: 180,
+      getContext: () => ({
+        drawImage() {
+          replacementDraws++;
+        },
+      }),
+    } as unknown as HTMLCanvasElement);
+    stopPreview();
+    stopPreview = replacementStop;
+    renderers.get(full.value.attachId()!)!("first", {} as VideoFrame);
+    assert.equal(replacementDraws, 1);
+  } finally {
+    stopSurface?.();
+    stopPreview?.();
+    f.close();
+  }
+});
+
+test("catalog preview reconfigures a retained monitor ID after its source geometry changes", async () => {
+  const f = fixture(true),
+    catalog = f.consumer(undefined);
+  let stop: (() => void) | undefined;
+  try {
+    await flush();
+    stop = catalog.value.registerPreviewSurface("first", {
+      isConnected: true,
+      width: 320,
+      height: 180,
+      getContext: () => ({ drawImage() {} }),
+    } as unknown as HTMLCanvasElement);
+    await flush();
+    const before = configurations.length;
+    streams.get(catalog.value.attachId()!)!.push({
+      type: "layout",
+      layoutEpoch: 2,
+      displays: [
+        {
+          ...displays[0]!,
+          bounds: { x: -720, y: 200, width: 720, height: 1280 },
+        },
+      ],
+    });
+    await flush();
+    assert.ok(configurations.length > before);
+    assert.equal(configurations.at(-1)?.layoutEpoch, 2);
+    assert.deepEqual(configurations.at(-1)?.viewports[0]?.crop, {
+      x: 0,
+      y: 0,
+      width: 720,
+      height: 1280,
+    });
+    assert.equal(configurations.at(-1)?.viewports[0]?.height, 180);
+    assert.ok(configurations.at(-1)!.viewports[0]!.width < 180);
+  } finally {
+    stop?.();
+    f.close();
+  }
+});

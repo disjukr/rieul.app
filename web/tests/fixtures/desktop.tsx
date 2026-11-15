@@ -17,6 +17,7 @@ import {
 function Fixture() {
   const [events, setEvents] = createSignal<DesktopInputEvent[]>([]);
   const [active, setActive] = createSignal(true);
+  const [previewSubscriptions, setPreviewSubscriptions] = createSignal(0);
   const [holder, setHolder] = createSignal<string | undefined>(
     new URLSearchParams(location.search).has("occupied") ? "other" : undefined,
   );
@@ -230,6 +231,14 @@ function Fixture() {
         setControlling(false);
       },
       openWindow() {},
+      previewAvailable: (_displayId: string) => true,
+      registerPreviewSurface(_displayId: string, canvas: HTMLCanvasElement) {
+        setPreviewSubscriptions((count) => count + 1);
+        const ctx = canvas.getContext("2d")!;
+        ctx.fillStyle = "#2367d1";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        return () => setPreviewSubscriptions((count) => count - 1);
+      },
       registerSurface(id: string, canvas: HTMLCanvasElement, viewer?: symbol) {
         const ctx = canvas.getContext("2d")!;
         ctx.fillStyle = "#2367d1";
@@ -291,6 +300,9 @@ function Fixture() {
           )}
         </div>
       </TestBunjaStoreProvider>
+      <output aria-label="Preview subscriptions">
+        {previewSubscriptions()}
+      </output>
       <output aria-label="Recorded input">{JSON.stringify(events())}</output>
     </>
   );

@@ -58,7 +58,7 @@ test("viewing never takes control and preserves physical keys and drag transitio
   await page
     .getByRole("button", { name: "Display fixture", exact: false })
     .click();
-  const canvas = page.getByLabel("Display fixture", { exact: true });
+  const canvas = page.locator('canvas[aria-label="Display fixture"]');
   await canvas.focus();
   await page.keyboard.press("a");
   await expect(page.getByLabel("Recorded input")).toHaveText("[]");
@@ -177,7 +177,7 @@ test("quality changes preserve the selected surface and focused held input", asy
   await page
     .getByRole("button", { name: "Control screen", exact: true })
     .click();
-  const canvas = page.getByLabel("Display fixture", { exact: true });
+  const canvas = page.locator('canvas[aria-label="Display fixture"]');
   await canvas.focus();
   await page.keyboard.down("a");
   const handle = await canvas.elementHandle();
