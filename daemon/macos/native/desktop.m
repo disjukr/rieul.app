@@ -649,7 +649,10 @@ static bool probe_hevc(uint32_t width,uint32_t height,uint32_t fps,uint32_t bitr
 bool rd_probe_hevc(uint32_t width,uint32_t height,uint32_t fps,uint32_t bitrate,uint32_t stripes,char *codec,size_t capacity) {
     return probe_hevc(width,height,fps,bitrate,stripes,codec,capacity,NULL,NULL);
 }
-bool rd_synthetic_hevc_packet(RDPacket emit,void *context) {
+bool rd_synthetic_hevc_packet_at(uint32_t width,uint32_t height,uint32_t fps,uint32_t bitrate,RDPacket emit,void *context) {
     char codec[128];
-    return probe_hevc(640,480,60,2000000,0,codec,sizeof(codec),emit,context);
+    return probe_hevc(width,height,fps,bitrate,0,codec,sizeof(codec),emit,context);
+}
+bool rd_synthetic_hevc_packet(RDPacket emit,void *context) {
+    return rd_synthetic_hevc_packet_at(640,480,60,2000000,emit,context);
 }

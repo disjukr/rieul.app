@@ -323,12 +323,25 @@ fn probe_hevc(width: u32, height: u32, fps: u32, bitrate: u32, stripes: u32) -> 
     String::from_utf8(codec[..end].to_vec()).ok()
 }
 fn hevc_fits(actual: &str, advertised: &str) -> bool {
+    fn tier_level(value: &str) -> Option<(u8, u8)> {
+        let (&tier, digits) = value.as_bytes().split_first()?;
+        let tier = match tier { b'L' => 0, b'H' => 1, _ => return None };
+        if digits.is_empty() || !digits.iter().all(u8::is_ascii_digit) {
+            return None;
+        }
+        let level = value[1..].parse::<u8>().ok()?;
+        // H.265 Annex A: High tier is defined only at Level 4 and above.
+        (level > 0 && (tier == 0 || level >= 120)).then_some((tier, level))
+    }
     let a: Vec<_> = actual.split('.').collect();
     let b: Vec<_> = advertised.split('.').collect();
     a.len() >= 4 && a.len() == b.len() && a[..3] == b[..3] && a[4..] == b[4..]
-        && a[3].starts_with('L') && b[3].starts_with('L')
-        && a[3][1..].parse::<u32>().ok().zip(b[3][1..].parse::<u32>().ok()).is_some_and(|(a,b)| a <= b)
+        && tier_level(a[3]).zip(tier_level(b[3])).is_some_and(|(a, b)| {
+            // A.3.2 bounds tier and level independently: Main fits High, not vice versa.
+            a.0 <= b.0 && a.1 <= b.1
+        })
 }
+
 impl Backend for MacDesktop {
     fn probe_video(&self, track: &DesktopTrack) -> DesktopQualityVerification {
         if !rieul_daemon_host::desktop::validate_video_probe(track) {
@@ -1122,10 +1135,33 @@ mod hevc_tests {
         assert!(!hevc_fits("hev1.1.6.L90", "hev1.1.6.L153.B0"));
     }
     #[test]
+    fn high_tier_advertisement_accepts_compatible_native_output() {
+        // Actual Apple Silicon capability probe and catalog preview codecs.
+        assert!(hevc_fits("hev1.1.6.L60.B0", "hev1.1.6.H153.B0"));
+        assert!(hevc_fits("hev1.1.6.H153.B0", "hev1.1.6.H153.B0"));
+        assert!(hevc_fits("hev1.1.6.H120.B0", "hev1.1.6.H153.B0"));
+        assert!(!hevc_fits("hev1.1.6.H153.B0", "hev1.1.6.L153.B0"));
+        assert!(!hevc_fits("hev1.1.6.H120.B0", "hev1.1.6.L153.B0"));
+        assert!(!hevc_fits("hev1.1.6.L156.B0", "hev1.1.6.H153.B0"));
+        assert!(!hevc_fits("hev1.1.6.H156.B0", "hev1.1.6.H153.B0"));
+        assert!(!hevc_fits("hev1.2.6.L60.B0", "hev1.1.6.H153.B0"));
+        assert!(!hevc_fits("hev1.1.4.L60.B0", "hev1.1.6.H153.B0"));
+        assert!(!hevc_fits("hev1.1.6.L60.90", "hev1.1.6.H153.B0"));
+    }
+    #[test]
+    fn malformed_tier_levels_are_rejected_on_either_side() {
+        for invalid in ["", "L", "H", "X60", "h153", "L+60", "L-60", "L 60", "L0", "H90", "L256", "L999999999999", "Lé"] {
+            let codec = format!("hev1.1.6.{invalid}.B0");
+            assert!(!hevc_fits(&codec, "hev1.1.6.H153.B0"), "{codec}");
+            assert!(!hevc_fits("hev1.1.6.L60.B0", &codec), "{codec}");
+        }
+        assert!(!hevc_fits("hev1", "hev1"));
+    }
+    #[test]
     #[ignore = "requires native Apple Silicon VideoToolbox hardware; synthetic pixels only"]
     fn synthetic_hevc_hardware_full_frame_and_stripes() {
         unsafe extern "C" {
-            fn rd_synthetic_hevc_packet(emit: extern "C" fn(*mut c_void, *const u8, usize, u64) -> bool, context: *mut c_void) -> bool;
+            fn rd_synthetic_hevc_packet_at(width: u32, height: u32, fps: u32, bitrate: u32, emit: extern "C" fn(*mut c_void, *const u8, usize, u64) -> bool, context: *mut c_void) -> bool;
         }
         extern "C" fn packet(context: *mut c_void, data: *const u8, size: usize, _: u64) -> bool {
             if data.is_null() || size == 0 || size > 4 * 1024 * 1024 { return false; }
@@ -1133,13 +1169,17 @@ mod hevc_tests {
             *result = rieul_daemon_core::desktop_hevc::codec(unsafe { std::slice::from_raw_parts(data, size) });
             result.is_some()
         }
-        let mut packet_codec: Option<String> = None;
-        assert!(unsafe { rd_synthetic_hevc_packet(packet, &mut packet_codec as *mut _ as *mut c_void) });
-        assert_eq!(packet_codec, probe_hevc(640, 480, 60, 2_000_000, 0));
         let maximum = probe_hevc(3840, 2160, 60, 20_000_000, 0).expect("HEVC hardware encoder");
+        // Exercise the same packet parser + compatibility guard as live first-IDR delivery.
+        for (width, height, fps, bitrate) in [(320, 180, 1, 125_000), (288, 180, 1, 125_000), (640, 480, 60, 2_000_000), (3840, 2160, 60, 20_000_000)] {
+            let mut packet_codec: Option<String> = None;
+            assert!(unsafe { rd_synthetic_hevc_packet_at(width, height, fps, bitrate, packet, &mut packet_codec as *mut _ as *mut c_void) });
+            assert_eq!(packet_codec, probe_hevc(width, height, fps, bitrate, 0));
+            assert!(hevc_fits(packet_codec.as_deref().unwrap(), &maximum));
+        }
         for stripes in [0, 2] {
-            for (width, height, fps) in [(640, 480, 60), (1920, 1080, 60), (3840, 2160, 60)] {
-                let actual = probe_hevc(width, height, fps, 20_000_000, stripes).expect("HEVC encode");
+            for (width, height, fps, bitrate) in [(320, 180, 1, 125_000), (288, 180, 1, 125_000), (640, 480, 60, 20_000_000), (1920, 1080, 60, 20_000_000), (3840, 2160, 60, 20_000_000)] {
+                let actual = probe_hevc(width, height, fps, bitrate, stripes).expect("HEVC encode");
                 assert!(hevc_fits(&actual, &maximum), "{actual} exceeds {maximum}");
             }
         }
