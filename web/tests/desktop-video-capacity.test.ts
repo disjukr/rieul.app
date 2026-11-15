@@ -334,3 +334,37 @@ test("pending reconfiguration rejects old output and capacity admission", () =>
       VideoDecoder.isConfigSupported = support;
     }
   }));
+
+function afterCapacity(engine: DesktopVideoEngine, action: () => void) {
+  const target = engine as unknown as {
+    waitForCapacity: (...args: unknown[]) => Promise<number>;
+  };
+  const original = target.waitForCapacity.bind(engine);
+  target.waitForCapacity = async (...args) => {
+    const elapsed = await original(...args);
+    queueMicrotask(action);
+    return elapsed;
+  };
+}
+test("closure after capacity resolves still blocks stale submission", () =>
+  fixture(async (f) => {
+    afterCapacity(f.engine, () => f.engine.close());
+    await f.saturated();
+    f.decoder().releaseOne();
+    await f.engine.closedStreams();
+    assert.equal(f.counts.submits, 3);
+    assert.equal(f.counts.keyframes, 0);
+  }));
+test("queue cap is rechecked after capacity resolves", () =>
+  fixture(async (f) => {
+    afterCapacity(f.engine, () => {
+      f.decoder().decodeQueueSize = 3;
+    });
+    const g = await f.saturated();
+    g.close();
+    f.decoder().releaseOne();
+    await f.engine.closedStreams();
+    assert.equal(f.counts.submits, 3);
+    assert.equal(f.counts.maxQueue, 3);
+    assert.equal(f.counts.keyframes, 1);
+  }));
