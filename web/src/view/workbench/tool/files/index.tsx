@@ -3,6 +3,7 @@ import { untrack, createMemo, createSignal, createEffect } from "solid-js";
 
 import { useBunja } from "bunja/solid";
 import {
+  ExternalLink,
   FilePlus2,
   HardDrive,
   Info,
@@ -160,7 +161,7 @@ export function FilesTool() {
         currentExplorer.replaceWithTrash();
         return;
       }
-      if (currentTab.filesView !== "home") {
+      if (currentTab.filesView !== "home" || currentExplorer.openedFile()) {
         initialFilesLocationAppliedRef.current = true;
         return;
       }
@@ -272,43 +273,42 @@ export function FilesTool() {
   }
   function openTableEntry(entry: FsEntry) {
     supersedeInitialHome();
-    const currentOpenEntry = openEntry();
-    const currentSelectEntry = selectEntry();
-    const currentPaneState = paneState();
-    const currentMachine = machine();
-    const currentCurrentPath = currentPath();
-    if (entry.kind === FsEntryKind.Directory) {
-      currentOpenEntry(entry);
-      return;
-    }
-    if (entry.kind !== FsEntryKind.File) {
-      currentSelectEntry(entry);
-      return;
-    }
-    currentSelectEntry(entry);
-    const tabId = currentPaneState.addFilesTab({ filesView: "roots" });
-    writeExplorerFileNavigationState(
-      currentMachine?.id,
-      tabId,
-      currentCurrentPath,
-      entry,
-    );
+    openEntry()(entry);
   }
-  function openEntryMenu(entry: FsEntry, event: MouseEvent) {
+  function openEntryInNewTab(entry: FsEntry) {
+    if (entry.kind !== FsEntryKind.File) return;
+    setEntryMenu(undefined);
+    const originPath = currentPath();
+    const machineId = machine()?.id;
+    const tabId = paneState().addFilesTab({ filesView: "roots" });
+    writeExplorerFileNavigationState(machineId, tabId, originPath, entry);
+  }
+  function openEntryMenu(entry: FsEntry, event: MouseEvent | KeyboardEvent) {
     const currentSelectEntry = selectEntry();
     const currentCurrentPath = currentPath();
     event.preventDefault();
     event.stopPropagation();
     currentSelectEntry(entry);
     setFolderMenu(undefined);
-    setEntryMenu({
-      entry,
-      ...entryContextMenuPosition(
-        event.clientX,
-        event.clientY,
-        Boolean(currentCurrentPath),
-      ),
+    const anchor =
+      event instanceof KeyboardEvent && event.currentTarget instanceof Element
+        ? event.currentTarget.getBoundingClientRect()
+        : undefined;
+    const x =
+      event instanceof MouseEvent
+        ? event.clientX
+        : Math.max(0, anchor?.left ?? 0);
+    const y =
+      event instanceof MouseEvent ? event.clientY : (anchor?.bottom ?? 0);
+    const itemCount =
+      1 +
+      (currentCurrentPath ? 2 : 0) +
+      (entry.kind === FsEntryKind.File ? 1 : 0);
+    const position = clampFloatingMenuPosition(x, y, {
+      itemCount,
+      width: entryContextMenuWidth,
     });
+    setEntryMenu({ entry, x: position.left, y: position.top });
   }
   function openFolderMenu(event: MouseEvent) {
     event.preventDefault();
@@ -524,6 +524,7 @@ export function FilesTool() {
     goUp: goUpFromToolbar,
     navigate: navigateFromToolbar,
     openEntry: openTableEntry,
+    openEntryInNewTab,
     openEntryMenu,
     openFolderMenu,
     selectEntry: (entry) => selectEntry()(entry),
@@ -604,6 +605,14 @@ export function FilesTool() {
               className={styles.floatingMenu().class}
               position={{ left: entryMenu()!.x, top: entryMenu()!.y }}
             >
+              {entryMenu()!.entry.kind === FsEntryKind.File ? (
+                <FloatingMenuItem
+                  onClick={() => openEntryInNewTab(entryMenu()!.entry)}
+                >
+                  <ExternalLink size={15} />
+                  Open in new tab
+                </FloatingMenuItem>
+              ) : null}
               <FloatingMenuItem
                 onClick={() => openEntryProperties(entryMenu()!.entry)}
               >
@@ -672,20 +681,6 @@ export function FilesTool() {
       )}
     </>
   );
-}
-function entryContextMenuPosition(
-  x: number,
-  y: number,
-  hasDeleteItem: boolean,
-): {
-  x: number;
-  y: number;
-} {
-  const position = clampFloatingMenuPosition(x, y, {
-    itemCount: hasDeleteItem ? 3 : 1,
-    width: entryContextMenuWidth,
-  });
-  return { x: position.left, y: position.top };
 }
 function folderContextMenuPosition(
   x: number,

@@ -35,6 +35,7 @@ const entries: FsEntry[] = [
     kind: FsEntryKind.File,
     readonly: false,
     size: name.endsWith(".png") ? png.length : text.length,
+    modifiedAtMs: 1_700_000_000_000,
   })),
 ];
 if (!localStorage.getItem("rieul.workbench.fixture.v1"))

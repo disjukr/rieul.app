@@ -35,6 +35,7 @@ export function DirectoryContent() {
           selectedPath={selectedPath()}
           onSelect={actions().selectEntry}
           onOpen={actions().openEntry}
+          onOpenInNewTab={actions().openEntryInNewTab}
           onContextMenu={actions().openEntryMenu}
           onFolderContextMenu={actions().openFolderMenu}
           createDraftName={createFile().draftName}

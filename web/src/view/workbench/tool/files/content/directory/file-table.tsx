@@ -17,7 +17,8 @@ interface FileTableProps {
   selectedPath?: string;
   onSelect: (entry: FsEntry) => void;
   onOpen: (entry: FsEntry) => void;
-  onContextMenu: (entry: FsEntry, event: MouseEvent) => void;
+  onOpenInNewTab: (entry: FsEntry) => void;
+  onContextMenu: (entry: FsEntry, event: MouseEvent | KeyboardEvent) => void;
   onFolderContextMenu: (event: MouseEvent) => void;
   createDraftName: string;
   createError?: string;
@@ -95,6 +96,10 @@ export function FileTable(props: FileTableProps) {
           {(entry) => {
             const renaming = () => entry.path === props.renamingPath;
             const selected = () => entry.path === props.selectedPath;
+            const isFile = entry.kind === FsEntryKind.File;
+            const isInputEvent = (event: Event) =>
+              event.target instanceof Element &&
+              event.target.closest("input") !== null;
             return (
               <div
                 class={className(
@@ -104,10 +109,51 @@ export function FileTable(props: FileTableProps) {
                 role="row"
                 aria-selected={selected() ? "true" : "false"}
                 tabindex={0}
-                onClick={() => props.onSelect(entry)}
-                onDblClick={() => props.onOpen(entry)}
-                onContextMenu={(event) => props.onContextMenu(entry, event)}
+                onClick={(event) => {
+                  if (isInputEvent(event)) return;
+                  if (isFile && (event.ctrlKey || event.metaKey)) {
+                    event.preventDefault();
+                    if (event.detail <= 1) props.onOpenInNewTab(entry);
+                  } else props.onSelect(entry);
+                }}
+                onDblClick={(event) => {
+                  if (
+                    isInputEvent(event) ||
+                    (isFile && (event.ctrlKey || event.metaKey))
+                  )
+                    return;
+                  props.onOpen(entry);
+                }}
+                onMouseDown={(event) => {
+                  if (isFile && event.button === 1 && !isInputEvent(event))
+                    event.preventDefault();
+                }}
+                onAuxClick={(event) => {
+                  if (!isFile || event.button !== 1 || isInputEvent(event))
+                    return;
+                  event.preventDefault();
+                  props.onOpenInNewTab(entry);
+                }}
+                onContextMenu={(event) => {
+                  if (isInputEvent(event)) return;
+                  // macOS sends contextmenu instead of click for Ctrl+left-click.
+                  if (isFile && event.ctrlKey && event.button === 0) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    props.onOpenInNewTab(entry);
+                    return;
+                  }
+                  props.onContextMenu(entry, event);
+                }}
                 onKeyDown={(event) => {
+                  if (event.target !== event.currentTarget) return;
+                  if (
+                    event.key === "ContextMenu" ||
+                    (event.shiftKey && event.key === "F10")
+                  ) {
+                    props.onContextMenu(entry, event);
+                    return;
+                  }
                   if (event.key !== "Enter") return;
                   event.preventDefault();
                   props.onOpen(entry);
@@ -280,28 +326,6 @@ namespace styles {
     backgroundColor: "rgba(251, 251, 252, 0.98)",
     paddingTop: "2px",
     lineHeight: 1.38,
-    "@container workbench-tab-page (max-width:680px)": {
-      gridTemplateColumns: "minmax(200px,1fr) 96px 88px",
-      selectors: { "& .modified": { display: "none" } },
-    },
-    "@container workbench-tab-page (max-width:500px)": {
-      gridTemplateColumns: "minmax(0,1fr)",
-      gridTemplateRows: "21px",
-      gridAutoRows: "46px",
-      selectors: {
-        "& .file-head.kind, & .file-head.size": { display: "none" },
-        "& .file-row": {
-          gridTemplateColumns: "minmax(0,1fr) auto",
-          gridTemplateRows: "25px 18px",
-          height: "46px",
-          minHeight: "46px",
-        },
-        "& .file-row .name": { gridColumn: "1/-1" },
-        "& .file-row .kind, & .file-row .size": { fontSize: "10px" },
-        "& .file-row .kind": { paddingLeft: "33px" },
-        "& .file-row .size": { justifyContent: "flex-end" },
-      },
-    },
   });
   export const fileHead = style({
     position: "sticky",

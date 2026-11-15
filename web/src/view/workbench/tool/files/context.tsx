@@ -31,7 +31,8 @@ export interface FilesActions {
   goUp: () => void;
   navigate: (path?: string) => void;
   openEntry: (entry: FsEntry) => void;
-  openEntryMenu: (entry: FsEntry, event: MouseEvent) => void;
+  openEntryInNewTab: (entry: FsEntry) => void;
+  openEntryMenu: (entry: FsEntry, event: MouseEvent | KeyboardEvent) => void;
   openFolderMenu: (event: MouseEvent) => void;
   selectEntry: (entry: FsEntry) => void;
 }

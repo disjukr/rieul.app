@@ -84,6 +84,7 @@ function Fixture() {
         onCreateDraftChange={() => {}}
         onSelect={() => {}}
         onOpen={() => {}}
+        onOpenInNewTab={() => {}}
         onContextMenu={() => {}}
         onFolderContextMenu={() => {}}
         renameDraftName={draft()}

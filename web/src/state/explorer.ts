@@ -208,9 +208,11 @@ export const explorerNavigationBunja = bunja(() => {
   function openEntry(entry: FsEntry) {
     if (entry.kind === FsEntryKind.Directory) {
       navigate(entry.path);
-      return;
+    } else if (entry.kind === FsEntryKind.File) {
+      openFile(entry);
+    } else {
+      selectEntry(entry);
     }
-    setSelectedPath(entry.path);
   }
   function openFile(entry: FsEntry) {
     const updated = setNavigationState((current) => ({

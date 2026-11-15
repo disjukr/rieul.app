@@ -107,6 +107,7 @@ const actions = {
   goUp() {},
   navigate() {},
   openEntry() {},
+  openEntryInNewTab() {},
   openEntryMenu() {},
   openFolderMenu() {},
   selectEntry() {},
