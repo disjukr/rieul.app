@@ -153,6 +153,7 @@ export const desktopBunja = bunja(() => {
   let eventsAbort: AbortController | undefined,
     attachTimeout: ReturnType<typeof setTimeout> | undefined;
   let stopPreviewPublisher: (() => void) | undefined;
+  let releaseSelectedReservation: (() => void) | undefined;
   let previewCapture = false;
   let previewRequestedIds = new Set<string>();
   let previewKey = "";
@@ -370,7 +371,12 @@ export const desktopBunja = bunja(() => {
       cleanup();
       canvas.removeEventListener("contextrestored", restored);
       set!.delete(canvas);
-      if (set!.size === 0) surfaces.delete(viewportId);
+      if (set!.size === 0 && surfaces.get(viewportId) === set)
+        surfaces.delete(viewportId);
+      if (displayId !== undefined && surfaces.size === 0) {
+        stopPreviewPublisher?.();
+        stopPreviewPublisher = undefined;
+      }
     };
   }
   async function applyConfiguration(next: DesktopConfiguration, token: number) {
@@ -726,6 +732,7 @@ export const desktopBunja = bunja(() => {
                 nextTransport,
                 event.attachId,
                 (viewportId, frame) => {
+                  if (token !== generation) return false;
                   let drawn = false;
                   for (const canvas of surfaces.get(viewportId) ?? []) {
                     const ctx = canvas.getContext("2d");
@@ -743,13 +750,17 @@ export const desktopBunja = bunja(() => {
                   if (displayId !== undefined && drawn) {
                     stopPreviewPublisher ??=
                       previews.registerPublisher(displayId);
-                    previews.publish(displayId, frame);
+                    previews.publish(displayId, frame, "selected");
+                  } else if (displayId !== undefined) {
+                    stopPreviewPublisher?.();
+                    stopPreviewPublisher = undefined;
                   } else if (
                     displayId === undefined &&
                     previewCapture &&
                     !previews.hasPublisher(viewportId)
                   ) {
-                    drawn = previews.publish(viewportId, frame) || drawn;
+                    drawn =
+                      previews.publish(viewportId, frame, "preview") || drawn;
                   }
                   return drawn;
                 },
@@ -1085,9 +1096,13 @@ export const desktopBunja = bunja(() => {
     if (phase() === "viewing") await configure([]);
   }
   function start() {
+    if (displayId !== undefined)
+      releaseSelectedReservation ??= previews.reserveSelected(displayId);
     setSessionMode("active");
   }
   function stop() {
+    releaseSelectedReservation?.();
+    releaseSelectedReservation = undefined;
     setSessionMode("suspended");
     disconnect(true);
   }
@@ -1123,6 +1138,7 @@ export const desktopBunja = bunja(() => {
           createMemo(() => ({
             ids: previews.previewIds(),
             publishers: previews.publisherIds(),
+            selected: previews.selectedIds(),
             displays: displays(),
             ready: phase() === "viewing",
             busy: busy(),
@@ -1146,7 +1162,14 @@ export const desktopBunja = bunja(() => {
                   !published.has(display.displayId),
               )
               .map((display) => display.displayId)
-              .slice(0, Math.min(8, snapshot.cap));
+              .slice(
+                0,
+                Math.min(
+                  8,
+                  snapshot.cap,
+                  Math.max(0, 8 - snapshot.selected.length * 2),
+                ),
+              );
             const key = JSON.stringify([
               layoutEpoch,
               ids,
@@ -1167,6 +1190,8 @@ export const desktopBunja = bunja(() => {
     );
     return () => {
       active = false;
+      releaseSelectedReservation?.();
+      releaseSelectedReservation = undefined;
       untrack(disconnect);
       dispose();
     };

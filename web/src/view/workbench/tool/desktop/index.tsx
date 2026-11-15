@@ -442,8 +442,9 @@ function DesktopPreview(props: { display: DesktopDisplay }) {
       );
       let stop: (() => void) | undefined;
       let visible = false;
+      let contextLost = false;
       const sync = () => {
-        if (visible && !canvas.ownerDocument.hidden)
+        if (visible && !contextLost && !canvas.ownerDocument.hidden)
           stop ??= model.registerPreviewSurface(display.displayId, canvas);
         else {
           stop?.();
@@ -455,9 +456,21 @@ function DesktopPreview(props: { display: DesktopDisplay }) {
         sync();
       });
       observer.observe(canvas);
+      const lost = () => {
+        contextLost = true;
+        sync();
+      };
+      const restored = () => {
+        contextLost = false;
+        sync();
+      };
+      canvas.addEventListener("contextlost", lost);
+      canvas.addEventListener("contextrestored", restored);
       canvas.ownerDocument.addEventListener("visibilitychange", sync);
       return () => {
         observer.disconnect();
+        canvas.removeEventListener("contextlost", lost);
+        canvas.removeEventListener("contextrestored", restored);
         canvas.ownerDocument.removeEventListener("visibilitychange", sync);
         stop?.();
       };
@@ -471,7 +484,14 @@ function DesktopPreview(props: { display: DesktopDisplay }) {
         aria-hidden="true"
       />
       {!desktop().previewAvailable(props.display.displayId) && (
-        <span {...styles.previewPending()}>Preview paused</span>
+        <span
+          {...styles.previewPending()}
+          role="img"
+          aria-label="Preview paused"
+          title="Preview paused while other views use the available capture capacity"
+        >
+          Ⅱ
+        </span>
       )}
     </>
   );

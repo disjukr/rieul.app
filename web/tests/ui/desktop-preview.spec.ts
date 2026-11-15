@@ -31,6 +31,10 @@ for (const portrait of [false, true]) {
     });
     await expect(page.getByRole("button", { name: /control/i })).toHaveCount(0);
     await expect(page.getByLabel("Recorded input")).toHaveText("[]");
+    await preview.dispatchEvent("contextlost");
+    await expect(page.getByLabel("Preview subscriptions")).toHaveText("1");
+    await preview.dispatchEvent("contextrestored");
+    await expect(page.getByLabel("Preview subscriptions")).toHaveText("2");
     await page
       .getByRole("button", { name: "Display fixture", exact: true })
       .click();

@@ -12,6 +12,7 @@ import {
   type SelectExistingDesktopReq,
   type DesktopConfiguration,
   type DesktopQualitySupport,
+  type AttachDesktopReq,
 } from "../src/protocol/generated/rpc.ts";
 import { DesktopDisplayIdScope } from "../src/state/desktop-scopes.ts";
 import { MachineIdScope } from "../src/state/machine-scopes.ts";
@@ -33,6 +34,24 @@ const renderers = new Map<
   string,
   (viewportId: string, frame: VideoFrame) => boolean
 >();
+let stripeCodec = false;
+const fixtureCodec = () => (stripeCodec ? "avc1.fixture" : "fixture");
+let encoderCapacity = Infinity;
+let beforePreviewConfigure:
+  | ((request: ConfigureDesktopViewportsReq) => Promise<void>)
+  | undefined;
+const encoderSlots = new Map<string, number>();
+const attachedProfiles = new Map<string, number>();
+function reserveEncoderSlots(id: string, slots: number) {
+  if (!Number.isFinite(encoderCapacity)) return;
+  const total =
+    [...encoderSlots.values()].reduce((sum, value) => sum + value, 0) -
+    (encoderSlots.get(id) ?? 0) +
+    slots;
+  if (total > encoderCapacity)
+    throw new RpcError("limit", "Synthetic encoder capacity reached");
+  encoderSlots.set(id, slots);
+}
 let receiverCount = 0;
 let queryCount = 0;
 let capabilityError: Error | undefined;
@@ -67,7 +86,8 @@ mock.module("../src/protocol/generated/client.ts", {
         profile: 1,
         capture: DesktopAvailability.Available,
         input: DesktopAvailability.Available,
-        codecs: [{ codec: "fixture", hardware: false }],
+        codecs: [{ codec: fixtureCodec(), hardware: false }],
+        supportedProfiles: [1, 2],
         maxViewports: 8,
       };
     },
@@ -76,6 +96,8 @@ mock.module("../src/protocol/generated/client.ts", {
       request: ConfigureDesktopViewportsReq,
     ) => {
       configurations.push(request);
+      await beforePreviewConfigure?.(request);
+      reserveEncoderSlots(request.attachId, request.viewports.length);
       const epoch = ++codecEpoch;
       return {
         layoutEpoch: request.layoutEpoch,
@@ -83,7 +105,7 @@ mock.module("../src/protocol/generated/client.ts", {
         tracks: request.viewports.map((viewport, index) => ({
           trackId: index + 1,
           codecEpoch: epoch,
-          codec: { codec: "fixture", hardware: false },
+          codec: { codec: fixtureCodec(), hardware: false },
           viewport,
         })),
       };
@@ -98,6 +120,7 @@ mock.module("../src/protocol/generated/client.ts", {
         selection.type === "display"
           ? displays.find((d) => d.displayId === selection.displayId)
           : undefined;
+      reserveEncoderSlots(request.attachId, chosen ? (stripeCodec ? 2 : 1) : 0);
       const epoch = ++codecEpoch;
       return {
         layoutEpoch: request.expectedLayoutEpoch,
@@ -107,7 +130,7 @@ mock.module("../src/protocol/generated/client.ts", {
               {
                 trackId: 1,
                 codecEpoch: epoch,
-                codec: { codec: "fixture", hardware: false },
+                codec: { codec: fixtureCodec(), hardware: false },
                 viewport: {
                   viewportId: chosen.displayId,
                   displayId: chosen.displayId,
@@ -155,6 +178,7 @@ mock.module("../src/protocol/generated/client.ts", {
     },
     detachDesktop: async (_: unknown, request: { attachId: string }) => {
       detached.push(request.attachId);
+      encoderSlots.delete(request.attachId);
     },
     renewDesktopLease: async () => ({ remainingMs: 15000 }),
   },
@@ -163,12 +187,13 @@ mock.module("../src/protocol/desktop-session.ts", {
   namedExports: {
     desktopEvents: async function* (
       _transport: unknown,
-      _request: unknown,
+      request: AttachDesktopReq,
       signal: AbortSignal,
       proc: number,
     ) {
       assert.equal(proc, ProcId.AttachDesktop);
       const id = `catalog-${++sequence}`;
+      attachedProfiles.set(id, request.profile);
       const queue: (DesktopEvent | undefined)[] = [];
       let wake: (() => void) | undefined;
       const push = (event: DesktopEvent | undefined) => {
@@ -221,7 +246,7 @@ mock.module("../src/protocol/desktop-input.ts", {
 });
 mock.module("../src/protocol/desktop-video.ts", {
   namedExports: {
-    supportedDesktopCodecs: async () => ["fixture"],
+    supportedDesktopCodecs: async () => [fixtureCodec()],
     DesktopVideoReceiver: class {
       constructor(
         _transport: unknown,
@@ -1044,5 +1069,210 @@ test("catalog preview reconfigures a retained monitor ID after its source geomet
   } finally {
     stop?.();
     f.close();
+  }
+});
+
+for (const failure of ["context", "surface"]) {
+  test(`catalog preview resumes when a usable full publisher loses its ${failure}`, async () => {
+    const f = fixture(true),
+      catalog = f.consumer(undefined),
+      full = f.consumer("first");
+    let lost = false;
+    let stopPreview: (() => void) | undefined,
+      stopSurface: (() => void) | undefined;
+    try {
+      await flush();
+      stopPreview = catalog.value.registerPreviewSurface("first", {
+        isConnected: true,
+        width: 320,
+        height: 180,
+        getContext: () => ({ drawImage() {} }),
+      } as unknown as HTMLCanvasElement);
+      await flush();
+      stopSurface = full.value.registerSurface("first", {
+        isConnected: true,
+        width: 1280,
+        height: 720,
+        addEventListener() {},
+        removeEventListener() {},
+        getContext: () => ({ isContextLost: () => lost, drawImage() {} }),
+      } as unknown as HTMLCanvasElement);
+      renderers.get(full.value.attachId()!)!("first", {} as VideoFrame);
+      await flush();
+      assert.deepEqual(configurations.at(-1)?.viewports, []);
+      if (failure === "surface") {
+        stopSurface();
+        stopSurface = undefined;
+      } else {
+        lost = true;
+        assert.equal(
+          renderers.get(full.value.attachId()!)!("first", {} as VideoFrame),
+          false,
+        );
+      }
+      await flush();
+      assert.deepEqual(
+        configurations.at(-1)?.viewports.map((viewport) => viewport.displayId),
+        ["first"],
+      );
+      assert.equal(configurations.at(-1)?.viewports[0]?.fps, 1);
+    } finally {
+      stopSurface?.();
+      stopPreview?.();
+      f.close();
+    }
+  });
+}
+
+test("eight previews yield encoder headroom to one shared profile2 selection without local starvation", async () => {
+  const oldOffscreen = Object.getOwnPropertyDescriptor(
+    globalThis,
+    "OffscreenCanvas",
+  );
+  Object.defineProperty(globalThis, "OffscreenCanvas", {
+    configurable: true,
+    value: class {},
+  });
+  stripeCodec = true;
+  encoderCapacity = 8;
+  encoderSlots.clear();
+  const f = fixture(true),
+    catalog = f.consumer(undefined),
+    stops: (() => void)[] = [];
+  try {
+    await flush();
+    const many = [
+      ...displays,
+      ...Array.from({ length: 6 }, (_, index) => ({
+        ...displays[0]!,
+        displayId: `other-${index}`,
+      })),
+    ];
+    streams
+      .get(catalog.value.attachId()!)!
+      .push({ type: "layout", layoutEpoch: 2, displays: many });
+    await flush();
+    for (const display of many)
+      stops.push(
+        catalog.value.registerPreviewSurface(display.displayId, {
+          isConnected: true,
+          width: 320,
+          height: 180,
+          getContext: () => ({ drawImage() {} }),
+        } as unknown as HTMLCanvasElement),
+      );
+    await flush();
+    const catalogId = catalog.value.attachId()!;
+    assert.equal(attachedProfiles.get(catalogId), 1);
+    assert.equal(encoderSlots.get(catalogId), 8);
+    const full = f.consumer("first"),
+      mirror = f.consumer("first");
+    await flush();
+    assert.equal(full.value, mirror.value);
+    assert.equal(full.value.phase(), "viewing");
+    assert.equal(attachedProfiles.get(full.value.attachId()!), 2);
+    assert.equal(encoderSlots.get(catalogId), 6);
+    assert.equal(encoderSlots.get(full.value.attachId()!), 2);
+    assert.equal(
+      [...encoderSlots.values()].reduce((sum, value) => sum + value, 0),
+      8,
+    );
+    full.release();
+    await flush();
+    assert.equal(encoderSlots.get(catalogId), 6);
+    mirror.release();
+    await flush();
+    assert.equal(encoderSlots.get(catalogId), 8);
+  } finally {
+    for (const stop of stops) stop();
+    f.close();
+    stripeCodec = false;
+    encoderCapacity = Infinity;
+    encoderSlots.clear();
+    if (oldOffscreen)
+      Object.defineProperty(globalThis, "OffscreenCanvas", oldOffscreen);
+    else Reflect.deleteProperty(globalThis, "OffscreenCanvas");
+  }
+});
+
+test("selected profile2 recovers when it races a preview capacity reduction without acquiring input", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  t.mock.method(Math, "random", () => 0.5);
+  const oldOffscreen = Object.getOwnPropertyDescriptor(
+    globalThis,
+    "OffscreenCanvas",
+  );
+  Object.defineProperty(globalThis, "OffscreenCanvas", {
+    configurable: true,
+    value: class {},
+  });
+  stripeCodec = true;
+  encoderCapacity = 8;
+  encoderSlots.clear();
+  const f = fixture(true),
+    catalog = f.consumer(undefined),
+    stops: (() => void)[] = [];
+  const reduction = deferred<void>();
+  try {
+    await flush();
+    const many = [
+      ...displays,
+      ...Array.from({ length: 6 }, (_, index) => ({
+        ...displays[0]!,
+        displayId: `race-other-${index}`,
+      })),
+    ];
+    streams
+      .get(catalog.value.attachId()!)!
+      .push({ type: "layout", layoutEpoch: 2, displays: many });
+    await flush();
+    for (const display of many)
+      stops.push(
+        catalog.value.registerPreviewSurface(display.displayId, {
+          isConnected: true,
+          width: 320,
+          height: 180,
+          getContext: () => ({ drawImage() {} }),
+        } as unknown as HTMLCanvasElement),
+      );
+    await flush();
+    let blocked = false;
+    beforePreviewConfigure = async (request) => {
+      if (!blocked && request.viewports.length === 6) {
+        blocked = true;
+        await reduction.promise;
+      }
+    };
+    const controlCount = controls.length;
+    const full = f.consumer("first");
+    await flush();
+    assert.equal(blocked, true);
+    assert.equal(full.value.phase(), "error");
+    assert.equal(full.value.controlling(), false);
+    reduction.resolve();
+    await flush();
+    assert.equal(encoderSlots.get(catalog.value.attachId()!), 6);
+    t.mock.timers.tick(1000);
+    await flush();
+    assert.equal(full.value.phase(), "viewing");
+    assert.equal(attachedProfiles.get(full.value.attachId()!), 2);
+    assert.equal(full.value.controlling(), false);
+    assert.equal(
+      controls
+        .slice(controlCount)
+        .some((request) => request.action !== DesktopControlAction.Release),
+      false,
+    );
+  } finally {
+    reduction.resolve();
+    beforePreviewConfigure = undefined;
+    for (const stop of stops) stop();
+    f.close();
+    stripeCodec = false;
+    encoderCapacity = Infinity;
+    encoderSlots.clear();
+    if (oldOffscreen)
+      Object.defineProperty(globalThis, "OffscreenCanvas", oldOffscreen);
+    else Reflect.deleteProperty(globalThis, "OffscreenCanvas");
   }
 });
