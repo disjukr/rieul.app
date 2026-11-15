@@ -799,6 +799,7 @@ namespace styles {
     overflow: "visible",
     selectors: {
       "&.active .workbench-pane-surface::after": {
+        borderWidth: "2px",
         borderColor: theme.focus,
       },
       "&:not(.active) .file-row.selected": {

@@ -341,7 +341,7 @@ test("cluster refresh and machine metadata preserve selected workbench DOM and f
 test.describe("split decoration uses CSS-pixel widths without shrinking resize targets", () => {
   test.use({ deviceScaleFactor: 2 });
   for (const direction of ["horizontal", "vertical"] as const) {
-    test(`${direction} split shares a 1px pane border and a 2px visible divider`, async ({
+    test(`${direction} split has a 2px active pane border, 1px inactive border and 2px divider`, async ({
       page,
     }) => {
       await page.goto("/");
@@ -371,15 +371,20 @@ test.describe("split decoration uses CSS-pixel widths without shrinking resize t
         });
       const active = await decoration(first),
         inactive = await decoration(second);
-      expect(active.widths).toEqual(["1px", "1px", "1px", "1px"]);
-      expect(inactive.widths).toEqual(active.widths);
+      expect(active.widths).toEqual(["2px", "2px", "2px", "2px"]);
+      expect(inactive.widths).toEqual(["1px", "1px", "1px", "1px"]);
       expect(active.color).not.toBe(inactive.color);
       await page.locator('[data-tab-id="t3"] [role="tab"]').click();
       await expect(second).toHaveClass(/active/);
       await expect
         .poll(async () => (await decoration(second)).color)
         .toBe(active.color);
-      expect((await decoration(second)).widths).toEqual(active.widths);
+      await expect
+        .poll(async () => (await decoration(second)).widths)
+        .toEqual(active.widths);
+      await expect
+        .poll(async () => (await decoration(first)).widths)
+        .toEqual(inactive.widths);
       const divider = page.getByRole("separator", { name: "Resize panes" });
       await expect(divider).toHaveAttribute(
         "aria-orientation",
