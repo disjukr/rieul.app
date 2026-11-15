@@ -4,23 +4,46 @@ import { Button } from "../../../ui/button.tsx";
 import { For, createEffect, createMemo, createSignal, untrack } from "solid-js";
 import { desktopCursorPng } from "../../../../protocol/desktop-cursor.ts";
 import { useBunja } from "bunja/solid";
-import { desktopBunja } from "../../../../state/desktop.ts";
+import { managedDesktopBunja } from "../../../../state/desktop.ts";
+import { DesktopDisplayIdContext } from "../../../../state/desktop-context.ts";
 import {
   DesktopQualityVerification,
   type DesktopTrack,
 } from "../../../../protocol/generated/rpc.ts";
 
-/** Semantic classes also style the separate display document. */
 export function DesktopTool(props: { active?: boolean } = {}) {
-  const desktop = useBunja(desktopBunja);
+  const [selected, setSelected] = createSignal<string>();
+  return (
+    <>
+      {props.active !== false &&
+        (selected() ? (
+          <DesktopDisplayIdContext value={selected}>
+            <DesktopSelectedView onBack={() => setSelected(undefined)} />
+          </DesktopDisplayIdContext>
+        ) : (
+          <DesktopDisplayIdContext value={undefined}>
+            <DesktopCatalogView onSelect={setSelected} />
+          </DesktopDisplayIdContext>
+        ))}
+    </>
+  );
+}
+function DesktopSelectedView(props: { onBack: () => void }) {
+  const desktop = useBunja(managedDesktopBunja);
+  const viewer = Symbol("Screen viewer");
   const [fps, setFps] = createSignal(60);
   const [mbps, setMbps] = createSignal(20);
   createEffect(
-    createMemo(() => props.active ?? true),
-    (active) => {
-      if (active) desktop().start();
-      else desktop().stop();
-      return () => desktop().stop();
+    createMemo(() => desktop()),
+    (model) => model.registerViewer(viewer),
+  );
+  createEffect(
+    createMemo(() => ({
+      phase: desktop().phase(),
+      selected: desktop().selectedDisplayId(),
+    })),
+    ({ phase, selected }) => {
+      if (phase === "viewing" && !selected) props.onBack();
     },
   );
   return (
@@ -30,317 +53,318 @@ export function DesktopTool(props: { active?: boolean } = {}) {
       data-controlling={desktop().controlling()}
       aria-label="Screen"
     >
-      {desktop().selectedDisplayId() ? (
-        <>
-          <header {...styles.toolbar({ className: "rieul-desktop-toolbar" })}>
-            <Button size="sm" onClick={() => void desktop().leaveDisplay()}>
-              Back to displays
-            </Button>
-            <h2 {...styles.title()}>Display {desktop().selectedDisplayId()}</h2>
-            {desktop().controlling() ? (
-              <Button
-                size="sm"
-                disabled={desktop().busy()}
-                onClick={() => void desktop().release()}
-              >
-                Release control
-              </Button>
-            ) : (
-              <Button
-                size="sm"
-                disabled={
-                  !desktop().inputReady() ||
-                  desktop().busy() ||
-                  desktop().phase() !== "viewing"
-                }
-                onClick={() =>
-                  void (desktop().control().holderAttachId
-                    ? desktop().takeover()
-                    : desktop().acquire())
-                }
-              >
-                {desktop().control().holderAttachId
-                  ? "Take control from another viewer"
-                  : "Control screen"}
-              </Button>
-            )}
-          </header>
-          <p
-            {...styles.status({ className: "rieul-desktop-status" })}
-            role="status"
+      <header {...styles.toolbar({ className: "rieul-desktop-toolbar" })}>
+        <Button size="sm" onClick={() => props.onBack()}>
+          Back to displays
+        </Button>
+        <h2 {...styles.title()}>Display {desktop().selectedDisplayId()}</h2>
+        {desktop().controlling() && desktop().ownsInput(viewer) ? (
+          <Button
+            size="sm"
+            disabled={desktop().busy()}
+            onClick={() => void desktop().release()}
           >
-            {desktop().message() ??
-              desktop().availabilityMessage() ??
-              (desktop().phase() === "connecting"
-                ? "Connecting to display…"
-                : desktop().controlling()
-                  ? "You control this screen."
-                  : !desktop().inputReady()
-                    ? "Viewing only. Control is unavailable."
-                    : desktop().control().holderAttachId
-                      ? "Another viewer controls this screen. Taking control will release their held inputs."
-                      : "Viewing only. Choose Control screen to use the keyboard and pointer.")}
-          </p>
-          <p {...styles.help({ className: "rieul-desktop-input-help" })}>
-            Keyboard input uses physical keys. IME and OS-reserved shortcuts are
-            unavailable. Ctrl+Alt+Escape leaves screen keyboard focus.
-          </p>
-          {!desktop().qualitySupported() && (
-            <p {...styles.help()}>
-              Automatic video quality is not available for individual displays
-              on this daemon.
+            Release control
+          </Button>
+        ) : (
+          <Button
+            size="sm"
+            disabled={
+              !desktop().inputReady() ||
+              desktop().busy() ||
+              desktop().phase() !== "viewing"
+            }
+            onClick={() =>
+              void (desktop().controlling() ||
+              !desktop().control().holderAttachId
+                ? desktop().acquire(viewer)
+                : desktop().takeover(viewer))
+            }
+          >
+            {desktop().controlling()
+              ? "Control here"
+              : desktop().control().holderAttachId
+                ? "Take control from another viewer"
+                : "Control screen"}
+          </Button>
+        )}
+      </header>
+      <p
+        {...styles.status({ className: "rieul-desktop-status" })}
+        role="status"
+      >
+        {desktop().message() ??
+          desktop().availabilityMessage() ??
+          (desktop().phase() === "connecting"
+            ? "Connecting to display…"
+            : desktop().controlling()
+              ? desktop().ownsInput(viewer)
+                ? "You control this screen."
+                : "This display is controlled in another pane. Choose Control here to move input."
+              : !desktop().inputReady()
+                ? "Viewing only. Control is unavailable."
+                : desktop().control().holderAttachId
+                  ? "Another viewer controls this screen. Taking control will release their held inputs."
+                  : "Viewing only. Choose Control screen to use the keyboard and pointer.")}
+      </p>
+      <p {...styles.help({ className: "rieul-desktop-input-help" })}>
+        Keyboard input uses physical keys. IME and OS-reserved shortcuts are
+        unavailable. Ctrl+Alt+Escape leaves screen keyboard focus.
+      </p>
+      {!desktop().qualitySupported() && (
+        <p {...styles.help()}>
+          Automatic video quality is not available for individual displays on
+          this daemon.
+        </p>
+      )}
+      {!desktop().serverOwnsGeometry() && (
+        <label {...styles.help()}>
+          Maximum video size
+          <select
+            {...styles.select()}
+            aria-label="Maximum video size"
+            value={desktop().outputHeight()}
+            disabled={desktop().busy() || desktop().phase() === "connecting"}
+            onChange={(event) =>
+              void desktop().resize(Number(event.currentTarget.value))
+            }
+          >
+            <option value="720">1280 × 720</option>
+            <option value="1080">1920 × 1080</option>
+            <option value="2160">3840 × 2160</option>
+          </select>{" "}
+          Video size only; OS display resolution is unchanged. Changing size
+          releases held inputs.
+        </label>
+      )}
+      {desktop().qualitySupported() &&
+        desktop().phase() === "viewing" &&
+        !!desktop().configuration()?.tracks.length && (
+          <fieldset {...styles.help()}>
+            <legend>Video quality</legend>
+            <p>
+              Current target:{" "}
+              {desktop().configuration()?.tracks[0]?.viewport.fps} FPS,{" "}
+              {(desktop().configuration()?.totalBitrate ?? 0) / 1_000_000} Mbps
+              shared. Mode:{" "}
+              {desktop().qualityPolicy()?.type === "auto" ? "Auto" : "Manual"}.
             </p>
-          )}
-          {!desktop().serverOwnsGeometry() && (
-            <label {...styles.help()}>
-              Maximum video size
-              <select
+            <label>
+              Target FPS{" "}
+              <input
                 {...styles.select()}
-                aria-label="Maximum video size"
-                value={desktop().outputHeight()}
-                disabled={
-                  desktop().busy() || desktop().phase() === "connecting"
-                }
-                onChange={(event) =>
-                  void desktop().resize(Number(event.currentTarget.value))
-                }
-              >
-                <option value="720">1280 × 720</option>
-                <option value="1080">1920 × 1080</option>
-                <option value="2160">3840 × 2160</option>
-              </select>{" "}
-              Video size only; OS display resolution is unchanged. Changing size
-              releases held inputs.
-            </label>
-          )}
-          {desktop().qualitySupported() &&
-            desktop().phase() === "viewing" &&
-            !!desktop().configuration()?.tracks.length && (
-              <fieldset {...styles.help()}>
-                <legend>Video quality</legend>
-                <p>
-                  Current target:{" "}
-                  {desktop().configuration()?.tracks[0]?.viewport.fps} FPS,{" "}
-                  {(desktop().configuration()?.totalBitrate ?? 0) / 1_000_000}{" "}
-                  Mbps shared. Mode:{" "}
-                  {desktop().qualityPolicy()?.type === "auto"
-                    ? "Auto"
-                    : "Manual"}
-                  .
-                </p>
-                <label>
-                  Target FPS{" "}
-                  <input
-                    {...styles.select()}
-                    type="number"
-                    min="1"
-                    max="120"
-                    value={fps()}
-                    onInput={(e) => setFps(Number(e.currentTarget.value))}
-                  />
-                </label>{" "}
-                <label>
-                  Shared bitrate target (Mbps){" "}
-                  <input
-                    {...styles.select()}
-                    type="number"
-                    min="0.1"
-                    max="100"
-                    step="0.1"
-                    value={mbps()}
-                    onInput={(e) => setMbps(Number(e.currentTarget.value))}
-                  />
-                </label>{" "}
+                type="number"
+                min="1"
+                max="120"
+                value={fps()}
+                onInput={(e) => setFps(Number(e.currentTarget.value))}
+              />
+            </label>{" "}
+            <label>
+              Shared bitrate target (Mbps){" "}
+              <input
+                {...styles.select()}
+                type="number"
+                min="0.1"
+                max="100"
+                step="0.1"
+                value={mbps()}
+                onInput={(e) => setMbps(Number(e.currentTarget.value))}
+              />
+            </label>{" "}
+            <Button
+              size="sm"
+              disabled={
+                desktop().qualityBusy() ||
+                !Number.isInteger(fps()) ||
+                fps() < 1 ||
+                fps() > 120 ||
+                !Number.isFinite(mbps()) ||
+                mbps() < 0.1 ||
+                mbps() > 100
+              }
+              onClick={() =>
+                void desktop().queryQuality({
+                  fps: fps(),
+                  totalBitrate: Math.round(mbps() * 1_000_000),
+                })
+              }
+            >
+              Check quality support
+            </Button>
+            <p>
+              Targets are not guaranteed performance. Choose an available target
+              below to apply it.
+            </p>
+            {desktop().qualitySupport() && (
+              <div>
                 <Button
                   size="sm"
                   disabled={
                     desktop().qualityBusy() ||
-                    !Number.isInteger(fps()) ||
-                    fps() < 1 ||
-                    fps() > 120 ||
-                    !Number.isFinite(mbps()) ||
-                    mbps() < 0.1 ||
-                    mbps() > 100
+                    !desktop().qualitySupport()?.automaticAvailable
                   }
-                  onClick={() =>
-                    void desktop().queryQuality({
-                      fps: fps(),
-                      totalBitrate: Math.round(mbps() * 1_000_000),
-                    })
-                  }
+                  onClick={() => void desktop().applyQuality({ type: "auto" })}
                 >
-                  Check quality support
+                  Use Auto
                 </Button>
-                <p>
-                  Targets are not guaranteed performance. Choose an available
-                  target below to apply it.
-                </p>
-                {desktop().qualitySupport() && (
-                  <div>
-                    <Button
-                      size="sm"
-                      disabled={
-                        desktop().qualityBusy() ||
-                        !desktop().qualitySupport()?.automaticAvailable
-                      }
-                      onClick={() =>
-                        void desktop().applyQuality({ type: "auto" })
-                      }
-                    >
-                      Use Auto
-                    </Button>
-                    <For each={desktop().qualitySupport()?.candidates}>
-                      {(candidate) => (
-                        <div>
-                          <span>
-                            {candidate.target.fps} FPS ·{" "}
-                            {candidate.target.totalBitrate / 1_000_000} Mbps —{" "}
-                            {candidate.verification ===
+                <For each={desktop().qualitySupport()?.candidates}>
+                  {(candidate) => (
+                    <div>
+                      <span>
+                        {candidate.target.fps} FPS ·{" "}
+                        {candidate.target.totalBitrate / 1_000_000} Mbps —{" "}
+                        {candidate.verification ===
+                        DesktopQualityVerification.Verified
+                          ? "Available"
+                          : candidate.verification ===
+                              DesktopQualityVerification.Unsupported
+                            ? "Unavailable"
+                            : "Not yet verified"}
+                        .
+                      </span>{" "}
+                      <Button
+                        size="sm"
+                        disabled={
+                          desktop().qualityBusy() ||
+                          candidate.verification !==
                             DesktopQualityVerification.Verified
-                              ? "Available"
-                              : candidate.verification ===
-                                  DesktopQualityVerification.Unsupported
-                                ? "Unavailable"
-                                : "Not yet verified"}
-                            .
-                          </span>{" "}
-                          <Button
-                            size="sm"
-                            disabled={
-                              desktop().qualityBusy() ||
-                              candidate.verification !==
-                                DesktopQualityVerification.Verified
-                            }
-                            onClick={() =>
-                              void desktop().applyQuality({
-                                type: "manual",
-                                target: candidate.target,
-                              })
-                            }
-                          >
-                            Use {candidate.target.fps} FPS /{" "}
-                            {candidate.target.totalBitrate / 1_000_000} Mbps
-                          </Button>
-                        </div>
-                      )}
-                    </For>
-                  </div>
-                )}
-                <p role="status">
-                  {desktop().qualityBusy()
-                    ? "Checking or applying quality…"
-                    : desktop().qualityMessage()}
-                </p>
-              </fieldset>
+                        }
+                        onClick={() =>
+                          void desktop().applyQuality({
+                            type: "manual",
+                            target: candidate.target,
+                          })
+                        }
+                      >
+                        Use {candidate.target.fps} FPS /{" "}
+                        {candidate.target.totalBitrate / 1_000_000} Mbps
+                      </Button>
+                    </div>
+                  )}
+                </For>
+              </div>
             )}
-          {desktop().phase() === "viewing" && !desktop().displays().length && (
-            <p {...styles.help()}>The daemon has no active displays.</p>
+            <p role="status">
+              {desktop().qualityBusy()
+                ? "Checking or applying quality…"
+                : desktop().qualityMessage()}
+            </p>
+          </fieldset>
+        )}
+      {desktop().phase() === "viewing" && !desktop().displays().length && (
+        <p {...styles.help()}>The daemon has no active displays.</p>
+      )}
+      <div {...styles.viewports({ className: "rieul-desktop-viewports" })}>
+        <For
+          each={desktop()
+            .configuration()
+            ?.tracks.filter(
+              (t) => t.viewport.displayId === desktop().selectedDisplayId(),
+            )
+            .map((t) => t.viewport.viewportId)}
+        >
+          {(id) => (
+            <DesktopSurface
+              viewer={viewer}
+              track={
+                desktop()
+                  .configuration()!
+                  .tracks.find((t) => t.viewport.viewportId === id)!
+              }
+            />
           )}
-          <div {...styles.viewports({ className: "rieul-desktop-viewports" })}>
-            <For
-              each={desktop()
-                .configuration()
-                ?.tracks.filter(
-                  (t) => t.viewport.displayId === desktop().selectedDisplayId(),
-                )
-                .map((t) => t.viewport.viewportId)}
-            >
-              {(id) => (
-                <DesktopSurface
-                  track={
-                    desktop()
-                      .configuration()!
-                      .tracks.find((t) => t.viewport.viewportId === id)!
-                  }
-                />
-              )}
-            </For>
-          </div>
-          <details {...styles.diagnostics()}>
-            <summary>Diagnostics</summary>
+        </For>
+      </div>
+      <details {...styles.diagnostics()}>
+        <summary>Diagnostics</summary>
+        <p {...styles.help()}>
+          Existing displays: uses the daemon’s current OS display configuration.
+          {desktop().modes().custom
+            ? " Custom layout is advertised by this daemon; this client does not yet configure it."
+            : " Custom layout is not offered by this daemon."}
+        </p>
+        <For each={desktop().configuration()?.tracks}>
+          {(track) => (
             <p {...styles.help()}>
-              Existing displays: uses the daemon’s current OS display
-              configuration.
-              {desktop().modes().custom
-                ? " Custom layout is advertised by this daemon; this client does not yet configure it."
-                : " Custom layout is not offered by this daemon."}
+              Display {track.viewport.displayId}: {track.viewport.width} ×{" "}
+              {track.viewport.height} · {track.codec.codec}
             </p>
-            <For each={desktop().configuration()?.tracks}>
-              {(track) => (
-                <p {...styles.help()}>
-                  Display {track.viewport.displayId}: {track.viewport.width} ×{" "}
-                  {track.viewport.height} · {track.codec.codec}
-                </p>
-              )}
-            </For>
-            {desktop().qualitySupported() && (
-              <p {...styles.help()}>
-                Auto quality uses measured delivery delays and receiver queue
-                feedback within verified combinations.
-              </p>
-            )}
-            <For each={desktop().qualitySupport()?.candidates}>
-              {(candidate) => (
-                <p {...styles.help()}>
-                  {candidate.target.fps} FPS ·{" "}
-                  {candidate.target.totalBitrate / 1_000_000} Mbps.{" "}
-                  {candidate.reason}
-                </p>
-              )}
-            </For>
-            {desktop().stats() && (
-              <output
-                {...styles.metrics({ className: "rieul-desktop-metrics" })}
-                aria-label="Screen decoder status"
-              >
-                {desktop().stats()!.requestKeyframe
-                  ? "Recovering at the next keyframe"
-                  : `Decoder queue: ${desktop().stats()!.queueDepth}`}
-              </output>
-            )}
-          </details>
-        </>
-      ) : (
-        <>
-          {(desktop().message() ||
-            desktop().availabilityMessage() ||
-            desktop().phase() !== "viewing") && (
-            <p
-              {...styles.status({ className: "rieul-desktop-status" })}
-              role="status"
+          )}
+        </For>
+        {desktop().qualitySupported() && (
+          <p {...styles.help()}>
+            Auto quality uses measured delivery delays and receiver queue
+            feedback within verified combinations.
+          </p>
+        )}
+        <For each={desktop().qualitySupport()?.candidates}>
+          {(candidate) => (
+            <p {...styles.help()}>
+              {candidate.target.fps} FPS ·{" "}
+              {candidate.target.totalBitrate / 1_000_000} Mbps.{" "}
+              {candidate.reason}
+            </p>
+          )}
+        </For>
+        {desktop().stats() && (
+          <output
+            {...styles.metrics({ className: "rieul-desktop-metrics" })}
+            aria-label="Screen decoder status"
+          >
+            {desktop().stats()!.requestKeyframe
+              ? "Recovering at the next keyframe"
+              : `Decoder queue: ${desktop().stats()!.queueDepth}`}
+          </output>
+        )}
+      </details>
+    </section>
+  );
+}
+function DesktopCatalogView(props: { onSelect: (displayId: string) => void }) {
+  const desktop = useBunja(managedDesktopBunja);
+  return (
+    <section
+      {...styles.root({ className: "rieul-desktop" })}
+      data-phase={desktop().phase()}
+      data-controlling={desktop().controlling()}
+      aria-label="Screen"
+    >
+      {(desktop().message() ||
+        desktop().availabilityMessage() ||
+        desktop().phase() !== "viewing") && (
+        <p
+          {...styles.status({ className: "rieul-desktop-status" })}
+          role="status"
+        >
+          {desktop().message() ??
+            desktop().availabilityMessage() ??
+            "Connecting to displays…"}
+        </p>
+      )}
+      <nav {...styles.catalog()} aria-label="Displays">
+        <For each={desktop().displays()}>
+          {(display) => (
+            <Button
+              disabled={desktop().phase() !== "viewing" || desktop().busy()}
+              onClick={() => props.onSelect(display.displayId)}
             >
-              {desktop().message() ??
-                desktop().availabilityMessage() ??
-                "Connecting to displays…"}
-            </p>
+              Display {display.displayId}
+              <span {...styles.displayMetadata()}>
+                {display.bounds.width} × {display.bounds.height}
+              </span>
+            </Button>
           )}
-          <nav {...styles.catalog()} aria-label="Displays">
-            <For each={desktop().displays()}>
-              {(display) => (
-                <Button
-                  disabled={desktop().phase() !== "viewing" || desktop().busy()}
-                  onClick={() =>
-                    void desktop().selectDisplay(display.displayId)
-                  }
-                >
-                  Display {display.displayId}
-                  <span {...styles.displayMetadata()}>
-                    {display.bounds.width} × {display.bounds.height}
-                  </span>
-                </Button>
-              )}
-            </For>
-          </nav>
-          {desktop().phase() === "viewing" && !desktop().displays().length && (
-            <p {...styles.help()}>No displays are available.</p>
-          )}
-        </>
+        </For>
+      </nav>
+      {desktop().phase() === "viewing" && !desktop().displays().length && (
+        <p {...styles.help()}>No displays are available.</p>
       )}
     </section>
   );
 }
-function DesktopSurface(props: { track: DesktopTrack }) {
-  const desktop = useBunja(desktopBunja);
+function DesktopSurface(props: { track: DesktopTrack; viewer: symbol }) {
+  const desktop = useBunja(managedDesktopBunja);
   const [canvas, setCanvas] = createSignal<HTMLCanvasElement>();
   const surfaceGeometry = createMemo(() =>
     JSON.stringify([
@@ -364,7 +388,9 @@ function DesktopSurface(props: { track: DesktopTrack }) {
       ];
       canvas.width = width;
       canvas.height = height;
-      const cleanup = untrack(() => model.registerSurface(id, canvas));
+      const cleanup = untrack(() =>
+        model.registerSurface(id, canvas, props.viewer),
+      );
       return () => untrack(cleanup);
     },
   );

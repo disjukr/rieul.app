@@ -10,8 +10,11 @@ import {
   type DesktopEvent,
   type ConfigureDesktopViewportsReq,
   type SelectExistingDesktopReq,
+  type DesktopConfiguration,
+  type DesktopQualitySupport,
 } from "../src/protocol/generated/rpc.ts";
-import { WorkbenchTabIdScope } from "../src/state/workbench-scopes.ts";
+import { DesktopDisplayIdScope } from "../src/state/desktop-scopes.ts";
+import { MachineIdScope } from "../src/state/machine-scopes.ts";
 import { rpcSessionStub } from "./helpers/rpc-session.ts";
 import { RpcError } from "../src/protocol/client.ts";
 const displays = ["first", "second"].map((displayId) => ({
@@ -22,9 +25,30 @@ const displays = ["first", "second"].map((displayId) => ({
 }));
 const configurations: ConfigureDesktopViewportsReq[] = [];
 const selections: SelectExistingDesktopReq[] = [];
+const inputBindings = new WeakMap<
+  HTMLCanvasElement,
+  () => { active: boolean }
+>();
+const renderers = new Map<
+  string,
+  (viewportId: string, frame: VideoFrame) => boolean
+>();
+let receiverCount = 0;
 let queryCount = 0;
 let capabilityError: Error | undefined;
 let releaseError = false;
+let configureReceiver:
+  | ((configuration: DesktopConfiguration) => Promise<void>)
+  | undefined;
+let queryResponse: (() => Promise<DesktopQualitySupport>) | undefined;
+let applyResponse: (() => Promise<DesktopConfiguration>) | undefined;
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
 const controls: { attachId: string; action: DesktopControlAction }[] = [];
 const detached: string[] = [];
 const streams = new Map<
@@ -99,6 +123,7 @@ mock.module("../src/protocol/generated/client.ts", {
     },
     queryDesktopQualitySupport: async () => {
       queryCount++;
+      if (queryResponse) return queryResponse();
       return {
         layoutEpoch: 1,
         revision: 1,
@@ -108,6 +133,10 @@ mock.module("../src/protocol/generated/client.ts", {
         policy: { type: "auto" },
       };
     },
+    setDesktopQuality: async () =>
+      applyResponse
+        ? applyResponse()
+        : { layoutEpoch: 1, totalBitrate: 1, tracks: [] },
     setDesktopControl: async (
       _: unknown,
       request: { attachId: string; action: DesktopControlAction },
@@ -176,21 +205,41 @@ mock.module("../src/protocol/desktop-input.ts", {
       }
       async flush() {}
     },
-    bindDesktopInput: () => () => {},
+    bindDesktopInput: (
+      canvas: HTMLCanvasElement,
+      _viewport: string,
+      _send: unknown,
+      control: () => { active: boolean },
+    ) => {
+      inputBindings.set(canvas, control);
+      return () => inputBindings.delete(canvas);
+    },
   },
 });
 mock.module("../src/protocol/desktop-video.ts", {
   namedExports: {
     supportedDesktopCodecs: async () => ["fixture"],
     DesktopVideoReceiver: class {
+      constructor(
+        _transport: unknown,
+        attachId: string,
+        render: (viewportId: string, frame: VideoFrame) => boolean,
+      ) {
+        receiverCount++;
+        renderers.set(attachId, render);
+      }
       requestRefresh() {}
-      async configure() {}
+      async configure(configuration: DesktopConfiguration) {
+        await configureReceiver?.(configuration);
+      }
       close() {}
     },
   },
 });
 const { rpcSessionBunja } = await import("../src/state/rpc-session.ts");
-const { desktopBunja } = await import("../src/state/desktop.ts");
+const { desktopBunja, managedDesktopBunja } = await import(
+  "../src/state/desktop.ts"
+);
 async function flush() {
   for (let i = 0; i < 80; i++) {
     flushSolid();
@@ -234,12 +283,31 @@ function fixture(scoped = false) {
       const entry = store.get(
         desktopBunja,
         createReadScopeFn(
-          [[WorkbenchTabIdScope, id]],
+          [[DesktopDisplayIdScope, id]],
           () => undefined as never,
         ),
       );
       cleanups.push(entry.mount());
       return entry.value;
+    },
+    consumer(displayId: string, machineId = "machine") {
+      const entry = store.get(
+        managedDesktopBunja,
+        createReadScopeFn(
+          [
+            [DesktopDisplayIdScope, displayId],
+            [MachineIdScope, machineId],
+          ],
+          () => undefined as never,
+        ),
+      );
+      let stop: (() => void) | undefined = entry.mount();
+      const release = () => {
+        stop?.();
+        stop = undefined;
+      };
+      cleanups.push(release);
+      return { value: entry.value, release };
     },
     close() {
       for (const cleanup of cleanups) cleanup();
@@ -459,5 +527,200 @@ test("Back detaches instead of retaining authority when release acknowledgement 
   } finally {
     releaseError = false;
     f.close();
+  }
+});
+
+for (const replacement of [false, true]) {
+  test(`late decoder configuration cannot restore a monitor after Back${replacement ? " and new selection" : ""}`, async () => {
+    const f = fixture(true),
+      screen = f.tab(`late-${replacement}`);
+    const pending = deferred<void>();
+    try {
+      screen.start();
+      await flush();
+      await screen.selectDisplay("first");
+      const old = {
+        ...screen.configuration()!,
+        tracks: screen
+          .configuration()!
+          .tracks.map((track) => ({ ...track, codecEpoch: ++codecEpoch })),
+      };
+      configureReceiver = async (next) => {
+        if (next === old) await pending.promise;
+      };
+      streams
+        .get(screen.attachId()!)!
+        .push({ type: "configured", configuration: old });
+      await flush();
+      await screen.leaveDisplay();
+      if (replacement) await screen.selectDisplay("second");
+      const expected = screen.configuration();
+      pending.resolve();
+      await flush();
+      assert.equal(screen.configuration(), expected);
+      assert.equal(
+        screen.selectedDisplayId(),
+        replacement ? "second" : undefined,
+      );
+      assert.deepEqual(
+        screen.configuration()?.tracks.map((track) => track.viewport.displayId),
+        replacement ? ["second"] : [],
+      );
+    } finally {
+      pending.resolve();
+      configureReceiver = undefined;
+      f.close();
+    }
+  });
+}
+test("quality query and apply results cannot cross selected-monitor lifetimes", async () => {
+  const f = fixture(true),
+    screen = f.tab("late-quality");
+  const pendingQuery = deferred<DesktopQualitySupport>(),
+    pendingApply = deferred<DesktopConfiguration>();
+  const support = (revision: number): DesktopQualitySupport => ({
+    layoutEpoch: 1,
+    revision,
+    automaticAvailable: true,
+    concurrentThroughputVerified: true,
+    candidates: [],
+    policy: { type: "auto" },
+  });
+  try {
+    screen.start();
+    await flush();
+    await screen.selectDisplay("first");
+    queryResponse = () => pendingQuery.promise;
+    const oldQuery = screen.queryQuality();
+    await flush();
+    await screen.leaveDisplay();
+    await screen.selectDisplay("second");
+    queryResponse = async () => support(20);
+    await screen.queryQuality();
+    pendingQuery.resolve(support(10));
+    await oldQuery;
+    assert.equal(screen.qualitySupport()?.revision, 20);
+    assert.equal(screen.qualityBusy(), false);
+    applyResponse = () => pendingApply.promise;
+    const oldApply = screen.applyQuality({
+      type: "manual",
+      target: { fps: 30, totalBitrate: 1_000_000 },
+    });
+    await flush();
+    await screen.leaveDisplay();
+    await screen.selectDisplay("first");
+    queryResponse = async () => support(30);
+    await screen.queryQuality();
+    pendingApply.resolve({ layoutEpoch: 1, totalBitrate: 1, tracks: [] });
+    await oldApply;
+    assert.equal(screen.qualitySupport()?.revision, 30);
+    assert.equal(screen.qualityPolicy()?.type, "auto");
+    assert.equal(screen.qualityBusy(), false);
+  } finally {
+    pendingQuery.resolve(support(0));
+    pendingApply.resolve({ layoutEpoch: 1, totalBitrate: 1, tracks: [] });
+    queryResponse = undefined;
+    applyResponse = undefined;
+    f.close();
+  }
+});
+
+test("same monitor consumers share one capture and frame fan-out until the final viewer leaves", async () => {
+  const f = fixture(true),
+    beforeReceivers = receiverCount;
+  const first = f.consumer("first"),
+    second = f.consumer("first");
+  const owner = Symbol("owner"),
+    mirror = Symbol("mirror");
+  const drawn: VideoFrame[][] = [[], []];
+  const canvas = (index: number) =>
+    ({
+      isConnected: true,
+      width: 1280,
+      height: 720,
+      addEventListener() {},
+      removeEventListener() {},
+      getContext: () => ({
+        drawImage: (frame: VideoFrame) => drawn[index]!.push(frame),
+      }),
+    }) as unknown as HTMLCanvasElement;
+  try {
+    await flush();
+    assert.equal(first.value, second.value);
+    assert.equal(receiverCount - beforeReceivers, 1);
+    const session = first.value,
+      attachId = session.attachId()!;
+    const removeOwner = session.registerViewer(owner),
+      removeMirror = session.registerViewer(mirror);
+    const firstCanvas = canvas(0),
+      secondCanvas = canvas(1);
+    const removeFirst = session.registerSurface("first", firstCanvas, owner),
+      removeSecond = session.registerSurface("first", secondCanvas, mirror);
+    const frame = {} as VideoFrame;
+    renderers.get(attachId)!("first", frame);
+    assert.deepEqual(drawn, [[frame], [frame]]);
+    await session.acquire(owner);
+    assert.equal(session.ownsInput(owner), true);
+    assert.equal(inputBindings.get(firstCanvas)!().active, true);
+    assert.equal(inputBindings.get(secondCanvas)!().active, false);
+    const actions = controls.length;
+    removeMirror();
+    removeSecond();
+    second.release();
+    await flush();
+    assert.equal(session.attachId(), attachId);
+    assert.equal(streams.get(attachId)!.signal.aborted, false);
+    assert.equal(controls.length, actions);
+    assert.equal(session.controlling(), true);
+    renderers.get(attachId)!("first", frame);
+    assert.deepEqual(drawn, [[frame, frame], [frame]]);
+    removeOwner();
+    removeFirst();
+    await flush();
+    assert.equal(controls.at(-1)?.action, DesktopControlAction.Release);
+    assert.equal(session.controlling(), false);
+    first.release();
+    await flush();
+    assert.equal(streams.get(attachId)!.signal.aborted, true);
+    assert.equal(detached.includes(attachId), true);
+  } finally {
+    f.close();
+  }
+});
+test("display, machine and store scopes isolate shared monitor sessions", async () => {
+  const f = fixture(true),
+    otherStore = fixture(true);
+  const first = f.consumer("first", "machine-a"),
+    otherDisplay = f.consumer("second", "machine-a"),
+    otherMachine = f.consumer("first", "machine-b"),
+    other = otherStore.consumer("first", "machine-a");
+  try {
+    await flush();
+    assert.equal(
+      new Set([
+        first.value,
+        otherDisplay.value,
+        otherMachine.value,
+        other.value,
+      ]).size,
+      4,
+    );
+    assert.equal(
+      new Set([
+        first.value.attachId(),
+        otherDisplay.value.attachId(),
+        otherMachine.value.attachId(),
+        other.value.attachId(),
+      ]).size,
+      4,
+    );
+    first.release();
+    await flush();
+    assert.equal(otherDisplay.value.phase(), "viewing");
+    assert.equal(otherMachine.value.phase(), "viewing");
+    assert.equal(other.value.phase(), "viewing");
+  } finally {
+    f.close();
+    otherStore.close();
   }
 });

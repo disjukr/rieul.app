@@ -14,7 +14,8 @@ import {
   untrack,
 } from "solid-js";
 import { rpcSessionBunja } from "./rpc-session.ts";
-import { WorkbenchTabIdScope } from "./workbench-scopes.ts";
+import { DesktopDisplayIdScope } from "./desktop-scopes.ts";
+import { MachineIdScope } from "./machine-scopes.ts";
 import {
   configureDesktopViewports,
   selectExistingDesktop,
@@ -51,14 +52,18 @@ import {
 } from "../protocol/desktop-video.ts";
 
 export const desktopBunja = bunja(() => {
-  bunja.use(WorkbenchTabIdScope);
+  bunja.use(MachineIdScope);
+  const displayId = bunja.use(DesktopDisplayIdScope);
   const rpc = bunja.use(rpcSessionBunja);
   const [sessionMode, setSessionMode] = createSignal<
     "manual" | "active" | "suspended"
   >("manual");
   const managed = createMemo(() => sessionMode() === "active");
   const catalogMode = createMemo(() => sessionMode() !== "manual");
-  const [selectedDisplayId, setSelectedDisplayId] = createSignal<string>();
+  const [selectedDisplayId, setSelectedDisplayId] = createSignal(displayId);
+  const viewers = new Set<symbol>();
+  const [inputOwner, setInputOwner] = createSignal<symbol>();
+  let releaseOwnerPending = false;
   const owner = getOwner();
   const [phase, setPhase] = createSignal<
     "idle" | "connecting" | "viewing" | "unsupported" | "error"
@@ -144,7 +149,20 @@ export const desktopBunja = bunja(() => {
     attachTimeout: ReturnType<typeof setTimeout> | undefined;
   let configKey = "",
     configVersion = 0,
-    newestCodecEpoch = 0;
+    newestCodecEpoch = 0,
+    selectionRevision = 0,
+    configurationRevision = 0,
+    qualityRevision = 0;
+  function invalidateSelectedView() {
+    selectionRevision++;
+    configurationRevision++;
+    qualityRevision++;
+    configKey = "";
+    setQualitySupport(undefined);
+    setQualityPolicy(undefined);
+    setQualityMessage(undefined);
+    setQualityBusy(false);
+  }
   let offeredCodecs: string[] = [],
     currentCodec = "",
     h264Fallback = false,
@@ -183,6 +201,7 @@ export const desktopBunja = bunja(() => {
   }
   function disconnect(preserveSelection = false) {
     generation++;
+    invalidateSelectedView();
     clearTimeout(retryTimer);
     retryTimer = undefined;
     if (!preserveSelection) setSelectedDisplayId(undefined);
@@ -224,6 +243,8 @@ export const desktopBunja = bunja(() => {
     setStats(undefined);
     setMessage(undefined);
     setInputReady(false);
+    setInputOwner(undefined);
+    releaseOwnerPending = false;
     setCursor(undefined);
     setAttachId(undefined);
     setConfiguration(undefined);
@@ -304,6 +325,7 @@ export const desktopBunja = bunja(() => {
   function registerSurface(
     viewportId: string,
     canvas: HTMLCanvasElement,
+    viewer?: symbol,
   ): () => void {
     let set = surfaces.get(viewportId);
     if (!set) {
@@ -315,7 +337,8 @@ export const desktopBunja = bunja(() => {
     const restored = () => video?.requestRefresh(viewportId);
     canvas.addEventListener("contextrestored", restored);
     const cleanup = bindDesktopInput(canvas, viewportId, send, () => ({
-      active: controlling(),
+      active:
+        controlling() && (viewer === undefined || inputOwner() === viewer),
       epoch: control().inputEpoch,
       ...inputFeatures,
     }));
@@ -348,6 +371,8 @@ export const desktopBunja = bunja(() => {
             Math.max(0, ...previous.tracks.map((t) => t.codecEpoch))))
     )
       return;
+    const applyRevision = ++configurationRevision;
+    const selectedRevision = selectionRevision;
     configKey = key;
     const geometry = (value: DesktopConfiguration | undefined) =>
       JSON.stringify([
@@ -371,14 +396,32 @@ export const desktopBunja = bunja(() => {
       throw new Error("Daemon selected an unoffered screen codec");
     currentCodec = next.tracks[0]?.codec.codec ?? "";
     await video?.configure(next);
-    if (token !== generation) return;
+    if (
+      token !== generation ||
+      applyRevision !== configurationRevision ||
+      selectedRevision !== selectionRevision ||
+      next.layoutEpoch !== layoutEpoch ||
+      (catalogMode() &&
+        next.tracks.some(
+          (track) => track.viewport.displayId !== selectedDisplayId(),
+        ))
+    )
+      return;
     newestCodecEpoch = Math.max(newestCodecEpoch, nextCodecEpoch);
     setConfiguration(next);
   }
   async function queryQuality(candidate?: DesktopQualityTarget) {
     if (!transport || !attachId() || !qualitySupported() || qualityBusy())
       return;
-    const token = generation;
+    const token = generation,
+      selectedRevision = selectionRevision,
+      selectedConfiguration = configuration(),
+      requestRevision = ++qualityRevision;
+    const current = () =>
+      token === generation &&
+      selectedRevision === selectionRevision &&
+      selectedConfiguration === configuration() &&
+      requestRevision === qualityRevision;
     setQualityBusy(true);
     setQualityMessage(undefined);
     setQualitySupport(undefined);
@@ -387,19 +430,27 @@ export const desktopBunja = bunja(() => {
         attachId: attachId()!,
         candidates: candidate ? [candidate] : undefined,
       });
-      if (token !== generation) return;
+      if (!current()) return;
       setQualitySupport(support);
       setQualityPolicy(support.policy);
     } catch (error) {
-      if (token === generation) setQualityMessage(String(error));
+      if (current()) setQualityMessage(String(error));
     } finally {
-      if (token === generation) setQualityBusy(false);
+      if (requestRevision === qualityRevision) setQualityBusy(false);
     }
   }
   async function applyQuality(policy: DesktopQualityPolicy) {
     const support = qualitySupport();
     if (!support || !transport || !attachId() || qualityBusy()) return;
-    const token = generation;
+    const token = generation,
+      selectedRevision = selectionRevision,
+      selectedConfiguration = configuration(),
+      requestRevision = ++qualityRevision;
+    const current = () =>
+      token === generation &&
+      selectedRevision === selectionRevision &&
+      selectedConfiguration === configuration() &&
+      requestRevision === qualityRevision;
     setQualityBusy(true);
     setQualityMessage(undefined);
     try {
@@ -409,18 +460,18 @@ export const desktopBunja = bunja(() => {
         revision: support.revision,
         policy,
       });
-      if (token !== generation) return;
+      if (!current()) return;
       setQualityPolicy(policy);
       setQualitySupport(undefined);
     } catch (error) {
-      if (token === generation) {
+      if (current()) {
         setQualityMessage(
           `${String(error)}. Check support again before retrying.`,
         );
         setQualitySupport(undefined);
       }
     } finally {
-      if (token === generation) setQualityBusy(false);
+      if (requestRevision === qualityRevision) setQualityBusy(false);
     }
   }
   async function configure(
@@ -489,7 +540,10 @@ export const desktopBunja = bunja(() => {
     } catch (error) {
       if (token === generation) failed(error);
     } finally {
-      if (token === generation) setBusy(false);
+      if (token === generation) {
+        setBusy(false);
+        drainOwnerRelease();
+      }
     }
   }
   async function resize(height: number) {
@@ -710,7 +764,7 @@ export const desktopBunja = bunja(() => {
               if (token === generation) setPhase("viewing");
             } else if (event.type === "layout") {
               if (event.layoutEpoch <= layoutEpoch) continue;
-              configKey = "";
+              invalidateSelectedView();
               send({ type: "releaseAll" });
               layoutEpoch = event.layoutEpoch;
               setDisplays(event.displays);
@@ -751,18 +805,39 @@ export const desktopBunja = bunja(() => {
       if (token === generation) failed(error);
     }
   }
-  async function setAction(action: DesktopControlAction) {
+  function drainOwnerRelease() {
+    if (!releaseOwnerPending || busy() || !active) return;
+    releaseOwnerPending = false;
+    void setAction(DesktopControlAction.Release);
+  }
+  function registerViewer(viewer: symbol) {
+    viewers.add(viewer);
+    return () => {
+      viewers.delete(viewer);
+      if (inputOwner() === viewer) {
+        send({ type: "releaseAll" });
+        setInputOwner(undefined);
+        releaseOwnerPending = true;
+        drainOwnerRelease();
+      }
+    };
+  }
+  async function setAction(action: DesktopControlAction, viewer?: symbol) {
     if (
       !transport ||
       !attachId() ||
       busy() ||
-      (action !== DesktopControlAction.Release && !inputReady())
+      (action !== DesktopControlAction.Release && !inputReady()) ||
+      (viewer !== undefined && !viewers.has(viewer))
     )
       return;
     const token = generation;
     setBusy(true);
     try {
-      if (action === DesktopControlAction.Release) {
+      if (
+        action === DesktopControlAction.Release ||
+        (controlling() && viewer !== undefined && inputOwner() !== viewer)
+      ) {
         send({ type: "releaseAll" });
         await input?.flush();
         if (token !== generation) return;
@@ -773,13 +848,21 @@ export const desktopBunja = bunja(() => {
       });
       if (token === generation) {
         setControl(next);
+        if (action === DesktopControlAction.Release) setInputOwner(undefined);
+        else if (viewer !== undefined && next.holderAttachId === attachId()) {
+          if (viewers.has(viewer)) setInputOwner(viewer);
+          else releaseOwnerPending = true;
+        }
         setMessage(undefined);
       }
     } catch (error) {
       if (token === generation)
         setMessage(error instanceof Error ? error.message : String(error));
     } finally {
-      if (token === generation) setBusy(false);
+      if (token === generation) {
+        setBusy(false);
+        drainOwnerRelease();
+      }
     }
   }
   function openWindow(viewportId: string) {
@@ -901,11 +984,13 @@ export const desktopBunja = bunja(() => {
       !displays().some((d) => d.displayId === displayId)
     )
       return;
+    invalidateSelectedView();
     setSelectedDisplayId(displayId);
     await configure([displayId]);
   }
   async function leaveDisplay() {
     const token = generation;
+    invalidateSelectedView();
     setSelectedDisplayId(undefined);
     if (busy()) {
       await connect();
@@ -999,9 +1084,22 @@ export const desktopBunja = bunja(() => {
     disconnect,
     configure,
     registerSurface,
+    registerViewer,
+    ownsInput: (viewer: symbol) => inputOwner() === viewer,
     openWindow,
-    acquire: () => setAction(DesktopControlAction.Acquire),
-    takeover: () => setAction(DesktopControlAction.Takeover),
+    acquire: (viewer?: symbol) =>
+      setAction(DesktopControlAction.Acquire, viewer),
+    takeover: (viewer?: symbol) =>
+      setAction(DesktopControlAction.Takeover, viewer),
     release: () => setAction(DesktopControlAction.Release),
   };
+});
+
+export const managedDesktopBunja = bunja(() => {
+  const session = bunja.use(desktopBunja);
+  bunja.effect(() => {
+    session.start();
+    return () => session.stop();
+  });
+  return session;
 });

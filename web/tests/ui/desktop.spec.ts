@@ -260,3 +260,52 @@ test("hiding a tab releases control and retains selection without restoring auth
     page.getByRole("button", { name: "Release control", exact: true }),
   ).toHaveCount(0);
 });
+
+test("same-monitor panes keep independent navigation and explicit shared input ownership", async ({
+  page,
+}) => {
+  await page.goto("/tests/fixtures/desktop.html?split");
+  const first = page.getByRole("region", { name: "First pane", exact: true });
+  const second = page.getByRole("region", { name: "Second pane", exact: true });
+  await first
+    .getByRole("button", { name: "Display fixture", exact: false })
+    .click();
+  await second
+    .getByRole("button", { name: "Display fixture", exact: false })
+    .click();
+  await expect(
+    first.getByLabel("Display fixture", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    second.getByLabel("Display fixture", { exact: true }),
+  ).toBeVisible();
+  await first
+    .getByRole("button", { name: "Control screen", exact: true })
+    .click();
+  await expect(
+    second.getByRole("button", { name: "Control here", exact: true }),
+  ).toBeVisible();
+  await second.getByRole("button", { name: "Back to displays" }).click();
+  await expect(
+    first.getByLabel("Display fixture", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    first.getByRole("button", { name: "Release control", exact: true }),
+  ).toBeVisible();
+  await second
+    .getByRole("button", { name: "Display fixture", exact: false })
+    .click();
+  await second
+    .getByRole("button", { name: "Control here", exact: true })
+    .click();
+  await expect(
+    first.getByRole("button", { name: "Control here", exact: true }),
+  ).toBeVisible();
+  await second.getByRole("button", { name: "Back to displays" }).click();
+  await expect(
+    first.getByLabel("Display fixture", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    first.getByRole("button", { name: "Control screen", exact: true }),
+  ).toBeVisible();
+});
