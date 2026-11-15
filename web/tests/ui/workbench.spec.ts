@@ -337,3 +337,95 @@ test("cluster refresh and machine metadata preserve selected workbench DOM and f
   await expect(hidden.first()).toHaveAttribute("data-identity", "connection");
   await expect(tab).toHaveAttribute("data-identity", "retained");
 });
+
+test.describe("split decoration uses CSS-pixel widths without shrinking resize targets", () => {
+  test.use({ deviceScaleFactor: 2 });
+  for (const direction of ["horizontal", "vertical"] as const) {
+    test(`${direction} split shares a 1px pane border and a 2px visible divider`, async ({
+      page,
+    }) => {
+      await page.goto("/");
+      if (direction === "vertical") {
+        await page.evaluate((key) => {
+          const saved = JSON.parse(localStorage.getItem(key)!);
+          saved.layout.nodes.root.direction = "vertical";
+          localStorage.setItem(key, JSON.stringify(saved));
+        }, key);
+        await page.reload();
+      }
+      const first = page.locator('section[data-pane-id="p1"]');
+      const second = page.locator('section[data-pane-id="p2"]');
+      await expect(first).toHaveClass(/active/);
+      const decoration = async (pane: typeof first) =>
+        pane.locator(".workbench-pane-surface").evaluate((element) => {
+          const style = getComputedStyle(element, "::after");
+          return {
+            widths: [
+              style.borderTopWidth,
+              style.borderRightWidth,
+              style.borderBottomWidth,
+              style.borderLeftWidth,
+            ],
+            color: style.borderTopColor,
+          };
+        });
+      const active = await decoration(first),
+        inactive = await decoration(second);
+      expect(active.widths).toEqual(["1px", "1px", "1px", "1px"]);
+      expect(inactive.widths).toEqual(active.widths);
+      expect(active.color).not.toBe(inactive.color);
+      await page.locator('[data-tab-id="t3"] [role="tab"]').click();
+      await expect(second).toHaveClass(/active/);
+      await expect
+        .poll(async () => (await decoration(second)).color)
+        .toBe(active.color);
+      expect((await decoration(second)).widths).toEqual(active.widths);
+      const divider = page.getByRole("separator", { name: "Resize panes" });
+      await expect(divider).toHaveAttribute(
+        "aria-orientation",
+        direction === "horizontal" ? "vertical" : "horizontal",
+      );
+      const bounds = (await divider.boundingBox())!;
+      expect(direction === "horizontal" ? bounds.width : bounds.height).toBe(8);
+      await divider.hover();
+      const visual = () =>
+        divider.evaluate((element) => {
+          const style = getComputedStyle(element, "::after");
+          return {
+            width: style.width,
+            height: style.height,
+            color: style.backgroundColor,
+          };
+        });
+      expect(
+        (await visual())[direction === "horizontal" ? "width" : "height"],
+      ).toBe("2px");
+      expect((await visual()).color).not.toBe("rgba(0, 0, 0, 0)");
+      const before = (await state(page)).layout.nodes.root.ratios[0];
+      const x =
+        direction === "horizontal" ? bounds.x + 1 : bounds.x + bounds.width / 2;
+      const y =
+        direction === "vertical" ? bounds.y + 1 : bounds.y + bounds.height / 2;
+      await page.mouse.move(x, y);
+      await page.mouse.down();
+      await page.mouse.move(
+        x + (direction === "horizontal" ? 30 : 0),
+        y + (direction === "vertical" ? 30 : 0),
+        { steps: 4 },
+      );
+      await page.mouse.up();
+      await expect
+        .poll(async () => (await state(page)).layout.nodes.root.ratios[0])
+        .toBeGreaterThan(before);
+      const resized = (await state(page)).layout.nodes.root.ratios[0];
+      await divider.focus();
+      await divider.press(direction === "horizontal" ? "ArrowLeft" : "ArrowUp");
+      await expect
+        .poll(async () => (await state(page)).layout.nodes.root.ratios[0])
+        .toBeLessThan(resized);
+      expect(
+        (await visual())[direction === "horizontal" ? "width" : "height"],
+      ).toBe("2px");
+    });
+  }
+});

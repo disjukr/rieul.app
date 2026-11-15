@@ -113,10 +113,16 @@ namespace styles {
     touchAction: "none",
     backgroundColor: "transparent",
     selectors: {
-      "&:hover": {
+      "&::after": {
+        content: "''",
+        position: "absolute",
+        pointerEvents: "none",
+        backgroundColor: "transparent",
+      },
+      "&:hover::after": {
         backgroundColor: theme.accent,
       },
-      "&:focus-visible": {
+      "&:focus-visible::after": {
         backgroundColor: theme.accent,
       },
     },
@@ -125,10 +131,28 @@ namespace styles {
   export const vertical = style({
     height: "8px",
     cursor: "row-resize",
+    selectors: {
+      "&::after": {
+        height: "2px",
+        left: "0",
+        right: "0",
+        top: "50%",
+        transform: "translateY(-50%)",
+      },
+    },
   });
 
   export const horizontal = style({
     width: "8px",
     cursor: "col-resize",
+    selectors: {
+      "&::after": {
+        width: "2px",
+        top: "0",
+        bottom: "0",
+        left: "50%",
+        transform: "translateX(-50%)",
+      },
+    },
   });
 }

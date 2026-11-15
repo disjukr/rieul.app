@@ -799,7 +799,6 @@ namespace styles {
     overflow: "visible",
     selectors: {
       "&.active .workbench-pane-surface::after": {
-        borderWidth: "3px",
         borderColor: theme.focus,
       },
       "&:not(.active) .file-row.selected": {
@@ -847,7 +846,7 @@ namespace styles {
         inset: "0",
         zIndex: 8,
         boxSizing: "border-box",
-        borderWidth: "1.5px",
+        borderWidth: "1px",
         borderColor: "rgba(108, 126, 151, 0.38)",
         borderRadius: "14px",
         transitionProperty: "border-color,border-width",
