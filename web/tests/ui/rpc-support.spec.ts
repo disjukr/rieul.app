@@ -1,4 +1,12 @@
 import { test, expect } from "@playwright/test";
+import { rpcCategoryById } from "../../src/protocol/rpc-support";
+
+const screenTotal = Object.values(rpcCategoryById).filter(
+  (category) => category === "screen",
+).length;
+const screenSupported = new Set([66, 66, 67, 68]).size;
+const screenUnsupported = screenTotal - screenSupported;
+const screenPercent = Math.round((screenSupported / screenTotal) * 100);
 
 test("category donuts expose denominator and every supported/unsupported RPC with keyboard details", async ({
   page,
@@ -20,9 +28,13 @@ test("category donuts expose denominator and every supported/unsupported RPC wit
       name: "Screen RPC support",
       exact: true,
     });
-    await expect(screen.getByText("23% supported")).toBeVisible();
-    await expect(screen.getByText("3 of 13 RPCs")).toBeVisible();
-    await expect(screen.getByText("10 not supported")).toBeVisible();
+    await expect(screen.getByText(`${screenPercent}% supported`)).toBeVisible();
+    await expect(
+      screen.getByText(`${screenSupported} of ${screenTotal} RPCs`),
+    ).toBeVisible();
+    await expect(
+      screen.getByText(`${screenUnsupported} not supported`),
+    ).toBeVisible();
     const files = page.getByRole("article", {
       name: "Files RPC support",
       exact: true,
@@ -34,11 +46,13 @@ test("category donuts expose denominator and every supported/unsupported RPC wit
     await expect(summary).toBeFocused();
     await summary.hover();
     await page.keyboard.press("Enter");
-    await expect(screen.getByRole("listitem")).toHaveCount(13);
-    await expect(screen.getByText("Supported", { exact: true })).toHaveCount(3);
+    await expect(screen.getByRole("listitem")).toHaveCount(screenTotal);
+    await expect(screen.getByText("Supported", { exact: true })).toHaveCount(
+      screenSupported,
+    );
     await expect(
       screen.getByText("Not supported", { exact: true }),
-    ).toHaveCount(10);
+    ).toHaveCount(screenUnsupported);
     await expect(
       screen.getByText("WriteDesktopInput", { exact: true }),
     ).toBeVisible();
@@ -55,8 +69,8 @@ test("category donuts expose denominator and every supported/unsupported RPC wit
     await expect(screen).toMatchAriaSnapshot(`
       - article "Screen RPC support":
         - heading "Screen" [level=3]
-        - strong: 23% supported
-        - text: 3 of 13 RPCs 10 not supported
+        - strong: ${screenPercent}% supported
+        - text: ${screenSupported} of ${screenTotal} RPCs ${screenUnsupported} not supported
         - group:
           - text: View Screen RPCs
           - list:
@@ -99,6 +113,9 @@ test("category donuts expose denominator and every supported/unsupported RPC wit
             - listitem:
               - code: SetDesktopQuality
               - text: RPC 106 Not supported
+            - listitem:
+              - code: SelectExistingDesktop
+              - text: RPC 107 Not supported
     `);
     await screen.scrollIntoViewIfNeeded();
     await screen.screenshot({
@@ -129,15 +146,19 @@ test("unknown, zero and full support stay distinct across reactive changes", asy
     0,
   );
   await page.getByRole("button", { name: "None supported" }).click();
-  await expect(screen.getByText("0 of 13 RPCs")).toBeVisible();
+  await expect(screen.getByText(`0 of ${screenTotal} RPCs`)).toBeVisible();
   await screen.locator("summary").click();
   await expect(screen.getByText("Not supported", { exact: true })).toHaveCount(
-    13,
+    screenTotal,
   );
   await page.getByRole("button", { name: "All supported" }).click();
   await expect(screen.getByText("100% supported")).toBeVisible();
-  await expect(screen.getByText("13 of 13 RPCs")).toBeVisible();
+  await expect(
+    screen.getByText(`${screenTotal} of ${screenTotal} RPCs`),
+  ).toBeVisible();
   await screen.locator("summary").click();
-  await expect(screen.getByText("Supported", { exact: true })).toHaveCount(13);
+  await expect(screen.getByText("Supported", { exact: true })).toHaveCount(
+    screenTotal,
+  );
   await expect(page.getByText(/Other advertised RPCs/)).toHaveCount(0);
 });

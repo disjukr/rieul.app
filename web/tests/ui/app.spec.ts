@@ -255,7 +255,7 @@ test("Solid signals release replaced scope lifetimes and ignore stale writes", a
   expect(errors).toEqual([]);
 });
 
-test("Screen workbench entry stays passive until explicit connect", async ({
+test("Screen workbench opens the catalog without manual connection controls", async ({
   page,
 }) => {
   await page.addInitScript(() => {
@@ -276,12 +276,16 @@ test("Screen workbench entry stays passive until explicit connect", async ({
     .getByRole("button", { name: "Screen", exact: true })
     .first()
     .click();
+  await expect(page.getByRole("region", { name: "Screen" })).toBeVisible();
   await expect(
-    page.getByRole("region", { name: "Screen" }),
+    page.getByRole("navigation", { name: "Displays", exact: true }),
   ).toBeVisible();
   await expect(
-    page.getByRole("button", { name: "Open screen", exact: true }),
-  ).toBeDisabled();
+    page.getByRole("button", {
+      name: /Open screen|Close screen|Reconnect|Open in another window/,
+    }),
+  ).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /control/i })).toHaveCount(0);
   await expect(
     page.getByRole("region", { name: "Screen" }).getByRole("status"),
   ).toContainText("Select a paired daemon to connect");
