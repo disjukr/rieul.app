@@ -302,6 +302,10 @@ impl HostedScreenSource {
                     {
                         return Err(desktop::Error::Invalid);
                     }
+                    if sequence == 1 {
+                        let safe = |key: &str| end[key].as_str().filter(|v| v.len() <= 96 && v.bytes().all(|c| c.is_ascii_lowercase() || c == b'_')).map(str::to_owned);
+                        println!("{}", serde_json::json!({"kind":"hosted_screen_first_group_end","sequence":sequence,"packets":index,"status":safe("status"),"reason":safe("reason"),"deliveryError":delivery_error.as_ref().map(|e| format!("{e:?}"))}));
+                    }
                     if self.closing.load(std::sync::atomic::Ordering::SeqCst) {
                         return Err(desktop::Error::Stale);
                     }

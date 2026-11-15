@@ -31,6 +31,23 @@ export class DesktopVideoEngine {
   private tracks = new Map<number, TrackState>();
   private tasks = new Set<Promise<unknown>>();
   private streams = new Map<ReadableStream<Uint8Array>, AbortController>();
+  private diagnosticSeen = new Set<string>();
+  private diagnostic(
+    event: string,
+    scalars: Record<string, string | number | boolean | null> = {},
+  ) {
+    if (this.diagnosticSeen.has(event) || this.diagnosticSeen.size >= 20)
+      return;
+    this.diagnosticSeen.add(event);
+    console.info(
+      "RIEUL_SCREEN_TRACE " +
+        JSON.stringify({
+          event,
+          ms: Math.round(performance.now()),
+          ...scalars,
+        }),
+    );
+  }
   private closed = false;
   private layoutEpoch = 0;
   private generation = 0;
@@ -47,6 +64,7 @@ export class DesktopVideoEngine {
     void this.receive();
   }
   async configure(configuration: DesktopConfiguration): Promise<void> {
+    this.diagnostic("configure_enter");
     const generation = ++this.generation;
     if (configuration.tracks.length > 8)
       throw new Error("Too many screen tracks");
@@ -98,6 +116,7 @@ export class DesktopVideoEngine {
       }),
     );
     if (this.closed || generation !== this.generation) return;
+    this.diagnostic("config_supported");
     this.resetTracks();
     this.layoutEpoch = configuration.layoutEpoch;
     for (const { track, config } of configs) {
@@ -105,6 +124,10 @@ export class DesktopVideoEngine {
       const makeDecoder = () => {
         const callbacks: VideoDecoderInit = {
           output: (frame) => {
+            this.diagnostic("decoder_output", {
+              width: frame.displayWidth,
+              height: frame.displayHeight,
+            });
             const started = performance.now();
             const timing = state.timings.get(frame.timestamp);
             state.timings.delete(frame.timestamp);
@@ -139,7 +162,8 @@ export class DesktopVideoEngine {
                 requestKeyframe: false,
               });
           },
-          error: () => {
+          error: (error) => {
+            this.diagnostic("decoder_error", { name: error.name });
             if (
               !this.closed &&
               this.tracks.get(track.trackId) === state &&
@@ -212,6 +236,16 @@ export class DesktopVideoEngine {
         stream,
         (first: DesktopMediaObject) => {
           const current = this.tracks.get(first.trackId);
+          this.diagnostic("first_group_header", {
+            groupId: first.groupId,
+            objectId: first.objectId,
+            keyframe: first.keyframe,
+            bytes: first.data.length,
+            trackKnown: !!current,
+            attachMatches: first.attachId === this.attachId,
+            codecEpochMatches: first.codecEpoch === current?.track.codecEpoch,
+            layoutEpochMatches: first.layoutEpoch === this.layoutEpoch,
+          });
           if (
             this.closed ||
             first.attachId !== this.attachId ||
@@ -235,6 +269,7 @@ export class DesktopVideoEngine {
           current.decoder.reset();
           try {
             current.decoder.configure(current.config);
+            this.diagnostic("decoder_configured");
           } catch (error) {
             this.codecFailed?.(current.track.codec.codec);
             throw error;
@@ -255,6 +290,11 @@ export class DesktopVideoEngine {
           state.group !== groupId
         )
           throw new Error("Screen group replaced");
+        this.diagnostic("first_object_validated", {
+          objectId: object.objectId,
+          groupId,
+          bytes: object.data.length,
+        });
         if (state.decoder.decodeQueueSize >= 3)
           throw new Error("Screen decoder backpressure");
         const started = performance.now();
@@ -264,6 +304,9 @@ export class DesktopVideoEngine {
           objectId: object.objectId,
         });
         try {
+          this.diagnostic("decode_submit", {
+            queueDepth: state.decoder.decodeQueueSize,
+          });
           state.decoder.decode(
             new EncodedVideoChunk({
               type: object.keyframe ? "key" : "delta",
@@ -277,6 +320,7 @@ export class DesktopVideoEngine {
         }
       }
       if (state && state.group === groupId) {
+        this.diagnostic("flush_start", { groupId });
         let timer: ReturnType<typeof setTimeout>;
         try {
           await Promise.race([
@@ -288,11 +332,30 @@ export class DesktopVideoEngine {
               );
             }),
           ]);
+          this.diagnostic("flush_done", { groupId });
         } finally {
           clearTimeout(timer!);
         }
       }
-    } catch {
+    } catch (error) {
+      const known = new Set([
+        "Truncated screen group",
+        "Empty screen group",
+        "Screen media limit exceeded",
+        "Unknown screen media track",
+        "Screen group discontinuity",
+        "Screen group replaced",
+        "Screen decoder backpressure",
+        "Screen decode timeout",
+      ]);
+      this.diagnostic("group_failure", {
+        boundary:
+          error instanceof Error && known.has(error.message)
+            ? error.message
+            : "other",
+        errorName: error instanceof Error ? error.name : "unknown",
+        groupId,
+      });
       if (
         state &&
         this.tracks.get(state.track.trackId) === state &&

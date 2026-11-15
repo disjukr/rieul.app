@@ -32,6 +32,25 @@ async function observeScroll(fixture) {
 
   const abort = new AbortController();
   const results = [];
+  const trace = [];
+  const seen = new Set();
+  const note = (event, scalars = {}) => {
+    if (seen.has(event) || trace.length >= 24) return;
+    seen.add(event);
+    trace.push({
+      event,
+      ms: Math.round(performance.now() - started),
+      ...scalars,
+    });
+  };
+  const typed = (error) => ({
+    rpcError: error instanceof RpcError,
+    code:
+      error instanceof RpcError && /^[a-z_]{1,64}$/.test(error.code)
+        ? error.code
+        : null,
+    errorName: error instanceof DOMException ? error.name : null,
+  });
   const decodeMicros = [];
   const renderMicros = [];
   const counts = {
@@ -65,6 +84,7 @@ async function observeScroll(fixture) {
   const stopped = new Promise((resolve) => (stopping = resolve));
   const stop = (reason) => {
     if (!operational) return;
+    note("first_stop", { reason });
     failure = reason;
     operational = false;
     stopping();
@@ -183,7 +203,7 @@ async function observeScroll(fixture) {
     if (!operational) return;
     stage = "codec_negotiation";
     const advertised = caps.codecs.filter(
-      (item) => item.hardware && /^(hev1|avc[13])\./.test(item.codec),
+      (item) => item.hardware && /^avc[13]\./.test(item.codec),
     );
     const codecs = await supportedDesktopCodecs(advertised);
     if (!codecs.length || !caps.feedback)
@@ -236,6 +256,7 @@ async function observeScroll(fixture) {
       if (next.done) throw new Error("attach ended");
       const event = next.value;
       if (event.type === "attached") {
+        note("attached", { leaseMs: event.leaseMs });
         attachId = event.attachId;
         stage = "control";
         control = await rpc.setDesktopControl(transport, {
@@ -261,7 +282,11 @@ async function observeScroll(fixture) {
           () => {
             void rpc
               .renewDesktopLease(transport, { attachId })
-              .catch(() => stop("lease_renewal"));
+              .then(() => note("renewal_accepted"))
+              .catch((error) => {
+                note("renewal_rejected", typed(error));
+                stop("lease_renewal");
+              });
           },
           Math.max(1000, Math.min(5000, event.leaseMs / 3)),
         );
@@ -281,6 +306,7 @@ async function observeScroll(fixture) {
             }
             context.drawImage(frame, 0, 0, width, height);
             counts.canvasDraws++;
+            note("first_draw");
             const marker = readMarker(context);
             if (marker === null) {
               counts.invalidMarkerDraws++;
@@ -317,6 +343,7 @@ async function observeScroll(fixture) {
             }
           },
           () => {
+            note("receiver_failed");
             counts.receiverFailures++;
             stop("video_receiver");
           },
@@ -326,6 +353,7 @@ async function observeScroll(fixture) {
           },
         );
       } else if (event.type === "configured") {
+        note("configured_event");
         stage = "configure";
         const [track] = event.configuration.tracks;
         if (
@@ -345,14 +373,6 @@ async function observeScroll(fixture) {
       }
     }
     if (!operational) return;
-    // Register initial marker observation before any decoder can render.
-    stage = "initial_marker";
-    const first = waitForMarker(0, started);
-    await receiver.configure(configuration);
-    if (!operational) return;
-    const initial = await first;
-    if (!operational) return;
-    firstFrameMs = initial.actionToCanvasRafMs;
     const drainEvents = async () => {
       try {
         for await (const event of events) {
@@ -362,12 +382,24 @@ async function observeScroll(fixture) {
             return;
           }
         }
+        note("attach_ended");
         stop("attachment_ended");
-      } catch {
+      } catch (error) {
+        note("attach_rejected", typed(error));
         stop("attachment_stream");
       }
     };
     void drainEvents();
+    // Register initial marker observation before any decoder can render.
+    stage = "initial_marker";
+    const first = waitForMarker(0, started);
+    note("receiver_configure_start");
+    await receiver.configure(configuration);
+    note("receiver_configure_done");
+    if (!operational) return;
+    const initial = await first;
+    if (!operational) return;
+    firstFrameMs = initial.actionToCanvasRafMs;
 
     stage = "scroll";
     for (
@@ -427,6 +459,7 @@ async function observeScroll(fixture) {
       decodeMicrosDuringMeasuredActions: rank(decodeMicros),
       drawAndMarkerCheckMicrosDuringMeasuredActions: rank(renderMicros),
       counts,
+      trace,
       samples: measuredSamples,
     };
   } finally {
@@ -518,7 +551,16 @@ try {
       "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
     headless: true,
   });
+  const decoderTrace = [];
   const page = await browser.newPage();
+  page.on("console", (message) => {
+    const text = message.text();
+    if (!text.startsWith("RIEUL_SCREEN_TRACE ") || decoderTrace.length >= 24)
+      return;
+    try {
+      decoderTrace.push(JSON.parse(text.slice(19)));
+    } catch {}
+  });
   await page.goto(origin);
   stage = "browser_evaluate";
   const result = await page.evaluate(observeScroll, {
@@ -535,6 +577,7 @@ try {
       kind: "hosted_screen_browser",
       browserVersion: browser.version(),
       ...result,
+      decoderTrace,
     }),
   );
   if (result.status !== "passed") process.exitCode = 1;
