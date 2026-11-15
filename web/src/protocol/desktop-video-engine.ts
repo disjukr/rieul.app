@@ -116,6 +116,7 @@ export class DesktopVideoEngine {
             try {
               if (
                 !this.closed &&
+                generation === this.generation &&
                 this.tracks.get(track.trackId) === state &&
                 state.decoder === decoder &&
                 timing?.groupId === state.group
@@ -128,6 +129,7 @@ export class DesktopVideoEngine {
             if (
               rendered &&
               !this.closed &&
+              generation === this.generation &&
               this.tracks.get(track.trackId) === state &&
               state.decoder === decoder &&
               timing?.groupId === state.group
@@ -146,10 +148,13 @@ export class DesktopVideoEngine {
           error: () => {
             if (
               !this.closed &&
+              generation === this.generation &&
               this.tracks.get(track.trackId) === state &&
               state.decoder === decoder
-            )
+            ) {
+              state.abort?.abort();
               this.codecFailed?.(track.codec.codec);
+            }
           },
         };
         const decoder = track.stripes
@@ -205,12 +210,49 @@ export class DesktopVideoEngine {
       }
     }
   }
+  private async waitForCapacity(
+    state: TrackState,
+    groupId: number,
+    generation: number,
+    signal: AbortSignal,
+    budgetMs: number,
+  ): Promise<number> {
+    const decoder = state.decoder;
+    const started = performance.now();
+    for (;;) {
+      if (
+        signal.aborted ||
+        this.closed ||
+        generation !== this.generation ||
+        this.tracks.get(state.track.trackId) !== state ||
+        state.group !== groupId ||
+        state.decoder !== decoder ||
+        decoder.state !== "configured"
+      )
+        throw new Error("Screen group replaced");
+      const elapsed = performance.now() - started;
+      if (elapsed >= budgetMs) throw new Error("Screen decoder backpressure");
+      if (decoder.decodeQueueSize < 3) return elapsed;
+      await new Promise<void>((resolve) => {
+        const done = () => {
+          clearTimeout(timer);
+          signal.removeEventListener("abort", done);
+          resolve();
+        };
+        const timer = setTimeout(done, Math.min(4, budgetMs - elapsed));
+        signal.addEventListener("abort", done, { once: true });
+        if (signal.aborted) done();
+      });
+    }
+  }
   private async group(
     stream: ReadableStream<Uint8Array>,
     controller: AbortController,
   ): Promise<void> {
     let state: TrackState | undefined;
     let groupId = 0;
+    const generation = this.generation;
+    let decodeWaitBudgetMs = 33;
     try {
       for await (const object of readDesktopGroup(
         stream,
@@ -254,13 +296,21 @@ export class DesktopVideoEngine {
       )) {
         if (
           this.closed ||
+          controller.signal.aborted ||
+          generation !== this.generation ||
           !state ||
           this.tracks.get(object.trackId) !== state ||
           state.group !== groupId
         )
           throw new Error("Screen group replaced");
         if (state.decoder.decodeQueueSize >= 3)
-          throw new Error("Screen decoder backpressure");
+          decodeWaitBudgetMs -= await this.waitForCapacity(
+            state,
+            groupId,
+            generation,
+            controller.signal,
+            decodeWaitBudgetMs,
+          );
         const started = performance.now();
         state.timings.set(object.timestampMicros, {
           started,
@@ -299,6 +349,7 @@ export class DesktopVideoEngine {
     } catch {
       if (
         state &&
+        generation === this.generation &&
         this.tracks.get(state.track.trackId) === state &&
         state.group === groupId &&
         !this.closed
