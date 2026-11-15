@@ -15,7 +15,10 @@ import {
   desktopArrangement,
   fitDesktopArrangement,
 } from "../../../../protocol/desktop-arrangement.ts";
-import { desktopCursorPng } from "../../../../protocol/desktop-cursor.ts";
+import {
+  desktopCursorMaxWidth,
+  desktopCursorPng,
+} from "../../../../protocol/desktop-cursor.ts";
 import { useBunja } from "bunja/solid";
 import { managedDesktopBunja } from "../../../../state/desktop.ts";
 import { DesktopDisplayIdContext } from "../../../../state/desktop-context.ts";
@@ -681,6 +684,9 @@ function DesktopSurface(props: { track: DesktopTrack; viewer: symbol }) {
             top: cursor()?.top,
             width: shape()
               ? `${(shape()!.width / props.track.viewport.crop.width) * (contentRect()?.width ?? 0)}px`
+              : undefined,
+            "max-width": shape()
+              ? `${desktopCursorMaxWidth(shape()!)}px`
               : undefined,
             transform: shape()
               ? `translate(-${((desktop().cursor()?.hotspotX ?? 0) / shape()!.width) * 100}%, -${((desktop().cursor()?.hotspotY ?? 0) / shape()!.height) * 100}%)`

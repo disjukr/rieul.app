@@ -12,3 +12,13 @@ export function desktopCursorPng(
   if (!width || !height || width > 256 || height > 256) return;
   return { width, height };
 }
+
+/** Keep remote cursors usable when a small crop or a dense bitmap is enlarged.
+ * Limit the longest edge in CSS pixels, preserving aspect ratio and hotspot ratios.
+ */
+export function desktopCursorMaxWidth(shape: {
+  width: number;
+  height: number;
+}): number {
+  return (32 * shape.width) / Math.max(shape.width, shape.height);
+}

@@ -15,7 +15,23 @@ import {
   type DesktopConfiguration,
   type DesktopInputEvent,
 } from "../../src/protocol/generated/rpc.ts";
+function cursorPng(width: number, height: number): Uint8Array {
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d")!;
+  ctx.fillStyle = "white";
+  ctx.fillRect(0, 0, width, height);
+  return Uint8Array.from(
+    atob(canvas.toDataURL("image/png").split(",")[1]),
+    (c) => c.charCodeAt(0),
+  );
+}
 function Fixture() {
+  const [cursorKind, setCursorKind] = createSignal("ibeam");
+  const cursorShape = createMemo(() =>
+    cursorKind() === "ibeam" ? cursorPng(8, 80) : cursorPng(24, 24),
+  );
   const [events, setEvents] = createSignal<DesktopInputEvent[]>([]);
   const [qualityActions, setQualityActions] = createSignal<string[]>([]);
   const [active, setActive] = createSignal(true);
@@ -209,13 +225,21 @@ function Fixture() {
         queueDepth: 2,
         requestKeyframe: false,
       })[0],
-      cursor:
-        createSignal<
-          Extract<
-            import("../../src/protocol/generated/rpc.ts").DesktopEvent,
-            { type: "cursor" }
-          >
-        >()[0],
+      cursor: createMemo(() =>
+        params.has("cursor") && selectedDisplayId()
+          ? {
+              type: "cursor" as const,
+              layoutEpoch: 1,
+              visible: true,
+              displayId: selectedDisplayId(),
+              x: display.bounds.width / 2,
+              y: display.bounds.height / 2,
+              shape: cursorShape(),
+              hotspotX: cursorKind() === "ibeam" ? 4 : 3,
+              hotspotY: cursorKind() === "ibeam" ? 40 : 2,
+            }
+          : undefined,
+      ),
       selectedDisplayId,
       start() {
         setPhase(
@@ -370,6 +394,15 @@ function Fixture() {
           )}
         </div>
       </TestBunjaStoreProvider>
+      {new URLSearchParams(location.search).has("cursor") && (
+        <button
+          onClick={() =>
+            setCursorKind(cursorKind() === "ibeam" ? "arrow" : "ibeam")
+          }
+        >
+          Change cursor shape
+        </button>
+      )}
       <output aria-label="Preview subscriptions">
         {previewSubscriptions()}
       </output>

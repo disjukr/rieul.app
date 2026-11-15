@@ -1,6 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { desktopCursorPng } from "../src/protocol/desktop-cursor.ts";
+import {
+  desktopCursorMaxWidth,
+  desktopCursorPng,
+} from "../src/protocol/desktop-cursor.ts";
 test("cursor parser bounds PNG dimensions and rejects alternate formats", () => {
   const bytes = new Uint8Array(24);
   bytes.set([137, 80, 78, 71, 13, 10, 26, 10]);
@@ -17,4 +20,10 @@ test("cursor parser bounds PNG dimensions and rejects alternate formats", () => 
     undefined,
   );
   assert.equal(desktopCursorPng(new Uint8Array(128 * 1024 + 1)), undefined);
+});
+
+test("cursor CSS bound preserves tall, wide, and square bitmap aspect ratios", () => {
+  assert.equal(desktopCursorMaxWidth({ width: 8, height: 80 }), 3.2);
+  assert.equal(desktopCursorMaxWidth({ width: 80, height: 8 }), 32);
+  assert.equal(desktopCursorMaxWidth({ width: 64, height: 64 }), 32);
 });

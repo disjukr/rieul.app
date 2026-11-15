@@ -1,6 +1,9 @@
 import { RpcError } from "../protocol/client.ts";
 import { desktopModes } from "../protocol/desktop-support.ts";
-import { desktopCursorPng } from "../protocol/desktop-cursor.ts";
+import {
+  desktopCursorMaxWidth,
+  desktopCursorPng,
+} from "../protocol/desktop-cursor.ts";
 import { copyDocumentStyles } from "../solid/popup-styles.ts";
 import { desktopEvents } from "../protocol/desktop-session.ts";
 import { bunja } from "bunja";
@@ -1092,6 +1095,7 @@ export const desktopBunja = bunja(() => {
               left: `${(x / crop.width) * 100}%`,
               top: `${(y / crop.height) * 100}%`,
               width: `${(shape.width / crop.width) * 100}%`,
+              maxWidth: `${desktopCursorMaxWidth(shape)}px`,
               transform: `translate(-${(c.hotspotX / shape.width) * 100}%, -${(c.hotspotY / shape.height) * 100}%)`,
             });
           },
