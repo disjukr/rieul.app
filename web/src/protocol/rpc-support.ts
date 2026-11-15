@@ -86,6 +86,7 @@ export const rpcCategoryById: Record<ProcId, CategoryId> = {
   [ProcId.GetDesktopCapabilities]: "screen",
   [ProcId.AttachDesktop]: "screen",
   [ProcId.AttachExistingDesktop]: "screen",
+  [ProcId.SelectExistingDesktop]: "screen",
   [ProcId.QueryDesktopQualitySupport]: "screen",
   [ProcId.SetDesktopQuality]: "screen",
   [ProcId.ConfigureDesktopViewports]: "screen",

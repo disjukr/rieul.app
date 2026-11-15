@@ -21,7 +21,7 @@ test("every current schema RPC belongs to exactly one stable category", () => {
   assert.deepEqual(
     result.categories.map((c) => [c.id, c.total]),
     [
-      ["screen", 13],
+      ["screen", 14],
       ["files", 10],
       ["terminal", 7],
       ["processes", 8],
@@ -35,6 +35,7 @@ test("every current schema RPC belongs to exactly one stable category", () => {
   assert.equal(rpcCategoryById[ProcId.GetDaemonEnvironment], "daemon");
   assert.equal(rpcCategoryById[ProcId.SubscribeTrashItems], "files");
   assert.equal(rpcCategoryById[ProcId.WriteDesktopInput], "screen");
+  assert.equal(rpcCategoryById[ProcId.SelectExistingDesktop], "screen");
 });
 test("counts, percentages and complete details share deduplicated advertised support", () => {
   const result = summarizeRpcSupport([
@@ -53,9 +54,9 @@ test("counts, percentages and complete details share deduplicated advertised sup
   ]);
   const screen = result.categories.find((c) => c.id === "screen")!;
   assert.equal(screen.supported, 3);
-  assert.equal(screen.unsupported, 10);
-  assert.equal(screen.percent, 23);
-  assert.equal(screen.entries.length, 13);
+  assert.equal(screen.unsupported, 11);
+  assert.equal(screen.percent, 21);
+  assert.equal(screen.entries.length, 14);
   for (const category of result.categories) {
     assert.equal(
       category.supported,
