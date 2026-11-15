@@ -33,12 +33,13 @@ const config: DesktopConfiguration = {
 
 async function fixture(
   run: (f: Awaited<ReturnType<typeof setup>>) => Promise<void>,
+  initialConfiguration = true,
 ) {
   const original = {
     VideoDecoder: globalThis.VideoDecoder,
     EncodedVideoChunk: globalThis.EncodedVideoChunk,
   };
-  const f = await setup();
+  const f = await setup(initialConfiguration);
   try {
     await run(f);
   } finally {
@@ -47,7 +48,7 @@ async function fixture(
     Object.assign(globalThis, original);
   }
 }
-async function setup() {
+async function setup(initialConfiguration = true) {
   const counts = {
     submits: 0,
     outputs: 0,
@@ -141,7 +142,7 @@ async function setup() {
       counts.codecErrors++;
     },
   );
-  await engine.configure(config);
+  if (initialConfiguration) await engine.configure(config);
   function group(id: number) {
     let media!: ReadableStreamDefaultController<Uint8Array>;
     incoming.enqueue(
@@ -367,4 +368,53 @@ test("queue cap is rechecked after capacity resolves", () =>
     assert.equal(f.counts.submits, 3);
     assert.equal(f.counts.maxQueue, 3);
     assert.equal(f.counts.keyframes, 1);
+  }));
+
+test("stream opened before initial configuration accepts its first matching object", () =>
+  fixture(async (f) => {
+    const g = f.group(1);
+    await tick();
+    await f.engine.configure(config);
+    g.feed(0);
+    g.close();
+    await tick();
+    await f.engine.closedStreams();
+    assert.equal(f.counts.submits, 1);
+    assert.deepEqual(f.rendered, [1000000]);
+    assert.equal(f.counts.keyframes, 0);
+  }, false));
+
+test("old track generation cannot admit first object during pending reconfiguration", () =>
+  fixture(async (f) => {
+    const g = f.group(1);
+    await tick();
+    const support = VideoDecoder.isConfigSupported;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    VideoDecoder.isConfigSupported = async (config) => {
+      await gate;
+      return support(config);
+    };
+    try {
+      const configuring = f.engine.configure(config);
+      g.feed(0);
+      await tick();
+      await f.engine.closedStreams();
+      assert.equal(f.counts.submits, 0);
+      assert.deepEqual(f.rendered, []);
+      release();
+      await configuring;
+      const next = f.group(2);
+      next.feed(0);
+      next.close();
+      await tick();
+      await f.engine.closedStreams();
+      assert.equal(f.counts.submits, 1);
+      assert.deepEqual(f.rendered, [2000000]);
+    } finally {
+      release();
+      VideoDecoder.isConfigSupported = support;
+    }
   }));
