@@ -259,7 +259,13 @@ impl<I: Input> Desktop<I> {
                 }
             }
             DesktopControlAction::Acquire | DesktopControlAction::Takeover => {
-                if self.attachments[id].mode == AttachmentMode::TopologyOnly { return Err(Error::Invalid); }
+                let attachment = &self.attachments[id];
+                if attachment.mode == AttachmentMode::TopologyOnly
+                    || (matches!(attachment.mode, AttachmentMode::ExistingOne(_))
+                        && attachment.viewports.is_empty())
+                {
+                    return Err(Error::Invalid);
+                }
                 if self.holder.as_deref() == Some(id) {
                     return Ok(());
                 }
@@ -1251,10 +1257,20 @@ impl Runtime {
             }
             if previous.is_some() {
                 if let Some(holder) = d.holder.as_ref() {
-                    if matches!(d.attachments[holder].mode, AttachmentMode::ExistingOne(_) | AttachmentMode::TopologyOnly) {
+                    if matches!(
+                        d.attachments[holder].mode,
+                        AttachmentMode::ExistingOne(_) | AttachmentMode::TopologyOnly
+                    ) {
                         d.release()?;
                     } else {
                         d.release_held()?;
+                    }
+                }
+                for attachment in d.attachments.values_mut() {
+                    if let AttachmentMode::ExistingOne(id) = &attachment.mode {
+                        if !displays.iter().any(|display| &display.display_id == id) {
+                            attachment.mode = AttachmentMode::TopologyOnly;
+                        }
                     }
                 }
                 d.layout_changed()?;
@@ -1457,8 +1473,15 @@ impl Runtime {
         now: u64,
         id: &str,
     ) -> Result<rieul_daemon_core::generated::rpc::DesktopConfiguration, Error> {
-        let mode = self.state.lock().map_err(|_| Error::Backend)?
-            .attachments.get(id).ok_or(Error::NotFound)?.mode.clone();
+        let mode = self
+            .state
+            .lock()
+            .map_err(|_| Error::Backend)?
+            .attachments
+            .get(id)
+            .ok_or(Error::NotFound)?
+            .mode
+            .clone();
         let next = match &mode {
             AttachmentMode::Legacy => AttachmentMode::ExistingAll,
             mode => mode.clone(),
@@ -1466,11 +1489,21 @@ impl Runtime {
         self.configure_existing_mode(auth, connection, now, id, None, next, Some(mode))
     }
     pub(crate) fn automatically_configured(&self, id: &str) -> Result<bool, Error> {
-        Ok(self.state.lock().map_err(|_| Error::Backend)?.attachments
-            .get(id).ok_or(Error::NotFound)?.mode != AttachmentMode::Legacy)
+        Ok(self
+            .state
+            .lock()
+            .map_err(|_| Error::Backend)?
+            .attachments
+            .get(id)
+            .ok_or(Error::NotFound)?
+            .mode
+            != AttachmentMode::Legacy)
     }
     pub(crate) fn select_existing(
-        &self, auth: &impl Credentials, connection: u64, now: u64,
+        &self,
+        auth: &impl Credentials,
+        connection: u64,
+        now: u64,
         request: rieul_daemon_core::generated::rpc::SelectExistingDesktopReq,
     ) -> Result<rieul_daemon_core::generated::rpc::DesktopConfiguration, Error> {
         use rieul_daemon_core::generated::rpc::DesktopDisplaySelection;
@@ -1479,19 +1512,36 @@ impl Runtime {
         let mode = match request.selection {
             DesktopDisplaySelection::Clear {} => AttachmentMode::TopologyOnly,
             DesktopDisplaySelection::Display { display_id } => {
-                if self.capabilities().capture != rieul_daemon_core::generated::rpc::DesktopAvailability::Available {
+                if self.capabilities().capture
+                    != rieul_daemon_core::generated::rpc::DesktopAvailability::Available
+                {
                     return Err(Error::Unsupported);
                 }
-                if display_id.is_empty() || display_id.len() > 128 { return Err(Error::Invalid); }
+                if display_id.is_empty() || display_id.len() > 128 {
+                    return Err(Error::Invalid);
+                }
                 AttachmentMode::ExistingOne(display_id)
             }
         };
-        self.configure_existing_mode(auth, connection, now, &request.attach_id,
-            Some(request.expected_layout_epoch), mode, None)
+        self.configure_existing_mode(
+            auth,
+            connection,
+            now,
+            &request.attach_id,
+            Some(request.expected_layout_epoch),
+            mode,
+            None,
+        )
     }
     fn configure_existing_mode(
-        &self, auth: &impl Credentials, connection: u64, now: u64, id: &str,
-        expected_epoch: Option<u64>, mut mode: AttachmentMode, expected_mode: Option<AttachmentMode>,
+        &self,
+        auth: &impl Credentials,
+        connection: u64,
+        now: u64,
+        id: &str,
+        expected_epoch: Option<u64>,
+        mut mode: AttachmentMode,
+        expected_mode: Option<AttachmentMode>,
     ) -> Result<rieul_daemon_core::generated::rpc::DesktopConfiguration, Error> {
         use rieul_daemon_core::generated::rpc::*;
         // Preserve the legacy viewer's bounded video defaults until runtime quality
@@ -1507,12 +1557,19 @@ impl Runtime {
         else {
             unreachable!()
         };
-        if expected_epoch.is_some_and(|epoch| epoch != layout_epoch) { return Err(Error::Stale); }
+        if expected_epoch.is_some_and(|epoch| epoch != layout_epoch) {
+            return Err(Error::Stale);
+        }
         let displays = match &mode {
             AttachmentMode::ExistingOne(id) => {
-                let selected: Vec<_> = displays.into_iter().filter(|d| &d.display_id == id).collect();
+                let selected: Vec<_> = displays
+                    .into_iter()
+                    .filter(|d| &d.display_id == id)
+                    .collect();
                 if selected.is_empty() {
-                    if expected_epoch.is_some() { return Err(Error::NotFound); }
+                    if expected_epoch.is_some() {
+                        return Err(Error::NotFound);
+                    }
                     mode = AttachmentMode::TopologyOnly;
                 }
                 selected
@@ -1560,7 +1617,10 @@ impl Runtime {
             },
             true,
             None,
-            Some(ModeChange { expected: expected_mode, next: mode }),
+            Some(ModeChange {
+                expected: expected_mode,
+                next: mode,
+            }),
         )
     }
     pub(crate) fn configure(
@@ -1590,10 +1650,17 @@ impl Runtime {
             if request.layout_epoch != d.layout_epoch {
                 return Err(Error::Stale);
             }
-            if mode_change.as_ref().and_then(|m| m.expected.as_ref()).is_some_and(|expected| *expected != d.attachments[&request.attach_id].mode) {
+            if mode_change
+                .as_ref()
+                .and_then(|m| m.expected.as_ref())
+                .is_some_and(|expected| *expected != d.attachments[&request.attach_id].mode)
+            {
                 return Err(Error::Stale);
             }
-            if mode_change.as_ref().is_some_and(|m| m.next != AttachmentMode::ExistingAll) {
+            if mode_change
+                .as_ref()
+                .is_some_and(|m| m.next != AttachmentMode::ExistingAll)
+            {
                 if d.attachments[&request.attach_id].mode == AttachmentMode::ExistingAll {
                     return Err(Error::Invalid);
                 }
@@ -1678,8 +1745,14 @@ impl Runtime {
             )?;
             if let Some(mode) = mode_change {
                 d.attachments.get_mut(&request.attach_id).unwrap().mode = mode.next;
-                self.quality.lock().map_err(|_| Error::Backend)?.remove(&request.attach_id);
-                self.quality_samples.lock().map_err(|_| Error::Backend)?.retain(|(id, _), _| id != &request.attach_id);
+                self.quality
+                    .lock()
+                    .map_err(|_| Error::Backend)?
+                    .remove(&request.attach_id);
+                self.quality_samples
+                    .lock()
+                    .map_err(|_| Error::Backend)?
+                    .retain(|(id, _), _| id != &request.attach_id);
             }
             let configuration = DesktopConfiguration {
                 layout_epoch: request.layout_epoch,

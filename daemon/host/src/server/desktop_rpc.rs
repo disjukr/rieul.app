@@ -284,8 +284,11 @@ impl HostRpcHandler {
                     previous_cursor = None;
                 }
                 let config_id = id.clone();
-                let automatic = blocking(self.desktop.clone(), move |r| r.automatically_configured(&config_id))
-                    .await.map_err(|e| anyhow::anyhow!("{e:?}"))?;
+                let automatic = blocking(self.desktop.clone(), move |r| {
+                    r.automatically_configured(&config_id)
+                })
+                .await
+                .map_err(|e| anyhow::anyhow!("{e:?}"))?;
                 if automatic {
                     let config_id = id.clone();
                     let missing = blocking(self.desktop.clone(), move |r| {
@@ -422,13 +425,16 @@ impl HostRpcHandler {
                     blocking(self.desktop.clone(), move |r| {
                         let _work = work.ok_or(desktop::Error::Busy)?;
                         r.select_existing(&auth, connection, now_ms(), request)
-                    }).await
+                    })
+                    .await
                 }
                 Err(e) => Err(e),
             };
             Ok(match result {
                 Ok(value) => RpcResponse::SelectExistingDesktop(value).into(),
-                Err(e) => UnaryRpcOutcome::Message(failure(ProcId::SelectExistingDesktop, e, false)),
+                Err(e) => {
+                    UnaryRpcOutcome::Message(failure(ProcId::SelectExistingDesktop, e, false))
+                }
             })
         })
     }
