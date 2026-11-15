@@ -53,7 +53,9 @@ export const desktopDisplaysBunja = bunja(() => {
     setSnapshots((current) => current.filter((s) => s.source !== source));
   }
   function refresh(): Promise<void> {
-    const info = rpc.daemonInfo();
+    return refreshFor(rpc.daemonInfo());
+  }
+  function refreshFor(info: DaemonInfoState): Promise<void> {
     if (
       !active ||
       info.phase !== "ready" ||
@@ -94,10 +96,10 @@ export const desktopDisplaysBunja = bunja(() => {
       createRoot((dispose) => {
         createEffect(
           () => rpc.daemonInfo(),
-          () => {
+          (info) => {
             ++revision;
             setSnapshots([]);
-            void refresh();
+            void refreshFor(info);
           },
         );
         return dispose;

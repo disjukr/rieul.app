@@ -1,4 +1,23 @@
-import { test, expect } from "@playwright/test";
+import { test as base, expect } from "@playwright/test";
+
+const test = base.extend<{ solidDiagnostics: string[] }>({
+  solidDiagnostics: [
+    async ({ page }, use) => {
+      const diagnostics: string[] = [];
+      page.on("console", (message) => {
+        if (
+          message.text().includes("STRICT_") ||
+          message.text().includes("REACTIVITY_HALTED")
+        )
+          diagnostics.push(message.text());
+      });
+      page.on("pageerror", (error) => diagnostics.push(error.message));
+      await use(diagnostics);
+      expect(diagnostics).toEqual([]);
+    },
+    { auto: true },
+  ],
+});
 
 test("rail shortcuts select a monitor in an internal pane without control, and Screen still opens the catalog", async ({
   page,

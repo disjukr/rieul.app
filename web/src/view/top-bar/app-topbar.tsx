@@ -1,6 +1,6 @@
 import { style, theme } from "../../zyzz.config.ts";
 import { Dynamic } from "@solidjs/web";
-import { createEffect, createMemo, createSignal } from "solid-js";
+import { createEffect, createMemo, createSignal, untrack } from "solid-js";
 import type {
   AvailableShellInfo,
   DesktopDisplay,
@@ -164,11 +164,8 @@ export function AppTopbar(componentProps: AppTopbarProps) {
       machine: componentProps.machine,
       displays: componentProps.desktopDisplays,
     }),
-    () => {
-      if (
-        toolMenu()?.tool === "desktop" &&
-        (componentProps.desktopDisplays?.length ?? 0) < 2
-      )
+    ({ displays }) => {
+      if (untrack(toolMenu)?.tool === "desktop" && (displays?.length ?? 0) < 2)
         closeToolMenu();
     },
   );
@@ -176,7 +173,7 @@ export function AppTopbar(componentProps: AppTopbarProps) {
   createEffect(
     () => componentProps.selectedMachineId,
     () => {
-      if (toolMenu()?.tool === "desktop") closeToolMenu();
+      if (untrack(toolMenu)?.tool === "desktop") closeToolMenu();
     },
   );
 

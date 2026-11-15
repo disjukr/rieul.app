@@ -3,7 +3,7 @@ import "../../src/state/machine.tsx";
 import "../../src/theme.css";
 import { TestBunjaStoreProvider } from "./bunja-store.tsx";
 import { bunja, override } from "bunja";
-import { For, createSignal, createMemo } from "solid-js";
+import { For, createSignal, createMemo, untrack } from "solid-js";
 import { render } from "@solidjs/web";
 import { useBunja } from "bunja/solid";
 import {
@@ -287,7 +287,8 @@ function Fixture() {
                 ? "idle"
                 : "viewing",
         );
-        if (selectedDisplayId()) void model.selectDisplay(selectedDisplayId()!);
+        const selection = untrack(selectedDisplayId);
+        if (selection) void model.selectDisplay(selection);
       },
       stop() {
         setControlling(false);

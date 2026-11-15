@@ -253,3 +253,25 @@ test("metadata is isolated by machine scope", async () => {
     f.close();
   }
 });
+
+test("inventory effects use their tracked daemon snapshot without strict read diagnostics", async (t) => {
+  const diagnostics: string[] = [];
+  const warn = console.warn.bind(console);
+  t.mock.method(console, "warn", (...args: unknown[]) => {
+    const message = args.map(String).join(" ");
+    if (message.includes("[STRICT_READ_UNTRACKED]")) diagnostics.push(message);
+    warn(...args);
+  });
+  query = async () => displays(["first", "second"]);
+  const f = fixture();
+  try {
+    await flush();
+    f.setInfo(ready("replacement"));
+    await flush();
+    await f.value.refresh();
+    await flush();
+    assert.deepEqual(diagnostics, []);
+  } finally {
+    f.close();
+  }
+});
