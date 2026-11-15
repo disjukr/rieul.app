@@ -856,8 +856,17 @@ export const desktopBunja = bunja(() => {
         setMessage(undefined);
       }
     } catch (error) {
-      if (token === generation)
-        setMessage(error instanceof Error ? error.message : String(error));
+      if (token === generation) {
+        if (action === DesktopControlAction.Release && managed()) {
+          disconnect(true);
+          setPhase("error");
+          setMessage(
+            `Control could not be released. ${error instanceof Error ? error.message : String(error)}`,
+          );
+          scheduleManagedRetry(error);
+        } else
+          setMessage(error instanceof Error ? error.message : String(error));
+      }
     } finally {
       if (token === generation) {
         setBusy(false);

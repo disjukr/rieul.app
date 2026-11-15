@@ -37,6 +37,7 @@ let receiverCount = 0;
 let queryCount = 0;
 let capabilityError: Error | undefined;
 let releaseError = false;
+let flushError = false;
 let configureReceiver:
   | ((configuration: DesktopConfiguration) => Promise<void>)
   | undefined;
@@ -203,7 +204,9 @@ mock.module("../src/protocol/desktop-input.ts", {
       send() {
         return true;
       }
-      async flush() {}
+      async flush() {
+        if (flushError) throw new Error("Flush failed");
+      }
     },
     bindDesktopInput: (
       canvas: HTMLCanvasElement,
@@ -724,3 +727,51 @@ test("display, machine and store scopes isolate shared monitor sessions", async 
     otherStore.close();
   }
 });
+
+for (const failure of ["release", "flush"]) {
+  test(`owner removal fails closed on ${failure} rejection while mirror survives`, async (t) => {
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    t.mock.method(Math, "random", () => 0.5);
+    const f = fixture(true),
+      ownerView = f.consumer("first"),
+      mirrorView = f.consumer("first");
+    try {
+      await flush();
+      const session = ownerView.value,
+        owner = Symbol("owner"),
+        mirror = Symbol("mirror");
+      const removeOwner = session.registerViewer(owner),
+        removeMirror = session.registerViewer(mirror);
+      await session.acquire(owner);
+      const oldAttach = session.attachId()!,
+        actions = controls.length;
+      releaseError = failure === "release";
+      flushError = failure === "flush";
+      removeOwner();
+      ownerView.release();
+      await flush();
+      assert.equal(session.attachId(), undefined);
+      assert.equal(detached.includes(oldAttach), true);
+      assert.equal(streams.get(oldAttach)!.signal.aborted, true);
+      assert.equal(session.controlling(), false);
+      assert.equal(session.ownsInput(mirror), false);
+      releaseError = flushError = false;
+      t.mock.timers.tick(1000);
+      await flush();
+      assert.notEqual(session.attachId(), oldAttach);
+      assert.equal(session.selectedDisplayId(), "first");
+      assert.equal(session.controlling(), false);
+      assert.equal(session.ownsInput(mirror), false);
+      assert.equal(
+        controls
+          .slice(actions)
+          .some((action) => action.action !== DesktopControlAction.Release),
+        false,
+      );
+      removeMirror();
+    } finally {
+      releaseError = flushError = false;
+      f.close();
+    }
+  });
+}
