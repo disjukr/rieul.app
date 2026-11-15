@@ -62,21 +62,28 @@ async function setup(initialConfiguration = true) {
   const rendered: number[] = [];
   const decoders: Decoder[] = [];
   let automatic = false;
-  class Decoder {
+  let flushGate: Promise<void> | undefined;
+  let releaseFlush: (() => void) | undefined;
+  class Decoder extends EventTarget {
     static async isConfigSupported(config: VideoDecoderConfig) {
       return { supported: true, config };
     }
     state: CodecState = "unconfigured";
     decodeQueueSize = 0;
     pending: EncodedVideoChunk[] = [];
+    ready: EncodedVideoChunk[] = [];
     constructor(private callbacks: VideoDecoderInit) {
+      super();
       decoders.push(this);
     }
     reset() {
+      const queued = this.decodeQueueSize;
       counts.resets++;
       this.decodeQueueSize = 0;
       this.pending = [];
+      this.ready = [];
       this.state = "unconfigured";
+      if (queued) this.dispatchEvent(new Event("dequeue"));
     }
     configure() {
       this.state = "configured";
@@ -88,29 +95,43 @@ async function setup(initialConfiguration = true) {
       counts.maxQueue = Math.max(counts.maxQueue, this.decodeQueueSize);
       if (automatic) queueMicrotask(() => this.releaseOne());
     }
-    releaseOne() {
+    dequeueOne(notify = true) {
       const c = this.pending.shift();
       if (!c) return;
       this.decodeQueueSize--;
+      this.ready.push(c);
+      if (notify) this.dispatchEvent(new Event("dequeue"));
+    }
+    outputOne() {
+      const c = this.ready.shift();
+      if (!c) return;
       counts.outputs++;
       this.callbacks.output({
         timestamp: c.timestamp,
         close() {},
       } as VideoFrame);
     }
+    releaseOne(notify = true) {
+      this.dequeueOne(notify);
+      this.outputOne();
+    }
     async flush() {
       counts.flushes++;
-      while (this.pending.length) this.releaseOne();
+      if (flushGate) await flushGate;
+      while (this.pending.length) this.dequeueOne();
+      while (this.ready.length) this.outputOne();
     }
     fail() {
       this.state = "closed";
       this.pending = [];
+      this.ready = [];
       this.decodeQueueSize = 0;
       this.callbacks.error(new DOMException("synthetic", "EncodingError"));
     }
     close() {
       this.state = "closed";
       this.pending = [];
+      this.ready = [];
       this.decodeQueueSize = 0;
     }
   }
@@ -195,6 +216,12 @@ async function setup(initialConfiguration = true) {
     group,
     saturated,
     decoder: () => decoders.at(-1)!,
+    blockFlush: () => {
+      flushGate = new Promise<void>((resolve) => {
+        releaseFlush = resolve;
+      });
+      return () => releaseFlush?.();
+    },
     automatic: () => {
       automatic = true;
     },
@@ -290,21 +317,30 @@ test("dequeued input path remains unaffected", () =>
     assert.equal(f.counts.maxQueue, 1);
   }));
 
-test("capacity wait budget is shared by repeated stalls in one group", () =>
+test("capacity wait budget is shared by repeated stalls in one group", (t) =>
   fixture(async (f) => {
+    let now = 0;
+    t.mock.method(performance, "now", () => now);
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    const events = capacityTrace(f.engine);
     const g = f.group(1);
-    for (let i = 0; i < 30; i++) g.feed(i);
+    for (let i = 0; i < 5; i++) g.feed(i);
+    g.close();
     await tick();
-    const timer = setInterval(() => f.decoder().releaseOne(), 5);
-    try {
-      await f.engine.closedStreams();
-    } finally {
-      clearInterval(timer);
-    }
-    assert.ok(f.counts.submits > 3);
-    assert.ok(f.counts.submits < 30);
+    assert.equal(f.counts.submits, 3);
+    now = 300;
+    f.decoder().dequeueOne();
+    await tick();
+    assert.equal(f.counts.submits, 4);
+    now = 501;
+    t.mock.timers.tick(201);
+    await f.engine.closedStreams();
+    assert.deepEqual(events, [
+      { budget: 500, elapsed: 300, outcome: "capacity" },
+      { budget: 200, outcome: "Screen decoder capacity deadline" },
+    ]);
+    assert.equal(f.counts.submits, 4);
     assert.equal(f.counts.keyframes, 1);
-    assert.equal(f.counts.cancels, 1);
     assert.equal(f.counts.maxQueue, 3);
   }));
 
@@ -477,4 +513,164 @@ test("empty tracks after initialization do not reopen the startup exception", ()
     await f.engine.closedStreams();
     assert.equal(f.counts.submits, 1);
     assert.deepEqual(f.rendered, [2000000]);
+  }));
+
+function capacityTrace(engine: DesktopVideoEngine) {
+  const events: { budget: number; outcome?: string; elapsed?: number }[] = [];
+  const target = engine as unknown as {
+    waitForCapacity: (...args: unknown[]) => Promise<number>;
+  };
+  const original = target.waitForCapacity.bind(engine);
+  target.waitForCapacity = async (...args) => {
+    const event = { budget: args[4] as number } as (typeof events)[number];
+    events.push(event);
+    try {
+      event.elapsed = await original(...args);
+      event.outcome = "capacity";
+      return event.elapsed;
+    } catch (error) {
+      event.outcome = (error as Error).message;
+      throw error;
+    }
+  };
+  return events;
+}
+
+test("native coalesced dequeue admits only available capacity", () =>
+  fixture(async (f) => {
+    const events = capacityTrace(f.engine);
+    const g = await f.saturated();
+    g.close();
+    f.decoder().dequeueOne(false);
+    f.decoder().dequeueOne(false);
+    f.decoder().dispatchEvent(new Event("dequeue"));
+    await f.engine.closedStreams();
+    assert.equal(f.counts.submits, 4);
+    assert.equal(f.counts.outputs, 4);
+    assert.equal(f.counts.maxQueue, 3);
+    assert.equal(f.counts.keyframes, 0);
+    assert.equal(events[0].outcome, "capacity");
+    assert.equal(events[0].budget, 500);
+  }));
+
+test("native queue drained before listener registration does not lose wakeup", () =>
+  fixture(async (f) => {
+    const decoder = f.decoder();
+    const add = decoder.addEventListener.bind(decoder);
+    decoder.addEventListener = (type, listener, options) => {
+      if (type === "dequeue" && decoder.decodeQueueSize === 3)
+        decoder.dequeueOne(false);
+      add(type, listener, options);
+    };
+    const g = f.group(1);
+    for (let i = 0; i < 4; i++) g.feed(i);
+    g.close();
+    await tick();
+    await f.engine.closedStreams();
+    assert.equal(f.counts.submits, 4);
+    assert.equal(f.counts.outputs, 4);
+    assert.equal(f.counts.keyframes, 0);
+    assert.equal(f.counts.maxQueue, 3);
+  }));
+
+test("native startup without dequeue expires its decoder-service budget", (t) =>
+  fixture(async (f) => {
+    let now = 0;
+    t.mock.method(performance, "now", () => now);
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    const events = capacityTrace(f.engine);
+    await f.saturated();
+    now = 501;
+    t.mock.timers.tick(501);
+    await f.engine.closedStreams();
+    assert.equal(f.counts.submits, 3);
+    assert.equal(f.counts.outputs, 0);
+    assert.equal(f.counts.keyframes, 1);
+    assert.deepEqual(events, [
+      { budget: 500, outcome: "Screen decoder capacity deadline" },
+    ]);
+  }));
+
+test("native late dequeue cannot admit work beyond deadline", (t) =>
+  fixture(async (f) => {
+    let now = 0;
+    t.mock.method(performance, "now", () => now);
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    const events = capacityTrace(f.engine);
+    await f.saturated();
+    now = 501;
+    f.decoder().dequeueOne();
+    await f.engine.closedStreams();
+    assert.equal(f.counts.submits, 3);
+    assert.equal(f.counts.outputs, 0);
+    assert.equal(f.counts.keyframes, 1);
+    assert.equal(events[0].outcome, "Screen decoder capacity deadline");
+  }));
+
+test("native missing dequeue event still ends at finite deadline", (t) =>
+  fixture(async (f) => {
+    let now = 0;
+    t.mock.method(performance, "now", () => now);
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    const events = capacityTrace(f.engine);
+    await f.saturated();
+    f.decoder().dequeueOne(false);
+    now = 501;
+    t.mock.timers.tick(501);
+    await f.engine.closedStreams();
+    assert.equal(f.counts.submits, 3);
+    assert.equal(f.counts.outputs, 0);
+    assert.equal(f.counts.keyframes, 1);
+    assert.equal(events[0].outcome, "Screen decoder capacity deadline");
+  }));
+
+test("startup capacity waits and flush share one decoder-service budget", (t) =>
+  fixture(async (f) => {
+    let now = 0;
+    t.mock.method(performance, "now", () => now);
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    const release = f.blockFlush();
+    const events = capacityTrace(f.engine);
+    try {
+      const g = await f.saturated();
+      g.close();
+      now = 300;
+      f.decoder().dequeueOne();
+      await tick();
+      assert.equal(events[0].elapsed, 300);
+      assert.equal(f.counts.flushes, 1);
+      now = 501;
+      t.mock.timers.tick(201);
+      await f.engine.closedStreams();
+      assert.equal(f.counts.submits, 4);
+      assert.equal(f.counts.outputs, 0);
+      assert.equal(f.counts.keyframes, 1);
+    } finally {
+      release();
+    }
+  }));
+
+test("later groups retain the short native pressure budget", (t) =>
+  fixture(async (f) => {
+    let now = 0;
+    t.mock.method(performance, "now", () => now);
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    const first = f.group(1);
+    first.feed(0);
+    first.close();
+    await tick();
+    await f.engine.closedStreams();
+    const events = capacityTrace(f.engine);
+    const next = f.group(2);
+    for (let i = 0; i < 4; i++) next.feed(i);
+    await tick();
+    assert.equal(f.counts.submits, 4);
+    now = 34;
+    t.mock.timers.tick(34);
+    await f.engine.closedStreams();
+    assert.deepEqual(events, [
+      { budget: 33, outcome: "Screen decoder capacity deadline" },
+    ]);
+    assert.equal(f.counts.outputs, 1);
+    assert.equal(f.counts.keyframes, 1);
   }));

@@ -6,6 +6,7 @@ import type {
 import { StripeDecoder, validStripeLayout } from "./desktop-stripe.ts";
 import { readDesktopGroup } from "./desktop-media.ts";
 import { desktopMediaPort } from "./desktop-media-router.ts";
+const DECODER_SERVICE_BUDGET_MS = 500;
 interface TrackState {
   track: DesktopTrack;
   config: VideoDecoderConfig;
@@ -55,6 +56,7 @@ export class DesktopVideoEngine {
   }
   async configure(configuration: DesktopConfiguration): Promise<void> {
     const generation = ++this.generation;
+    for (const state of this.tracks.values()) state.abort?.abort();
     if (configuration.tracks.length > 8)
       throw new Error("Too many screen tracks");
     if (
@@ -224,6 +226,7 @@ export class DesktopVideoEngine {
     budgetMs: number,
   ): Promise<number> {
     const decoder = state.decoder;
+    const native = decoder instanceof StripeDecoder ? undefined : decoder;
     const started = performance.now();
     for (;;) {
       if (
@@ -237,17 +240,32 @@ export class DesktopVideoEngine {
       )
         throw new Error("Screen group replaced");
       const elapsed = performance.now() - started;
-      if (elapsed >= budgetMs) throw new Error("Screen decoder backpressure");
+      if (elapsed >= budgetMs)
+        throw new Error(
+          native
+            ? "Screen decoder capacity deadline"
+            : "Screen decoder backpressure",
+        );
       if (decoder.decodeQueueSize < 3) return elapsed;
       await new Promise<void>((resolve) => {
         const done = () => {
           clearTimeout(timer);
           signal.removeEventListener("abort", done);
+          native?.removeEventListener("dequeue", done);
           resolve();
         };
-        const timer = setTimeout(done, Math.min(4, budgetMs - elapsed));
+        const timer = setTimeout(
+          done,
+          native ? budgetMs - elapsed : Math.min(4, budgetMs - elapsed),
+        );
         signal.addEventListener("abort", done, { once: true });
-        if (signal.aborted) done();
+        native?.addEventListener("dequeue", done);
+        if (
+          signal.aborted ||
+          decoder.decodeQueueSize < 3 ||
+          decoder.state !== "configured"
+        )
+          done();
       });
     }
   }
@@ -260,6 +278,7 @@ export class DesktopVideoEngine {
     let generation: number | undefined;
     const admissionGeneration = this.configuredGeneration;
     let decodeWaitBudgetMs = 33;
+    let startup = false;
     try {
       for await (const object of readDesktopGroup(
         stream,
@@ -278,6 +297,9 @@ export class DesktopVideoEngine {
           )
             return;
           state = current;
+          startup =
+            current.group === 0 && !(current.decoder instanceof StripeDecoder);
+          decodeWaitBudgetMs = startup ? DECODER_SERVICE_BUDGET_MS : 33;
           generation = current.generation;
           groupId = first.groupId;
           // The old group may still be flow-controlled; abandon it as one unit.
@@ -363,7 +385,7 @@ export class DesktopVideoEngine {
             new Promise<never>((_, reject) => {
               timer = setTimeout(
                 () => reject(new Error("Screen decode timeout")),
-                500,
+                startup ? decodeWaitBudgetMs : DECODER_SERVICE_BUDGET_MS,
               );
             }),
           ]);
