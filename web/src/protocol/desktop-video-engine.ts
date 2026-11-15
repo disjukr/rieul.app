@@ -52,6 +52,8 @@ export class DesktopVideoEngine {
   private closed = false;
   private layoutEpoch = 0;
   private generation = 0;
+  private configuredGeneration = 0;
+  private firstConfiguredGeneration = 0;
   constructor(
     transport: WebTransport,
     private attachId: string,
@@ -199,6 +201,8 @@ export class DesktopVideoEngine {
       });
       this.tracks.set(track.trackId, state);
     }
+    this.configuredGeneration = generation;
+    this.firstConfiguredGeneration ||= generation;
   }
   private async receive(): Promise<void> {
     try {
@@ -274,6 +278,7 @@ export class DesktopVideoEngine {
     let state: TrackState | undefined;
     let groupId = 0;
     let generation: number | undefined;
+    const admissionGeneration = this.configuredGeneration;
     let decodeWaitBudgetMs = 33;
     try {
       for await (const object of readDesktopGroup(
@@ -295,6 +300,8 @@ export class DesktopVideoEngine {
             first.attachId !== this.attachId ||
             !current ||
             current.generation !== this.generation ||
+            current.generation !==
+              (admissionGeneration || this.firstConfiguredGeneration) ||
             first.codecEpoch !== current.track.codecEpoch ||
             first.layoutEpoch !== this.layoutEpoch ||
             first.groupId <= current.group

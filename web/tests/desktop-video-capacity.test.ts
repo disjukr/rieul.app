@@ -418,3 +418,63 @@ test("old track generation cannot admit first object during pending reconfigurat
       VideoDecoder.isConfigSupported = support;
     }
   }));
+
+test("completed same-epoch reconfiguration rejects an old unbound stream", () =>
+  fixture(async (f) => {
+    const old = f.group(1);
+    await tick();
+    await f.engine.configure(config);
+    old.feed(0);
+    old.close();
+    await tick();
+    await f.engine.closedStreams();
+    assert.equal(f.counts.submits, 0);
+    assert.deepEqual(f.rendered, []);
+    const fresh = f.group(2);
+    fresh.feed(0);
+    fresh.close();
+    await tick();
+    await f.engine.closedStreams();
+    assert.equal(f.counts.submits, 1);
+    assert.deepEqual(f.rendered, [2000000]);
+  }));
+
+test("startup exception does not span a second applied configuration", () =>
+  fixture(async (f) => {
+    const old = f.group(1);
+    await tick();
+    await f.engine.configure(config);
+    await f.engine.configure(config);
+    old.feed(0);
+    old.close();
+    await tick();
+    await f.engine.closedStreams();
+    assert.equal(f.counts.submits, 0);
+    const fresh = f.group(2);
+    fresh.feed(0);
+    fresh.close();
+    await tick();
+    await f.engine.closedStreams();
+    assert.equal(f.counts.submits, 1);
+    assert.deepEqual(f.rendered, [2000000]);
+  }, false));
+
+test("empty tracks after initialization do not reopen the startup exception", () =>
+  fixture(async (f) => {
+    await f.engine.configure({ ...config, tracks: [] });
+    const old = f.group(1);
+    await tick();
+    await f.engine.configure(config);
+    old.feed(0);
+    old.close();
+    await tick();
+    await f.engine.closedStreams();
+    assert.equal(f.counts.submits, 0);
+    const fresh = f.group(2);
+    fresh.feed(0);
+    fresh.close();
+    await tick();
+    await f.engine.closedStreams();
+    assert.equal(f.counts.submits, 1);
+    assert.deepEqual(f.rendered, [2000000]);
+  }));
