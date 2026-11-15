@@ -167,3 +167,28 @@ fn attach_rejection_preserves_existing_public_take_error_statuses() {
         );
     }
 }
+
+#[test]
+fn late_cleanup_preserves_replacement_on_same_rpc_session() {
+    let (manager, id) = fixture();
+    let old = attach(&manager, &id, 7);
+    let old_epoch = take(&manager, &id, &old.attach_id, 7);
+    let old_cleanup = guard(&manager, &old);
+    // A reconnect/replacement can share the multiplexed RPC session. Cleanup
+    // must identify the output attachment, not remove everything owned by RPC 7.
+    let current = attach(&manager, &id, 7);
+    assert_ne!(current.attach_id, old.attach_id);
+    let epoch = take(&manager, &id, &current.attach_id, 7);
+    assert_ne!(epoch, old_epoch);
+    drop(old_cleanup);
+    assert!(manager
+        .write_input(&id, &old.attach_id, b"old", 7, old_epoch)
+        .is_err());
+    assert_eq!(
+        manager.begin_input(&id, &current.attach_id, 7).unwrap(),
+        epoch
+    );
+    manager
+        .write_input(&id, &current.attach_id, b"replacement", 7, epoch)
+        .unwrap();
+}

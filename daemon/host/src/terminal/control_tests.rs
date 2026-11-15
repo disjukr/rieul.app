@@ -244,3 +244,65 @@ fn successful_resize_precedes_checkpoint_and_later_takeover_wins_in_order() {
         .write_input(&id, &attached.attach_id, b"old", 1, epoch)
         .is_err());
 }
+
+#[test]
+fn same_primary_resize_keeps_existing_input_stream_authorized() {
+    let (manager, id, state) = fixture();
+    let attached = attach(&manager, &id, 7, Some(true), 80, 24);
+    let epoch = manager.begin_input(&id, &attached.attach_id, 7).unwrap();
+    manager
+        .take_control(
+            TakeTerminalControlReq {
+                terminal_session_id: id.clone(),
+                attach_id: attached.attach_id.clone(),
+                viewport_cols: 100,
+                viewport_rows: 30,
+            },
+            7,
+        )
+        .unwrap();
+    assert_eq!(
+        manager.begin_input(&id, &attached.attach_id, 7).unwrap(),
+        epoch
+    );
+    manager
+        .write_input(&id, &attached.attach_id, b"after resize", 7, epoch)
+        .unwrap();
+    let state = state.lock().unwrap();
+    assert_eq!(state.resizes, [(80, 24), (100, 30)]);
+    assert_eq!(state.inputs, [b"after resize".to_vec()]);
+}
+
+#[test]
+fn failed_explicit_take_preserves_prior_authority_and_input_stream() {
+    let (manager, id, state) = fixture();
+    let first = attach(&manager, &id, 1, Some(true), 80, 24);
+    let epoch = manager.begin_input(&id, &first.attach_id, 1).unwrap();
+    let second = attach(&manager, &id, 2, None, 100, 30);
+    state.lock().unwrap().reject_resize = true;
+    let result = manager.take_control(
+        TakeTerminalControlReq {
+            terminal_session_id: id.clone(),
+            attach_id: second.attach_id.clone(),
+            viewport_cols: 100,
+            viewport_rows: 30,
+        },
+        2,
+    );
+    assert!(matches!(result, Err(ServiceError::OperationFailed(message))
+        if message == "fixture resize rejected"));
+    assert!(manager.begin_input(&id, &second.attach_id, 2).is_err());
+    assert_eq!(
+        manager.begin_input(&id, &first.attach_id, 1).unwrap(),
+        epoch
+    );
+    manager
+        .write_input(&id, &first.attach_id, b"still owned", 1, epoch)
+        .unwrap();
+    let info = manager.sessions_snapshot().pop().unwrap();
+    assert_eq!(info.primary_attach_id, Some(first.attach_id));
+    assert_eq!((info.cols, info.rows), (80, 24));
+    let state = state.lock().unwrap();
+    assert_eq!(state.resizes, [(80, 24)]);
+    assert_eq!(state.inputs, [b"still owned".to_vec()]);
+}

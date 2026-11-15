@@ -1,0 +1,24 @@
+name: Check protocol models
+on:
+  pull_request:
+    paths:
+      - protocol/models/**
+      - .github/workflows/check-protocol-models.yml
+  push:
+    branches: [main]
+    paths:
+      - protocol/models/**
+      - .github/workflows/check-protocol-models.yml
+permissions:
+  contents: read
+jobs:
+  tlc:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - run: sh protocol/models/check.sh
