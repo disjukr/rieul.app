@@ -17,6 +17,7 @@ import {
 } from "../../src/protocol/generated/rpc.ts";
 function Fixture() {
   const [events, setEvents] = createSignal<DesktopInputEvent[]>([]);
+  const [qualityActions, setQualityActions] = createSignal<string[]>([]);
   const [active, setActive] = createSignal(true);
   const [previewSubscriptions, setPreviewSubscriptions] = createSignal(0);
   const [holder, setHolder] = createSignal<string | undefined>(
@@ -69,6 +70,7 @@ function Fixture() {
       qualityBusy: createMemo(() => false),
       qualityMessage: createSignal<string>()[0],
       async queryQuality() {
+        setQualityActions((actions) => [...actions, "query"]);
         setQualitySupport({
           layoutEpoch: 1,
           revision: 1,
@@ -95,6 +97,7 @@ function Fixture() {
         });
       },
       async applyQuality(policy: DesktopQualityPolicy) {
+        setQualityActions((actions) => [...actions, `apply-${policy.type}`]);
         setQualityPolicy(policy);
         const target =
           policy.type === "manual"
@@ -299,7 +302,6 @@ function Fixture() {
         setControlling(false);
       },
       openWindow() {},
-      previewAvailable: (_displayId: string) => true,
       registerPreviewSurface(_displayId: string, canvas: HTMLCanvasElement) {
         setPreviewSubscriptions((count) => count + 1);
         const ctx = canvas.getContext("2d")!;
@@ -372,6 +374,9 @@ function Fixture() {
         {previewSubscriptions()}
       </output>
       <output aria-label="Recorded input">{JSON.stringify(events())}</output>
+      <output hidden aria-label="Quality actions">
+        {JSON.stringify(qualityActions())}
+      </output>
     </>
   );
 }

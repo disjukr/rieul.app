@@ -10,6 +10,7 @@ for (const portrait of [false, true]) {
     const tiles = page.getByRole("navigation", { name: "Displays" });
     const preview = tiles.locator("canvas").first();
     await expect(tiles.locator("canvas")).toHaveCount(2);
+    await expect(page.getByLabel("Preview paused")).toHaveCount(0);
     expect((await preview.boundingBox())!.height).toBeGreaterThan(0);
     await expect(page.getByLabel("Preview subscriptions")).toHaveText("2");
     expect(
@@ -297,7 +298,7 @@ test("narrow split panes use their own width and locally scroll to a tappable li
   await expect(page.getByLabel("Recorded input")).toHaveText("[]");
 });
 
-test("arrangement padding uses live rem/em with square borderless tiles and keyboard focus", async ({
+test("arrangement padding uses live rem units with square borderless tiles and keyboard focus", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 700 });
@@ -316,8 +317,13 @@ test("arrangement padding uses live rem/em with square borderless tiles and keyb
   });
   await expect(stage).toHaveCSS("padding-top", "40px");
   await expect(stage).toHaveCSS("padding-bottom", "40px");
-  await expect(stage).toHaveCSS("padding-left", "18px");
-  await expect(stage).toHaveCSS("padding-right", "18px");
+  await expect(stage).toHaveCSS("padding-left", "20px");
+  await expect(stage).toHaveCSS("padding-right", "20px");
+  await stage.evaluate((element) => {
+    element.style.fontSize = "24px";
+  });
+  await expect(stage).toHaveCSS("padding-top", "40px");
+  await expect(stage).toHaveCSS("padding-left", "20px");
   await expect(stage).toHaveCSS("background-color", "rgb(0, 0, 0)");
   for (const element of [stage, tile]) {
     await expect(element).toHaveCSS("border-top-width", "0px");
@@ -325,7 +331,7 @@ test("arrangement padding uses live rem/em with square borderless tiles and keyb
   }
   await expect
     .poll(async () => (await tile.boundingBox())!.width)
-    .toBeCloseTo(177, 0);
+    .toBeCloseTo(175, 0);
   const [outer, inner, box, list] = await Promise.all([
     stage.boundingBox(),
     stage.locator(".rieul-desktop-arrangement-content").boundingBox(),
@@ -334,7 +340,7 @@ test("arrangement padding uses live rem/em with square borderless tiles and keyb
       .getByRole("navigation", { name: "Monitor list", exact: true })
       .boundingBox(),
   ]);
-  expect(box!.x - outer!.x).toBeCloseTo(18, 1);
+  expect(box!.x - outer!.x).toBeCloseTo(20, 1);
   expect(box!.y - outer!.y).toBeCloseTo(40, 1);
   expect(box!.width / box!.height).toBeCloseTo(320 / 180, 2);
   expect(box!.x + box!.width).toBeLessThanOrEqual(inner!.x + inner!.width);

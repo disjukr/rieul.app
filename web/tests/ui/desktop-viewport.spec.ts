@@ -67,7 +67,12 @@ for (const portrait of [false, true]) {
       );
       expect(events.some((event) => event.type === "releaseAll")).toBe(true);
       const before = await canvas.boundingBox();
-      await page.getByLabel("Screen options", { exact: true }).click();
+      await expect(
+        page.getByLabel("Screen options", { exact: true }),
+      ).toHaveCount(0);
+      await expect(
+        page.getByRole("combobox", { name: "Maximum video size" }),
+      ).toBeVisible();
       expect(await canvas.boundingBox()).toEqual(before);
       expect(
         await screen.evaluate(

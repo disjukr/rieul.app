@@ -1305,11 +1305,6 @@ export const desktopBunja = bunja(() => {
     configure,
     registerSurface,
     registerPreviewSurface: previews.registerPreview,
-    previewAvailable: (id: string) =>
-      previews.publisherIds().includes(id) ||
-      !!configuration()?.tracks.some(
-        (track) => track.viewport.displayId === id,
-      ),
     registerViewer,
     ownsInput: (viewer: symbol) => inputOwner() === viewer,
     openWindow,

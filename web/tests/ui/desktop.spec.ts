@@ -109,7 +109,7 @@ test("viewing never takes control and preserves physical keys and drag transitio
   await expect(canvas).toHaveCount(0);
 });
 
-test("diagnostics stay hidden and errors remain visible on a narrow selected display", async ({
+test("selected toolbar exposes compact accessible controls without Status or Options text", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
@@ -117,51 +117,81 @@ test("diagnostics stay hidden and errors remain visible on a narrow selected dis
     "/tests/fixtures/desktop.html?automatic&quality&no-input&input-error",
   );
   await page
-    .getByRole("button", { name: "Display fixture", exact: false })
+    .getByRole("button", { name: "Display fixture", exact: true })
     .click();
-  await page.getByLabel("Connection status", { exact: true }).click();
-  const status = page
-    .getByRole("region", { name: "Screen" })
-    .getByRole("status")
-    .first();
-  await expect(status).toContainText("Input connection failed.");
+  const toolbar = page.locator(".rieul-desktop-toolbar");
+  await expect(toolbar.locator("details, summary")).toHaveCount(0);
   await expect(
-    page.getByRole("button", { name: "Control screen", exact: true }),
-  ).toBeDisabled();
-  const codec = page.getByText("Display fixture: 320 × 180 · fixture", {
+    toolbar.getByText(
+      /Status|Options|Diagnostics|Target FPS|Shared bitrate|Current target|Keyboard input|Automatic video/,
+    ),
+  ).toHaveCount(0);
+  const control = page.getByRole("button", {
+    name: "Control screen",
     exact: true,
   });
-  const decoder = page.getByLabel("Screen decoder status");
-  await expect(codec).not.toBeVisible();
-  await expect(decoder).not.toBeVisible();
-  await page.getByText("Options", { exact: true }).click();
-  await page.getByRole("button", { name: "Check quality support" }).click();
-  const probe = page.getByText(
-    "Fixture encoder verified; throughput unverified.",
-    { exact: false },
-  );
-  await expect(probe).not.toBeVisible();
+  await expect(control).toBeDisabled();
+  await expect(control).toHaveAttribute("title", /Input connection failed/);
+  for (const label of [
+    "Back to displays",
+    "Control screen",
+    "Check quality support",
+  ]) {
+    const button = toolbar.getByRole("button", { name: label, exact: true });
+    await expect(button).toHaveAttribute("title", /.+/);
+    expect((await button.textContent())!.trim()).toBe("");
+  }
   await expect(
-    page.getByRole("button", { name: "Use 30 FPS / 5 Mbps", exact: true }),
+    page.getByRole("spinbutton", { name: "Target FPS" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("spinbutton", { name: "Shared bitrate target (Mbps)" }),
+  ).toBeVisible();
+  await page.getByRole("spinbutton", { name: "Target FPS" }).fill("30");
+  await page
+    .getByRole("spinbutton", { name: "Shared bitrate target (Mbps)" })
+    .fill("5");
+  await page
+    .getByRole("button", { name: "Check quality support", exact: true })
+    .click();
+  const targets = page.getByRole("combobox", {
+    name: "Verified video quality target",
+  });
+  await expect(targets.locator('option[value="0"]')).toBeEnabled();
+  await expect(targets.locator('option[value="1"]')).toBeDisabled();
+  await expect(
+    page.getByRole("button", { name: "Apply verified video quality" }),
   ).toBeEnabled();
   await expect(
-    page.getByRole("button", { name: "Use 120 FPS / 50 Mbps", exact: true }),
-  ).toBeDisabled();
-  const diagnostics = page.getByText("Diagnostics", { exact: true });
-  await diagnostics.focus();
-  await page.keyboard.press("Enter");
-  await expect(codec).toBeVisible();
-  await expect(decoder).toBeVisible();
-  await expect(probe).toBeVisible();
+    page.getByRole("button", { name: "Use Auto", exact: true }),
+  ).toHaveAttribute("title", /Current: 60 FPS/);
+  await expect(page.getByLabel("Quality actions")).toHaveText('["query"]');
+  await expect(page.getByRole("button", { name: "Use Auto" })).toHaveAttribute(
+    "aria-pressed",
+    "false",
+  );
+  await page
+    .getByRole("button", { name: "Apply verified video quality" })
+    .click();
+  await expect(
+    page.getByRole("button", { name: "Use Auto", exact: true }),
+  ).toHaveAttribute("title", /Current: 30 FPS \/ 5 Mbps/);
+  await expect(page.getByLabel("Quality actions")).toHaveText(
+    '["query","apply-manual"]',
+  );
+  await expect(page.getByRole("button", { name: "Use Auto" })).toHaveAttribute(
+    "aria-pressed",
+    "false",
+  );
   expect(
-    await page.evaluate(
-      () => document.documentElement.scrollWidth <= innerWidth,
-    ),
+    await page
+      .getByRole("region", { name: "Screen", exact: true })
+      .evaluate(
+        (element) =>
+          element.scrollHeight <= element.clientHeight &&
+          element.scrollWidth <= element.clientWidth,
+      ),
   ).toBe(true);
-  await diagnostics.click();
-  await expect(codec).not.toBeVisible();
-  await page.getByLabel("Connection status", { exact: true }).click();
-  await expect(status).toContainText("Input connection failed.");
 });
 
 test("quality changes preserve the selected surface and focused held input", async ({
@@ -172,7 +202,6 @@ test("quality changes preserve the selected surface and focused held input", asy
   await page
     .getByRole("button", { name: "Display fixture", exact: false })
     .click();
-  await page.getByText("Options", { exact: true }).click();
   await page.getByRole("button", { name: "Check quality support" }).click();
   await page
     .getByRole("button", { name: "Control screen", exact: true })
@@ -185,8 +214,11 @@ test("quality changes preserve the selected surface and focused held input", asy
     .getByRole("button", { name: "Use Auto", exact: true })
     .evaluate((button: HTMLButtonElement) => button.click());
   await expect(
-    page.getByText("Current target: 30 FPS", { exact: false }),
-  ).toBeVisible();
+    page.getByRole("button", { name: "Use Auto", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await expect(
+    page.getByRole("button", { name: "Use Auto", exact: true }),
+  ).toHaveAttribute("title", /Current: 30 FPS/);
   await expect(canvas).toBeFocused();
   expect(await handle!.evaluate((node) => node.isConnected)).toBe(true);
   let events: DesktopInputEvent[] = JSON.parse(
@@ -224,12 +256,9 @@ test("control action distinguishes vacant and occupied ownership without taking 
   await expect(
     page.getByRole("button", { name: "Take control from another viewer" }),
   ).toBeEnabled();
-  await page.getByLabel("Connection status", { exact: true }).click();
   await expect(
-    page.getByText("Taking control will release their held inputs.", {
-      exact: false,
-    }),
-  ).toBeVisible();
+    page.getByRole("button", { name: "Take control from another viewer" }),
+  ).toHaveAttribute("title", /release their held inputs/);
   await expect(page.getByLabel("Recorded input")).toHaveText("[]");
   await page
     .getByRole("button", { name: "Take control from another viewer" })
@@ -317,4 +346,55 @@ test("same-monitor panes keep independent navigation and explicit shared input o
   await expect(
     first.getByRole("button", { name: "Control screen", exact: true }),
   ).toBeVisible();
+});
+
+test("direct toolbar keeps quality validation and legacy resize usable in a short narrow pane", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 180, height: 260 });
+  await page.goto("/tests/fixtures/desktop.html?quality");
+  await page
+    .getByRole("navigation", { name: "Monitor list" })
+    .getByRole("button", { name: "Choose monitor fixture", exact: true })
+    .click();
+  const screen = page.getByRole("region", { name: "Screen", exact: true });
+  const toolbar = page.locator(".rieul-desktop-toolbar");
+  await expect(toolbar.locator("summary")).toHaveCount(0);
+  await page
+    .getByRole("combobox", { name: "Maximum video size" })
+    .selectOption("720");
+  await expect(
+    page.getByRole("combobox", { name: "Maximum video size" }),
+  ).toHaveValue("720");
+  const fps = page.getByRole("spinbutton", { name: "Target FPS" });
+  await fps.fill("0");
+  await expect(
+    page.getByRole("button", { name: "Check quality support" }),
+  ).toBeDisabled();
+  await fps.fill("30");
+  await page
+    .getByRole("spinbutton", { name: "Shared bitrate target (Mbps)" })
+    .fill("5");
+  await page.getByRole("button", { name: "Check quality support" }).click();
+  await page
+    .getByRole("button", { name: "Apply verified video quality" })
+    .click();
+  const canvas = page.locator('canvas[aria-label="Display fixture"]');
+  await expect(canvas).toBeVisible();
+  expect((await canvas.boundingBox())!.height).toBeGreaterThan(20);
+  expect(
+    await screen.evaluate(
+      (element) =>
+        element.scrollHeight <= element.clientHeight &&
+        element.scrollWidth <= element.clientWidth,
+    ),
+  ).toBe(true);
+  expect(
+    await page.evaluate(
+      () =>
+        document.documentElement.scrollWidth <= innerWidth &&
+        document.documentElement.scrollHeight <= innerHeight,
+    ),
+  ).toBe(true);
+  await expect(page.getByLabel("Recorded input")).toHaveText("[]");
 });
