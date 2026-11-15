@@ -84,3 +84,15 @@ test("single off-origin monitor is centered, mirroring retained and invalid meta
   assert.ok(Number.isFinite(fitDesktopArrangement(invalid, 180, 120).scale));
   assert.equal(fitDesktopArrangement(desktopArrangement([]), 0, 0).scale, 0);
 });
+
+test("presentation fills the pane without a preview pixel cap or decorative gutters", () => {
+  const layout = desktopArrangement([
+    display("a", 0, 0, 1920, 1080),
+    display("b", 1920, 0, 1920, 1080),
+  ]);
+  const fit = fitDesktopArrangement(layout, 1440, 900);
+  assert.equal(fit.scale, 1440 / 3840);
+  assert.equal(fit.left, 0);
+  assert.equal(fit.top, (900 - 405) / 2);
+  assert.equal(layout.tiles[0].width * fit.scale, 720);
+});

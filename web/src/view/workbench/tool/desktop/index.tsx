@@ -368,6 +368,11 @@ function DesktopSelectedView(props: { onBack: () => void }) {
 }
 function DesktopCatalogView(props: { onSelect: (displayId: string) => void }) {
   const desktop = useBunja(managedDesktopBunja);
+  const [pane, setPane] = createSignal<HTMLElement>();
+  const [paneSize, setPaneSize] = createSignal({ width: 0, height: 0 });
+  const narrow = createMemo(
+    () => paneSize().width > 0 && paneSize().width <= 600,
+  );
   const [catalog, setCatalog] = createSignal<HTMLElement>();
   const [size, setSize] = createSignal({ width: 0, height: 0 });
   const arrangement = createMemo(() =>
@@ -377,20 +382,29 @@ function DesktopCatalogView(props: { onSelect: (displayId: string) => void }) {
     fitDesktopArrangement(arrangement(), size().width, size().height),
   );
   createEffect(
-    createMemo(() => catalog()),
-    (element) => {
-      if (!element) return;
+    createMemo(() => ({ catalog: catalog(), pane: pane() })),
+    ({ catalog, pane }) => {
+      if (!catalog || !pane) return;
       let frame = 0;
-      const observer = new ResizeObserver(([entry]) => {
-        cancelAnimationFrame(frame);
-        frame = requestAnimationFrame(() =>
-          setSize({
+      let stageSize = { width: 0, height: 0 };
+      let parentSize = { width: 0, height: 0 };
+      const observer = new ResizeObserver((entries) => {
+        for (const entry of entries) {
+          const next = {
             width: entry.contentRect.width,
             height: entry.contentRect.height,
-          }),
-        );
+          };
+          if (entry.target === catalog) stageSize = next;
+          else parentSize = next;
+        }
+        cancelAnimationFrame(frame);
+        frame = requestAnimationFrame(() => {
+          setSize(stageSize);
+          setPaneSize(parentSize);
+        });
       });
-      observer.observe(element);
+      observer.observe(catalog);
+      observer.observe(pane);
       return () => {
         cancelAnimationFrame(frame);
         observer.disconnect();
@@ -400,6 +414,8 @@ function DesktopCatalogView(props: { onSelect: (displayId: string) => void }) {
   return (
     <section
       {...styles.root({ className: "rieul-desktop" })}
+      ref={setPane}
+      style={{ overflow: narrow() ? "auto" : "hidden" }}
       data-phase={desktop().phase()}
       data-controlling={desktop().controlling()}
       aria-label="Screen"
@@ -430,7 +446,19 @@ function DesktopCatalogView(props: { onSelect: (displayId: string) => void }) {
           </details>
         </header>
       )}
-      <nav {...styles.catalog()} ref={setCatalog} aria-label="Displays">
+      <nav
+        {...styles.catalog()}
+        ref={setCatalog}
+        aria-label="Displays"
+        style={
+          narrow()
+            ? {
+                flex: "0 0 auto",
+                height: `${Math.min((paneSize().width * arrangement().height) / arrangement().width, Math.max(80, paneSize().height * 0.65))}px`,
+              }
+            : undefined
+        }
+      >
         <For each={arrangement().tiles}>
           {(tile) => (
             <button
@@ -454,24 +482,33 @@ function DesktopCatalogView(props: { onSelect: (displayId: string) => void }) {
       </nav>
       {size().width > 0 &&
         size().height > 0 &&
-        (arrangement().overlapping ||
+        (narrow() ||
+          arrangement().overlapping ||
           arrangement().tiles.some(
             (tile) => Math.min(tile.width, tile.height) * fit().scale < 24,
           )) && (
-          <div {...styles.displayChoices()} aria-label="Display selection">
+          <nav
+            {...styles.displayChoices()}
+            aria-label="Monitor list"
+            style={{ "max-height": narrow() ? "none" : "30%" }}
+          >
             <For each={desktop().displays()}>
               {(display) => (
-                <Button
-                  size="sm"
+                <button
+                  type="button"
+                  {...styles.displayChoice()}
                   disabled={desktop().phase() !== "viewing"}
                   aria-label={`Choose monitor ${display.displayId}`}
                   onClick={() => props.onSelect(display.displayId)}
                 >
-                  {display.displayId}
-                </Button>
+                  <span>Display {display.displayId}</span>
+                  <span {...styles.choiceMetadata()}>
+                    {display.bounds.width} × {display.bounds.height}
+                  </span>
+                </button>
               )}
             </For>
-          </div>
+          </nav>
         )}
     </section>
   );
@@ -743,7 +780,7 @@ namespace styles {
       "&:focus-visible": {
         outline: "2px solid",
         outlineColor: theme.focus,
-        outlineOffset: "2px",
+        outlineOffset: "-3px",
         zIndex: 1,
       },
       "&:disabled": { opacity: 0.6, cursor: "default" },
@@ -757,13 +794,39 @@ namespace styles {
     overflow: "hidden",
   });
   export const displayChoices = style({
-    display: "flex",
+    display: "grid",
     flexShrink: 0,
-    flexWrap: "wrap",
-    gap: "6px",
-    padding: "6px 12px",
-    maxHeight: "30%",
     overflow: "auto",
+  });
+  export const displayChoice = style({
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: "8px",
+    minHeight: "44px",
+    width: "100%",
+    padding: "8px",
+    boxSizing: "border-box",
+    textAlign: "left",
+    overflowWrap: "anywhere",
+    backgroundColor: theme.bgPrimary,
+    color: theme.textPrimary,
+    borderTop: "1px solid",
+    borderColor: theme.borderLight,
+    cursor: "pointer",
+    selectors: {
+      "&:hover": { backgroundColor: theme.bgHeader },
+      "&:focus-visible": {
+        outline: "2px solid",
+        outlineColor: theme.focus,
+        outlineOffset: "-3px",
+      },
+      "&:disabled": { opacity: 0.6, cursor: "default" },
+    },
+  });
+  export const choiceMetadata = style({
+    color: theme.textTertiary,
+    fontSize: "12px",
   });
   export const displayMetadata = style({
     display: "block",

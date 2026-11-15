@@ -10,7 +10,7 @@ for (const portrait of [false, true]) {
     const tiles = page.getByRole("navigation", { name: "Displays" });
     const preview = tiles.locator("canvas").first();
     await expect(tiles.locator("canvas")).toHaveCount(2);
-    expect((await preview.boundingBox())!.height).toBeLessThanOrEqual(180);
+    expect((await preview.boundingBox())!.height).toBeGreaterThan(0);
     await expect(page.getByLabel("Preview subscriptions")).toHaveText("2");
     expect(
       await preview.evaluate((canvas: HTMLCanvasElement) => ({
@@ -80,9 +80,8 @@ test("catalog fits mixed-DPI negative and vertical host layout through narrow re
       .poll(async () => {
         const container = (await nav.boundingBox())!;
         const expectedScale = Math.min(
-          (container.width - 24) / 3000,
-          (container.height - 24) / 1920,
-          180 / 1920,
+          container.width / 3000,
+          container.height / 1920,
         );
         return Math.abs(
           (await first.boundingBox())!.width - expectedScale * 1920,
@@ -176,5 +175,105 @@ test("mirrored monitors keep their positions and each remains pointer-selectable
   await expect(
     page.locator('canvas[aria-label="Display second"]'),
   ).toBeVisible();
+  await expect(page.getByLabel("Recorded input")).toHaveText("[]");
+});
+
+test("wide catalog fills available width and mobile list immediately follows the arrangement", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1200, height: 800 });
+  await page.goto("/tests/fixtures/desktop.html");
+  const nav = page.getByRole("navigation", { name: "Displays", exact: true });
+  const tile = nav.getByRole("button", {
+    name: "Display fixture",
+    exact: true,
+  });
+  await expect
+    .poll(async () => (await tile.boundingBox())!.width)
+    .toBeCloseTo(600, 0);
+  await expect(
+    page.getByRole("navigation", { name: "Monitor list", exact: true }),
+  ).toHaveCount(0);
+  const canvas = await tile.locator("canvas").elementHandle();
+  await page.setViewportSize({ width: 390, height: 700 });
+  const list = page.getByRole("navigation", {
+    name: "Monitor list",
+    exact: true,
+  });
+  await expect(list).toBeVisible();
+  await expect
+    .poll(async () => (await nav.boundingBox())!.height)
+    .toBeCloseTo((390 * 180) / 640, 0);
+  const [stage, rows] = await Promise.all([
+    nav.boundingBox(),
+    list.boundingBox(),
+  ]);
+  expect(rows!.y).toBeCloseTo(stage!.y + stage!.height, 1);
+  expect(rows!.height).toBeGreaterThanOrEqual(88);
+  expect(rows!.y + rows!.height).toBeLessThan(700);
+  await expect(nav.locator("canvas")).toHaveCount(2);
+  await expect(list.locator("canvas")).toHaveCount(0);
+  await expect(page.getByLabel("Preview subscriptions")).toHaveText("2");
+  expect(await canvas!.evaluate((el) => el.isConnected)).toBe(true);
+  await list
+    .getByRole("button", { name: "Choose monitor second", exact: true })
+    .click();
+  await expect(
+    page.locator('canvas[aria-label="Display second"]'),
+  ).toBeVisible();
+  await expect(page.getByLabel("Recorded input")).toHaveText("[]");
+  await page.getByRole("button", { name: "Back to displays" }).click();
+  await nav
+    .getByRole("button", { name: "Display fixture", exact: true })
+    .click();
+  await expect(
+    page.locator('canvas[aria-label="Display fixture"]'),
+  ).toBeVisible();
+});
+
+test("narrow split panes use their own width and locally scroll to a tappable list", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1100, height: 260 });
+  await page.goto("/tests/fixtures/desktop.html?portrait&split");
+  const pane = page.getByRole("region", { name: "First pane", exact: true });
+  await pane.evaluate((element) => {
+    element.style.width = "300px";
+  });
+  const nav = pane.getByRole("navigation", { name: "Displays", exact: true });
+  const list = pane.getByRole("navigation", {
+    name: "Monitor list",
+    exact: true,
+  });
+  await expect(list).toBeVisible();
+  await expect(
+    pane.getByRole("navigation", { name: "Monitor list", exact: true }),
+  ).toHaveCount(1);
+  await expect(pane.locator("canvas")).toHaveCount(2);
+  await expect
+    .poll(async () => (await nav.boundingBox())!.height)
+    .toBeLessThanOrEqual(80.1);
+  const screen = pane.getByRole("region", { name: "Screen", exact: true });
+  expect(
+    await screen.evaluate((element) => ({
+      scroll: element.scrollHeight > element.clientHeight,
+      overflow: getComputedStyle(element).overflowY,
+    })),
+  ).toEqual({ scroll: true, overflow: "auto" });
+  const row = list.getByRole("button", {
+    name: "Choose monitor second",
+    exact: true,
+  });
+  await row.scrollIntoViewIfNeeded();
+  expect((await row.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  await row.click();
+  await expect(
+    pane.locator('canvas[aria-label="Display second"]'),
+  ).toBeVisible();
+  expect(
+    await pane
+      .getByRole("region", { name: "Screen", exact: true })
+      .evaluate((element) => getComputedStyle(element).overflowY),
+  ).toBe("hidden");
   await expect(page.getByLabel("Recorded input")).toHaveText("[]");
 });
