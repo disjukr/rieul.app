@@ -2,6 +2,27 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { WorkerVideoReceiver } from "../src/protocol/desktop-video-worker-client.ts";
 import type { DesktopConfiguration } from "../src/protocol/generated/rpc.ts";
+import { encodeCbor } from "../src/protocol/cbor.ts";
+import { encodeDesktopMediaObjectValue } from "../src/protocol/generated/rpc.ts";
+function mediaPrefix(attachId = "attach") {
+  const body = encodeCbor(
+    encodeDesktopMediaObjectValue({
+      attachId,
+      trackId: 1,
+      layoutEpoch: 1,
+      codecEpoch: 1,
+      groupId: 1,
+      objectId: 0,
+      timestampMicros: 1,
+      keyframe: true,
+      data: new Uint8Array([42]),
+    }),
+  );
+  const bytes = new Uint8Array(body.length + 4);
+  new DataView(bytes.buffer).setUint32(0, body.length);
+  bytes.set(body, 4);
+  return bytes;
+}
 class FakeWorker {
   static last: FakeWorker;
   onmessage?: ({ data }: { data: any }) => void;
@@ -103,6 +124,9 @@ test("worker acknowledgements follow actual render, stale frames close, and stre
     for (let n = 0; n < 17; n++)
       controller.enqueue(
         new ReadableStream<Uint8Array>({
+          start(c) {
+            c.enqueue(mediaPrefix());
+          },
           cancel() {
             cancelled++;
           },
@@ -112,8 +136,15 @@ test("worker acknowledgements follow actual render, stale frames close, and stre
     assert.equal(worker.sent.filter((m) => m.type === "stream").length, 16);
     assert.equal(cancelled, 1);
     const stream = worker.sent.find((m) => m.type === "stream");
+    await stream.stream.cancel();
     worker.receive({ type: "streamDone", id: stream.id });
-    controller.enqueue(new ReadableStream<Uint8Array>());
+    controller.enqueue(
+      new ReadableStream<Uint8Array>({
+        start(c) {
+          c.enqueue(mediaPrefix());
+        },
+      }),
+    );
     await tick();
     assert.equal(worker.sent.filter((m) => m.type === "stream").length, 17);
     receiver.close();
@@ -301,6 +332,139 @@ test("worker forwards HEVC configuration and only current codec failures", async
     worker.receive({ type: "closed" });
   } finally {
     receiver.close();
+    if (old) Object.defineProperty(globalThis, "Worker", old);
+    else Reflect.deleteProperty(globalThis, "Worker");
+  }
+});
+
+test("simultaneous worker receivers share one transport without cross-delivery", async () => {
+  const old = Object.getOwnPropertyDescriptor(globalThis, "Worker");
+  Object.defineProperty(globalThis, "Worker", {
+    configurable: true,
+    value: FakeWorker,
+  });
+  let incoming!: ReadableStreamDefaultController<ReadableStream<Uint8Array>>;
+  const transport = {
+    incomingUnidirectionalStreams: new ReadableStream<
+      ReadableStream<Uint8Array>
+    >({
+      start(c) {
+        incoming = c;
+      },
+    }),
+  } as WebTransport;
+  const a = new WorkerVideoReceiver(
+    transport,
+    "a",
+    () => {},
+    () => {},
+    assert.fail,
+  );
+  const aw = FakeWorker.last;
+  const b = new WorkerVideoReceiver(
+    transport,
+    "b",
+    () => {},
+    () => {},
+    assert.fail,
+  );
+  const bw = FakeWorker.last;
+  let ac = 0,
+    bc = 0;
+  try {
+    await Promise.all([a.ready, b.ready]);
+    a.start();
+    b.start();
+    incoming.enqueue(
+      new ReadableStream({
+        start(c) {
+          c.enqueue(mediaPrefix("b"));
+        },
+        cancel() {
+          bc++;
+        },
+      }),
+    );
+    incoming.enqueue(
+      new ReadableStream({
+        start(c) {
+          c.enqueue(mediaPrefix("a"));
+        },
+        cancel() {
+          ac++;
+        },
+      }),
+    );
+    await tick();
+    const as = aw.sent.filter((m) => m.type === "stream"),
+      bs = bw.sent.filter((m) => m.type === "stream");
+    assert.equal(as.length, 1);
+    assert.equal(bs.length, 1);
+    const { readDesktopGroup } = await import(
+      "../src/protocol/desktop-media.ts"
+    );
+    const ag = readDesktopGroup(as[0].stream, (first) => first),
+      bg = readDesktopGroup(bs[0].stream, (first) => first);
+    assert.equal((await ag.next()).value.attachId, "a");
+    assert.equal((await bg.next()).value.attachId, "b");
+    a.close();
+    await tick();
+    assert.equal(ac, 1);
+    assert.equal(bc, 0);
+    await ag.return(undefined);
+    await bg.return(undefined);
+    b.close();
+    assert.equal(transport.incomingUnidirectionalStreams.locked, false);
+  } finally {
+    a.close();
+    b.close();
+    aw.receive({ type: "closed" });
+    bw.receive({ type: "closed" });
+    if (old) Object.defineProperty(globalThis, "Worker", old);
+    else Reflect.deleteProperty(globalThis, "Worker");
+  }
+});
+
+test("facade reservation survives unsupported worker fallback and closes without orphaning transport", async () => {
+  const old = Object.getOwnPropertyDescriptor(globalThis, "Worker");
+  class UnsupportedWorker extends FakeWorker {
+    postMessage(data: { type: string }) {
+      if (data.type === "init")
+        queueMicrotask(() => this.receive({ type: "unsupported" }));
+      if (data.type === "close")
+        queueMicrotask(() => this.receive({ type: "closed" }));
+    }
+  }
+  Object.defineProperty(globalThis, "Worker", {
+    configurable: true,
+    value: UnsupportedWorker,
+  });
+  const transport = {
+    incomingUnidirectionalStreams: new ReadableStream(),
+  } as WebTransport;
+  const { DesktopVideoReceiver } = await import(
+    "../src/protocol/desktop-video.ts"
+  );
+  const receivers: InstanceType<typeof DesktopVideoReceiver>[] = [];
+  try {
+    for (const attachId of ["a", "b"]) {
+      const receiver = new DesktopVideoReceiver(
+        transport,
+        attachId,
+        () => {},
+        () => {},
+        assert.fail,
+      );
+      receivers.push(receiver);
+      assert.equal(transport.incomingUnidirectionalStreams.locked, true);
+      await receiver.configure({ tracks: [], layoutEpoch: 1, totalBitrate: 1 });
+      assert.equal(receiver.execution, "main");
+      assert.equal(receiver.workerFailure, "Screen worker APIs unavailable");
+      receiver.close();
+      assert.equal(transport.incomingUnidirectionalStreams.locked, false);
+    }
+  } finally {
+    for (const receiver of receivers) receiver.close();
     if (old) Object.defineProperty(globalThis, "Worker", old);
     else Reflect.deleteProperty(globalThis, "Worker");
   }

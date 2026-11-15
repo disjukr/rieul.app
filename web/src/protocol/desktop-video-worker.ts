@@ -1,3 +1,4 @@
+import { desktopMediaSource } from "./desktop-media-router.ts";
 import { DesktopVideoEngine } from "./desktop-video-engine.ts";
 import type { DesktopConfiguration } from "./generated/rpc.ts";
 const scope = self as unknown as {
@@ -39,7 +40,7 @@ scope.onmessage = async ({ data }) => {
       },
     });
     engine = new DesktopVideoEngine(
-      { incomingUnidirectionalStreams: streams } as WebTransport,
+      desktopMediaSource(streams, data.attachId),
       data.attachId,
       (viewportId, frame) => {
         if (configuring) return;

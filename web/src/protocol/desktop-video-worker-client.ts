@@ -1,7 +1,10 @@
 import type { DesktopConfiguration } from "./generated/rpc.ts";
 import type { DesktopVideoStats } from "./desktop-video-engine.ts";
 
+import { desktopMediaPort } from "./desktop-media-router.ts";
+
 export class WorkerVideoReceiver {
+  private mediaPort?: ReturnType<typeof desktopMediaPort>;
   readonly ready: Promise<void>;
   private worker: Worker;
   private closed = false;
@@ -19,7 +22,7 @@ export class WorkerVideoReceiver {
   private timer!: ReturnType<typeof setTimeout>;
   constructor(
     private transport: WebTransport,
-    attachId: string,
+    private attachId: string,
     private render: (id: string, frame: VideoFrame) => boolean | void,
     private stats: (stats: DesktopVideoStats) => void,
     private failed: (message: string) => void,
@@ -114,8 +117,10 @@ export class WorkerVideoReceiver {
     this.worker.postMessage({ type: "init", attachId });
   }
   start(): void {
-    if (this.closed) return;
-    this.reader = this.transport.incomingUnidirectionalStreams.getReader();
+    if (this.closed || this.reader) return;
+    this.mediaPort = desktopMediaPort(this.transport, this.attachId);
+    this.reader =
+      this.mediaPort.transport.incomingUnidirectionalStreams.getReader();
     void this.receive();
   }
   private async receive(): Promise<void> {
@@ -171,6 +176,7 @@ export class WorkerVideoReceiver {
   close(): void {
     if (this.closed) return;
     this.closed = true;
+    this.mediaPort?.close();
     clearTimeout(this.timer);
     this.readyReject?.(new Error("Screen worker closed"));
     this.readyReject = undefined;

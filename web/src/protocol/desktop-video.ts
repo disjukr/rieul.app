@@ -1,5 +1,6 @@
 import type { DesktopCodec, DesktopConfiguration } from "./generated/rpc.ts";
 import { DesktopVideoEngine } from "./desktop-video-engine.ts";
+import { desktopMediaPort } from "./desktop-media-router.ts";
 export type { DesktopVideoStats } from "./desktop-video-engine.ts";
 /** Client policy only; never infer hardware use from WebCodecs preference hints.
  * The browser currently has no authoritative per-decoder hardware attestation.
@@ -54,6 +55,7 @@ export async function supportedDesktopCodecs(
 /** Worker owns parsing/decoding/stripe composition; final multi-window canvas
  * drawing stays with its DOM owner. Unsupported worker APIs retain the engine. */
 export class DesktopVideoReceiver {
+  private mediaPort: ReturnType<typeof desktopMediaPort>;
   private inner?:
     | DesktopVideoEngine
     | import("./desktop-video-worker-client.ts").WorkerVideoReceiver;
@@ -71,6 +73,8 @@ export class DesktopVideoReceiver {
           : "worker";
   }
   constructor(...args: ConstructorParameters<typeof DesktopVideoEngine>) {
+    this.mediaPort = desktopMediaPort(args[0], args[1]);
+    args[0] = this.mediaPort.transport;
     this.ready = (async () => {
       let worker:
         | import("./desktop-video-worker-client.ts").WorkerVideoReceiver
@@ -116,6 +120,7 @@ export class DesktopVideoReceiver {
   }
   close(): void {
     this.closed = true;
+    this.mediaPort.close();
     this.initializing?.close();
     this.inner?.close();
   }

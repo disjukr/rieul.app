@@ -5,6 +5,7 @@ import type {
 } from "./generated/rpc.ts";
 import { StripeDecoder, validStripeLayout } from "./desktop-stripe.ts";
 import { readDesktopGroup } from "./desktop-media.ts";
+import { desktopMediaPort } from "./desktop-media-router.ts";
 interface TrackState {
   track: DesktopTrack;
   config: VideoDecoderConfig;
@@ -28,6 +29,7 @@ export interface DesktopVideoStats {
 /** One receiver per shared desktop attachment; canvases may live in several windows. */
 export class DesktopVideoEngine {
   private reader: ReadableStreamDefaultReader<ReadableStream<Uint8Array>>;
+  private mediaPort: ReturnType<typeof desktopMediaPort>;
   private tracks = new Map<number, TrackState>();
   private tasks = new Set<Promise<unknown>>();
   private streams = new Map<ReadableStream<Uint8Array>, AbortController>();
@@ -43,7 +45,9 @@ export class DesktopVideoEngine {
     private codecFailed?: (codec: string) => void,
     private streamDone?: (stream: ReadableStream<Uint8Array>) => void,
   ) {
-    this.reader = transport.incomingUnidirectionalStreams.getReader();
+    this.mediaPort = desktopMediaPort(transport, attachId);
+    this.reader =
+      this.mediaPort.transport.incomingUnidirectionalStreams.getReader();
     void this.receive();
   }
   async configure(configuration: DesktopConfiguration): Promise<void> {
@@ -345,6 +349,7 @@ export class DesktopVideoEngine {
     this.closed = true;
     this.generation++;
     this.resetTracks();
+    this.mediaPort.close();
     // Release ownership without canceling the shared transport's incoming queue.
     try {
       this.reader.releaseLock();
