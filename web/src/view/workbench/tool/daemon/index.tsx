@@ -1,6 +1,6 @@
 import { ClusterSection } from "./cluster.tsx";
 import { style } from "../../../../zyzz.config.ts";
-import { DaemonUpdateSection } from "./updates.tsx";
+import { DaemonVersionRow } from "./updates.tsx";
 import type {
   ClientsTableEvent,
   TerminalSessionInfo,
@@ -574,9 +574,7 @@ function DaemonInfoView(props: DaemonInfoViewProps) {
               <PropertyListItem label="Endpoint">
                 <PropertyValue>{props.endpoint ?? "Unknown"}</PropertyValue>
               </PropertyListItem>
-              <PropertyListItem label="Daemon version">
-                <PropertyValue>{props.version}</PropertyValue>
-              </PropertyListItem>
+              <DaemonVersionRow version={props.version} />
               <PropertyListItem label="Machine OS">
                 <PropertyValue>{props.os}</PropertyValue>
               </PropertyListItem>
@@ -601,7 +599,6 @@ function DaemonInfoView(props: DaemonInfoViewProps) {
               </PropertyListItem>
             </PropertyList>
 
-            <DaemonUpdateSection />
             <ClusterSection />
 
             <ClientsOverviewSection

@@ -1,3 +1,5 @@
+import "../../src/theme.css";
+import { PropertyList } from "../../src/view/ui/property-list";
 import { rpcSessionBunja } from "../../src/state/rpc-session";
 import { rpcSessionStub } from "../helpers/rpc-session";
 import { render } from "@solidjs/web";
@@ -8,7 +10,7 @@ import { legacyDaemonUpgradeBunja } from "../../src/state/legacy-daemon-upgrade"
 import { daemonUpdatesBunja } from "../../src/state/daemon-updates";
 import { type LegacyUpdateStatus } from "../../src/protocol/legacy-upgrade";
 import { UpdatePhase } from "../../src/protocol/generated/rpc";
-import { DaemonUpdateSection } from "../../src/view/workbench/tool/daemon/updates";
+import { DaemonVersionRow } from "../../src/view/workbench/tool/daemon/updates";
 function Fixture() {
   const [supported, setSupported] = createSignal(true),
     [busy] = createSignal(false);
@@ -86,7 +88,9 @@ function Fixture() {
           override(daemonUpdatesBunja, () => modern),
         ]}
       >
-        <DaemonUpdateSection />
+        <PropertyList>
+          <DaemonVersionRow version="0.6.16" />
+        </PropertyList>
       </TestBunjaStoreProvider>
     </>
   );
@@ -134,7 +138,9 @@ function RealCapabilityFixture() {
           })),
         ]}
       >
-        <DaemonUpdateSection />
+        <PropertyList>
+          <DaemonVersionRow version="0.6.16" />
+        </PropertyList>
       </TestBunjaStoreProvider>
     </>
   );

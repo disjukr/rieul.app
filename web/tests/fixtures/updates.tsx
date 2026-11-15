@@ -1,3 +1,5 @@
+import "../../src/theme.css";
+import { PropertyList } from "../../src/view/ui/property-list";
 import { TestBunjaStoreProvider } from "./bunja-store.tsx";
 import { override } from "bunja";
 import { createSignal, createMemo } from "solid-js";
@@ -10,7 +12,7 @@ import {
   UpdatePhase,
   type UpdateStatus,
 } from "../../src/protocol/generated/rpc";
-import { DaemonUpdateSection } from "../../src/view/workbench/tool/daemon/updates";
+import { DaemonVersionRow } from "../../src/view/workbench/tool/daemon/updates";
 function Fixture() {
   const [status, setStatus] = createSignal<UpdateStatus>({
     phase: UpdatePhase.Deferred,
@@ -22,9 +24,9 @@ function Fixture() {
   });
   const [token, setToken] = createSignal("first");
   const [calls, setCalls] = createSignal(0);
-  const [message] = createSignal<string>();
+  const [message, setMessage] = createSignal<string>();
   const [busy] = createSignal(false);
-  const supported = createMemo(() => true);
+  const [supported, setSupported] = createSignal(true);
   const confirmationToken = createMemo(() => token());
   const model = {
     status,
@@ -48,6 +50,21 @@ function Fixture() {
   return (
     <>
       <button onClick={() => setToken("replacement")}>Replace daemon</button>
+      <button onClick={() => setSupported(false)}>Unsupported updates</button>
+      <button
+        onClick={() =>
+          setStatus({
+            ...status(),
+            phase: UpdatePhase.Unavailable,
+            canInstall: false,
+          })
+        }
+      >
+        Unavailable updates
+      </button>
+      <button onClick={() => setMessage("Update request failed. Try again.")}>
+        Fail update request
+      </button>
       <output aria-label="Install calls">{calls()}</output>
       <TestBunjaStoreProvider
         overrides={[
@@ -55,7 +72,9 @@ function Fixture() {
           override(rpcSessionBunja, () => rpcSessionStub({})),
         ]}
       >
-        <DaemonUpdateSection />
+        <PropertyList>
+          <DaemonVersionRow version="0.6.13" />
+        </PropertyList>
       </TestBunjaStoreProvider>
     </>
   );

@@ -1,4 +1,4 @@
-import { style } from "../../../../zyzz.config.ts";
+import { style, theme } from "../../../../zyzz.config.ts";
 import { createSignal } from "solid-js";
 import { useBunja } from "bunja/solid";
 import {
@@ -8,6 +8,17 @@ import {
 import { UpdatePhase } from "../../../../protocol/generated/rpc.ts";
 import { Button } from "../../../ui/button.tsx";
 import { legacyDaemonUpgradeBunja } from "../../../../state/legacy-daemon-upgrade.ts";
+
+import { PropertyListItem, PropertyValue } from "../../../ui/property-list.tsx";
+
+export function DaemonVersionRow(props: { version: string }) {
+  return (
+    <PropertyListItem label="Daemon version">
+      <PropertyValue>{props.version}</PropertyValue>
+      <DaemonUpdateSection />
+    </PropertyListItem>
+  );
+}
 
 export function DaemonUpdateSection() {
   const legacy = useBunja(legacyDaemonUpgradeBunja);
@@ -31,7 +42,6 @@ export function LegacyUpgradeSection() {
     confirmation() === upgrade().confirmationToken();
   return (
     <section {...styles.section()} aria-label="Legacy daemon upgrade">
-      <div {...styles.div()}>Upgrade older daemon</div>
       <div {...styles.div2()}>
         <p>
           This connected daemon uses the older update protocol. Read its
@@ -133,7 +143,6 @@ function StreamingUpdateSection() {
     ].includes(status()?.phase ?? UpdatePhase.Idle);
   return (
     <section {...styles.section()} aria-label="Daemon updates">
-      <div {...styles.div()}>Updates</div>
       <div {...styles.div2()}>
         <div role="status" aria-live="polite">
           {!supported()
@@ -200,26 +209,19 @@ function StreamingUpdateSection() {
 
 namespace styles {
   export const section = style({
-    marginTop: "18px",
+    width: "100%",
     minWidth: "0",
-  });
-  export const div = style({
-    marginBottom: "8px",
-    fontSize: "1rem",
-    color: "rgb(102 112 133 / 1)",
-    fontWeight: 800,
+    overflowWrap: "anywhere",
   });
   export const div2 = style({
     display: "grid",
     gap: "8px",
-    borderWidth: "1px",
-    borderColor: "rgb(216 221 231 / 1)",
-    borderRadius: "8px",
-    backgroundColor: "rgb(251 252 254 / 1)",
-    padding: "1rem",
+    minWidth: "0",
+    fontSize: "13px",
+    lineHeight: 1.5,
   });
   export const p = style({
-    color: "rgb(102 112 133 / 1)",
+    color: theme.textSecondary,
   });
   export const div3 = style({
     display: "flex",
@@ -230,11 +232,12 @@ namespace styles {
     display: "grid",
     gap: "8px",
     borderTopWidth: "1px",
-    borderColor: "rgb(216 221 231 / 1)",
+    borderColor: theme.borderLight,
     paddingTop: "1rem",
   });
   export const div5 = style({
     display: "flex",
+    flexWrap: "wrap",
     gap: "8px",
   });
 }
