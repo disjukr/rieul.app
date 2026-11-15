@@ -824,6 +824,15 @@ mod viewport_tests {
 /// Platform adapters return only features actually implemented and OS-authorized.
 /// The default server has no adapter; constructing a fixture never touches an OS desktop.
 pub trait Backend: Send + Sync {
+    /// Current host session only. Never enables an input source or prompts for access.
+    fn input_sources(&self) -> Result<rieul_daemon_core::generated::rpc::DesktopInputSources, Error> {
+        Err(Error::Unsupported)
+    }
+    /// Select only an already enabled source, and return the actual post-selection state.
+    fn select_input_source(&self, _id: &str) -> Result<rieul_daemon_core::generated::rpc::DesktopInputSources, Error> {
+        Err(Error::Unsupported)
+    }
+
     /// Changes immediately when an established helper channel is lost.
     fn generation(&self) -> u64 {
         0
@@ -1056,6 +1065,14 @@ impl Runtime {
                 max_input_stream_bytes: MAX_STREAM as u64,
                 reason: Some("No desktop backend is active in this daemon user session".into()),
             })
+    }
+    pub(crate) fn list_displays(
+        &self,
+    ) -> Result<Vec<rieul_daemon_core::generated::rpc::DesktopDisplay>, Error> {
+        self.reconcile_backend()?;
+        let _work = self.gate.enter().ok_or(Error::Busy)?;
+        let backend = self.backend.as_ref().ok_or(Error::Unsupported)?;
+        Ok(backend.displays())
     }
     pub(crate) fn mutate<T>(
         &self,
@@ -1296,6 +1313,34 @@ impl Runtime {
         Ok(rieul_daemon_core::generated::rpc::DesktopEvent::Layout {
             layout_epoch: d.layout_epoch,
             displays,
+        })
+    }
+    pub(crate) fn query_input_sources(
+        &self, auth: &impl Credentials, connection: u64, now: u64,
+        request: rieul_daemon_core::generated::rpc::DesktopAttachRef,
+    ) -> Result<rieul_daemon_core::generated::rpc::DesktopInputSources, Error> {
+        let _work = self.gate.enter().ok_or(Error::Busy)?;
+        self.mutate(|d| {
+            d.authorize(auth, connection, &request.attach_id, now)?;
+            self.backend.as_ref().ok_or(Error::Unsupported)?.input_sources()
+        })
+    }
+    pub(crate) fn select_input_source(
+        &self, auth: &impl Credentials, connection: u64, now: u64,
+        request: rieul_daemon_core::generated::rpc::SelectDesktopInputSourceReq,
+    ) -> Result<rieul_daemon_core::generated::rpc::DesktopInputSources, Error> {
+        let _work = self.gate.enter().ok_or(Error::Busy)?;
+        // Like input(), authorization and the native call share the state lock.
+        // mutate fences the helper generation; Proxy never replays this call after recovery.
+        self.mutate(|d| {
+            d.authorize(auth, connection, &request.attach_id, now)?;
+            if d.holder.as_deref() != Some(&request.attach_id) || request.input_epoch != d.epoch {
+                return Err(Error::Stale);
+            }
+            if request.source_id.is_empty() || request.source_id.len() > 1024 || request.source_id.contains('\0') {
+                return Err(Error::Invalid);
+            }
+            self.backend.as_ref().ok_or(Error::Unsupported)?.select_input_source(&request.source_id)
         })
     }
     pub(crate) fn accept_input(

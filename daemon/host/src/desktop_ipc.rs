@@ -78,6 +78,17 @@ fn result(value: Result<UserDesktopResult, Error>) -> UserDesktopResult {
 }
 fn execute(backend: &dyn Backend, command: UserDesktopCommand) -> Result<UserDesktopResult, Error> {
     Ok(match command {
+        UserDesktopCommand::InputSources => UserDesktopResult::InputSources {
+            value: ipc::DesktopInputSources::decode(&backend.input_sources()?.encode()).map_err(|_| Error::Invalid)?,
+        },
+        UserDesktopCommand::SelectInputSource { source_id } => {
+            if source_id.is_empty() || source_id.len() > 1024 || source_id.contains('\0') {
+                return Err(Error::Invalid);
+            }
+            UserDesktopResult::InputSources {
+                value: ipc::DesktopInputSources::decode(&backend.select_input_source(&source_id)?.encode()).map_err(|_| Error::Invalid)?,
+            }
+        },
         UserDesktopCommand::RecoverInput { keys, buttons } => {
             if keys.len() > 228
                 || buttons.len() > 5
@@ -557,6 +568,19 @@ async fn proxy_worker(
     }
 }
 impl Backend for Proxy {
+    fn input_sources(&self) -> Result<DesktopInputSources, Error> {
+        match self.call(UserDesktopCommand::InputSources)? {
+            UserDesktopResult::InputSources { value } => DesktopInputSources::decode(&value.encode()).map_err(|_| Error::Invalid),
+            _ => Err(Error::Backend),
+        }
+    }
+    fn select_input_source(&self, id: &str) -> Result<DesktopInputSources, Error> {
+        match self.call(UserDesktopCommand::SelectInputSource { source_id: id.into() })? {
+            UserDesktopResult::InputSources { value } => DesktopInputSources::decode(&value.encode()).map_err(|_| Error::Invalid),
+            _ => Err(Error::Backend),
+        }
+    }
+
     fn generation(&self) -> u64 {
         self.generation.load(std::sync::atomic::Ordering::SeqCst)
     }

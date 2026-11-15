@@ -28,8 +28,20 @@ import {
   type DesktopDisplay,
 } from "../../../../protocol/generated/rpc.ts";
 
-export function DesktopTool(props: { active?: boolean } = {}) {
-  const [selected, setSelected] = createSignal<string>();
+export function DesktopTool(
+  props: {
+    active?: boolean;
+    displayId?: string;
+    onSelectDisplay?: (displayId: string | undefined) => void;
+  } = {},
+) {
+  const [localSelected, setLocalSelected] = createSignal<string>();
+  const selected = () =>
+    props.onSelectDisplay ? props.displayId : localSelected();
+  const setSelected = (displayId: string | undefined) => {
+    if (props.onSelectDisplay) props.onSelectDisplay(displayId);
+    else setLocalSelected(displayId);
+  };
   return (
     <>
       {props.active !== false &&
@@ -136,6 +148,47 @@ function DesktopSelectedView(props: { onBack: () => void }) {
                 ? "Take control"
                 : "Control screen"}
           </Button>
+        )}
+        {desktop().inputSources() && (
+          <select
+            {...styles.select()}
+            style={{ width: "120px" }}
+            aria-label="Host input source"
+            title={desktop().inputSourceMessage() ?? "Host input source (IME)"}
+            value={desktop().inputSources()?.currentId ?? ""}
+            disabled={
+              !desktop().controlling() ||
+              !desktop().ownsInput(viewer) ||
+              desktop().inputSourceBusy()
+            }
+            onFocus={() => void desktop().refreshInputSources()}
+            onChange={(event) => {
+              const sourceId = event.currentTarget.value;
+              // Keep the last confirmed value until the host acknowledges selection.
+              event.currentTarget.value =
+                desktop().inputSources()?.currentId ?? "";
+              void desktop().chooseInputSource(sourceId, viewer);
+            }}
+          >
+            {!desktop()
+              .inputSources()
+              ?.sources.some(
+                (source) => source.id === desktop().inputSources()?.currentId,
+              ) && (
+              <option
+                value={desktop().inputSources()?.currentId ?? ""}
+                disabled
+              >
+                {desktop().inputSources()?.currentId ?? "Input source"}
+              </option>
+            )}
+            <For each={desktop().inputSources()?.sources}>
+              {(source) => <option value={source.id}>{source.name}</option>}
+            </For>
+          </select>
+        )}
+        {desktop().inputSourceMessage() && (
+          <span role="alert">{desktop().inputSourceMessage()}</span>
         )}
         {!desktop().serverOwnsGeometry() && (
           <label

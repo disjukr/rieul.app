@@ -20,6 +20,7 @@ import { rpcSessionBunja } from "./rpc-session.ts";
 import { DesktopDisplayIdScope } from "./desktop-scopes.ts";
 import { MachineIdScope } from "./machine-scopes.ts";
 import { desktopPreviewsBunja } from "./desktop-previews.ts";
+import { desktopDisplaysBunja } from "./desktop-displays.ts";
 import {
   configureDesktopViewports,
   selectExistingDesktop,
@@ -29,12 +30,15 @@ import {
   setDesktopControl,
   queryDesktopQualitySupport,
   setDesktopQuality,
+  queryDesktopInputSources,
+  selectDesktopInputSource,
 } from "../protocol/generated/client.ts";
 import {
   DesktopAvailability,
   DesktopControlAction,
   DesktopKeyboardMode,
   type DesktopQualitySupport,
+  type DesktopInputSources,
   type DesktopQualityPolicy,
   type DesktopQualityTarget,
   ProcId,
@@ -60,6 +64,8 @@ export const desktopBunja = bunja(() => {
   const displayId = bunja.use(DesktopDisplayIdScope);
   const rpc = bunja.use(rpcSessionBunja);
   const previews = bunja.use(desktopPreviewsBunja);
+  const inventory = bunja.use(desktopDisplaysBunja);
+  const inventorySource = Symbol("Screen display metadata");
   const [sessionMode, setSessionMode] = createSignal<
     "manual" | "active" | "suspended"
   >("manual");
@@ -105,6 +111,31 @@ export const desktopBunja = bunja(() => {
       )
     );
   });
+  const [inputSources, setInputSources] = createSignal<DesktopInputSources>();
+  const [inputSourceBusy, setInputSourceBusy] = createSignal(false);
+  const [inputSourceMessage, setInputSourceMessage] = createSignal<string>();
+  const inputSourcesSupported = createMemo(() => {
+    const info = rpc.daemonInfo();
+    return (
+      info.phase === "ready" &&
+      [ProcId.QueryDesktopInputSources, ProcId.SelectDesktopInputSource].every(
+        (id) => info.daemonInfo.supportedProcIds.includes(id),
+      )
+    );
+  });
+  let inputSourceRevision = 0;
+  let inputSourcesUnavailable = false;
+  let inputSourceSelectionPending = false;
+  let inputSourceQueryPending: number | undefined;
+  function invalidateInputSources() {
+    inputSourceRevision++;
+    inputSourcesUnavailable = false;
+    inputSourceSelectionPending = false;
+    inputSourceQueryPending = undefined;
+    setInputSources(undefined);
+    setInputSourceBusy(false);
+    setInputSourceMessage(undefined);
+  }
   const [outputHeight, setOutputHeight] = createSignal(1080);
   const [maxViewports, setMaxViewports] = createSignal(8);
   const [inputReady, setInputReady] = createSignal(false);
@@ -198,6 +229,7 @@ export const desktopBunja = bunja(() => {
     configurationRevision = 0,
     qualityRevision = 0;
   function invalidateSelectedView() {
+    invalidateInputSources();
     selectionRevision++;
     configurationRevision++;
     qualityRevision++;
@@ -264,6 +296,7 @@ export const desktopBunja = bunja(() => {
     eventsAbort = undefined;
     clearTimeout(attachTimeout);
     configVersion++;
+    invalidateInputSources();
     clearInterval(renew);
     renew = undefined;
     const oldTransport = transport,
@@ -303,6 +336,7 @@ export const desktopBunja = bunja(() => {
     setConfiguration(undefined);
     setControl({ inputEpoch: 0 });
     setDisplays([]);
+    inventory.clear(inventorySource);
     setBusy(false);
     setPhase("idle");
   }
@@ -472,6 +506,91 @@ export const desktopBunja = bunja(() => {
       return;
     newestCodecEpoch = Math.max(newestCodecEpoch, nextCodecEpoch);
     setConfiguration(next);
+  }
+  async function refreshInputSources() {
+    if (
+      !transport ||
+      !attachId() ||
+      !inputSourcesSupported() ||
+      inputSourcesUnavailable ||
+      inputSourceSelectionPending ||
+      inputSourceQueryPending === inputSourceRevision ||
+      phase() !== "viewing" ||
+      !configuration()?.tracks.length
+    )
+      return;
+    const token = generation,
+      revision = inputSourceRevision,
+      id = attachId();
+    inputSourceQueryPending = revision;
+    try {
+      const result = await queryDesktopInputSources(transport, {
+        attachId: id!,
+      });
+      if (
+        token === generation &&
+        revision === inputSourceRevision &&
+        id === attachId()
+      )
+        setInputSources(result);
+    } catch (error) {
+      if (token !== generation || revision !== inputSourceRevision) return;
+      setInputSources(undefined);
+      if (error instanceof RpcError && error.code === "unsupported")
+        inputSourcesUnavailable = true;
+    } finally {
+      if (inputSourceQueryPending === revision)
+        inputSourceQueryPending = undefined;
+    }
+  }
+  async function chooseInputSource(sourceId: string, viewer: symbol) {
+    if (
+      !transport ||
+      !attachId() ||
+      !controlling() ||
+      inputOwner() !== viewer ||
+      inputSourceSelectionPending ||
+      !inputSources()?.sources.some((source) => source.id === sourceId)
+    )
+      return;
+    const token = generation,
+      revision = ++inputSourceRevision,
+      id = attachId(),
+      epoch = control().inputEpoch;
+    const current = () =>
+      token === generation &&
+      revision === inputSourceRevision &&
+      id === attachId() &&
+      epoch === control().inputEpoch &&
+      controlling() &&
+      inputOwner() === viewer;
+    inputSourceSelectionPending = true;
+    setInputSourceBusy(true);
+    setInputSourceMessage(undefined);
+    try {
+      const result = await selectDesktopInputSource(transport, {
+        attachId: id!,
+        inputEpoch: epoch,
+        sourceId,
+      });
+      if (!current()) return;
+      setInputSources(result);
+      if (result.currentId !== sourceId)
+        setInputSourceMessage(
+          "The host did not select that input source. Try again.",
+        );
+    } catch (error) {
+      if (current()) {
+        setInputSourceMessage(`Input source change failed: ${String(error)}`);
+        setInputSources(undefined);
+      }
+    } finally {
+      if (revision === inputSourceRevision) {
+        inputSourceSelectionPending = false;
+        setInputSourceBusy(false);
+        void refreshInputSources();
+      }
+    }
   }
   async function queryQuality(candidate?: DesktopQualityTarget) {
     if (!transport || !attachId() || !qualitySupported() || qualityBusy())
@@ -764,6 +883,7 @@ export const desktopBunja = bunja(() => {
               setAttachId(event.attachId);
               setControl(event.control);
               setDisplays(event.displays);
+              inventory.publish(inventorySource, event.displays);
               layoutEpoch = event.layoutEpoch;
               input = new DesktopInputChannel(
                 nextTransport,
@@ -900,6 +1020,7 @@ export const desktopBunja = bunja(() => {
               send({ type: "releaseAll" });
               layoutEpoch = event.layoutEpoch;
               setDisplays(event.displays);
+              inventory.publish(inventorySource, event.displays);
               setConfiguration(undefined);
               if (!automaticDisplays()) {
                 const selected = selectedDisplayId();
@@ -1055,6 +1176,19 @@ export const desktopBunja = bunja(() => {
       createRoot((dispose) => {
         createEffect(
           createMemo(() => ({
+            id: attachId(),
+            epoch: control().inputEpoch,
+            ready: phase() === "viewing",
+            tracks: configuration()?.tracks.length,
+            supported: inputSourcesSupported(),
+          })),
+          () => {
+            invalidateInputSources();
+            void refreshInputSources();
+          },
+        );
+        createEffect(
+          createMemo(() => ({
             cursor: cursor(),
             displays: displays(),
             configuration: configuration(),
@@ -1168,6 +1302,19 @@ export const desktopBunja = bunja(() => {
     const dispose = runWithOwner(owner, () =>
       createRoot((dispose) => {
         createEffect(
+          createMemo(() => ({
+            id: attachId(),
+            epoch: control().inputEpoch,
+            ready: phase() === "viewing",
+            tracks: configuration()?.tracks.length,
+            supported: inputSourcesSupported(),
+          })),
+          () => {
+            invalidateInputSources();
+            void refreshInputSources();
+          },
+        );
+        createEffect(
           createMemo(() => ({ info: rpc.daemonInfo(), managed: managed() })),
           ({ info, managed }) => {
             untrack(() => disconnect(catalogMode()));
@@ -1251,7 +1398,12 @@ export const desktopBunja = bunja(() => {
         return dispose;
       }),
     );
+    const inputSourcesTimer = setInterval(
+      () => void refreshInputSources(),
+      3000,
+    );
     return () => {
+      clearInterval(inputSourcesTimer);
       active = false;
       releaseSelectedReservation?.();
       releaseSelectedReservation = undefined;
@@ -1280,6 +1432,11 @@ export const desktopBunja = bunja(() => {
     supported,
     automaticDisplays,
     serverOwnsGeometry,
+    inputSources,
+    inputSourceBusy,
+    inputSourceMessage,
+    refreshInputSources,
+    chooseInputSource,
     qualitySupported,
     qualitySupport,
     qualityBusy,

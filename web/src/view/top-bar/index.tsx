@@ -4,6 +4,7 @@ import { useBunja } from "bunja/solid";
 import { machineModalBunja } from "../../state/machine-modal.ts";
 import { machineStoreBunja } from "../../state/machine-store.ts";
 import { rpcSessionBunja } from "../../state/rpc-session.ts";
+import { desktopDisplaysBunja } from "../../state/desktop-displays.ts";
 import { terminalShellsBunja } from "../../state/terminal-shells.ts";
 import { workbenchBunja } from "../../state/workbench.ts";
 import { machinePanelBunja } from "../machine-panel/state.ts";
@@ -18,6 +19,7 @@ export function TopBarRegion() {
   const rpcSession = useBunja(rpcSessionBunja);
   const terminalShellsState = useBunja(terminalShellsBunja);
   const workbench = useBunja(workbenchBunja);
+  const desktopDisplays = useBunja(desktopDisplaysBunja);
   const selected = () => machineStore().selected();
   const machines = () => machineStore().machines();
   const selectedId = () => machineStore().selectedId();
@@ -65,6 +67,16 @@ export function TopBarRegion() {
       panes={panes()}
       selectedMachineId={selectedId()}
       terminalShells={terminalShells()}
+      desktopDisplays={desktopDisplays().displays()}
+      onRefreshDesktopDisplays={() => desktopDisplays().refresh()}
+      onOpenDesktopDisplay={(id) => {
+        if (
+          desktopDisplays()
+            .displays()
+            .some((d) => d.displayId === id)
+        )
+          workbench().openDesktopDisplay(id);
+      }}
       onAddMachine={addMachine}
       onOpenDaemonTab={() => workbench().openDaemonTab()}
       onOpenFilesTab={(event) => workbench().openFilesTab(event)}

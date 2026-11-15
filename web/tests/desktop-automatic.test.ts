@@ -5,6 +5,8 @@ import { createRoot, createSignal, flush as flushSolid } from "solid-js";
 import * as client from "../src/protocol/generated/client.ts";
 import {
   DesktopAvailability,
+  DesktopControlAction,
+  type DesktopInputSources,
   DesktopQualityVerification,
   type DesktopQualityPolicy,
   ProcId,
@@ -12,6 +14,18 @@ import {
   type DesktopConfiguration,
 } from "../src/protocol/generated/rpc.ts";
 import { rpcSessionStub } from "./helpers/rpc-session.ts";
+let inputSourceQueries = 0,
+  inputSourceSelections = 0;
+let sourceQuery: () => Promise<DesktopInputSources> = async () => ({
+  currentId: "english",
+  sources: [
+    { id: "english", name: "ABC" },
+    { id: "korean", name: "두벌식" },
+  ],
+});
+let sourceSelect: (id: string) => Promise<DesktopInputSources> = async (
+  id,
+) => ({ ...(await sourceQuery()), currentId: id });
 let qualityQueries = 0,
   qualityChanges = 0;
 let configureCalls = 0,
@@ -53,6 +67,14 @@ function config(epoch: number): DesktopConfiguration {
 mock.module("../src/protocol/generated/client.ts", {
   namedExports: {
     ...client,
+    queryDesktopInputSources: async () => {
+      inputSourceQueries++;
+      return sourceQuery();
+    },
+    selectDesktopInputSource: async (_: unknown, req: { sourceId: string }) => {
+      inputSourceSelections++;
+      return sourceSelect(req.sourceId);
+    },
     queryDesktopQualitySupport: async () => {
       qualityQueries++;
       return {
@@ -93,9 +115,16 @@ mock.module("../src/protocol/generated/client.ts", {
       configureCalls++;
       throw Error("Must not configure existing OS displays");
     },
-    setDesktopControl: async () => {
+    setDesktopControl: async (
+      _: unknown,
+      req: { action: DesktopControlAction },
+    ) => {
       controlCalls++;
-      return { inputEpoch: 1 };
+      return {
+        inputEpoch: 1,
+        holderAttachId:
+          req.action === DesktopControlAction.Release ? undefined : "auto",
+      };
     },
     detachDesktop: async () => {},
     renewDesktopLease: async () => ({ remainingMs: 15000 }),
@@ -333,5 +362,140 @@ test("automatic existing displays consume server tracks and layout changes witho
   } finally {
     stop();
     store.dispose();
+  }
+});
+
+function inputSourceFixture(supported = true) {
+  const store = createBunjaStore({
+    wrapInstance: (init) => createRoot(init),
+    overrides: [
+      override(rpcSessionBunja, () =>
+        rpcSessionStub({
+          daemonInfo: createSignal({
+            phase: "ready" as const,
+            receivedAtMs: 0,
+            daemonInfo: {
+              instanceId: "ime",
+              version: "1",
+              os: "macos",
+              startedAtMs: 0,
+              serverTimeMs: 0,
+              supportedProcIds: [
+                ProcId.GetDesktopCapabilities,
+                ProcId.AttachDesktop,
+                ProcId.AttachExistingDesktop,
+                ...(supported
+                  ? [
+                      ProcId.QueryDesktopInputSources,
+                      ProcId.SelectDesktopInputSource,
+                    ]
+                  : []),
+              ],
+            },
+          })[0],
+          webTransport: async () => ({}) as WebTransport,
+        }),
+      ),
+    ],
+  });
+  const entry = store.get(
+    desktopBunja,
+    createReadScopeFn([], () => undefined as never),
+  );
+  const stop = entry.mount();
+  return {
+    value: entry.value,
+    close() {
+      stop();
+      store.dispose();
+    },
+  };
+}
+test("input source queries never acquire control; selection requires current owning pane", async () => {
+  inputSourceQueries = inputSourceSelections = controlCalls = 0;
+  const f = inputSourceFixture();
+  const viewer = Symbol(),
+    other = Symbol();
+  const unregister = f.value.registerViewer(viewer);
+  try {
+    await flush();
+    await f.value.connect();
+    await flush();
+    assert.equal(f.value.inputSources()?.currentId, "english");
+    assert.ok(inputSourceQueries > 0);
+    assert.equal(controlCalls, 0);
+    await f.value.chooseInputSource("korean", viewer);
+    assert.equal(inputSourceSelections, 0);
+    await f.value.acquire(viewer);
+    await flush();
+    await f.value.chooseInputSource("korean", other);
+    await f.value.chooseInputSource("unlisted", viewer);
+    assert.equal(inputSourceSelections, 0);
+    sourceSelect = async () => ({
+      ...(await sourceQuery()),
+      currentId: "korean",
+    });
+    // Query remains the source of truth if the host changed again after selection.
+    await f.value.chooseInputSource("korean", viewer);
+    await flush();
+    assert.equal(inputSourceSelections, 1);
+    assert.equal(f.value.inputSources()?.currentId, "english");
+    // Native query is the source of truth after a failed selection too.
+    sourceSelect = async () => {
+      throw Error("selection denied");
+    };
+    await f.value.chooseInputSource("korean", viewer);
+    await flush();
+    assert.equal(inputSourceSelections, 2);
+    assert.match(f.value.inputSourceMessage()!, /selection denied/);
+    assert.equal(f.value.inputSources()?.currentId, "english");
+    let resolve!: (value: DesktopInputSources) => void;
+    sourceSelect = () =>
+      new Promise((done) => {
+        resolve = done;
+      });
+    const pending = f.value.chooseInputSource("korean", viewer);
+    await f.value.release();
+    await flush();
+    resolve({ currentId: "korean", sources: [] });
+    await pending;
+    await flush();
+    assert.notEqual(f.value.inputSources()?.currentId, "korean");
+    assert.equal(f.value.inputSourceBusy(), false);
+  } finally {
+    unregister();
+    f.close();
+  }
+});
+test("old daemons do not receive input-source calls and detached responses are ignored", async () => {
+  inputSourceQueries = inputSourceSelections = controlCalls = 0;
+  let f = inputSourceFixture(false);
+  try {
+    await flush();
+    await f.value.connect();
+    await flush();
+    await f.value.refreshInputSources();
+    assert.equal(inputSourceQueries, 0);
+    assert.equal(f.value.inputSources(), undefined);
+  } finally {
+    f.close();
+  }
+  let resolve!: (value: DesktopInputSources) => void;
+  sourceQuery = () =>
+    new Promise((done) => {
+      resolve = done;
+    });
+  f = inputSourceFixture();
+  try {
+    await flush();
+    await f.value.connect();
+    await flush();
+    f.value.disconnect();
+    resolve({ currentId: "stale", sources: [] });
+    await flush();
+    assert.equal(f.value.inputSources(), undefined);
+    assert.equal(controlCalls, 0);
+  } finally {
+    f.close();
   }
 });

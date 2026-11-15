@@ -1,8 +1,20 @@
+import "../../src/solid/scopes.ts";
 import "../../src/theme.css";
 import { TestBunjaStoreProvider } from "./bunja-store.tsx";
 import { bunja, override } from "bunja";
-import { createSignal, createMemo } from "solid-js";
+import { For, createSignal, createMemo } from "solid-js";
 import { render } from "@solidjs/web";
+import { useBunja } from "bunja/solid";
+import {
+  workbenchBunja,
+  workbenchPaneBunja,
+} from "../../src/state/workbench.ts";
+import {
+  WorkbenchPaneIdContext,
+  WorkbenchTabIdContext,
+} from "../../src/state/workbench-context.ts";
+import { WorkbenchToolContent } from "../../src/view/workbench/tool/index.tsx";
+import { AppTopbar } from "../../src/view/top-bar/app-topbar.tsx";
 import { managedDesktopBunja } from "../../src/state/desktop.ts";
 import { DesktopDisplayIdScope } from "../../src/state/desktop-scopes.ts";
 import { DesktopTool } from "../../src/view/workbench/tool/desktop/index.tsx";
@@ -14,6 +26,7 @@ import {
   type DesktopQualitySupport,
   type DesktopConfiguration,
   type DesktopInputEvent,
+  type DesktopInputSources,
 } from "../../src/protocol/generated/rpc.ts";
 function cursorPng(width: number, height: number): Uint8Array {
   const canvas = document.createElement("canvas");
@@ -33,6 +46,8 @@ function Fixture() {
     cursorKind() === "ibeam" ? cursorPng(8, 80) : cursorPng(24, 24),
   );
   const [events, setEvents] = createSignal<DesktopInputEvent[]>([]);
+  const [starts, setStarts] = createSignal(0);
+  const [stops, setStops] = createSignal(0);
   const [qualityActions, setQualityActions] = createSignal<string[]>([]);
   const [active, setActive] = createSignal(true);
   const [previewSubscriptions, setPreviewSubscriptions] = createSignal(0);
@@ -77,7 +92,27 @@ function Fixture() {
     const [qualityPolicy, setQualityPolicy] =
       createSignal<DesktopQualityPolicy>();
     const [inputReady, setInputReady] = createSignal(false);
+    const [inputSources, setInputSources] = createSignal<DesktopInputSources>({
+      currentId: "english",
+      sources: [
+        { id: "english", name: "ABC" },
+        { id: "korean", name: "두벌식" },
+      ],
+    });
+    const [inputSourceMessage, setInputSourceMessage] = createSignal<string>();
     const model = {
+      inputSources: createMemo(() =>
+        params.has("ime") ? inputSources() : undefined,
+      ),
+      inputSourceBusy: createSignal(false)[0],
+      inputSourceMessage,
+      async refreshInputSources() {},
+      async chooseInputSource(id: string, viewer: symbol) {
+        if (!controlling() || inputOwner() !== viewer) return;
+        if (params.has("ime-error"))
+          setInputSourceMessage("Input source change failed: fixture failure");
+        else setInputSources({ ...inputSources(), currentId: id });
+      },
       qualitySupported: createMemo(() =>
         new URLSearchParams(location.search).has("quality"),
       ),
@@ -362,37 +397,50 @@ function Fixture() {
           override(managedDesktopBunja, () => {
             const model = createModel(bunja.use(DesktopDisplayIdScope));
             bunja.effect(() => {
+              setStarts((value) => value + 1);
               model.start();
-              return () => model.stop();
+              return () => {
+                setStops((value) => value + 1);
+                model.stop();
+              };
             });
             return model;
           }),
         ]}
       >
-        <button onClick={() => setActive(!active())}>
-          {active() ? "Hide Screen tab" : "Show Screen tab"}
-        </button>
-        <div hidden={!active()}>
-          <section
-            aria-label="First pane"
-            style={{
-              height: new URLSearchParams(location.search).has("split")
-                ? "calc((100dvh - 40px) / 2)"
-                : "calc(100dvh - 40px)",
-              "min-height": "0",
-            }}
-          >
-            <DesktopTool active={active()} />
-          </section>
-          {new URLSearchParams(location.search).has("split") && (
-            <section
-              aria-label="Second pane"
-              style={{ height: "calc((100dvh - 40px) / 2)", "min-height": "0" }}
-            >
-              <DesktopTool active={active()} />
-            </section>
-          )}
-        </div>
+        {new URLSearchParams(location.search).has("shortcuts") ? (
+          <ShortcutWorkbench />
+        ) : (
+          <>
+            <button onClick={() => setActive(!active())}>
+              {active() ? "Hide Screen tab" : "Show Screen tab"}
+            </button>
+            <div hidden={!active()}>
+              <section
+                aria-label="First pane"
+                style={{
+                  height: new URLSearchParams(location.search).has("split")
+                    ? "calc((100dvh - 40px) / 2)"
+                    : "calc(100dvh - 40px)",
+                  "min-height": "0",
+                }}
+              >
+                <DesktopTool active={active()} />
+              </section>
+              {new URLSearchParams(location.search).has("split") && (
+                <section
+                  aria-label="Second pane"
+                  style={{
+                    height: "calc((100dvh - 40px) / 2)",
+                    "min-height": "0",
+                  }}
+                >
+                  <DesktopTool active={active()} />
+                </section>
+              )}
+            </div>
+          </>
+        )}
       </TestBunjaStoreProvider>
       {new URLSearchParams(location.search).has("cursor") && (
         <button
@@ -403,6 +451,9 @@ function Fixture() {
           Change cursor shape
         </button>
       )}
+      <output aria-label="Screen lifetimes">
+        {JSON.stringify({ starts: starts(), stops: stops() })}
+      </output>
       <output aria-label="Preview subscriptions">
         {previewSubscriptions()}
       </output>
@@ -411,6 +462,154 @@ function Fixture() {
         {JSON.stringify(qualityActions())}
       </output>
     </>
+  );
+}
+function ShortcutWorkbench() {
+  const wb = useBunja(workbenchBunja);
+  const monitors = ["fixture", "second"].map((displayId) => ({
+    displayId,
+    bounds: { x: 0, y: 0, width: 320, height: 180 },
+    scale: 1,
+    dpi: 96,
+  }));
+  const [displays, setDisplays] = createSignal(monitors);
+  const [machineId, setMachineId] = createSignal("A");
+  const machines = ["A", "B"].map((id) => ({
+    id,
+    name: `Fixture ${id}`,
+    baseUrl: `https://${id.toLowerCase()}.invalid:9012`,
+  }));
+  return (
+    <div
+      class="app-shell"
+      style={{
+        display: "grid",
+        "grid-template-columns": "220px minmax(0,1fr)",
+        height: "100dvh",
+      }}
+    >
+      <AppTopbar
+        activeTool={wb().activeTool()}
+        daemonInfo={{ phase: "idle" }}
+        machine={machines.find((m) => m.id === machineId())}
+        machinePanelCollapsed={false}
+        machines={machines}
+        panes={wb().panes()}
+        selectedMachineId={machineId()}
+        terminalShells={[]}
+        desktopDisplays={displays()}
+        onOpenDesktopDisplay={(id) => wb().openDesktopDisplay(id)}
+        onRefreshDesktopDisplays={async () => {}}
+        onAddMachine={() => {}}
+        onOpenDaemonTab={() => {}}
+        onOpenDesktopTab={() => wb().selectTool("desktop")}
+        onOpenFilesTab={() => {}}
+        onOpenProcessesTab={() => {}}
+        onOpenTerminalTab={() => {}}
+        onOpenWindowsTab={() => {}}
+        onSelectTab={(pane, tab) => wb().selectTab(pane, tab)}
+        onConfigureMachine={() => {}}
+        onDeleteMachine={() => {}}
+        onReconnectMachine={() => {}}
+        onSelectMachine={setMachineId}
+        onToggleMachinePanel={() => {}}
+        onUnpairMachine={() => {}}
+        onUpdateMachineIcon={() => {}}
+      />
+      <main style={{ "min-width": "0", overflow: "auto" }}>
+        <button onClick={() => setDisplays(monitors.slice(0, 1))}>
+          One monitor
+        </button>
+        <button onClick={() => setDisplays(monitors)}>Two monitors</button>
+        <button onClick={() => setMachineId("B")}>Replace host</button>
+        <button
+          onClick={() => {
+            const pane = wb()
+              .panes()
+              .find((p) => p.id === wb().activePaneId())!;
+            wb().moveTab(
+              pane.id,
+              pane.activeTabId,
+              pane.id === "p1" ? "p2" : "p1",
+              undefined,
+              "end",
+            );
+          }}
+        >
+          Move active Screen tab
+        </button>
+        <output aria-label="Workbench state">
+          {JSON.stringify(wb().panes())}
+        </output>
+        <For
+          each={wb()
+            .panes()
+            .map((pane) => pane.id)}
+        >
+          {(id) => (
+            <WorkbenchPaneIdContext value={() => id}>
+              <ShortcutPane />
+            </WorkbenchPaneIdContext>
+          )}
+        </For>
+      </main>
+    </div>
+  );
+}
+function ShortcutPane() {
+  const pane = useBunja(workbenchPaneBunja);
+  return (
+    <section
+      aria-label={`Pane ${pane().paneId}`}
+      style={{ height: "400px", "min-height": "0" }}
+    >
+      <button onClick={() => pane().focusPane()}>Focus {pane().paneId}</button>
+      <For
+        each={pane()
+          .pane()
+          ?.tabs.map((tab) => tab.id)}
+      >
+        {(id) => (
+          <WorkbenchTabIdContext value={() => id}>
+            <div
+              hidden={pane().pane()?.activeTabId !== id}
+              style={{ height: "350px" }}
+            >
+              <WorkbenchToolContent />
+            </div>
+          </WorkbenchTabIdContext>
+        )}
+      </For>
+    </section>
+  );
+}
+if (new URLSearchParams(location.search).has("shortcuts")) {
+  localStorage.setItem(
+    "rieul.workbench.none.v1",
+    JSON.stringify({
+      activePaneId: "p1",
+      layout: {
+        rootId: "root",
+        nodes: {
+          root: {
+            type: "branch",
+            id: "root",
+            direction: "horizontal",
+            children: ["n1", "n2"],
+            ratios: [0.5, 0.5],
+          },
+          n1: { type: "leaf", id: "n1", paneId: "p1" },
+          n2: { type: "leaf", id: "n2", paneId: "p2" },
+        },
+      },
+      panes: ["p1", "p2"].map((id) => ({
+        id,
+        activeTabId: `${id}-placeholder`,
+        tabs: [
+          { id: `${id}-placeholder`, title: "Placeholder", tool: "agent" },
+        ],
+      })),
+    }),
   );
 }
 render(() => <Fixture />, document.getElementById("root")!);

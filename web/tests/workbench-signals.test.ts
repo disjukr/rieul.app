@@ -363,3 +363,111 @@ test("new Files tabs start at Home while explicit Root and Trash remain selectab
     ["roots", "trash"],
   );
 });
+
+test("Screen shortcuts deduplicate in the active pane and preserve independent monitor selections", (t) => {
+  const f = fixture(t);
+  const entry = f.store.get(workbenchBunja, f.read("A"));
+  entry.mount();
+  const wb = entry.value;
+  wb.openDesktopDisplay("second");
+  wb.openDesktopDisplay("second");
+  flush();
+  const firstPane = wb.panes()[0];
+  const selected = firstPane.tabs.find(
+    (tab) => tab.desktopDisplayId === "second",
+  )!;
+  assert.equal(firstPane.tabs.length, 2);
+  assert.equal(firstPane.activeTabId, selected.id);
+
+  wb.selectTool("desktop");
+  flush();
+  const catalog = wb
+    .panes()[0]
+    .tabs.find(
+      (tab) => tab.tool === "desktop" && tab.desktopDisplayId === undefined,
+    )!;
+  assert.ok(catalog);
+  assert.notEqual(catalog.id, selected.id);
+  wb.openDesktopDisplay("second");
+  flush();
+  assert.equal(wb.panes()[0].activeTabId, selected.id);
+  assert.equal(wb.panes()[0].tabs.length, 3);
+
+  const otherPane = wb.addPane("p1");
+  flush();
+  const duplicate = wb.panes().find((pane) => pane.id === otherPane)!.tabs[0];
+  assert.equal(duplicate.desktopDisplayId, "second");
+  wb.openDesktopDisplay("first");
+  flush();
+  const other = wb.panes().find((pane) => pane.id === otherPane)!;
+  assert.equal(
+    other.tabs.find((tab) => tab.id === other.activeTabId)!.desktopDisplayId,
+    "first",
+  );
+  assert.equal(
+    wb.panes()[0].tabs.find((tab) => tab.id === selected.id)!.desktopDisplayId,
+    "second",
+  );
+  wb.setDesktopDisplayId(otherPane, other.activeTabId, undefined);
+  flush();
+  assert.equal(
+    wb
+      .panes()
+      .find((pane) => pane.id === otherPane)!
+      .tabs.find((tab) => tab.id === other.activeTabId)!.title,
+    "Screen",
+  );
+  const b = f.store.get(workbenchBunja, f.read("B"));
+  b.mount();
+  assert.equal(b.value.panes()[0].tabs.length, 1);
+  assert.equal(b.value.panes()[0].tabs[0].desktopDisplayId, undefined);
+});
+
+test("moving the same Screen tab retains monitor/catalog state across panes and reload", (t) => {
+  const f = fixture(t);
+  const entry = f.store.get(workbenchBunja, f.read("A"));
+  entry.mount();
+  const wb = entry.value;
+  const secondPaneId = wb.addPane("p1");
+  flush();
+  wb.focusPane("p1");
+  wb.openDesktopDisplay("second");
+  flush();
+  const screen = wb.panes()[0].tabs.find((tab) => tab.tool === "desktop")!;
+  wb.moveTab("p1", screen.id, secondPaneId, undefined, "end");
+  flush();
+  const moved = wb
+    .panes()
+    .find((pane) => pane.id === secondPaneId)!
+    .tabs.find((tab) => tab.id === screen.id)!;
+  assert.equal(moved.desktopDisplayId, "second");
+  assert.equal(moved.id, screen.id);
+  assert.equal(
+    wb.panes()[0].tabs.some((tab) => tab.id === screen.id),
+    false,
+  );
+  const routed = f.store.get(
+    workbenchTabBunja,
+    f.read("A", secondPaneId, screen.id),
+  );
+  routed.mount();
+  assert.equal(routed.value.tab()!.desktopDisplayId, "second");
+  routed.value.setDesktopDisplayId(undefined);
+  flush();
+  wb.moveTab(secondPaneId, screen.id, "p1", undefined, "end");
+  flush();
+  const catalog = wb.panes()[0].tabs.find((tab) => tab.id === screen.id)!;
+  assert.equal(catalog.desktopDisplayId, undefined);
+  assert.equal(catalog.title, "Screen");
+  const persisted = JSON.parse(f.values.get(storageKey("A"))!);
+  assert.equal(
+    persisted.panes[0].tabs.find((tab: { id: string }) => tab.id === screen.id)
+      .desktopDisplayId,
+    undefined,
+  );
+  const stored = f.values.get(storageKey("A"))!;
+  f.values.set(storageKey("A"), stored);
+  f.emitStorage(storageKey("A"));
+  flush();
+  assert.deepEqual(wb.panes(), persisted.panes);
+});

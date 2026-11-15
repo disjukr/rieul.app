@@ -166,6 +166,21 @@ impl HostRpcHandler {
             }
         })
     }
+    pub(super) fn list_displays_rpc<'a>(
+        &'a mut self,
+        _: (),
+    ) -> RpcHandlerFuture<'a, Result<UnaryRpcOutcome>> {
+        Box::pin(async move {
+            let result = match self.desktop_auth().await {
+                Ok(_) => blocking(self.desktop.clone(), |r| r.list_displays()).await,
+                Err(e) => Err(e),
+            };
+            Ok(match result {
+                Ok(displays) => RpcResponse::ListDisplays(DesktopDisplayInventory { displays }).into(),
+                Err(e) => UnaryRpcOutcome::Message(failure(ProcId::ListDisplays, e, false)),
+            })
+        })
+    }
     pub(super) fn attach_desktop_rpc<'a>(
         &'a mut self,
         request: AttachDesktopReq,
@@ -412,6 +427,38 @@ impl HostRpcHandler {
                     previous = current;
                 }
             }
+        })
+    }
+    pub(super) fn query_desktop_input_sources_rpc<'a>(
+        &'a mut self, request: DesktopAttachRef,
+    ) -> RpcHandlerFuture<'a, Result<UnaryRpcOutcome>> {
+        Box::pin(async move {
+            let result = match self.desktop_auth().await {
+                Ok((auth, connection, _)) => blocking(self.desktop.clone(), move |r| {
+                    r.query_input_sources(&auth, connection, now_ms(), request)
+                }).await,
+                Err(e) => Err(e),
+            };
+            Ok(match result {
+                Ok(value) => RpcResponse::QueryDesktopInputSources(value).into(),
+                Err(e) => UnaryRpcOutcome::Message(failure(ProcId::QueryDesktopInputSources, e, false)),
+            })
+        })
+    }
+    pub(super) fn select_desktop_input_source_rpc<'a>(
+        &'a mut self, request: SelectDesktopInputSourceReq,
+    ) -> RpcHandlerFuture<'a, Result<UnaryRpcOutcome>> {
+        Box::pin(async move {
+            let result = match self.desktop_auth().await {
+                Ok((auth, connection, _)) => blocking(self.desktop.clone(), move |r| {
+                    r.select_input_source(&auth, connection, now_ms(), request)
+                }).await,
+                Err(e) => Err(e),
+            };
+            Ok(match result {
+                Ok(value) => RpcResponse::SelectDesktopInputSource(value).into(),
+                Err(e) => UnaryRpcOutcome::Message(failure(ProcId::SelectDesktopInputSource, e, false)),
+            })
         })
     }
     pub(super) fn select_existing_desktop_rpc<'a>(
@@ -716,6 +763,7 @@ pub(super) mod tests {
         >,
         layout_offset: std::sync::atomic::AtomicI64,
         display_count: std::sync::atomic::AtomicUsize,
+        display_queries: std::sync::atomic::AtomicUsize,
         streaming_group: std::sync::atomic::AtomicBool,
         shutdown_fails: std::sync::atomic::AtomicBool,
         encoding_fails: std::sync::atomic::AtomicBool,
@@ -805,6 +853,7 @@ pub(super) mod tests {
             result
         }
         fn displays(&self) -> Vec<DesktopDisplay> {
+            self.display_queries.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             let pause = self.display_pause.lock().unwrap().take();
             if let Some((started, release)) = pause {
                 let _ = started.send(());
@@ -1259,6 +1308,46 @@ pub(super) mod tests {
                 tokio::task::yield_now().await;
             };
             assert!(f.runtime.capture_work().is_none());
+        })
+        .await
+        .unwrap();
+    }
+    #[tokio::test]
+    async fn list_displays_is_authenticated_metadata_only_and_obeys_drain() {
+        tokio::time::timeout(Duration::from_secs(5), async {
+            let f = Fixture::new().await;
+            assert!(matches!(
+                f.unary(ProcId::ListDisplays, None).await,
+                ReqResMessage::ResponseUnaryError { .. }
+            ));
+            assert_eq!(
+                f.backend.display_queries.load(std::sync::atomic::Ordering::SeqCst),
+                0
+            );
+            f.authenticate().await;
+            f.backend.display_count.store(2, std::sync::atomic::Ordering::SeqCst);
+            let response = f.unary(ProcId::ListDisplays, None).await;
+            let ReqResMessage::ResponseUnaryOk { payload: Some(payload) } = response else {
+                panic!("expected display metadata response: {response:?}")
+            };
+            let displays = DesktopDisplayInventory::decode(&payload).unwrap().displays;
+            assert_eq!(displays.len(), 2);
+            assert_eq!(displays[0].display_id, "fixture");
+            assert_eq!(displays[1].display_id, "fixture-1");
+            assert!(f.runtime.is_empty());
+            assert!(f.runtime.control().unwrap().holder_attach_id.is_none());
+            assert!(f.backend.inputs.lock().unwrap().is_empty());
+            assert!(f.backend.hardware_frames.lock().unwrap().is_empty());
+            let calls = f.backend.display_queries.load(std::sync::atomic::Ordering::SeqCst);
+            let _drain = f.gate.begin_drain().expect("inventory must not leave ongoing work");
+            assert!(matches!(
+                f.unary(ProcId::ListDisplays, None).await,
+                ReqResMessage::ResponseUnaryError { .. }
+            ));
+            assert_eq!(
+                f.backend.display_queries.load(std::sync::atomic::Ordering::SeqCst),
+                calls
+            );
         })
         .await
         .unwrap();

@@ -667,3 +667,52 @@ union DesktopDisplaySelection {
     displayId: string,
   ),
 }
+
+# description
+| Enumerates enabled, selectable keyboard input sources in the active host session.
+| An existing authenticated attachment is required; this never acquires control.
+@ id - 108
+@ stream - unary
+proc QueryDesktopInputSources = DesktopAttachRef -> DesktopInputSources throws DesktopError
+
+# description
+| Selects an existing host input source, never enables or installs one.
+| Requires the current controller and input epoch; unsupported backends fail closed.
+@ id - 109
+@ stream - unary
+proc SelectDesktopInputSource = SelectDesktopInputSourceReq -> DesktopInputSources throws DesktopError
+
+struct DesktopInputSource {
+  @ id - 1
+  id: string,
+  @ id - 2
+  name: string,
+}
+
+struct DesktopInputSources {
+  @ id - 1
+  sources: DesktopInputSource[],
+  @ id - 2
+  currentId?: string,
+}
+
+struct SelectDesktopInputSourceReq {
+  @ id - 1
+  attachId: string,
+  @ id - 2
+  inputEpoch: u53,
+  @ id - 3
+  sourceId: string,
+}
+
+# description
+| Lists existing OS displays without attaching video or acquiring input control.
+| Requires authenticated desktop access and leaves OS configuration unchanged.
+@ id - 110
+@ stream - unary
+proc ListDisplays = void -> DesktopDisplayInventory throws DesktopError
+
+struct DesktopDisplayInventory {
+  @ id - 1
+  displays: DesktopDisplay[],
+}

@@ -433,3 +433,39 @@ bound to the authenticated connection and existing OS permissions. Discovery via
 does not advertise permission-independent topology discovery. Older daemons may
 use 67/68 for selected legacy viewports without claiming adaptive quality; 104
 must never be used as a hidden all-display fallback for selected-only viewing.
+
+
+## Host keyboard input source (IME)
+
+`QueryDesktopInputSources` (108) and `SelectDesktopInputSource` (109) are additive
+and discovered together. Query requires a live, connection-bound attachment. The
+selection request also carries the current input epoch and must be from its
+current controller. It never acquires control, enables a source, installs an IME,
+or substitutes a browser IME or synthetic language-switch keystroke. Both calls
+enter the maintenance work gate. Selection authorization and the backend call
+share the desktop state lock, matching input admission; the existing helper
+proxy generation fence rejects old calls and never replays selection on recovery.
+A failed/timed-out selection has no automatic retry, since a native operation
+that already began may have taken effect.
+
+Only the macOS authenticated interactive helper implements this backend. Carbon
+TIS calls run synchronously in the non-UI `rieul-macos-system desktop-user`
+child, launched by the GUI parent. That child runs `desktop_ipc::run` under
+Tokio, without a main UI event loop. `TextInputSources.h` permits calls in this
+kind of process when serialized. A process-global mutex guards every TIS call;
+unexpected contention fails immediately rather than queuing stale work. No main
+queue work or UI initialization is used. The helper rechecks the active console
+session and input permission,
+resolves IDs against a fresh enabled/select-capable keyboard-source list, calls
+`TISSelectInputSource`, then reads the actual current source. Names are localized
+host names and IDs are opaque. Query also returns the actual current ID when it
+is not a selectable list member. No TIS source references cross processes.
+
+The toolbar displays the returned host sources without a separate text label,
+is disabled outside the controlling pane, and polls actual state while viewing.
+Old daemons and unsupported backends hide the control. Errors on selection are
+shown explicitly; stale responses after detach/control changes are ignored.
+Windows remains unsupported: changing a helper thread's keyboard layout does
+not establish a change in the foreground remote application. Synthetic fixtures
+exercise authorization, epochs, leases, unsupported behavior and UI states;
+compile/fixture tests do not establish real macOS IME switching in target apps.

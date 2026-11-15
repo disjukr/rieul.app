@@ -33,6 +33,7 @@ struct Cursor {
     visible: bool,
 }
 unsafe extern "C" {
+    fn rd_input_sources(select_id: *const std::ffi::c_char, out: *mut u8, capacity: usize) -> usize;
     fn rd_pointer_position(x: *mut f64, y: *mut f64) -> bool;
     fn rd_cursor(result: *mut Cursor, png: *mut u8, capacity: usize) -> usize;
     fn rd_permissions() -> i32;
@@ -139,6 +140,22 @@ impl MacDesktop {
             tracks: Mutex::new(BTreeMap::new()),
             input: Mutex::new(InputState::default()),
             clock: Instant::now(),
+        })
+    }
+    fn native_input_sources(&self, id: Option<&str>) -> Result<DesktopInputSources, Error> {
+        let id = id.map(std::ffi::CString::new).transpose().map_err(|_| Error::Invalid)?;
+        let mut bytes = vec![0; 256 * 1024];
+        let count = unsafe { rd_input_sources(id.as_ref().map_or(std::ptr::null(), |id| id.as_ptr()), bytes.as_mut_ptr(), bytes.len()) };
+        if count == 0 || count > bytes.len() { return Err(Error::Backend); }
+        #[derive(serde::Deserialize)]
+        struct Source { id: String, name: String }
+        #[derive(serde::Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Sources { sources: Vec<Source>, current_id: Option<String> }
+        let value: Sources = serde_json::from_slice(&bytes[..count]).map_err(|_| Error::Backend)?;
+        Ok(DesktopInputSources {
+            sources: value.sources.into_iter().map(|s| DesktopInputSource { id: s.id, name: s.name }).collect(),
+            current_id: value.current_id,
         })
     }
     fn native_displays(&self) -> Vec<Display> {
@@ -343,6 +360,14 @@ fn hevc_fits(actual: &str, advertised: &str) -> bool {
 }
 
 impl Backend for MacDesktop {
+    fn input_sources(&self) -> Result<DesktopInputSources, Error> {
+        self.native_input_sources(None)
+    }
+    fn select_input_source(&self, id: &str) -> Result<DesktopInputSources, Error> {
+        if id.is_empty() || id.len() > 1024 { return Err(Error::Invalid); }
+        self.native_input_sources(Some(id))
+    }
+
     fn probe_video(&self, track: &DesktopTrack) -> DesktopQualityVerification {
         if !rieul_daemon_host::desktop::validate_video_probe(track) {
             return DesktopQualityVerification::Unsupported;

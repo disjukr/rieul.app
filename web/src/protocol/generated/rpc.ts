@@ -108,6 +108,9 @@ export enum ProcId {
   QueryDesktopQualitySupport = 105,
   SetDesktopQuality = 106,
   SelectExistingDesktop = 107,
+  QueryDesktopInputSources = 108,
+  SelectDesktopInputSource = 109,
+  ListDisplays = 110,
 }
 
 export interface SubscribeWindowDetailReq {
@@ -1099,6 +1102,26 @@ export type DesktopDisplaySelection =
   | { type: "clear" }
   | { type: "display"; displayId: string }
 ;
+
+export interface DesktopInputSource {
+  id: string;
+  name: string;
+}
+
+export interface DesktopInputSources {
+  sources: DesktopInputSource[];
+  currentId?: string;
+}
+
+export interface SelectDesktopInputSourceReq {
+  attachId: string;
+  inputEpoch: number;
+  sourceId: string;
+}
+
+export interface DesktopDisplayInventory {
+  displays: DesktopDisplay[];
+}
 
 export interface DaemonInfo {
   supportedProcIds: number[];
@@ -3605,6 +3628,42 @@ export const selectExistingDesktopProc: ProcCodec<SelectExistingDesktopReq, Desk
   decodeError: decodeDesktopErrorValue,
 };
 
+export const queryDesktopInputSourcesProc: ProcCodec<DesktopAttachRef, DesktopInputSources, DesktopError> = {
+  id: ProcId.QueryDesktopInputSources,
+  name: "QueryDesktopInputSources",
+  stream: "unary",
+  requestType: "DesktopAttachRef",
+  responseType: "DesktopInputSources",
+  errorType: "DesktopError",
+  encodeRequest: encodeDesktopAttachRefValue,
+  decodeResponse: decodeDesktopInputSourcesValue,
+  decodeError: decodeDesktopErrorValue,
+};
+
+export const selectDesktopInputSourceProc: ProcCodec<SelectDesktopInputSourceReq, DesktopInputSources, DesktopError> = {
+  id: ProcId.SelectDesktopInputSource,
+  name: "SelectDesktopInputSource",
+  stream: "unary",
+  requestType: "SelectDesktopInputSourceReq",
+  responseType: "DesktopInputSources",
+  errorType: "DesktopError",
+  encodeRequest: encodeSelectDesktopInputSourceReqValue,
+  decodeResponse: decodeDesktopInputSourcesValue,
+  decodeError: decodeDesktopErrorValue,
+};
+
+export const listDisplaysProc: ProcCodec<undefined, DesktopDisplayInventory, DesktopError> = {
+  id: ProcId.ListDisplays,
+  name: "ListDisplays",
+  stream: "unary",
+  requestType: "void",
+  responseType: "DesktopDisplayInventory",
+  errorType: "DesktopError",
+  encodeRequest: encodeVoidValue,
+  decodeResponse: decodeDesktopDisplayInventoryValue,
+  decodeError: decodeDesktopErrorValue,
+};
+
 export const procs = {
   [ProcId.GetDaemonInfo]: getDaemonInfoProc,
   [ProcId.StartPairing]: startPairingProc,
@@ -3711,6 +3770,9 @@ export const procs = {
   [ProcId.QueryDesktopQualitySupport]: queryDesktopQualitySupportProc,
   [ProcId.SetDesktopQuality]: setDesktopQualityProc,
   [ProcId.SelectExistingDesktop]: selectExistingDesktopProc,
+  [ProcId.QueryDesktopInputSources]: queryDesktopInputSourcesProc,
+  [ProcId.SelectDesktopInputSource]: selectDesktopInputSourceProc,
+  [ProcId.ListDisplays]: listDisplaysProc,
 } as const;
 
 export function encodeSubscribeWindowDetailReqValue(value: SubscribeWindowDetailReq): CborValue {
@@ -8148,6 +8210,66 @@ export function decodeDesktopDisplaySelectionValue(value: CborValue): DesktopDis
       };
   }
   throw new Error(`unknown DesktopDisplaySelection variant ${variantId}`);
+}
+
+export function encodeDesktopInputSourceValue(value: DesktopInputSource): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, text(required(value.id, "DesktopInputSource.id")));
+  fields.set(2, text(required(value.name, "DesktopInputSource.name")));
+  return fields;
+}
+
+export function decodeDesktopInputSourceValue(value: CborValue): DesktopInputSource {
+  const fields = expectMap(value);
+  return {
+    id: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+    name: fieldOrDefault(fields.get(2), (value) => textValue(value), () => ""),
+  };
+}
+
+export function encodeDesktopInputSourcesValue(value: DesktopInputSources): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, required(value.sources, "DesktopInputSources.sources").map((item) => encodeDesktopInputSourceValue(item)));
+  if (value.currentId !== undefined) fields.set(2, text(value.currentId));
+  return fields;
+}
+
+export function decodeDesktopInputSourcesValue(value: CborValue): DesktopInputSources {
+  const fields = expectMap(value);
+  return {
+    sources: fieldOrDefault(fields.get(1), (value) => array(value).map((item) => decodeDesktopInputSourceValue(item)), () => []),
+    currentId: optionalField(fields.get(2), (value) => textValue(value)),
+  };
+}
+
+export function encodeSelectDesktopInputSourceReqValue(value: SelectDesktopInputSourceReq): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, text(required(value.attachId, "SelectDesktopInputSourceReq.attachId")));
+  fields.set(2, u53(required(value.inputEpoch, "SelectDesktopInputSourceReq.inputEpoch")));
+  fields.set(3, text(required(value.sourceId, "SelectDesktopInputSourceReq.sourceId")));
+  return fields;
+}
+
+export function decodeSelectDesktopInputSourceReqValue(value: CborValue): SelectDesktopInputSourceReq {
+  const fields = expectMap(value);
+  return {
+    attachId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+    inputEpoch: fieldOrDefault(fields.get(2), (value) => integer(value), () => 0),
+    sourceId: fieldOrDefault(fields.get(3), (value) => textValue(value), () => ""),
+  };
+}
+
+export function encodeDesktopDisplayInventoryValue(value: DesktopDisplayInventory): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, required(value.displays, "DesktopDisplayInventory.displays").map((item) => encodeDesktopDisplayValue(item)));
+  return fields;
+}
+
+export function decodeDesktopDisplayInventoryValue(value: CborValue): DesktopDisplayInventory {
+  const fields = expectMap(value);
+  return {
+    displays: fieldOrDefault(fields.get(1), (value) => array(value).map((item) => decodeDesktopDisplayValue(item)), () => []),
+  };
 }
 
 export function encodeDaemonInfoValue(value: DaemonInfo): CborValue {
@@ -14186,6 +14308,33 @@ function defaultSelectExistingDesktopReq(): SelectExistingDesktopReq {
 function defaultDesktopDisplaySelection(): DesktopDisplaySelection {
   return {
     type: "clear",
+  };
+}
+
+function defaultDesktopInputSource(): DesktopInputSource {
+  return {
+    id: "",
+    name: "",
+  };
+}
+
+function defaultDesktopInputSources(): DesktopInputSources {
+  return {
+    sources: [],
+  };
+}
+
+function defaultSelectDesktopInputSourceReq(): SelectDesktopInputSourceReq {
+  return {
+    attachId: "",
+    inputEpoch: 0,
+    sourceId: "",
+  };
+}
+
+function defaultDesktopDisplayInventory(): DesktopDisplayInventory {
+  return {
+    displays: [],
   };
 }
 

@@ -408,3 +408,60 @@ test("direct toolbar keeps quality validation and legacy resize usable in a shor
   ).toBe(true);
   await expect(page.getByLabel("Recorded input")).toHaveText("[]");
 });
+
+test("host input source select is compact, controller-only and keeps native input untouched", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 720 });
+  await page.goto("/tests/fixtures/desktop.html?ime&automatic");
+  await page
+    .getByRole("button", { name: "Display fixture", exact: false })
+    .click();
+  const select = page.getByRole("combobox", { name: "Host input source" });
+  await expect(select).toBeDisabled();
+  await expect(select).toHaveValue("english");
+  await page
+    .getByRole("button", { name: "Control screen", exact: true })
+    .click();
+  await expect(select).toBeEnabled();
+  await select.focus();
+  await expect(select).toBeFocused();
+  await select.selectOption("korean");
+  await expect(select).toHaveValue("korean");
+  await select.selectOption("english");
+  await expect(select).toHaveValue("english");
+  await expect(page.getByLabel("Recorded input")).toHaveText("[]");
+  await page
+    .getByRole("button", { name: "Release control", exact: true })
+    .click();
+  await expect(select).toBeDisabled();
+  await page
+    .getByRole("button", { name: "Back to displays", exact: true })
+    .click();
+  await expect(select).toHaveCount(0);
+});
+
+test("unsupported hosts hide IME and failed selections stay explicit", async ({
+  page,
+}) => {
+  await page.goto("/tests/fixtures/desktop.html");
+  await page
+    .getByRole("button", { name: "Display fixture", exact: false })
+    .click();
+  await expect(
+    page.getByRole("combobox", { name: "Host input source" }),
+  ).toHaveCount(0);
+  await page.goto("/tests/fixtures/desktop.html?ime&ime-error");
+  await page
+    .getByRole("button", { name: "Display fixture", exact: false })
+    .click();
+  await page
+    .getByRole("button", { name: "Control screen", exact: true })
+    .click();
+  const select = page.getByRole("combobox", { name: "Host input source" });
+  await select.selectOption("korean");
+  await expect(select).toHaveValue("english");
+  await expect(page.getByRole("alert")).toContainText(
+    "Input source change failed",
+  );
+});

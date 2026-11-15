@@ -26,7 +26,13 @@ export function WorkbenchToolContent() {
           );
         }
         if (tool() === "desktop")
-          return <DesktopTool active={tabState().active()} />;
+          return (
+            <DesktopTool
+              active={tabState().active()}
+              displayId={tab()?.desktopDisplayId}
+              onSelectDisplay={(id) => tabState().setDesktopDisplayId(id)}
+            />
+          );
         if (tool() === "daemon") {
           return <DaemonTool />;
         }

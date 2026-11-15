@@ -33,6 +33,7 @@ export interface WorkbenchTab {
   daemonClientDetailId?: string;
   daemonClientsPageOpen?: boolean;
   dirty?: boolean;
+  desktopDisplayId?: string;
   filesView?: WorkbenchFilesView;
   id: string;
   previousActiveTabId?: string;
@@ -163,6 +164,56 @@ export const workbenchBunja = bunja(() => {
 
   function selectTool(tool: WorkbenchTool) {
     updateState((current) => openToolTabInActivePane(current, tool));
+  }
+
+  function openDesktopDisplay(displayId: string) {
+    updateState((current) => {
+      const pane = activePaneFromState(current);
+      if (!pane) return current;
+      const existing = pane.tabs.find(
+        (tab) => tab.tool === "desktop" && tab.desktopDisplayId === displayId,
+      );
+      if (existing)
+        return {
+          ...current,
+          panes: current.panes.map((item) =>
+            item.id === pane.id ? activatePaneTab(item, existing.id) : item,
+          ),
+        };
+      return openTabInPane(current, pane.id, {
+        ...createWorkbenchTab("desktop"),
+        desktopDisplayId: displayId,
+        title: `Display ${displayId}`,
+      });
+    });
+  }
+
+  function setDesktopDisplayId(
+    paneId: string,
+    tabId: string,
+    displayId: string | undefined,
+  ) {
+    updatePanes((panes) =>
+      panes.map((pane) =>
+        pane.id !== paneId
+          ? pane
+          : {
+              ...pane,
+              tabs: pane.tabs.map((tab) =>
+                tab.id !== tabId || tab.tool !== "desktop"
+                  ? tab
+                  : {
+                      ...tab,
+                      desktopDisplayId: displayId,
+                      title:
+                        displayId === undefined
+                          ? "Screen"
+                          : `Display ${displayId}`,
+                    },
+              ),
+            },
+      ),
+    );
   }
 
   function focusPane(paneId: string) {
@@ -640,6 +691,7 @@ export const workbenchBunja = bunja(() => {
     panes,
     setLayout,
     selectTool,
+    openDesktopDisplay,
     focusPane,
     addPane,
     removePane,
@@ -667,6 +719,7 @@ export const workbenchBunja = bunja(() => {
     setProcessPage,
     setWindowDetailId,
     setTabDirty,
+    setDesktopDisplayId,
     setTerminalSessionSnapshot,
     setTerminalSessionId,
   };
@@ -797,6 +850,10 @@ export const workbenchPaneBunja = bunja(() => {
     workbench.setWindowDetailId(paneId, tabId, windowDetailId);
   }
 
+  function setDesktopDisplayId(tabId: string, displayId: string | undefined) {
+    workbench.setDesktopDisplayId(paneId, tabId, displayId);
+  }
+
   function setTabDirty(tabId: string, dirty: boolean) {
     workbench.setTabDirty(paneId, tabId, dirty);
   }
@@ -827,6 +884,7 @@ export const workbenchPaneBunja = bunja(() => {
     setProcessPage,
     setWindowDetailId,
     setTabDirty,
+    setDesktopDisplayId,
     setTerminalSessionSnapshot,
     setTerminalSessionId,
   };
@@ -885,6 +943,10 @@ export const workbenchTabBunja = bunja(() => {
     pane.setWindowDetailId(tabId, windowDetailId);
   }
 
+  function setDesktopDisplayId(displayId: string | undefined) {
+    pane.setDesktopDisplayId(tabId, displayId);
+  }
+
   function setDirty(dirty: boolean) {
     pane.setTabDirty(tabId, dirty);
   }
@@ -905,6 +967,7 @@ export const workbenchTabBunja = bunja(() => {
     setProcessPage,
     setWindowDetailId,
     setDirty,
+    setDesktopDisplayId,
     setTerminalSessionSnapshot,
     setTerminalSessionId,
   };
@@ -1127,7 +1190,11 @@ function openToolTabInActivePane(
   const panes = state.panes.map((pane) => {
     if (pane.id !== activePaneId) return pane;
 
-    const existingTab = pane.tabs.find((tab) => tab.tool === tool);
+    const existingTab = pane.tabs.find(
+      (tab) =>
+        tab.tool === tool &&
+        (tool !== "desktop" || tab.desktopDisplayId === undefined),
+    );
     if (existingTab) {
       opened = true;
       return activatePaneTab(pane, existingTab.id);

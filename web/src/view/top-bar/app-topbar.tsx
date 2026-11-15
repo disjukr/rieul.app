@@ -1,7 +1,10 @@
 import { style, theme } from "../../zyzz.config.ts";
 import { Dynamic } from "@solidjs/web";
-import { createMemo, createSignal } from "solid-js";
-import type { AvailableShellInfo } from "../../protocol/generated/rpc.ts";
+import { createEffect, createMemo, createSignal } from "solid-js";
+import type {
+  AvailableShellInfo,
+  DesktopDisplay,
+} from "../../protocol/generated/rpc.ts";
 import {
   Activity,
   AppWindow,
@@ -85,6 +88,9 @@ interface AppTopbarProps {
   panes: WorkbenchPane[];
   selectedMachineId?: string;
   terminalShells: AvailableShellInfo[];
+  desktopDisplays?: DesktopDisplay[];
+  onRefreshDesktopDisplays?: () => Promise<void>;
+  onOpenDesktopDisplay?: (displayId: string) => void;
   onAddMachine: () => void;
   onOpenDaemonTab: () => void;
   onOpenDesktopTab: () => void;
@@ -153,15 +159,42 @@ export function AppTopbar(componentProps: AppTopbarProps) {
     { closeOnScroll: true },
   );
 
+  createEffect(
+    () => ({
+      machine: componentProps.machine,
+      displays: componentProps.desktopDisplays,
+    }),
+    () => {
+      if (
+        toolMenu()?.tool === "desktop" &&
+        (componentProps.desktopDisplays?.length ?? 0) < 2
+      )
+        closeToolMenu();
+    },
+  );
+
+  createEffect(
+    () => componentProps.selectedMachineId,
+    () => {
+      if (toolMenu()?.tool === "desktop") closeToolMenu();
+    },
+  );
+
   const tabTargets = createMemo(() => tabTargetsForPanes(componentProps.panes));
 
   function openToolMenu(tool: WorkbenchTool, target: HTMLElement) {
+    if (tool === "desktop" && (componentProps.desktopDisplays?.length ?? 0) < 2)
+      return;
     const rect = target.getBoundingClientRect();
+    if (tool === "desktop") void componentProps.onRefreshDesktopDisplays?.();
     setMachineMenu(undefined);
     setToolMenu({
       tool,
       position: clampFloatingMenuPosition(rect.right + 8, rect.top, {
-        itemCount: 4,
+        itemCount:
+          tool === "desktop"
+            ? (componentProps.desktopDisplays?.length ?? 0)
+            : 4,
         width: 244,
       }),
     });
@@ -188,6 +221,12 @@ export function AppTopbar(componentProps: AppTopbarProps) {
   }
 
   function selectLatestToolTab(tool: WorkbenchTool) {
+    if (tool === "desktop") {
+      closeToolMenu();
+      componentProps.onOpenDesktopTab();
+      revealWorkbenchOnMobile();
+      return;
+    }
     const latest = latestTabTarget(tabTargets(), tool);
     if (!latest) {
       openToolTab()[tool]();
@@ -389,9 +428,24 @@ export function AppTopbar(componentProps: AppTopbarProps) {
         position={toolMenu()!.position}
       >
         <div {...styles.topbarMenuHeader()}>
-          New {toolMenuTitle(toolMenu()!.tool)}
+          {toolMenu()!.tool === "desktop"
+            ? "Displays"
+            : `New ${toolMenuTitle(toolMenu()!.tool)}`}
         </div>
-        {toolMenu()!.tool === "files" ? (
+        {toolMenu()!.tool === "desktop" ? (
+          componentProps.desktopDisplays?.map((display) => (
+            <FloatingMenuItem
+              onClick={() => {
+                closeToolMenu();
+                componentProps.onOpenDesktopDisplay?.(display.displayId);
+                revealWorkbenchOnMobile();
+              }}
+            >
+              <Monitor size={14} />
+              <span>Display {display.displayId}</span>
+            </FloatingMenuItem>
+          ))
+        ) : toolMenu()!.tool === "files" ? (
           <>
             <FloatingMenuItem onClick={() => openFilesOption("roots")}>
               <Folder size={14} />
@@ -428,7 +482,10 @@ export function AppTopbar(componentProps: AppTopbarProps) {
             onClick={() => openToolTabFromMenu(toolMenu()!.tool)}
           >
             <ToolIcon tool={toolMenu()!.tool} size={14} />
-            New {toolMenuTitle(toolMenu()!.tool)} Tab
+            {toolMenu()!.tool === "desktop"
+              ? "Displays"
+              : `New ${toolMenuTitle(toolMenu()!.tool)}`}{" "}
+            Tab
           </FloatingMenuItem>
         )}
       </FloatingMenu>
@@ -606,7 +663,9 @@ export function AppTopbar(componentProps: AppTopbarProps) {
           <Icon size={13} />
           <span class={"app-rail-label"}>{label}</span>
         </button>
-        {hasToolMenu(tool) ? (
+        {hasToolMenu(tool) ||
+        (tool === "desktop" &&
+          (componentProps.desktopDisplays?.length ?? 0) > 1) ? (
           <button
             type="button"
             {...styles.toolMenuButton({ className: "app-rail-expanded" })}

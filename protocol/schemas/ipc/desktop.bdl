@@ -7,7 +7,7 @@
 import rieul.ipc.common { IpcProcError }
 import rieul.rpc.desktop {
   DesktopCapabilities, DesktopDisplay, DesktopEvent, DesktopInputEvent,
-  DesktopViewport, DesktopTrack, DesktopQualityVerification,
+  DesktopViewport, DesktopTrack, DesktopQualityVerification, DesktopInputSources,
 }
 
 @ id - 10
@@ -23,6 +23,14 @@ struct UserDesktopRequest {
   command: UserDesktopCommand,
 }
 union UserDesktopCommand {
+  @ id - 10
+  InputSources(
+  ),
+  @ id - 11
+  SelectInputSource(
+    @ id - 1
+    sourceId: string,
+  ),
   @ id - 9
   StreamGroup(
     @ id - 1
@@ -78,6 +86,11 @@ struct UserDesktopResponse {
   result: UserDesktopResult,
 }
 union UserDesktopResult {
+  @ id - 8
+  InputSources(
+    @ id - 1
+    value: DesktopInputSources,
+  ),
   @ id - 7
   GroupFrame(
     @ id - 1

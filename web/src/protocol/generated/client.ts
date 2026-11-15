@@ -112,6 +112,9 @@ import {
   queryDesktopQualitySupportProc,
   setDesktopQualityProc,
   selectExistingDesktopProc,
+  queryDesktopInputSourcesProc,
+  selectDesktopInputSourceProc,
+  listDisplaysProc,
 } from "./rpc.ts";
 import type {
   ActivateClusterPrimaryReq,
@@ -178,9 +181,11 @@ import type {
   DesktopCapabilities,
   DesktopConfiguration,
   DesktopControl,
+  DesktopDisplayInventory,
   DesktopEvent,
   DesktopInputFrame,
   DesktopInputReceipt,
+  DesktopInputSources,
   DesktopLayout,
   DesktopLayoutCapabilities,
   DesktopLease,
@@ -228,6 +233,7 @@ import type {
   ScheduleInfo,
   SchedulesTableEvent,
   SealPrimaryTransferReq,
+  SelectDesktopInputSourceReq,
   SelectExistingDesktopReq,
   SetAgentSessionConfigReq,
   SetAgentSessionConfigRes,
@@ -680,4 +686,16 @@ export function setDesktopQuality(transport: WebTransport, request: SetDesktopQu
 
 export function selectExistingDesktop(transport: WebTransport, request: SelectExistingDesktopReq): Promise<DesktopConfiguration> {
   return callUnary(transport, selectExistingDesktopProc, request);
+}
+
+export function queryDesktopInputSources(transport: WebTransport, request: DesktopAttachRef): Promise<DesktopInputSources> {
+  return callUnary(transport, queryDesktopInputSourcesProc, request);
+}
+
+export function selectDesktopInputSource(transport: WebTransport, request: SelectDesktopInputSourceReq): Promise<DesktopInputSources> {
+  return callUnary(transport, selectDesktopInputSourceProc, request);
+}
+
+export function listDisplays(transport: WebTransport): Promise<DesktopDisplayInventory> {
+  return callUnary(transport, listDisplaysProc, undefined);
 }

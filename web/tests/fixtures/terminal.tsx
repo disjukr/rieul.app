@@ -323,6 +323,7 @@ const overrides = [
       setProcessPage: unused,
       setWindowDetailId: unused,
       setDirty: unused,
+      setDesktopDisplayId: unused,
       setTerminalSessionSnapshot(snapshot) {
         setTab((current) =>
           current

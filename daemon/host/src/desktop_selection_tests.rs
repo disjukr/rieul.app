@@ -15,8 +15,23 @@ struct Native {
     displays: Mutex<Vec<DesktopDisplay>>,
     events: Mutex<Vec<DesktopInputEvent>>,
     permitted: AtomicBool,
+    input_source: Mutex<String>,
+    input_source_calls: std::sync::atomic::AtomicU64,
 }
 impl Backend for Native {
+    fn input_sources(&self) -> Result<DesktopInputSources, Error> {
+        Ok(DesktopInputSources {
+            sources: ["english", "korean"].into_iter().map(|id| DesktopInputSource { id: id.into(), name: id.into() }).collect(),
+            current_id: Some(self.input_source.lock().unwrap().clone()),
+        })
+    }
+    fn select_input_source(&self, id: &str) -> Result<DesktopInputSources, Error> {
+        self.input_source_calls.fetch_add(1, Ordering::SeqCst);
+        if id != "english" && id != "korean" { return Err(Error::Invalid); }
+        *self.input_source.lock().unwrap() = id.into();
+        self.input_sources()
+    }
+
     fn capabilities(&self) -> DesktopCapabilities {
         DesktopCapabilities {
             profile: PROFILE,
@@ -66,6 +81,8 @@ fn setup() -> (Arc<Runtime>, Arc<Native>, Auth, String) {
         ),
         events: Mutex::new(vec![]),
         permitted: AtomicBool::new(true),
+        input_source: Mutex::new("english".into()),
+        input_source_calls: Default::default(),
     });
     let runtime = Runtime::new(Arc::new(WorkGate::default()), Some(native.clone()));
     let auth = Auth(AtomicBool::new(true));
@@ -384,4 +401,44 @@ fn layout_event_updates_for_arrangement_only_changes() {
     assert_eq!(runtime.layout_event().unwrap(), expected);
     runtime.refresh_layout().unwrap();
     assert_eq!(runtime.layout_event().unwrap(), expected);
+}
+
+#[test]
+fn input_source_query_never_acquires_control_and_selection_is_controller_fenced() {
+    let (r, native, a, id) = setup();
+    let query = DesktopAttachRef { attach_id: id.clone() };
+    assert_eq!(r.query_input_sources(&a, 2, 0, query.clone()).unwrap_err(), Error::Unauthorized);
+    assert_eq!(r.query_input_sources(&a, 1, 0, query).unwrap().current_id.as_deref(), Some("english"));
+    assert!(r.control().unwrap().holder_attach_id.is_none());
+    let mut req = SelectDesktopInputSourceReq { attach_id: id.clone(), input_epoch: r.control().unwrap().input_epoch, source_id: "korean".into() };
+    assert_eq!(r.select_input_source(&a, 1, 0, req.clone()).unwrap_err(), Error::Stale);
+    select(&r, &a, &id, Some("right")).unwrap();
+    r.mutate(|d| d.set_control(&a, 1, &id, 0, DesktopControlAction::Acquire)).unwrap();
+    req.input_epoch = r.control().unwrap().input_epoch;
+    assert_eq!(r.select_input_source(&a, 2, 0, req.clone()).unwrap_err(), Error::Unauthorized);
+    assert_eq!(native.input_source_calls.load(Ordering::SeqCst), 0);
+    assert_eq!(r.select_input_source(&a, 1, 0, req.clone()).unwrap().current_id.as_deref(), Some("korean"));
+    assert_eq!(native.input_source_calls.load(Ordering::SeqCst), 1);
+    r.mutate(|d| d.set_control(&a, 1, &id, 0, DesktopControlAction::Release)).unwrap();
+    r.mutate(|d| d.set_control(&a, 1, &id, 0, DesktopControlAction::Acquire)).unwrap();
+    assert_eq!(r.select_input_source(&a, 1, 0, req.clone()).unwrap_err(), Error::Stale);
+    req.input_epoch = r.control().unwrap().input_epoch;
+    req.source_id = "\0bad".into();
+    assert_eq!(r.select_input_source(&a, 1, 0, req.clone()).unwrap_err(), Error::Invalid);
+    req.source_id = "english".into();
+    assert_eq!(r.select_input_source(&a, 1, LEASE_MS, req).unwrap_err(), Error::NotFound);
+    assert_eq!(native.input_source_calls.load(Ordering::SeqCst), 1);
+}
+#[test]
+fn input_source_selection_rejects_revoked_credentials_and_stale_helper() {
+    for revoke in [false, true] {
+        let (r, native, a, id) = setup();
+        select(&r, &a, &id, Some("right")).unwrap();
+        r.mutate(|d| d.set_control(&a, 1, &id, 0, DesktopControlAction::Acquire)).unwrap();
+        let req = SelectDesktopInputSourceReq { attach_id: id, input_epoch: r.control().unwrap().input_epoch, source_id: "korean".into() };
+        if revoke { a.0.store(false, Ordering::SeqCst); }
+        else { r.state.lock().unwrap().backend_generation += 1; }
+        assert!(r.select_input_source(&a, 1, 0, req).is_err());
+        assert_eq!(native.input_source_calls.load(Ordering::SeqCst), 0);
+    }
 }

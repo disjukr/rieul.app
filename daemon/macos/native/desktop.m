@@ -7,12 +7,14 @@
 #import <ScreenCaptureKit/ScreenCaptureKit.h>
 #import <VideoToolbox/VideoToolbox.h>
 #import <ApplicationServices/ApplicationServices.h>
+#import <Carbon/Carbon.h>
 #include <stdint.h>
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <pthread.h>
 
 // Read-only XNU queries: CS_OPS_STATUS=0, CS_OPS_CDHASH=5, CS_VALID=1.
 // Audit-token queries fence PID reuse and do not open the protected runtime.
@@ -47,6 +49,62 @@ int rd_permissions(void) {
     CFRelease(session);
     if(!active) return 0;
     return (CGPreflightScreenCaptureAccess() ? 1 : 0) | (AXIsProcessTrusted() ? 2 : 0);
+}
+// This runs in the non-UI `rieul-macos-system desktop-user` child, not
+// the GUI parent. It has no main event loop. TextInputSources.h permits TIS
+// here provided calls are serialized. Keep every TIS call under one process-
+// global mutex, and never enqueue work that could outlive the IPC request.
+static pthread_mutex_t rd_tis_mutex = PTHREAD_MUTEX_INITIALIZER;
+static size_t rd_input_sources_locked(const char *select_id, uint8_t *out, size_t capacity) {
+    @autoreleasepool {
+        NSString *requested = select_id ? [NSString stringWithUTF8String:select_id] : nil;
+        if (select_id && (!requested || !requested.length)) return 0;
+        // Recheck the active console session immediately before TIS access.
+        if ((rd_permissions() & 2) == 0) return 0;
+        NSData *result = nil;
+        NSDictionary *filter = @{
+            (__bridge NSString *)kTISPropertyInputSourceCategory: (__bridge NSString *)kTISCategoryKeyboardInputSource,
+            (__bridge NSString *)kTISPropertyInputSourceIsSelectCapable: @YES,
+            (__bridge NSString *)kTISPropertyInputSourceIsEnabled: @YES,
+        };
+        CFArrayRef list = TISCreateInputSourceList((__bridge CFDictionaryRef)filter, false);
+        if (list && CFArrayGetCount(list) <= 128) {
+            NSMutableArray *sources = [NSMutableArray array];
+            TISInputSourceRef target = NULL;
+            for (CFIndex i = 0; i < CFArrayGetCount(list); i++) {
+                TISInputSourceRef source = (TISInputSourceRef)CFArrayGetValueAtIndex(list, i);
+                NSString *identifier = (__bridge NSString *)TISGetInputSourceProperty(source, kTISPropertyInputSourceID);
+                NSString *name = (__bridge NSString *)TISGetInputSourceProperty(source, kTISPropertyLocalizedName);
+                if (!identifier.length || !name.length || [identifier lengthOfBytesUsingEncoding:NSUTF8StringEncoding] > 1024 ||
+                    [name lengthOfBytesUsingEncoding:NSUTF8StringEncoding] > 1024) continue;
+                [sources addObject:@{ @"id": identifier, @"name": name }];
+                if ([identifier isEqualToString:requested]) target = source;
+            }
+            // Never enable, register, or install a source. Resolve the ID
+            // against this fresh enabled list, not a cached TIS reference.
+            bool selected = !requested || (target && TISSelectInputSource(target) == noErr);
+            if (selected) {
+                TISInputSourceRef current = TISCopyCurrentKeyboardInputSource();
+                NSString *identifier = current ? (__bridge NSString *)TISGetInputSourceProperty(current, kTISPropertyInputSourceID) : nil;
+                NSMutableDictionary *value = [@{ @"sources": sources } mutableCopy];
+                if (identifier.length) value[@"currentId"] = identifier;
+                result = [NSJSONSerialization dataWithJSONObject:value options:0 error:nil];
+                if (current) CFRelease(current);
+            }
+        }
+        if (list) CFRelease(list);
+        if (!result || result.length > capacity) return 0;
+        memcpy(out, result.bytes, result.length);
+        return result.length;
+    }
+}
+size_t rd_input_sources(const char *select_id, uint8_t *out, size_t capacity) {
+    // The authenticated IPC executor already serializes ordinary commands.
+    // Fail closed on unexpected concurrency rather than wait on stale work.
+    if (pthread_mutex_trylock(&rd_tis_mutex) != 0) return 0;
+    size_t count = rd_input_sources_locked(select_id, out, capacity);
+    pthread_mutex_unlock(&rd_tis_mutex);
+    return count;
 }
 size_t rd_displays(RDDisplay *out, size_t capacity) {
     CGDirectDisplayID ids[32]; uint32_t count=0;
