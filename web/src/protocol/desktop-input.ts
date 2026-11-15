@@ -73,6 +73,22 @@ export function desktopKeyUsage(code: string): number | undefined {
   )[code];
 }
 
+export function desktopContentRect(
+  rect: Pick<DOMRect, "left" | "top" | "width" | "height">,
+  width: number,
+  height: number,
+) {
+  if (!(rect.width > 0 && rect.height > 0 && width > 0 && height > 0)) return;
+  const scale = Math.min(rect.width / width, rect.height / height);
+  const imageWidth = width * scale,
+    imageHeight = height * scale;
+  return {
+    left: rect.left + (rect.width - imageWidth) / 2,
+    top: rect.top + (rect.height - imageHeight) / 2,
+    width: imageWidth,
+    height: imageHeight,
+  };
+}
 export function desktopPoint(
   rect: Pick<DOMRect, "left" | "top" | "width" | "height">,
   width: number,
@@ -80,14 +96,19 @@ export function desktopPoint(
   clientX: number,
   clientY: number,
 ): { x: number; y: number } | undefined {
-  if (!(rect.width > 0 && rect.height > 0 && width > 0 && height > 0)) return;
-  const x = ((clientX - rect.left) * width) / rect.width,
-    y = ((clientY - rect.top) * height) / rect.height;
+  const image = desktopContentRect(rect, width, height);
+  if (
+    !image ||
+    clientX < image.left ||
+    clientY < image.top ||
+    clientX >= image.left + image.width ||
+    clientY >= image.top + image.height
+  )
+    return;
+  const x = ((clientX - image.left) * width) / image.width,
+    y = ((clientY - image.top) * height) / image.height;
   if (![x, y].every(Number.isFinite)) return;
-  return {
-    x: Math.max(0, Math.min(width - 0.001, x)),
-    y: Math.max(0, Math.min(height - 0.001, y)),
-  };
+  return { x, y };
 }
 
 const FRAME_LIMIT = 16 * 1024;
@@ -281,6 +302,7 @@ export function bindDesktopInput(
   },
 ): () => void {
   const keys = new Set<number>();
+  const pointers = new Set<number>();
   let epoch = control().epoch;
   const active = () => {
     const state = control();
@@ -292,6 +314,9 @@ export function bindDesktopInput(
   };
   const release = () => {
     keys.clear();
+    for (const id of pointers)
+      if (canvas.hasPointerCapture(id)) canvas.releasePointerCapture(id);
+    pointers.clear();
     if (active()) send({ type: "releaseAll" });
   };
   const point = (e: MouseEvent) =>
@@ -330,11 +355,15 @@ export function bindDesktopInput(
     if (!active()) return;
     const p = point(e);
     const mapped = [1, 3, 2, 4, 5][e.button];
-    if (!p || mapped === undefined) return;
+    if (!p || mapped === undefined) {
+      if (pointers.has(e.pointerId)) release();
+      return;
+    }
     e.preventDefault();
     if (e.type === "pointerdown") {
       canvas.focus({ preventScroll: true });
       canvas.setPointerCapture(e.pointerId);
+      pointers.add(e.pointerId);
     }
     send({
       type: "button",
@@ -343,8 +372,11 @@ export function bindDesktopInput(
       button: mapped,
       down: e.type === "pointerdown",
     });
-    if (e.type === "pointerup" && canvas.hasPointerCapture(e.pointerId))
-      canvas.releasePointerCapture(e.pointerId);
+    if (e.type === "pointerup") {
+      if (canvas.hasPointerCapture(e.pointerId))
+        canvas.releasePointerCapture(e.pointerId);
+      pointers.delete(e.pointerId);
+    }
   };
   const move = (e: PointerEvent) => {
     if (!active()) return;
@@ -352,6 +384,10 @@ export function bindDesktopInput(
       e.buttons && e.getCoalescedEvents ? e.getCoalescedEvents() : [];
     for (const sample of samples.length ? samples : [e]) {
       const p = point(sample);
+      if (!p && (e.buttons || pointers.size)) {
+        release();
+        break;
+      }
       if (p && !send({ type: "absolutePointer", viewportId, ...p })) break;
     }
   };

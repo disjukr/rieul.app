@@ -4,6 +4,7 @@ import {
   DesktopInputChannel,
   desktopKeyUsage,
   desktopPoint,
+  desktopContentRect,
 } from "../src/protocol/desktop-input.ts";
 import { decodeCbor, encodeCbor } from "../src/protocol/cbor.ts";
 import {
@@ -180,4 +181,25 @@ test("queue overflow fails once and cancels late-created stream without input re
   await c.flush();
   assert.equal(errors.length, 1);
   assert.equal(canceled, 2);
+});
+
+test("contained screen coordinates exclude letterbox and pillarbox bars", () => {
+  const square = { left: 10, top: 20, width: 400, height: 400 };
+  assert.deepEqual(desktopContentRect(square, 1920, 1080), {
+    left: 10,
+    top: 107.5,
+    width: 400,
+    height: 225,
+  });
+  assert.equal(desktopPoint(square, 1920, 1080, 210, 50), undefined);
+  assert.deepEqual(desktopPoint(square, 1920, 1080, 210, 220), {
+    x: 960,
+    y: 540,
+  });
+  assert.equal(desktopPoint(square, 1080, 1920, 50, 220), undefined);
+  assert.deepEqual(desktopPoint(square, 1080, 1920, 210, 220), {
+    x: 540,
+    y: 960,
+  });
+  assert.equal(desktopPoint(square, 1080, 1920, 500, 500), undefined);
 });

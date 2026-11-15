@@ -32,7 +32,14 @@ function Fixture() {
     const [epoch, setEpoch] = createSignal(1);
     const display = {
       displayId: "fixture",
-      bounds: { x: 0, y: 0, width: 320, height: 180 },
+      bounds: {
+        x: 0,
+        y: 0,
+        width: new URLSearchParams(location.search).has("portrait") ? 180 : 320,
+        height: new URLSearchParams(location.search).has("portrait")
+          ? 320
+          : 180,
+      },
       scale: 1,
       dpi: 96,
     };
@@ -176,9 +183,14 @@ function Fixture() {
               viewport: {
                 viewportId: displayId,
                 displayId,
-                crop: { x: 0, y: 0, width: 320, height: 180 },
-                width: 320,
-                height: 180,
+                crop: {
+                  x: 0,
+                  y: 0,
+                  width: display.bounds.width,
+                  height: display.bounds.height,
+                },
+                width: display.bounds.width,
+                height: display.bounds.height,
                 fps: 60,
                 bitrate: 1,
               },
@@ -219,6 +231,9 @@ function Fixture() {
       },
       openWindow() {},
       registerSurface(id: string, canvas: HTMLCanvasElement, viewer?: symbol) {
+        const ctx = canvas.getContext("2d")!;
+        ctx.fillStyle = "#2367d1";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
         return bindDesktopInput(
           canvas,
           id,
@@ -255,11 +270,22 @@ function Fixture() {
           {active() ? "Hide Screen tab" : "Show Screen tab"}
         </button>
         <div hidden={!active()}>
-          <section aria-label="First pane">
+          <section
+            aria-label="First pane"
+            style={{
+              height: new URLSearchParams(location.search).has("split")
+                ? "calc((100dvh - 40px) / 2)"
+                : "calc(100dvh - 40px)",
+              "min-height": "0",
+            }}
+          >
             <DesktopTool active={active()} />
           </section>
           {new URLSearchParams(location.search).has("split") && (
-            <section aria-label="Second pane">
+            <section
+              aria-label="Second pane"
+              style={{ height: "calc((100dvh - 40px) / 2)", "min-height": "0" }}
+            >
               <DesktopTool active={active()} />
             </section>
           )}

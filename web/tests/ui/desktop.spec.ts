@@ -70,9 +70,13 @@ test("viewing never takes control and preserves physical keys and drag transitio
   await page.keyboard.press("ControlRight");
   await page.keyboard.press("NumpadEnter");
   const box = (await canvas.boundingBox())!;
-  await page.mouse.move(box.x + 10, box.y + 10);
+  await page.mouse.move(box.x + box.width / 2 - 20, box.y + box.height / 2);
   await page.mouse.down();
-  await page.mouse.move(box.x + 60, box.y + 40, { steps: 3 });
+  await page.mouse.move(
+    box.x + box.width / 2 + 20,
+    box.y + box.height / 2 + 10,
+    { steps: 3 },
+  );
   await page.mouse.up();
   await page
     .getByRole("button", { name: "Release control", exact: true })
@@ -115,6 +119,7 @@ test("diagnostics stay hidden and errors remain visible on a narrow selected dis
   await page
     .getByRole("button", { name: "Display fixture", exact: false })
     .click();
+  await page.getByLabel("Connection status", { exact: true }).click();
   const status = page
     .getByRole("region", { name: "Screen" })
     .getByRole("status")
@@ -129,6 +134,7 @@ test("diagnostics stay hidden and errors remain visible on a narrow selected dis
   const decoder = page.getByLabel("Screen decoder status");
   await expect(codec).not.toBeVisible();
   await expect(decoder).not.toBeVisible();
+  await page.getByText("Options", { exact: true }).click();
   await page.getByRole("button", { name: "Check quality support" }).click();
   const probe = page.getByText(
     "Fixture encoder verified; throughput unverified.",
@@ -154,6 +160,7 @@ test("diagnostics stay hidden and errors remain visible on a narrow selected dis
   ).toBe(true);
   await diagnostics.click();
   await expect(codec).not.toBeVisible();
+  await page.getByLabel("Connection status", { exact: true }).click();
   await expect(status).toContainText("Input connection failed.");
 });
 
@@ -165,6 +172,7 @@ test("quality changes preserve the selected surface and focused held input", asy
   await page
     .getByRole("button", { name: "Display fixture", exact: false })
     .click();
+  await page.getByText("Options", { exact: true }).click();
   await page.getByRole("button", { name: "Check quality support" }).click();
   await page
     .getByRole("button", { name: "Control screen", exact: true })
@@ -216,6 +224,7 @@ test("control action distinguishes vacant and occupied ownership without taking 
   await expect(
     page.getByRole("button", { name: "Take control from another viewer" }),
   ).toBeEnabled();
+  await page.getByLabel("Connection status", { exact: true }).click();
   await expect(
     page.getByText("Taking control will release their held inputs.", {
       exact: false,
