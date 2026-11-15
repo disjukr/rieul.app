@@ -25,7 +25,8 @@ export function WorkbenchToolContent() {
             </div>
           );
         }
-        if (tool() === "desktop") return <DesktopTool />;
+        if (tool() === "desktop")
+          return <DesktopTool active={tabState().active()} />;
         if (tool() === "daemon") {
           return <DaemonTool />;
         }

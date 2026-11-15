@@ -14,8 +14,10 @@ import {
   untrack,
 } from "solid-js";
 import { rpcSessionBunja } from "./rpc-session.ts";
+import { WorkbenchTabIdScope } from "./workbench-scopes.ts";
 import {
   configureDesktopViewports,
+  selectExistingDesktop,
   detachDesktop,
   getDesktopCapabilities,
   renewDesktopLease,
@@ -49,7 +51,14 @@ import {
 } from "../protocol/desktop-video.ts";
 
 export const desktopBunja = bunja(() => {
+  bunja.use(WorkbenchTabIdScope);
   const rpc = bunja.use(rpcSessionBunja);
+  const [sessionMode, setSessionMode] = createSignal<
+    "manual" | "active" | "suspended"
+  >("manual");
+  const managed = createMemo(() => sessionMode() === "active");
+  const catalogMode = createMemo(() => sessionMode() !== "manual");
+  const [selectedDisplayId, setSelectedDisplayId] = createSignal<string>();
   const owner = getOwner();
   const [phase, setPhase] = createSignal<
     "idle" | "connecting" | "viewing" | "unsupported" | "error"
@@ -68,15 +77,21 @@ export const desktopBunja = bunja(() => {
   const [qualityMessage, setQualityMessage] = createSignal<string>();
   const [qualityPolicy, setQualityPolicy] =
     createSignal<DesktopQualityPolicy>();
+  const scopedSelectionSupported = createMemo(() => {
+    const info = rpc.daemonInfo();
+    return (
+      info.phase === "ready" &&
+      info.daemonInfo.supportedProcIds.includes(ProcId.SelectExistingDesktop)
+    );
+  });
   const qualitySupported = createMemo(() => {
     const info = rpc.daemonInfo();
     return (
       info.phase === "ready" &&
-      [
-        ProcId.AttachExistingDesktop,
-        ProcId.QueryDesktopQualitySupport,
-        ProcId.SetDesktopQuality,
-      ].every((id) => info.daemonInfo.supportedProcIds.includes(id))
+      (!catalogMode() || scopedSelectionSupported()) &&
+      [ProcId.QueryDesktopQualitySupport, ProcId.SetDesktopQuality].every(
+        (id) => info.daemonInfo.supportedProcIds.includes(id),
+      )
     );
   });
   const [outputHeight, setOutputHeight] = createSignal(1080);
@@ -94,10 +109,14 @@ export const desktopBunja = bunja(() => {
   const automaticDisplays = createMemo(() => {
     const info = rpc.daemonInfo();
     return (
+      !catalogMode() &&
       info.phase === "ready" &&
       info.daemonInfo.supportedProcIds.includes(ProcId.AttachExistingDesktop)
     );
   });
+  const serverOwnsGeometry = createMemo(
+    () => automaticDisplays() || (catalogMode() && scopedSelectionSupported()),
+  );
   const availabilityMessage = createMemo(() => {
     const info = rpc.daemonInfo();
     if (info.phase === "loading") return "Checking daemon support…";
@@ -124,7 +143,8 @@ export const desktopBunja = bunja(() => {
   let eventsAbort: AbortController | undefined,
     attachTimeout: ReturnType<typeof setTimeout> | undefined;
   let configKey = "",
-    configVersion = 0;
+    configVersion = 0,
+    newestCodecEpoch = 0;
   let offeredCodecs: string[] = [],
     currentCodec = "",
     h264Fallback = false,
@@ -135,8 +155,37 @@ export const desktopBunja = bunja(() => {
     {};
   const surfaces = new Map<string, Set<HTMLCanvasElement>>();
   const popups = new Map<Window, () => void>();
-  function disconnect() {
+  let retryTimer: ReturnType<typeof setTimeout> | undefined;
+  let retryDelay = 1000;
+  function scheduleManagedRetry(error?: unknown) {
+    if (
+      !active ||
+      !managed() ||
+      retryTimer ||
+      (error instanceof RpcError &&
+        [
+          "permissionDenied",
+          "invalidCredentials",
+          "unauthorized",
+          "unsupported",
+          "invalid",
+        ].includes(error.code))
+    )
+      return;
+    retryTimer = setTimeout(
+      () => {
+        retryTimer = undefined;
+        if (active && managed()) void connect();
+      },
+      Math.round(retryDelay * (0.8 + Math.random() * 0.4)),
+    );
+    retryDelay = Math.min(10_000, retryDelay * 2);
+  }
+  function disconnect(preserveSelection = false) {
     generation++;
+    clearTimeout(retryTimer);
+    retryTimer = undefined;
+    if (!preserveSelection) setSelectedDisplayId(undefined);
     fallbackPending = false;
     currentProfile = 1;
     eventsAbort?.abort();
@@ -155,6 +204,7 @@ export const desktopBunja = bunja(() => {
     transport = undefined;
     events = undefined;
     configKey = "";
+    newestCodecEpoch = 0;
     offeredCodecs = [];
     currentCodec = "";
     inputFeatures = {};
@@ -241,10 +291,11 @@ export const desktopBunja = bunja(() => {
       void connect(true, profileFallback);
       return;
     }
-    disconnect();
+    disconnect(managed());
     if (active) {
       setPhase("error");
       setMessage(error instanceof Error ? error.message : String(error));
+      scheduleManagedRetry(error);
     }
   }
   function send(event: DesktopInputEvent): boolean {
@@ -276,13 +327,23 @@ export const desktopBunja = bunja(() => {
     };
   }
   async function applyConfiguration(next: DesktopConfiguration, token: number) {
+    if (
+      catalogMode() &&
+      next.tracks.some(
+        (track) => track.viewport.displayId !== selectedDisplayId(),
+      )
+    )
+      return;
+    const nextCodecEpoch = Math.max(0, ...next.tracks.map((t) => t.codecEpoch));
+    if (next.tracks.length && nextCodecEpoch < newestCodecEpoch) return;
     const key = JSON.stringify(next);
     if (key === configKey) return;
     const previous = configuration();
     if (
       previous &&
       (next.layoutEpoch < previous.layoutEpoch ||
-        (next.layoutEpoch === previous.layoutEpoch &&
+        (next.tracks.length > 0 &&
+          next.layoutEpoch === previous.layoutEpoch &&
           Math.max(0, ...next.tracks.map((t) => t.codecEpoch)) <
             Math.max(0, ...previous.tracks.map((t) => t.codecEpoch))))
     )
@@ -311,6 +372,7 @@ export const desktopBunja = bunja(() => {
     currentCodec = next.tracks[0]?.codec.codec ?? "";
     await video?.configure(next);
     if (token !== generation) return;
+    newestCodecEpoch = Math.max(newestCodecEpoch, nextCodecEpoch);
     setConfiguration(next);
   }
   async function queryQuality(candidate?: DesktopQualityTarget) {
@@ -379,32 +441,49 @@ export const desktopBunja = bunja(() => {
         .filter((d) => ids.includes(d.displayId))
         .slice(0, maxViewports());
       const totalBitrate = 20_000_000;
-      const next = await configureDesktopViewports(transport, {
-        attachId: attachment,
-        layoutEpoch,
-        totalBitrate,
-        viewports: selected.map((d) => {
-          const scale = Math.min(
-            1,
-            (outputHeight() * 16) / 9 / d.bounds.width,
-            outputHeight() / d.bounds.height,
-          );
-          return {
-            viewportId: d.displayId,
-            displayId: d.displayId,
-            crop: {
-              x: 0,
-              y: 0,
-              width: d.bounds.width,
-              height: d.bounds.height,
-            },
-            width: Math.max(2, Math.floor((d.bounds.width * scale) / 2) * 2),
-            height: Math.max(2, Math.floor((d.bounds.height * scale) / 2) * 2),
-            fps: 60,
-            bitrate: Math.floor(totalBitrate / Math.max(1, selected.length)),
-          };
-        }),
-      });
+      const next =
+        catalogMode() && scopedSelectionSupported()
+          ? await selectExistingDesktop(transport, {
+              attachId: attachment,
+              expectedLayoutEpoch: layoutEpoch,
+              selection: selected[0]
+                ? { type: "display", displayId: selected[0].displayId }
+                : { type: "clear" },
+            })
+          : await configureDesktopViewports(transport, {
+              attachId: attachment,
+              layoutEpoch,
+              totalBitrate,
+              viewports: selected.map((d) => {
+                const scale = Math.min(
+                  1,
+                  (outputHeight() * 16) / 9 / d.bounds.width,
+                  outputHeight() / d.bounds.height,
+                );
+                return {
+                  viewportId: d.displayId,
+                  displayId: d.displayId,
+                  crop: {
+                    x: 0,
+                    y: 0,
+                    width: d.bounds.width,
+                    height: d.bounds.height,
+                  },
+                  width: Math.max(
+                    2,
+                    Math.floor((d.bounds.width * scale) / 2) * 2,
+                  ),
+                  height: Math.max(
+                    2,
+                    Math.floor((d.bounds.height * scale) / 2) * 2,
+                  ),
+                  fps: 60,
+                  bitrate: Math.floor(
+                    totalBitrate / Math.max(1, selected.length),
+                  ),
+                };
+              }),
+            });
       if (token === generation && version === configVersion)
         await applyConfiguration(next, token);
     } catch (error) {
@@ -414,7 +493,7 @@ export const desktopBunja = bunja(() => {
     }
   }
   async function resize(height: number) {
-    if (automaticDisplays() || ![720, 1080, 2160].includes(height) || busy())
+    if (serverOwnsGeometry() || ![720, 1080, 2160].includes(height) || busy())
       return;
     setOutputHeight(height);
     if (phase() === "viewing")
@@ -423,7 +502,7 @@ export const desktopBunja = bunja(() => {
       );
   }
   async function connect(h264Only = false, fullFrame = false) {
-    disconnect();
+    disconnect(managed());
     h264Fallback = h264Only;
     profileFallback = fullFrame;
     if (!active || !supported()) return;
@@ -524,12 +603,15 @@ export const desktopBunja = bunja(() => {
                   if (token !== generation) return;
                   setInputReady(false);
                   setMessage(
-                    `${error.message} View remains connected; reconnect to control.`,
+                    managed()
+                      ? `${error.message} Reconnecting to restore control…`
+                      : `${error.message} View remains connected; reconnect to control.`,
                   );
                   void setDesktopControl(nextTransport, {
                     attachId: event.attachId,
                     action: DesktopControlAction.Release,
                   }).catch(() => {});
+                  scheduleManagedRetry(error);
                 },
               );
               video = new DesktopVideoReceiver(
@@ -594,14 +676,29 @@ export const desktopBunja = bunja(() => {
                 Math.max(1000, Math.min(5000, event.leaseMs / 3)),
               );
               if (!automaticDisplays()) {
-                await configure(
-                  event.displays
-                    .slice(0, maxViewports())
-                    .map((d) => d.displayId),
-                  event.attachId,
-                  event.displays,
-                );
-                if (token === generation) setPhase("viewing");
+                const selected = selectedDisplayId();
+                if (!catalogMode() || selected) {
+                  if (
+                    selected &&
+                    !event.displays.some((d) => d.displayId === selected)
+                  ) {
+                    setSelectedDisplayId(undefined);
+                  } else {
+                    await configure(
+                      catalogMode()
+                        ? [selected!]
+                        : event.displays
+                            .slice(0, maxViewports())
+                            .map((d) => d.displayId),
+                      event.attachId,
+                      event.displays,
+                    );
+                  }
+                }
+                if (token === generation) {
+                  retryDelay = 1000;
+                  setPhase("viewing");
+                }
               }
             } else if (event.type === "control") {
               setControl(event.control);
@@ -618,14 +715,29 @@ export const desktopBunja = bunja(() => {
               layoutEpoch = event.layoutEpoch;
               setDisplays(event.displays);
               setConfiguration(undefined);
-              if (!automaticDisplays())
-                await configure(
-                  event.displays
-                    .slice(0, maxViewports())
-                    .map((d) => d.displayId),
-                  attachId(),
-                  event.displays,
-                );
+              if (!automaticDisplays()) {
+                const selected = selectedDisplayId();
+                if (
+                  catalogMode() &&
+                  selected &&
+                  !event.displays.some((d) => d.displayId === selected)
+                ) {
+                  await leaveDisplay();
+                  setMessage(
+                    "This display was disconnected. Choose another display.",
+                  );
+                } else if (!catalogMode() || selected) {
+                  await configure(
+                    catalogMode()
+                      ? [selected!]
+                      : event.displays
+                          .slice(0, maxViewports())
+                          .map((d) => d.displayId),
+                    attachId(),
+                    event.displays,
+                  );
+                }
+              }
             } else if (event.type === "cursor") setCursor(event);
             else if (event.type === "closed") throw new Error(event.reason);
           }
@@ -781,14 +893,67 @@ export const desktopBunja = bunja(() => {
       { once: true },
     );
   }
+  async function selectDisplay(displayId: string) {
+    if (
+      !catalogMode() ||
+      phase() !== "viewing" ||
+      busy() ||
+      !displays().some((d) => d.displayId === displayId)
+    )
+      return;
+    setSelectedDisplayId(displayId);
+    await configure([displayId]);
+  }
+  async function leaveDisplay() {
+    const token = generation;
+    setSelectedDisplayId(undefined);
+    if (busy()) {
+      await connect();
+      return;
+    }
+    await setAction(DesktopControlAction.Release);
+    if (token !== generation) return;
+    if (attachId() && control().holderAttachId === attachId()) {
+      await connect();
+      return;
+    }
+    if (phase() === "viewing") await configure([]);
+  }
+  function start() {
+    setSessionMode("active");
+  }
+  function stop() {
+    setSessionMode("suspended");
+    disconnect(true);
+  }
   bunja.effect(() => {
     active = true;
     const dispose = runWithOwner(owner, () =>
       createRoot((dispose) => {
-        createEffect(rpc.daemonInfo, () => {
-          untrack(disconnect);
-          setMessage(undefined);
-        });
+        createEffect(
+          createMemo(() => ({ info: rpc.daemonInfo(), managed: managed() })),
+          ({ info, managed }) => {
+            untrack(() => disconnect(catalogMode()));
+            setMessage(undefined);
+            if (managed && info.phase === "ready") {
+              const ids = info.daemonInfo.supportedProcIds;
+              if (
+                [ProcId.GetDesktopCapabilities, ProcId.AttachDesktop].every(
+                  (id) => ids.includes(id),
+                ) &&
+                (ids.includes(ProcId.ConfigureDesktopViewports) ||
+                  scopedSelectionSupported())
+              ) {
+                untrack(() => void connect());
+              } else {
+                setPhase("unsupported");
+                setMessage(
+                  "This daemon needs an update to browse individual displays.",
+                );
+              }
+            }
+          },
+        );
         return dispose;
       }),
     );
@@ -801,6 +966,11 @@ export const desktopBunja = bunja(() => {
   return {
     phase,
     message,
+    selectedDisplayId,
+    start,
+    stop,
+    selectDisplay,
+    leaveDisplay,
     displays,
     configuration,
     control,
@@ -809,6 +979,7 @@ export const desktopBunja = bunja(() => {
     busy,
     supported,
     automaticDisplays,
+    serverOwnsGeometry,
     qualitySupported,
     qualitySupport,
     qualityBusy,

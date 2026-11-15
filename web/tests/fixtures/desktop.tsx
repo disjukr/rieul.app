@@ -16,6 +16,11 @@ import {
 function Fixture() {
   const [phase, setPhase] = createSignal<"idle" | "viewing">("idle");
   const [controlling, setControlling] = createSignal(false);
+  const [selectedDisplayId, setSelectedDisplayId] = createSignal<string>();
+  const [active, setActive] = createSignal(true);
+  const [holder, setHolder] = createSignal<string | undefined>(
+    new URLSearchParams(location.search).has("occupied") ? "other" : undefined,
+  );
   const [configuration, setConfiguration] =
     createSignal<DesktopConfiguration>();
   const [events, setEvents] = createSignal<DesktopInputEvent[]>([]);
@@ -95,21 +100,40 @@ function Fixture() {
     phase,
     controlling,
     configuration,
-    control: createSignal({ inputEpoch: 1 })[0],
+    control: createMemo(() => ({
+      inputEpoch: epoch(),
+      holderAttachId: controlling() ? "fixture" : holder(),
+    })),
     attachId: createSignal<string | undefined>("fixture")[0],
-    displays: createSignal([display])[0],
+    displays: createSignal([display, { ...display, displayId: "second" }])[0],
     supported: createMemo(() => true),
+    connect: async () => {},
+    serverOwnsGeometry: createMemo(() =>
+      new URLSearchParams(location.search).has("automatic"),
+    ),
     automaticDisplays: createMemo(() =>
       new URLSearchParams(location.search).has("automatic"),
     ),
     modes: createMemo(() => ({ existing: true, custom: false })),
     inputReady,
     busy: createSignal(false)[0],
-    message: createSignal<string>()[0],
-    stats:
-      createSignal<
-        import("../../src/protocol/desktop-video.ts").DesktopVideoStats
-      >()[0],
+    message: createMemo(() =>
+      new URLSearchParams(location.search).has("input-error") &&
+      phase() === "viewing"
+        ? "Input connection failed. View remains connected; reconnect to control."
+        : undefined,
+    ),
+    stats: createSignal<
+      import("../../src/protocol/desktop-video.ts").DesktopVideoStats
+    >({
+      trackId: 1,
+      codecEpoch: 1,
+      groupId: 1,
+      decodeMicros: 20,
+      renderMicros: 10,
+      queueDepth: 2,
+      requestKeyframe: false,
+    })[0],
     cursor:
       createSignal<
         Extract<
@@ -117,9 +141,26 @@ function Fixture() {
           { type: "cursor" }
         >
       >()[0],
-    async connect() {
+    selectedDisplayId,
+    start() {
       setPhase("viewing");
-      setInputReady(true);
+      if (selectedDisplayId()) void model.selectDisplay(selectedDisplayId()!);
+    },
+    stop() {
+      setControlling(false);
+      setInputReady(false);
+      setConfiguration(undefined);
+    },
+    async leaveDisplay() {
+      setControlling(false);
+      setSelectedDisplayId(undefined);
+      setInputReady(false);
+      setConfiguration(undefined);
+    },
+    async selectDisplay(displayId: string) {
+      setSelectedDisplayId(displayId);
+      setPhase("viewing");
+      setInputReady(!new URLSearchParams(location.search).has("no-input"));
       setConfiguration({
         totalBitrate: 1,
         layoutEpoch: 1,
@@ -129,8 +170,8 @@ function Fixture() {
             codecEpoch: 1,
             codec: { codec: "fixture", hardware: false },
             viewport: {
-              viewportId: "fixture",
-              displayId: "fixture",
+              viewportId: displayId,
+              displayId,
               crop: { x: 0, y: 0, width: 320, height: 180 },
               width: 320,
               height: 180,
@@ -149,10 +190,11 @@ function Fixture() {
     },
     async configure() {},
     async acquire() {
-      setControlling(true);
+      if (!holder()) setControlling(true);
     },
     async takeover() {
       setEpoch((n) => n + 1);
+      setHolder(undefined);
       setControlling(true);
     },
     async release() {
@@ -174,7 +216,12 @@ function Fixture() {
   return (
     <>
       <TestBunjaStoreProvider overrides={[override(desktopBunja, () => model)]}>
-        <DesktopTool />
+        <button onClick={() => setActive(!active())}>
+          {active() ? "Hide Screen tab" : "Show Screen tab"}
+        </button>
+        <div hidden={!active()}>
+          <DesktopTool active={active()} />
+        </div>
       </TestBunjaStoreProvider>
       <output aria-label="Recorded input">{JSON.stringify(events())}</output>
     </>

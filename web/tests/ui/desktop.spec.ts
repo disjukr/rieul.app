@@ -1,22 +1,69 @@
 import type { DesktopInputEvent } from "../../src/protocol/generated/rpc.ts";
 import { test, expect } from "@playwright/test";
-test("viewer never takes control on viewing and preserves physical key identity and drag transitions", async ({
+
+test("Screen opens as a display catalog and selects one monitor in the same tab", async ({
   page,
 }) => {
   await page.goto("/tests/fixtures/desktop.html");
   await expect(
-    page.getByRole("button", { name: "Acquire control", exact: true }),
-  ).toBeDisabled();
-  await page.getByRole("button", { name: "Open screen", exact: true }).click();
+    page.getByRole("navigation", { name: "Displays" }),
+  ).toBeVisible();
   await expect(
-    page.getByRole("region", { name: "Screen" }).getByRole("status"),
-  ).toContainText("Viewing only");
+    page.getByRole("button", { name: "Display fixture", exact: false }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Display second", exact: false }),
+  ).toBeVisible();
+  await expect(page.getByRole("button", { name: /control/i })).toHaveCount(0);
+  await expect(
+    page.getByRole("button", {
+      name: /Open screen|Close screen|Reconnect|Open in another window/i,
+    }),
+  ).toHaveCount(0);
+  await expect(page.getByRole("combobox")).toHaveCount(0);
+  await expect(page.getByText("Diagnostics", { exact: true })).toHaveCount(0);
+  await page
+    .getByRole("button", { name: "Display second", exact: false })
+    .click();
+  await expect(
+    page.getByLabel("Display second", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByLabel("Display fixture", { exact: true })).toHaveCount(
+    0,
+  );
+  await expect(page.getByLabel("Recorded input")).toHaveText("[]");
+  await expect(
+    page.getByRole("button", { name: "Control screen", exact: true }),
+  ).toBeEnabled();
+  await page.getByRole("button", { name: "Back to displays" }).click();
+  await expect(
+    page.getByRole("navigation", { name: "Displays" }),
+  ).toBeVisible();
+  await expect(page.getByRole("button", { name: /control/i })).toHaveCount(0);
+  await page
+    .getByRole("button", { name: "Display fixture", exact: false })
+    .click();
+  await expect(
+    page.getByLabel("Display fixture", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByLabel("Display second", { exact: true })).toHaveCount(
+    0,
+  );
+});
+
+test("viewing never takes control and preserves physical keys and drag transitions", async ({
+  page,
+}) => {
+  await page.goto("/tests/fixtures/desktop.html");
+  await page
+    .getByRole("button", { name: "Display fixture", exact: false })
+    .click();
   const canvas = page.getByLabel("Display fixture", { exact: true });
   await canvas.focus();
   await page.keyboard.press("a");
   await expect(page.getByLabel("Recorded input")).toHaveText("[]");
   await page
-    .getByRole("button", { name: "Acquire control", exact: true })
+    .getByRole("button", { name: "Control screen", exact: true })
     .click();
   await canvas.focus();
   await page.keyboard.press("ControlLeft");
@@ -54,100 +101,78 @@ test("viewer never takes control on viewing and preserves physical key identity 
       .length,
   ).toBeGreaterThanOrEqual(3);
   expect(events.at(-1)?.type).toBe("releaseAll");
-  await page.getByRole("button", { name: "Close screen", exact: true }).click();
+  await page.getByRole("button", { name: "Back to displays" }).click();
   await expect(canvas).toHaveCount(0);
 });
 
-test("viewer settings remain usable at a narrow viewport without taking control", async ({
+test("diagnostics stay hidden and errors remain visible on a narrow selected display", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto("/tests/fixtures/desktop.html");
-  await expect(
-    page.getByText("Custom layout is not offered by this daemon.", {
-      exact: false,
-    }),
-  ).toBeVisible();
-  await expect(
-    page.getByText("Video size only; OS display resolution is unchanged.", {
-      exact: false,
-    }),
-  ).toBeVisible();
-  const size = page.getByRole("combobox", { name: "Maximum video size" });
-  await size.selectOption("720");
-  await expect(size).toHaveValue("720");
-  await page.getByRole("button", { name: "Open screen", exact: true }).click();
-  await page.getByRole("button", { name: "Open in another window" }).hover();
-  await size.focus();
-  await expect(size).toBeFocused();
-  await expect(
-    page.getByRole("region", { name: "Screen" }).getByRole("status"),
-  ).toContainText("Viewing only");
-  await expect(page.getByLabel("Recorded input")).toHaveText("[]");
-  expect(
-    await page.evaluate(
-      () => document.documentElement.scrollWidth <= window.innerWidth,
-    ),
-  ).toBe(true);
-  await page.getByRole("button", { name: "Close screen", exact: true }).click();
-  await expect(
-    page.getByRole("button", { name: "Acquire control", exact: true }),
-  ).toBeDisabled();
-});
-
-test("existing display mode opens directly without layout or quality setup", async ({
-  page,
-}) => {
-  await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto("/tests/fixtures/desktop.html?automatic");
-  await expect(page.getByRole("checkbox")).toHaveCount(0);
-  await expect(
-    page.getByRole("combobox", { name: "Maximum video size" }),
-  ).toHaveCount(0);
-  await page.getByRole("button", { name: "Open screen", exact: true }).click();
-  await expect(
-    page.getByLabel("Display fixture", { exact: true }),
-  ).toBeVisible();
-  await expect(page.getByLabel("Recorded input")).toHaveText("[]");
-  await page.getByRole("button", { name: "Open in another window" }).hover();
+  await page.goto(
+    "/tests/fixtures/desktop.html?automatic&quality&no-input&input-error",
+  );
   await page
-    .getByRole("button", { name: "Acquire control", exact: true })
-    .focus();
+    .getByRole("button", { name: "Display fixture", exact: false })
+    .click();
+  const status = page
+    .getByRole("region", { name: "Screen" })
+    .getByRole("status")
+    .first();
+  await expect(status).toContainText("Input connection failed.");
   await expect(
-    page.getByRole("button", { name: "Acquire control", exact: true }),
-  ).toBeFocused();
+    page.getByRole("button", { name: "Control screen", exact: true }),
+  ).toBeDisabled();
+  const codec = page.getByText("Display fixture: 320 × 180 · fixture", {
+    exact: true,
+  });
+  const decoder = page.getByLabel("Screen decoder status");
+  await expect(codec).not.toBeVisible();
+  await expect(decoder).not.toBeVisible();
+  await page.getByRole("button", { name: "Check quality support" }).click();
+  const probe = page.getByText(
+    "Fixture encoder verified; throughput unverified.",
+    { exact: false },
+  );
+  await expect(probe).not.toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Use 30 FPS / 5 Mbps", exact: true }),
+  ).toBeEnabled();
+  await expect(
+    page.getByRole("button", { name: "Use 120 FPS / 50 Mbps", exact: true }),
+  ).toBeDisabled();
+  const diagnostics = page.getByText("Diagnostics", { exact: true });
+  await diagnostics.focus();
+  await page.keyboard.press("Enter");
+  await expect(codec).toBeVisible();
+  await expect(decoder).toBeVisible();
+  await expect(probe).toBeVisible();
   expect(
     await page.evaluate(
       () => document.documentElement.scrollWidth <= innerWidth,
     ),
   ).toBe(true);
-  await page.getByRole("button", { name: "Close screen", exact: true }).click();
-  await expect(page.getByLabel("Display fixture", { exact: true })).toHaveCount(
-    0,
-  );
+  await diagnostics.click();
+  await expect(codec).not.toBeVisible();
+  await expect(status).toContainText("Input connection failed.");
 });
 
-test("quality query separates unknown support and preserves focused held input on a new encoding epoch", async ({
+test("quality changes preserve the selected surface and focused held input", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/tests/fixtures/desktop.html?automatic&quality");
-  await page.getByRole("button", { name: "Open screen", exact: true }).click();
-  await expect(
-    page.getByRole("button", { name: "Use Auto", exact: true }),
-  ).toHaveCount(0);
-  await page.getByRole("button", { name: "Check quality support" }).click();
-  await expect(
-    page.getByRole("button", { name: "Use 120 FPS / 50 Mbps", exact: true }),
-  ).toBeDisabled();
   await page
-    .getByRole("button", { name: "Acquire control", exact: true })
+    .getByRole("button", { name: "Display fixture", exact: false })
+    .click();
+  await page.getByRole("button", { name: "Check quality support" }).click();
+  await page
+    .getByRole("button", { name: "Control screen", exact: true })
     .click();
   const canvas = page.getByLabel("Display fixture", { exact: true });
   await canvas.focus();
   await page.keyboard.down("a");
   const handle = await canvas.elementHandle();
-  // Programmatic click models an asynchronous Auto quality change without causing blur.
   await page
     .getByRole("button", { name: "Use Auto", exact: true })
     .evaluate((button: HTMLButtonElement) => button.click());
@@ -175,4 +200,63 @@ test("quality query separates unknown support and preserves focused held input o
       () => document.documentElement.scrollWidth <= innerWidth,
     ),
   ).toBe(true);
+});
+
+test("control action distinguishes vacant and occupied ownership without taking control automatically", async ({
+  page,
+}) => {
+  await page.goto("/tests/fixtures/desktop.html?occupied");
+  await expect(page.getByRole("button", { name: /control/i })).toHaveCount(0);
+  await page
+    .getByRole("button", { name: "Display fixture", exact: false })
+    .click();
+  await expect(
+    page.getByRole("button", { name: "Control screen", exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Take control from another viewer" }),
+  ).toBeEnabled();
+  await expect(
+    page.getByText("Taking control will release their held inputs.", {
+      exact: false,
+    }),
+  ).toBeVisible();
+  await expect(page.getByLabel("Recorded input")).toHaveText("[]");
+  await page
+    .getByRole("button", { name: "Take control from another viewer" })
+    .click();
+  await expect(
+    page.getByRole("button", { name: "Release control", exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Back to displays" }).click();
+  await page
+    .getByRole("button", { name: "Display fixture", exact: false })
+    .click();
+  await expect(
+    page.getByRole("button", { name: "Control screen", exact: true }),
+  ).toBeVisible();
+});
+
+test("hiding a tab releases control and retains selection without restoring authority", async ({
+  page,
+}) => {
+  await page.goto("/tests/fixtures/desktop.html");
+  await page
+    .getByRole("button", { name: "Display fixture", exact: false })
+    .click();
+  await page
+    .getByRole("button", { name: "Control screen", exact: true })
+    .click();
+  await page.getByRole("button", { name: "Hide Screen tab" }).click();
+  await expect(page.getByRole("region", { name: "Screen" })).not.toBeVisible();
+  await page.getByRole("button", { name: "Show Screen tab" }).click();
+  await expect(
+    page.getByLabel("Display fixture", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Control screen", exact: true }),
+  ).toBeEnabled();
+  await expect(
+    page.getByRole("button", { name: "Release control", exact: true }),
+  ).toHaveCount(0);
 });
