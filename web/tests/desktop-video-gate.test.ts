@@ -68,11 +68,15 @@ function transport() {
     streams,
   };
 }
+let supportProbe:
+  | ((value: VideoDecoderConfig) => Promise<VideoDecoderSupport>)
+  | undefined;
 function decoder() {
   const oldDecoder = globalThis.VideoDecoder,
     oldChunk = globalThis.EncodedVideoChunk;
   class Decoder {
     static async isConfigSupported(value: VideoDecoderConfig) {
+      if (supportProbe) return supportProbe(value);
       return { supported: value.codec !== "bad", config: value };
     }
     state = "unconfigured";
@@ -301,4 +305,129 @@ test("stale configuration acknowledgements cannot open a newer prepared gate", a
   gate.close();
   await tick();
   reader.releaseLock();
+});
+
+test("restoring installed configuration supersedes an in-flight different engine configuration", async () => {
+  const restore = decoder(),
+    previousWorker = Object.getOwnPropertyDescriptor(globalThis, "Worker");
+  Object.defineProperty(globalThis, "Worker", {
+    configurable: true,
+    value: undefined,
+  });
+  const source = transport(),
+    drawn: string[] = [];
+  const receiver = new DesktopVideoReceiver(
+    source.transport,
+    "attach",
+    (id) => {
+      drawn.push(id);
+    },
+    () => {},
+    (error) => assert.fail(error),
+  );
+  let release!: (value: VideoDecoderSupport) => void;
+  const delayed = new Promise<VideoDecoderSupport>((resolve) => {
+    release = resolve;
+  });
+  try {
+    const installed = config();
+    await receiver.configure(installed);
+    supportProbe = async (value) =>
+      value.codedWidth === 4 ? delayed : { supported: true, config: value };
+    const pending = config(2, "other");
+    pending.tracks[0]!.viewport.width = 4;
+    const changing = receiver.configure(pending);
+    await tick();
+    await receiver.configure(installed);
+    release({ supported: true, config: { codec: "fixture", codedWidth: 4 } });
+    await changing;
+    source.incoming.enqueue(group());
+    await tick();
+    assert.deepEqual(drawn, ["first"]);
+  } finally {
+    supportProbe = undefined;
+    receiver.close();
+    restore();
+    if (previousWorker)
+      Object.defineProperty(globalThis, "Worker", previousWorker);
+    else Reflect.deleteProperty(globalThis, "Worker");
+  }
+});
+
+test("worker restore sends a superseding configure instead of trusting the last committed key", async () => {
+  const previous = Object.getOwnPropertyDescriptor(globalThis, "Worker"),
+    priorFixture = WorkerFixture.last;
+  Object.defineProperty(globalThis, "Worker", {
+    configurable: true,
+    value: WorkerFixture,
+  });
+  const source = transport();
+  let drawn = 0;
+  const receiver = new DesktopVideoReceiver(
+    source.transport,
+    "attach",
+    () => {
+      drawn++;
+    },
+    () => {},
+    (error) => assert.fail(error),
+  );
+  try {
+    const installed = receiver.configure(config());
+    for (
+      let i = 0;
+      i < 100 &&
+      (WorkerFixture.last === priorFixture ||
+        !WorkerFixture.last?.sent.some(
+          (message) => message.type === "configure",
+        ));
+      i++
+    )
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    const worker = WorkerFixture.last;
+    const first = worker.sent.find((message) => message.type === "configure")!;
+    worker.onmessage?.({ data: { type: "configured", id: first.id } });
+    await installed;
+    const changing = receiver.configure(config(2, "other"));
+    await tick();
+    const pending = worker.sent
+      .filter((message) => message.type === "configure")
+      .at(-1)!;
+    const restoring = receiver.configure(config());
+    await tick();
+    const all = worker.sent.filter((message) => message.type === "configure");
+    assert.equal(all.length, 3);
+    const latest = all.at(-1)!;
+    worker.onmessage?.({ data: { type: "configured", id: latest.id } });
+    await restoring;
+    worker.onmessage?.({ data: { type: "configured", id: pending.id } });
+    await changing;
+    const frame = () => ({ close() {} });
+    worker.onmessage?.({
+      data: {
+        type: "frame",
+        generation: pending.id,
+        id: 1,
+        viewportId: "other",
+        frame: frame(),
+        stats: { renderMicros: 0 },
+      },
+    });
+    assert.equal(drawn, 0);
+    worker.onmessage?.({
+      data: {
+        type: "frame",
+        generation: latest.id,
+        id: 2,
+        viewportId: "first",
+        frame: frame(),
+        stats: { renderMicros: 0 },
+      },
+    });
+    assert.equal(drawn, 1);
+  } finally {
+    receiver.close();
+    if (previous) Object.defineProperty(globalThis, "Worker", previous);
+    else Reflect.deleteProperty(globalThis, "Worker");
+  }
 });

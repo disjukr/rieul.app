@@ -65,6 +65,7 @@ export class DesktopVideoReceiver {
   private initializing?: import("./desktop-video-worker-client.ts").WorkerVideoReceiver;
   private ready: Promise<void>;
   private configurationKey = "";
+  private activeConfigurations = 0;
   workerFailure?: string;
   get execution(): "starting" | "worker" | "main" | "closed" {
     return this.closed
@@ -124,11 +125,12 @@ export class DesktopVideoReceiver {
   }
   async configure(configuration: DesktopConfiguration): Promise<void> {
     const revision = this.mediaGate.prepare();
+    const hadPendingConfiguration = this.activeConfigurations++ > 0;
     try {
       await this.ready;
       if (this.closed) return;
       const key = JSON.stringify(configuration);
-      if (key !== this.configurationKey)
+      if (key !== this.configurationKey || hadPendingConfiguration)
         await this.inner!.configure(configuration);
       if (this.mediaGate.current(revision)) {
         this.configurationKey = key;
@@ -139,6 +141,8 @@ export class DesktopVideoReceiver {
         this.close();
         throw error;
       }
+    } finally {
+      this.activeConfigurations--;
     }
   }
   requestRefresh(viewportId: string): void {
