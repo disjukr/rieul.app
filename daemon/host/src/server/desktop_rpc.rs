@@ -2411,6 +2411,129 @@ pub(super) mod tests {
         .unwrap();
     }
     #[tokio::test]
+    async fn canceling_attachment_stream_releases_only_its_owner_on_shared_connection() {
+        tokio::time::timeout(Duration::from_secs(10), async {
+            let f = Fixture::new().await;
+            f.authenticate().await;
+            let (owner, mut owner_events) = f.attach().await;
+            let (sibling, _sibling_events) = f.attach().await;
+            let control = f.control(&owner, DesktopControlAction::Acquire).await;
+            let key = DesktopInputEvent::PhysicalKey {
+                usage: 4,
+                down: true,
+                repeat: false,
+            };
+            let response = f
+                .request(ReqResMessage::RequestStreamStart {
+                    proc_id: ProcId::WriteDesktopInput.as_u64(),
+                    payload: Some(
+                        DesktopInputFrame {
+                            attach_id: owner.clone(),
+                            input_epoch: control.input_epoch,
+                            sequence: 1,
+                            layout_epoch: 1,
+                            event: key.clone(),
+                        }
+                        .encode(),
+                    ),
+                })
+                .await;
+            assert!(matches!(response, ReqResMessage::ResponseUnaryOk { .. }));
+            f.wait_input(&key).await;
+            assert_eq!(
+                f.runtime.control().unwrap().holder_attach_id.as_deref(),
+                Some(owner.as_str())
+            );
+            // Cancel only Attach's response, not the connection or input stream.
+            owner_events.recv.stop(0).unwrap();
+            tokio::time::timeout(Duration::from_secs(2), async {
+                while f.runtime.has(&owner) {
+                    tokio::task::yield_now().await;
+                }
+                f.wait_input(&DesktopInputEvent::ReleaseAll).await;
+            })
+            .await
+            .expect("attachment cancellation must release before its 15-second lease expires");
+            assert!(f.runtime.control().unwrap().holder_attach_id.is_none());
+            let inputs = f.backend.inputs.lock().unwrap();
+            let down = inputs.iter().rposition(|event| event == &key).unwrap();
+            assert!(inputs[down + 1..]
+                .iter()
+                .any(|event| matches!(event, DesktopInputEvent::ReleaseAll)));
+            drop(inputs);
+            assert!(f.runtime.has(&sibling));
+            let denied = f
+                .unary(
+                    ProcId::RenewDesktopLease,
+                    Some(
+                        DesktopAttachRef {
+                            attach_id: owner.clone(),
+                        }
+                        .encode(),
+                    ),
+                )
+                .await;
+            assert!(matches!(denied, ReqResMessage::ResponseUnaryError { .. }));
+            let denied = f
+                .unary(
+                    ProcId::SetDesktopControl,
+                    Some(
+                        SetDesktopControlReq {
+                            attach_id: owner,
+                            action: DesktopControlAction::Acquire,
+                        }
+                        .encode(),
+                    ),
+                )
+                .await;
+            assert!(matches!(denied, ReqResMessage::ResponseUnaryError { .. }));
+            let renewed = f
+                .unary(
+                    ProcId::RenewDesktopLease,
+                    Some(
+                        DesktopAttachRef {
+                            attach_id: sibling.clone(),
+                        }
+                        .encode(),
+                    ),
+                )
+                .await;
+            assert!(matches!(renewed, ReqResMessage::ResponseUnaryOk { .. }));
+            assert!(matches!(
+                f.unary(ProcId::GetDesktopCapabilities, None).await,
+                ReqResMessage::ResponseUnaryOk { .. }
+            ));
+            let next = f.control(&sibling, DesktopControlAction::Acquire).await;
+            assert_eq!(next.holder_attach_id.as_deref(), Some(sibling.as_str()));
+            assert!(next.input_epoch > control.input_epoch);
+            let next_key = DesktopInputEvent::PhysicalKey {
+                usage: 5,
+                down: true,
+                repeat: false,
+            };
+            let response = f
+                .request(ReqResMessage::RequestStreamStart {
+                    proc_id: ProcId::WriteDesktopInput.as_u64(),
+                    payload: Some(
+                        DesktopInputFrame {
+                            attach_id: sibling,
+                            input_epoch: next.input_epoch,
+                            sequence: 1,
+                            layout_epoch: 1,
+                            event: next_key.clone(),
+                        }
+                        .encode(),
+                    ),
+                })
+                .await;
+            assert!(matches!(response, ReqResMessage::ResponseUnaryOk { .. }));
+            f.wait_input(&next_key).await;
+        })
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
     async fn actual_webtransport_disconnect_releases_held_input() {
         disconnect_releases_held_input(false).await;
     }
