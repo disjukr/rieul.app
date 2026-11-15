@@ -318,7 +318,7 @@ export class DesktopVideoEngine {
   requestRefresh(viewportId: string): void {
     if (this.closed) return;
     for (const state of this.tracks.values())
-      if (state.track.viewport.viewportId === viewportId) {
+      if (state.track.viewport.viewportId === viewportId && state.group > 0) {
         this.stats({
           trackId: state.track.trackId,
           codecEpoch: state.track.codecEpoch,

@@ -134,6 +134,14 @@ test("video receiver negotiates codecs, cancels stale groups and closes every fr
       ["avc1.42e02a"],
     );
     await receiver.configure(config);
+    // Mounting the surface can precede the first media group. That group already
+    // starts with a keyframe; feedback cannot identify a group until it arrives.
+    receiver.requestRefresh("v");
+    assert.equal(
+      stats.length,
+      0,
+      "initial surface refresh must not send group-zero feedback",
+    );
     incoming!.enqueue(group(1, false));
     await tick();
     const staleOutput = lastOutput!;
