@@ -36,7 +36,7 @@ bool rd_peer_matches_self(int fd) {
     return memcmp(ownHash,peerHash,sizeof(ownHash))==0;
 }
 
-typedef struct { uint32_t id; double x,y,width,height,scale,dpi; } RDDisplay;
+typedef struct { uint32_t id; double x,y,width,height,scale,dpi,layout_width,layout_height; } RDDisplay;
 typedef bool (*RDPacket)(void *, const uint8_t *, size_t, uint64_t);
 int rd_permissions(void) {
     struct stat console;
@@ -54,7 +54,7 @@ size_t rd_displays(RDDisplay *out, size_t capacity) {
     for (size_t i=0;i<count && i<capacity;i++) {
         CGRect b=CGDisplayBounds(ids[i]); CGSize mm=CGDisplayScreenSize(ids[i]);
         double w=CGDisplayPixelsWide(ids[i]), h=CGDisplayPixelsHigh(ids[i]);
-        out[i]=(RDDisplay){ids[i],b.origin.x,b.origin.y,w,h,b.size.width>0?w/b.size.width:1,mm.width>0?w*25.4/mm.width:96};
+        out[i]=(RDDisplay){ids[i],b.origin.x,b.origin.y,w,h,b.size.width>0?w/b.size.width:1,mm.width>0?w*25.4/mm.width:96,b.size.width,b.size.height};
     }
     return MIN(count,capacity);
 }

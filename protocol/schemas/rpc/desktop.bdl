@@ -116,6 +116,19 @@ struct DesktopRect {
   height: u53,
 }
 
+# description
+| A display's extents in the host desktop layout coordinate space.
+struct DesktopArrangementRect {
+  @ id - 1
+  x: f64,
+  @ id - 2
+  y: f64,
+  @ id - 3
+  width: f64,
+  @ id - 4
+  height: f64,
+}
+
 struct DesktopDisplay {
   @ id - 1
   displayId: string,
@@ -125,6 +138,8 @@ struct DesktopDisplay {
   scale: f64,
   @ id - 4
   dpi: f64,
+  @ id - 5
+  arrangementBounds?: DesktopArrangementRect,
 }
 
 struct AttachDesktopReq {

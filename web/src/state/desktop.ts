@@ -1205,6 +1205,10 @@ export const desktopBunja = bunja(() => {
     selectDisplay,
     leaveDisplay,
     displays,
+    hostOs: createMemo(() => {
+      const info = rpc.daemonInfo();
+      return info.phase === "ready" ? info.daemonInfo.os : undefined;
+    }),
     configuration,
     control,
     attachId,

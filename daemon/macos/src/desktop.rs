@@ -20,6 +20,8 @@ struct Display {
     height: f64,
     scale: f64,
     dpi: f64,
+    layout_width: f64,
+    layout_height: f64,
 }
 #[repr(C)]
 #[derive(Default)]
@@ -448,6 +450,12 @@ impl Backend for MacDesktop {
                 },
                 scale: d.scale,
                 dpi: d.dpi,
+                arrangement_bounds: Some(DesktopArrangementRect {
+                    x: d.x,
+                    y: d.y,
+                    width: d.layout_width,
+                    height: d.layout_height,
+                }),
             })
             .collect()
     }
@@ -1069,6 +1077,8 @@ mod tests {
             height: 1600.0,
             scale: 2.0,
             dpi: 200.0,
+            layout_width: 1000.0,
+            layout_height: 800.0,
         };
         assert_eq!(map_point(&v, &d, 100.0, 50.0).unwrap(), (-850.0, 250.0));
         assert!(map_point(&v, &d, f64::NAN, 0.0).is_err());

@@ -3,6 +3,10 @@ import { style, theme } from "../../../../zyzz.config.ts";
 import { Button } from "../../../ui/button.tsx";
 import { For, createEffect, createMemo, createSignal, untrack } from "solid-js";
 import { desktopContentRect } from "../../../../protocol/desktop-input.ts";
+import {
+  desktopArrangement,
+  fitDesktopArrangement,
+} from "../../../../protocol/desktop-arrangement.ts";
 import { desktopCursorPng } from "../../../../protocol/desktop-cursor.ts";
 import { useBunja } from "bunja/solid";
 import { managedDesktopBunja } from "../../../../state/desktop.ts";
@@ -364,6 +368,35 @@ function DesktopSelectedView(props: { onBack: () => void }) {
 }
 function DesktopCatalogView(props: { onSelect: (displayId: string) => void }) {
   const desktop = useBunja(managedDesktopBunja);
+  const [catalog, setCatalog] = createSignal<HTMLElement>();
+  const [size, setSize] = createSignal({ width: 0, height: 0 });
+  const arrangement = createMemo(() =>
+    desktopArrangement(desktop().displays(), desktop().hostOs()),
+  );
+  const fit = createMemo(() =>
+    fitDesktopArrangement(arrangement(), size().width, size().height),
+  );
+  createEffect(
+    createMemo(() => catalog()),
+    (element) => {
+      if (!element) return;
+      let frame = 0;
+      const observer = new ResizeObserver(([entry]) => {
+        cancelAnimationFrame(frame);
+        frame = requestAnimationFrame(() =>
+          setSize({
+            width: entry.contentRect.width,
+            height: entry.contentRect.height,
+          }),
+        );
+      });
+      observer.observe(element);
+      return () => {
+        cancelAnimationFrame(frame);
+        observer.disconnect();
+      };
+    },
+  );
   return (
     <section
       {...styles.root({ className: "rieul-desktop" })}
@@ -397,22 +430,49 @@ function DesktopCatalogView(props: { onSelect: (displayId: string) => void }) {
           </details>
         </header>
       )}
-      <nav {...styles.catalog()} aria-label="Displays">
-        <For each={desktop().displays()}>
-          {(display) => (
+      <nav {...styles.catalog()} ref={setCatalog} aria-label="Displays">
+        <For each={arrangement().tiles}>
+          {(tile) => (
             <button
               type="button"
               {...styles.previewTile()}
-              aria-label={`Display ${display.displayId}`}
-              title={`Open display ${display.displayId}`}
+              style={{
+                left: `${fit().left + tile.x * fit().scale}px`,
+                top: `${fit().top + tile.y * fit().scale}px`,
+                width: `${tile.width * fit().scale}px`,
+                height: `${tile.height * fit().scale}px`,
+              }}
+              aria-label={`Display ${tile.display.displayId}`}
+              title={`Open display ${tile.display.displayId}`}
               disabled={desktop().phase() !== "viewing"}
-              onClick={() => props.onSelect(display.displayId)}
+              onClick={() => props.onSelect(tile.display.displayId)}
             >
-              <DesktopPreview display={display} />
+              <DesktopPreview display={tile.display} />
             </button>
           )}
         </For>
       </nav>
+      {size().width > 0 &&
+        size().height > 0 &&
+        (arrangement().overlapping ||
+          arrangement().tiles.some(
+            (tile) => Math.min(tile.width, tile.height) * fit().scale < 24,
+          )) && (
+          <div {...styles.displayChoices()} aria-label="Display selection">
+            <For each={desktop().displays()}>
+              {(display) => (
+                <Button
+                  size="sm"
+                  disabled={desktop().phase() !== "viewing"}
+                  aria-label={`Choose monitor ${display.displayId}`}
+                  onClick={() => props.onSelect(display.displayId)}
+                >
+                  {display.displayId}
+                </Button>
+              )}
+            </For>
+          </div>
+        )}
     </section>
   );
 }
@@ -669,10 +729,10 @@ namespace styles {
     pointerEvents: "none",
   });
   export const previewTile = style({
-    position: "relative",
+    position: "absolute",
     display: "block",
+    boxSizing: "border-box",
     padding: "0",
-    height: "clamp(90px, 25cqh, 180px)",
     overflow: "hidden",
     backgroundColor: theme.bgInverse,
     border: "1px solid",
@@ -684,20 +744,26 @@ namespace styles {
         outline: "2px solid",
         outlineColor: theme.focus,
         outlineOffset: "2px",
+        zIndex: 1,
       },
       "&:disabled": { opacity: 0.6, cursor: "default" },
     },
   });
   export const catalog = style({
-    display: "grid",
+    position: "relative",
     flex: "1 1 0",
+    minWidth: "0",
     minHeight: "0",
+    overflow: "hidden",
+  });
+  export const displayChoices = style({
+    display: "flex",
+    flexShrink: 0,
+    flexWrap: "wrap",
+    gap: "6px",
+    padding: "6px 12px",
+    maxHeight: "30%",
     overflow: "auto",
-    alignContent: "start",
-    overflowWrap: "anywhere",
-    gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 220px), 1fr))",
-    gap: "12px",
-    padding: "12px",
   });
   export const displayMetadata = style({
     display: "block",

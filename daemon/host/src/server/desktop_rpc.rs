@@ -839,6 +839,7 @@ pub(super) mod tests {
                     },
                     scale: 1.0,
                     dpi: 96.0,
+                    arrangement_bounds: None,
                 })
                 .collect()
         }

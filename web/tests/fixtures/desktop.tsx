@@ -10,6 +10,7 @@ import { bindDesktopInput } from "../../src/protocol/desktop-input.ts";
 import {
   DesktopQualityVerification,
   type DesktopQualityPolicy,
+  type DesktopDisplay,
   type DesktopQualitySupport,
   type DesktopConfiguration,
   type DesktopInputEvent,
@@ -31,7 +32,8 @@ function Fixture() {
       createSignal<DesktopConfiguration>();
     const [outputHeight, setOutputHeight] = createSignal(1080);
     const [epoch, setEpoch] = createSignal(1);
-    const display = {
+    const spatial = new URLSearchParams(location.search).has("spatial");
+    const display: DesktopDisplay = {
       displayId: "fixture",
       bounds: {
         x: 0,
@@ -41,8 +43,14 @@ function Fixture() {
           ? 320
           : 180,
       },
-      scale: 1,
+      scale: spatial ? 2 : 1,
       dpi: 96,
+      ...(spatial
+        ? {
+            bounds: { x: 0, y: 0, width: 3840, height: 2160 },
+            arrangementBounds: { x: 0, y: 0, width: 1920, height: 1080 },
+          }
+        : {}),
     };
     const [qualitySupport, setQualitySupport] =
       createSignal<DesktopQualitySupport>();
@@ -117,7 +125,37 @@ function Fixture() {
         holderAttachId: controlling() ? "fixture" : holder(),
       })),
       attachId: createSignal<string | undefined>("fixture")[0],
-      displays: createSignal([display, { ...display, displayId: "second" }])[0],
+      hostOs: createMemo(() =>
+        new URLSearchParams(location.search).has("legacy-mac")
+          ? "macOS Sequoia"
+          : "Windows 11",
+      ),
+      displays: createSignal([
+        display,
+        {
+          ...display,
+          displayId: "second",
+          bounds: spatial
+            ? { x: -1080, y: -400, width: 1080, height: 1920 }
+            : {
+                ...display.bounds,
+                x: new URLSearchParams(location.search).has("mirrored")
+                  ? 0
+                  : display.bounds.width,
+              },
+          ...(spatial
+            ? {
+                arrangementBounds: {
+                  x: -1080,
+                  y: -400,
+                  width: 1080,
+                  height: 1920,
+                },
+                scale: 1,
+              }
+            : {}),
+        },
+      ])[0],
       supported: createMemo(() => true),
       connect: async () => {},
       serverOwnsGeometry: createMemo(() =>

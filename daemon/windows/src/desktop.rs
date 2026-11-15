@@ -358,6 +358,12 @@ impl Worker {
                         },
                         scale: d.scale,
                         dpi: 96.0 * d.scale,
+                        arrangement_bounds: Some(DesktopArrangementRect {
+                            x: d.x as f64,
+                            y: d.y as f64,
+                            width: d.width as f64,
+                            height: d.height as f64,
+                        }),
                     })
                     .collect(),
             )),

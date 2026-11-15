@@ -51,3 +51,130 @@ for (const portrait of [false, true]) {
     await expect(page.getByLabel("Preview subscriptions")).toHaveText("2");
   });
 }
+
+test("catalog fits mixed-DPI negative and vertical host layout through narrow resize", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.setViewportSize({ width: 900, height: 700 });
+  await page.goto("/tests/fixtures/desktop.html?spatial");
+  const nav = page.getByRole("navigation", { name: "Displays" });
+  const first = nav.getByRole("button", {
+    name: "Display fixture",
+    exact: true,
+  });
+  const second = nav.getByRole("button", {
+    name: "Display second",
+    exact: true,
+  });
+  await expect(page.getByLabel("Preview subscriptions")).toHaveText("2");
+  const canvas = await first.locator("canvas").elementHandle();
+  for (const viewport of [
+    { width: 900, height: 700 },
+    { width: 180, height: 250 },
+    { width: 390, height: 700 },
+  ]) {
+    await page.setViewportSize(viewport);
+    await expect
+      .poll(async () => {
+        const container = (await nav.boundingBox())!;
+        const expectedScale = Math.min(
+          (container.width - 24) / 3000,
+          (container.height - 24) / 1920,
+          180 / 1920,
+        );
+        return Math.abs(
+          (await first.boundingBox())!.width - expectedScale * 1920,
+        );
+      })
+      .toBeLessThan(0.1);
+    await expect
+      .poll(
+        async () =>
+          (await first.boundingBox())!.width /
+          (await second.boundingBox())!.width,
+      )
+      .toBeCloseTo(1920 / 1080, 2);
+    const [a, b, container] = await Promise.all([
+      first.boundingBox(),
+      second.boundingBox(),
+      nav.boundingBox(),
+    ]);
+    expect(a!.x).toBeCloseTo(b!.x + b!.width, 1);
+    expect(a!.y - b!.y).toBeCloseTo((b!.height * 400) / 1920, 1);
+    expect(a!.width / a!.height).toBeCloseTo(1920 / 1080, 2);
+    expect(b!.width / b!.height).toBeCloseTo(1080 / 1920, 2);
+    for (const box of [a!, b!]) {
+      expect(box.x).toBeGreaterThanOrEqual(container!.x);
+      expect(box.y).toBeGreaterThanOrEqual(container!.y);
+      expect(box.x + box.width).toBeLessThanOrEqual(
+        container!.x + container!.width + 0.1,
+      );
+      expect(box.y + box.height).toBeLessThanOrEqual(
+        container!.y + container!.height + 0.1,
+      );
+    }
+    expect(await canvas!.evaluate((el) => el.isConnected)).toBe(true);
+    await expect(page.getByLabel("Preview subscriptions")).toHaveText("2");
+  }
+  const pane = page.getByRole("region", { name: "First pane", exact: true });
+  await pane.evaluate((element) => {
+    element.style.width = "0px";
+    element.style.height = "0px";
+  });
+  await expect.poll(async () => (await nav.boundingBox())!.width).toBe(0);
+  await pane.evaluate((element) => {
+    element.style.width = "";
+    element.style.height = "calc(100dvh - 40px)";
+  });
+  await expect
+    .poll(async () => (await first.boundingBox())!.width)
+    .toBeGreaterThan(0);
+  await expect(page.getByLabel("Preview subscriptions")).toHaveText("2");
+  expect(await canvas!.evaluate((el) => el.isConnected)).toBe(true);
+  expect(errors).toEqual([]);
+  await second.focus();
+  await page.keyboard.press("Enter");
+  await expect(
+    page.locator('canvas[aria-label="Display second"]'),
+  ).toBeVisible();
+  await expect(page.getByLabel("Recorded input")).toHaveText("[]");
+});
+
+test("mirrored monitors keep their positions and each remains pointer-selectable", async ({
+  page,
+}) => {
+  await page.goto("/tests/fixtures/desktop.html?mirrored");
+  const nav = page.getByRole("navigation", { name: "Displays" });
+  await expect
+    .poll(() =>
+      nav.evaluate((element) => {
+        const [a, b] = [...element.querySelectorAll("button")].map((button) =>
+          button.getBoundingClientRect(),
+        );
+        return (
+          a.width > 0 &&
+          a.x === b.x &&
+          a.y === b.y &&
+          a.width === b.width &&
+          a.height === b.height
+        );
+      }),
+    )
+    .toBe(true);
+  await page
+    .getByRole("button", { name: "Choose monitor fixture", exact: true })
+    .click();
+  await expect(
+    page.locator('canvas[aria-label="Display fixture"]'),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Back to displays" }).click();
+  await page
+    .getByRole("button", { name: "Choose monitor second", exact: true })
+    .click();
+  await expect(
+    page.locator('canvas[aria-label="Display second"]'),
+  ).toBeVisible();
+  await expect(page.getByLabel("Recorded input")).toHaveText("[]");
+});

@@ -865,11 +865,19 @@ export interface DesktopRect {
   height: number;
 }
 
+export interface DesktopArrangementRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 export interface DesktopDisplay {
   displayId: string;
   bounds: DesktopRect;
   scale: number;
   dpi: number;
+  arrangementBounds?: DesktopArrangementRect;
 }
 
 export interface AttachDesktopReq {
@@ -7229,12 +7237,32 @@ export function decodeDesktopRectValue(value: CborValue): DesktopRect {
   };
 }
 
+export function encodeDesktopArrangementRectValue(value: DesktopArrangementRect): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, f64(required(value.x, "DesktopArrangementRect.x")));
+  fields.set(2, f64(required(value.y, "DesktopArrangementRect.y")));
+  fields.set(3, f64(required(value.width, "DesktopArrangementRect.width")));
+  fields.set(4, f64(required(value.height, "DesktopArrangementRect.height")));
+  return fields;
+}
+
+export function decodeDesktopArrangementRectValue(value: CborValue): DesktopArrangementRect {
+  const fields = expectMap(value);
+  return {
+    x: fieldOrDefault(fields.get(1), (value) => f64Value(value), () => 0),
+    y: fieldOrDefault(fields.get(2), (value) => f64Value(value), () => 0),
+    width: fieldOrDefault(fields.get(3), (value) => f64Value(value), () => 0),
+    height: fieldOrDefault(fields.get(4), (value) => f64Value(value), () => 0),
+  };
+}
+
 export function encodeDesktopDisplayValue(value: DesktopDisplay): CborValue {
   const fields = new Map<number, CborValue>();
   fields.set(1, text(required(value.displayId, "DesktopDisplay.displayId")));
   fields.set(2, encodeDesktopRectValue(required(value.bounds, "DesktopDisplay.bounds")));
   fields.set(3, f64(required(value.scale, "DesktopDisplay.scale")));
   fields.set(4, f64(required(value.dpi, "DesktopDisplay.dpi")));
+  if (value.arrangementBounds !== undefined) fields.set(5, encodeDesktopArrangementRectValue(value.arrangementBounds));
   return fields;
 }
 
@@ -7245,6 +7273,7 @@ export function decodeDesktopDisplayValue(value: CborValue): DesktopDisplay {
     bounds: fieldOrDefault(fields.get(2), (value) => decodeDesktopRectValue(value), () => defaultDesktopRect()),
     scale: fieldOrDefault(fields.get(3), (value) => f64Value(value), () => 0),
     dpi: fieldOrDefault(fields.get(4), (value) => f64Value(value), () => 0),
+    arrangementBounds: optionalField(fields.get(5), (value) => decodeDesktopArrangementRectValue(value)),
   };
 }
 
@@ -13881,6 +13910,15 @@ function defaultDesktopCodec(): DesktopCodec {
 }
 
 function defaultDesktopRect(): DesktopRect {
+  return {
+    x: 0,
+    y: 0,
+    width: 0,
+    height: 0,
+  };
+}
+
+function defaultDesktopArrangementRect(): DesktopArrangementRect {
   return {
     x: 0,
     y: 0,

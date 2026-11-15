@@ -60,6 +60,7 @@ fn setup() -> (Arc<Runtime>, Arc<Native>, Auth, String) {
                     },
                     scale: 1.0,
                     dpi: 96.0,
+                    arrangement_bounds: None,
                 })
                 .collect(),
         ),
@@ -342,4 +343,45 @@ fn stale_hotplug_rebuild_cannot_override_a_newer_clear() {
         Error::Stale
     );
     assert!(r.configuration(&id).unwrap().tracks.is_empty());
+}
+
+#[test]
+fn layout_event_updates_for_arrangement_only_changes() {
+    let (runtime, native, _, _) = setup();
+    let original = DesktopArrangementRect {
+        x: -1280.0,
+        y: 0.0,
+        width: 1280.0,
+        height: 720.0,
+    };
+    native.displays.lock().unwrap()[0].arrangement_bounds = Some(original.clone());
+    runtime.refresh_layout().unwrap();
+    let DesktopEvent::Layout {
+        layout_epoch,
+        displays,
+    } = runtime.layout_event().unwrap()
+    else {
+        panic!("expected layout")
+    };
+
+    let changed = DesktopArrangementRect {
+        width: 960.0,
+        height: 540.0,
+        ..original
+    };
+    native.displays.lock().unwrap()[0].arrangement_bounds = Some(changed.clone());
+    runtime.refresh_layout().unwrap();
+    let expected = DesktopEvent::Layout {
+        layout_epoch: layout_epoch + 1,
+        displays: vec![
+            DesktopDisplay {
+                arrangement_bounds: Some(changed),
+                ..displays[0].clone()
+            },
+            displays[1].clone(),
+        ],
+    };
+    assert_eq!(runtime.layout_event().unwrap(), expected);
+    runtime.refresh_layout().unwrap();
+    assert_eq!(runtime.layout_event().unwrap(), expected);
 }
