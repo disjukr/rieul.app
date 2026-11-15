@@ -1226,6 +1226,15 @@ export const desktopBunja = bunja(() => {
     applyQuality,
     modes,
     availabilityMessage,
+    catalogStatusPending: createMemo(() => {
+      const info = rpc.daemonInfo();
+      return (
+        info.phase !== "error" &&
+        phase() !== "error" &&
+        phase() !== "unsupported" &&
+        (info.phase === "loading" || phase() === "connecting")
+      );
+    }),
     outputHeight,
     maxViewports,
     resize,

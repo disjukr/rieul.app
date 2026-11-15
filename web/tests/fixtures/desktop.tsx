@@ -23,7 +23,10 @@ function Fixture() {
     new URLSearchParams(location.search).has("occupied") ? "other" : undefined,
   );
   function createModel(initialDisplayId?: string) {
-    const [phase, setPhase] = createSignal<"idle" | "viewing">("idle");
+    const params = new URLSearchParams(location.search);
+    const [phase, setPhase] = createSignal<
+      "idle" | "connecting" | "viewing" | "error"
+    >("idle");
     const [controlling, setControlling] = createSignal(false);
     const [selectedDisplayId, setSelectedDisplayId] =
       createSignal(initialDisplayId);
@@ -111,7 +114,18 @@ function Fixture() {
           })),
         }));
       },
-      availabilityMessage: createMemo(() => undefined),
+      catalogStatusPending: createMemo(
+        () => params.has("loading") || phase() === "connecting",
+      ),
+      availabilityMessage: createMemo(() =>
+        params.has("loading")
+          ? "Checking daemon support…"
+          : params.has("unavailable")
+            ? "This daemon version does not offer Screen. Update the daemon to continue."
+            : params.has("unpaired")
+              ? "Select a paired daemon to connect."
+              : undefined,
+      ),
       outputHeight,
       maxViewports: createSignal(8)[0],
       resize: async (height: number) => {
@@ -130,32 +144,36 @@ function Fixture() {
           ? "macOS Sequoia"
           : "Windows 11",
       ),
-      displays: createSignal([
-        display,
-        {
-          ...display,
-          displayId: "second",
-          bounds: spatial
-            ? { x: -1080, y: -400, width: 1080, height: 1920 }
-            : {
-                ...display.bounds,
-                x: new URLSearchParams(location.search).has("mirrored")
-                  ? 0
-                  : display.bounds.width,
+      displays: createSignal(
+        params.has("no-displays")
+          ? []
+          : [
+              display,
+              {
+                ...display,
+                displayId: "second",
+                bounds: spatial
+                  ? { x: -1080, y: -400, width: 1080, height: 1920 }
+                  : {
+                      ...display.bounds,
+                      x: new URLSearchParams(location.search).has("mirrored")
+                        ? 0
+                        : display.bounds.width,
+                    },
+                ...(spatial
+                  ? {
+                      arrangementBounds: {
+                        x: -1080,
+                        y: -400,
+                        width: 1080,
+                        height: 1920,
+                      },
+                      scale: 1,
+                    }
+                  : {}),
               },
-          ...(spatial
-            ? {
-                arrangementBounds: {
-                  x: -1080,
-                  y: -400,
-                  width: 1080,
-                  height: 1920,
-                },
-                scale: 1,
-              }
-            : {}),
-        },
-      ])[0],
+            ],
+      )[0],
       supported: createMemo(() => true),
       connect: async () => {},
       serverOwnsGeometry: createMemo(() =>
@@ -168,10 +186,14 @@ function Fixture() {
       inputReady,
       busy: createSignal(false)[0],
       message: createMemo(() =>
-        new URLSearchParams(location.search).has("input-error") &&
-        phase() === "viewing"
-          ? "Input connection failed. View remains connected; reconnect to control."
-          : undefined,
+        params.has("failure")
+          ? "Screen connection failed."
+          : params.has("stale-error")
+            ? "Old connection failure"
+            : new URLSearchParams(location.search).has("input-error") &&
+                phase() === "viewing"
+              ? "Input connection failed. View remains connected; reconnect to control."
+              : undefined,
       ),
       stats: createSignal<
         import("../../src/protocol/desktop-video.ts").DesktopVideoStats
@@ -193,7 +215,15 @@ function Fixture() {
         >()[0],
       selectedDisplayId,
       start() {
-        setPhase("viewing");
+        setPhase(
+          params.has("failure")
+            ? "error"
+            : params.has("connecting")
+              ? "connecting"
+              : params.has("loading") || params.has("unpaired")
+                ? "idle"
+                : "viewing",
+        );
         if (selectedDisplayId()) void model.selectDisplay(selectedDisplayId()!);
       },
       stop() {

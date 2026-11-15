@@ -415,73 +415,92 @@ function DesktopCatalogView(props: { onSelect: (displayId: string) => void }) {
     <section
       {...styles.root({ className: "rieul-desktop" })}
       ref={setPane}
-      style={{ overflow: narrow() ? "auto" : "hidden" }}
+      style={{ overflow: "auto" }}
       data-phase={desktop().phase()}
       data-controlling={desktop().controlling()}
       aria-label="Screen"
     >
-      {(desktop().message() ||
-        desktop().availabilityMessage() ||
-        desktop().phase() !== "viewing" ||
-        !desktop().displays().length) && (
-        <header {...styles.toolbar()}>
-          <details name="screen-toolbar-panel" {...styles.toolbarDisclosure()}>
-            <summary aria-label="Connection status">
-              {desktop().phase() === "connecting"
-                ? "Connecting…"
-                : desktop().phase() === "viewing" &&
-                    !desktop().displays().length
+      {!desktop().catalogStatusPending() &&
+        (desktop().message() ||
+          desktop().availabilityMessage() ||
+          desktop().phase() === "error" ||
+          desktop().phase() === "unsupported" ||
+          (desktop().phase() === "viewing" &&
+            !desktop().displays().length)) && (
+          <header {...styles.toolbar()}>
+            <details
+              name="screen-toolbar-panel"
+              {...styles.toolbarDisclosure()}
+            >
+              <summary aria-label="Connection status">
+                {desktop().phase() === "viewing" && !desktop().displays().length
                   ? "No displays"
                   : "Status !"}
-            </summary>
-            <div {...styles.toolbarPanel()}>
-              <p role="status">
-                {desktop().message() ??
-                  desktop().availabilityMessage() ??
-                  (desktop().phase() === "viewing"
-                    ? "No displays are available."
-                    : "Connecting to displays…")}
-              </p>
-            </div>
-          </details>
-        </header>
-      )}
+              </summary>
+              <div {...styles.toolbarPanel()}>
+                <p role="status">
+                  {desktop().message() ??
+                    desktop().availabilityMessage() ??
+                    (desktop().phase() === "viewing"
+                      ? "No displays are available."
+                      : "Screen is unavailable.")}
+                </p>
+              </div>
+            </details>
+          </header>
+        )}
       <nav
         {...styles.catalog()}
-        ref={setCatalog}
         aria-label="Displays"
         style={
           narrow()
             ? {
                 flex: "0 0 auto",
-                height: `${Math.min((Math.max(0, paneSize().width - 8) * arrangement().height) / arrangement().width + 8, Math.max(80, paneSize().height * 0.65))}px`,
+                height: "auto",
               }
             : undefined
         }
       >
-        <For each={arrangement().tiles}>
-          {(tile) => (
-            <button
-              type="button"
-              {...styles.previewTile()}
-              style={{
-                left: `${fit().left + tile.x * fit().scale}px`,
-                top: `${fit().top + tile.y * fit().scale}px`,
-                width: `${tile.width * fit().scale}px`,
-                height: `${tile.height * fit().scale}px`,
-              }}
-              aria-label={`Display ${tile.display.displayId}`}
-              title={`Open display ${tile.display.displayId}`}
-              disabled={desktop().phase() !== "viewing"}
-              onClick={() => props.onSelect(tile.display.displayId)}
-            >
-              <DesktopPreview display={tile.display} />
-            </button>
-          )}
-        </For>
+        <div
+          {...styles.arrangementContent({
+            className: "rieul-desktop-arrangement-content",
+          })}
+          ref={setCatalog}
+          style={
+            narrow()
+              ? {
+                  height: "auto",
+                  "aspect-ratio": `${arrangement().width} / ${arrangement().height}`,
+                  "max-height": "max(80px, calc(65cqh - 4rem))",
+                }
+              : undefined
+          }
+        >
+          <For each={arrangement().tiles}>
+            {(tile) => (
+              <button
+                type="button"
+                {...styles.previewTile()}
+                style={{
+                  left: `${fit().left + tile.x * fit().scale}px`,
+                  top: `${fit().top + tile.y * fit().scale}px`,
+                  width: `${tile.width * fit().scale}px`,
+                  height: `${tile.height * fit().scale}px`,
+                }}
+                aria-label={`Display ${tile.display.displayId}`}
+                title={`Open display ${tile.display.displayId}`}
+                disabled={desktop().phase() !== "viewing"}
+                onClick={() => props.onSelect(tile.display.displayId)}
+              >
+                <DesktopPreview display={tile.display} />
+              </button>
+            )}
+          </For>
+        </div>
       </nav>
-      {size().width > 0 &&
-        size().height > 0 &&
+      {paneSize().width > 0 &&
+        paneSize().height > 0 &&
+        desktop().displays().length > 0 &&
         (narrow() ||
           arrangement().overlapping ||
           arrangement().tiles.some(
@@ -772,9 +791,8 @@ namespace styles {
     padding: "0",
     overflow: "hidden",
     backgroundColor: theme.bgInverse,
-    border: "1px solid",
-    borderColor: theme.borderLight,
-    borderRadius: theme.radiusMd,
+    border: "0",
+    borderRadius: "0",
     cursor: "pointer",
     selectors: {
       "&:focus-visible": {
@@ -789,10 +807,22 @@ namespace styles {
   export const catalog = style({
     position: "relative",
     backgroundColor: "#000",
+    boxSizing: "border-box",
+    paddingBlock: "2rem",
+    paddingInline: "1em",
+    border: "0",
+    borderRadius: "0",
     flex: "1 1 0",
     minWidth: "0",
     minHeight: "0",
     overflow: "hidden",
+  });
+  export const arrangementContent = style({
+    position: "relative",
+    width: "100%",
+    height: "100%",
+    minWidth: "0",
+    minHeight: "0",
   });
   export const displayChoices = style({
     display: "grid",

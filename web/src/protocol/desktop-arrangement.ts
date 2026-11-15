@@ -70,8 +70,8 @@ export function fitDesktopArrangement(
   const scale = Math.max(
     0,
     Math.min(
-      Math.max(0, width - 8) / layout.width,
-      Math.max(0, height - 8) / layout.height,
+      Math.max(0, width) / layout.width,
+      Math.max(0, height) / layout.height,
     ),
   );
   return {
