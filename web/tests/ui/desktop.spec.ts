@@ -131,12 +131,9 @@ test("selected toolbar exposes compact accessible controls without Status or Opt
     exact: true,
   });
   await expect(control).toBeDisabled();
+  await expect(control).toHaveText("Control screen");
   await expect(control).toHaveAttribute("title", /Input connection failed/);
-  for (const label of [
-    "Back to displays",
-    "Control screen",
-    "Check quality support",
-  ]) {
+  for (const label of ["Back to displays", "Check quality support"]) {
     const button = toolbar.getByRole("button", { name: label, exact: true });
     await expect(button).toHaveAttribute("title", /.+/);
     expect((await button.textContent())!.trim()).toBe("");
@@ -258,6 +255,9 @@ test("control action distinguishes vacant and occupied ownership without taking 
   ).toBeEnabled();
   await expect(
     page.getByRole("button", { name: "Take control from another viewer" }),
+  ).toHaveText("Take control");
+  await expect(
+    page.getByRole("button", { name: "Take control from another viewer" }),
   ).toHaveAttribute("title", /release their held inputs/);
   await expect(page.getByLabel("Recorded input")).toHaveText("[]");
   await page
@@ -266,6 +266,9 @@ test("control action distinguishes vacant and occupied ownership without taking 
   await expect(
     page.getByRole("button", { name: "Release control", exact: true }),
   ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Release control", exact: true }),
+  ).toHaveText("Release control");
   await page.getByRole("button", { name: "Back to displays" }).click();
   await page
     .getByRole("button", { name: "Display fixture", exact: false })
@@ -323,6 +326,9 @@ test("same-monitor panes keep independent navigation and explicit shared input o
   await expect(
     second.getByRole("button", { name: "Control here", exact: true }),
   ).toBeVisible();
+  await expect(
+    second.getByRole("button", { name: "Control here", exact: true }),
+  ).toHaveText("Control here");
   await second.getByRole("button", { name: "Back to displays" }).click();
   await expect(
     first.getByLabel("Display fixture", { exact: true }),
@@ -360,6 +366,10 @@ test("direct toolbar keeps quality validation and legacy resize usable in a shor
   const screen = page.getByRole("region", { name: "Screen", exact: true });
   const toolbar = page.locator(".rieul-desktop-toolbar");
   await expect(toolbar.locator("summary")).toHaveCount(0);
+  const sizingLabel = page
+    .getByRole("combobox", { name: "Maximum video size" })
+    .locator("..");
+  await expect(sizingLabel.locator("svg")).toHaveCount(0);
   await page
     .getByRole("combobox", { name: "Maximum video size" })
     .selectOption("720");

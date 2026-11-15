@@ -2,9 +2,6 @@ import { global } from "zyzz/web";
 import { style, theme } from "../../../../zyzz.config.ts";
 import {
   ArrowLeft,
-  Monitor,
-  CircleStop,
-  Maximize2,
   Activity,
   Wifi,
   RefreshCw,
@@ -88,7 +85,7 @@ function DesktopSelectedView(props: { onBack: () => void }) {
         </Button>
         {desktop().controlling() && desktop().ownsInput(viewer) ? (
           <Button
-            size="icon"
+            size="sm"
             aria-label="Release control"
             title="Release control"
             aria-pressed="true"
@@ -96,11 +93,11 @@ function DesktopSelectedView(props: { onBack: () => void }) {
             disabled={desktop().busy()}
             onClick={() => void desktop().release()}
           >
-            <CircleStop size={16} />
+            Release control
           </Button>
         ) : (
           <Button
-            size="icon"
+            size="sm"
             disabled={
               !desktop().inputReady() ||
               desktop().busy() ||
@@ -130,7 +127,11 @@ function DesktopSelectedView(props: { onBack: () => void }) {
                 : desktop().takeover(viewer))
             }
           >
-            <Monitor size={16} />
+            {desktop().controlling()
+              ? "Control here"
+              : desktop().control().holderAttachId
+                ? "Take control"
+                : "Control screen"}
           </Button>
         )}
         {!desktop().serverOwnsGeometry() && (
@@ -138,7 +139,6 @@ function DesktopSelectedView(props: { onBack: () => void }) {
             {...styles.toolbarField()}
             title="Maximum video size. Changes video only, not OS resolution; releases held inputs."
           >
-            <Maximize2 size={16} />
             <select
               {...styles.select()}
               style={{ width: "112px" }}
