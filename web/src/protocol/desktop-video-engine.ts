@@ -303,7 +303,8 @@ export class DesktopVideoEngine {
           state.group !== groupId
         )
           throw new Error("Screen group replaced");
-        if (state.decoder.decodeQueueSize >= 3)
+        const decoder = state.decoder;
+        if (decoder.decodeQueueSize >= 3) {
           decodeWaitBudgetMs -= await this.waitForCapacity(
             state,
             groupId,
@@ -311,6 +312,19 @@ export class DesktopVideoEngine {
             controller.signal,
             decodeWaitBudgetMs,
           );
+          if (
+            this.closed ||
+            controller.signal.aborted ||
+            generation !== this.generation ||
+            this.tracks.get(object.trackId) !== state ||
+            state.group !== groupId ||
+            state.decoder !== decoder ||
+            decoder.state !== "configured"
+          )
+            throw new Error("Screen group replaced");
+          if (decoder.decodeQueueSize >= 3)
+            throw new Error("Screen decoder backpressure");
+        }
         const started = performance.now();
         state.timings.set(object.timestampMicros, {
           started,
