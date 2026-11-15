@@ -625,3 +625,30 @@ struct SetDesktopQualityReq {
   @ id - 4
   policy: DesktopQualityPolicy,
 }
+
+# description
+| Selects one existing display on an authenticated topology-only attachment.
+| Geometry remains host owned. Clear stops video and releases control.
+@ id - 107
+@ stream - unary
+proc SelectExistingDesktop = SelectExistingDesktopReq -> DesktopConfiguration throws DesktopError
+
+struct SelectExistingDesktopReq {
+  @ id - 1
+  attachId: string,
+  @ id - 2
+  expectedLayoutEpoch: u53,
+  @ id - 3
+  selection: DesktopDisplaySelection,
+}
+
+union DesktopDisplaySelection {
+  @ id - 0
+  Clear(
+  ),
+  @ id - 1
+  Display(
+    @ id - 1
+    displayId: string,
+  ),
+}

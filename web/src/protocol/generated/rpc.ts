@@ -107,6 +107,7 @@ export enum ProcId {
   AttachExistingDesktop = 104,
   QueryDesktopQualitySupport = 105,
   SetDesktopQuality = 106,
+  SelectExistingDesktop = 107,
 }
 
 export interface SubscribeWindowDetailReq {
@@ -1079,6 +1080,17 @@ export interface SetDesktopQualityReq {
   revision: number;
   policy: DesktopQualityPolicy;
 }
+
+export interface SelectExistingDesktopReq {
+  attachId: string;
+  expectedLayoutEpoch: number;
+  selection: DesktopDisplaySelection;
+}
+
+export type DesktopDisplaySelection =
+  | { type: "clear" }
+  | { type: "display"; displayId: string }
+;
 
 export interface DaemonInfo {
   supportedProcIds: number[];
@@ -3573,6 +3585,18 @@ export const setDesktopQualityProc: ProcCodec<SetDesktopQualityReq, DesktopConfi
   decodeError: decodeDesktopErrorValue,
 };
 
+export const selectExistingDesktopProc: ProcCodec<SelectExistingDesktopReq, DesktopConfiguration, DesktopError> = {
+  id: ProcId.SelectExistingDesktop,
+  name: "SelectExistingDesktop",
+  stream: "unary",
+  requestType: "SelectExistingDesktopReq",
+  responseType: "DesktopConfiguration",
+  errorType: "DesktopError",
+  encodeRequest: encodeSelectExistingDesktopReqValue,
+  decodeResponse: decodeDesktopConfigurationValue,
+  decodeError: decodeDesktopErrorValue,
+};
+
 export const procs = {
   [ProcId.GetDaemonInfo]: getDaemonInfoProc,
   [ProcId.StartPairing]: startPairingProc,
@@ -3678,6 +3702,7 @@ export const procs = {
   [ProcId.AttachExistingDesktop]: attachExistingDesktopProc,
   [ProcId.QueryDesktopQualitySupport]: queryDesktopQualitySupportProc,
   [ProcId.SetDesktopQuality]: setDesktopQualityProc,
+  [ProcId.SelectExistingDesktop]: selectExistingDesktopProc,
 } as const;
 
 export function encodeSubscribeWindowDetailReqValue(value: SubscribeWindowDetailReq): CborValue {
@@ -8047,6 +8072,53 @@ export function decodeSetDesktopQualityReqValue(value: CborValue): SetDesktopQua
     revision: fieldOrDefault(fields.get(3), (value) => integer(value), () => 0),
     policy: fieldOrDefault(fields.get(4), (value) => decodeDesktopQualityPolicyValue(value), () => defaultDesktopQualityPolicy()),
   };
+}
+
+export function encodeSelectExistingDesktopReqValue(value: SelectExistingDesktopReq): CborValue {
+  const fields = new Map<number, CborValue>();
+  fields.set(1, text(required(value.attachId, "SelectExistingDesktopReq.attachId")));
+  fields.set(2, u53(required(value.expectedLayoutEpoch, "SelectExistingDesktopReq.expectedLayoutEpoch")));
+  fields.set(3, encodeDesktopDisplaySelectionValue(required(value.selection, "SelectExistingDesktopReq.selection")));
+  return fields;
+}
+
+export function decodeSelectExistingDesktopReqValue(value: CborValue): SelectExistingDesktopReq {
+  const fields = expectMap(value);
+  return {
+    attachId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+    expectedLayoutEpoch: fieldOrDefault(fields.get(2), (value) => integer(value), () => 0),
+    selection: fieldOrDefault(fields.get(3), (value) => decodeDesktopDisplaySelectionValue(value), () => defaultDesktopDisplaySelection()),
+  };
+}
+
+export function encodeDesktopDisplaySelectionValue(value: DesktopDisplaySelection): CborValue {
+  switch (value.type) {
+    case "clear": {
+      const fields = new Map<number, CborValue>();
+      return [0, fields];
+    }
+    case "display": {
+      const fields = new Map<number, CborValue>();
+      fields.set(1, text(required(value.displayId, "DesktopDisplaySelection.Display.displayId")));
+      return [1, fields];
+    }
+  }
+}
+
+export function decodeDesktopDisplaySelectionValue(value: CborValue): DesktopDisplaySelection {
+  const [variantId, fields] = expectUnion(value);
+  switch (variantId) {
+    case 0:
+      return {
+        type: "clear",
+      };
+    case 1:
+      return {
+        type: "display",
+        displayId: fieldOrDefault(fields.get(1), (value) => textValue(value), () => ""),
+      };
+  }
+  throw new Error(`unknown DesktopDisplaySelection variant ${variantId}`);
 }
 
 export function encodeDaemonInfoValue(value: DaemonInfo): CborValue {
@@ -14062,6 +14134,20 @@ function defaultSetDesktopQualityReq(): SetDesktopQualityReq {
     layoutEpoch: 0,
     revision: 0,
     policy: defaultDesktopQualityPolicy(),
+  };
+}
+
+function defaultSelectExistingDesktopReq(): SelectExistingDesktopReq {
+  return {
+    attachId: "",
+    expectedLayoutEpoch: 0,
+    selection: defaultDesktopDisplaySelection(),
+  };
+}
+
+function defaultDesktopDisplaySelection(): DesktopDisplaySelection {
+  return {
+    type: "clear",
   };
 }
 

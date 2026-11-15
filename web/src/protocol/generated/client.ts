@@ -111,6 +111,7 @@ import {
   attachExistingDesktopProc,
   queryDesktopQualitySupportProc,
   setDesktopQualityProc,
+  selectExistingDesktopProc,
 } from "./rpc.ts";
 import type {
   ActivateClusterPrimaryReq,
@@ -227,6 +228,7 @@ import type {
   ScheduleInfo,
   SchedulesTableEvent,
   SealPrimaryTransferReq,
+  SelectExistingDesktopReq,
   SetAgentSessionConfigReq,
   SetAgentSessionConfigRes,
   SetDesktopControlReq,
@@ -674,4 +676,8 @@ export function queryDesktopQualitySupport(transport: WebTransport, request: Des
 
 export function setDesktopQuality(transport: WebTransport, request: SetDesktopQualityReq): Promise<DesktopConfiguration> {
   return callUnary(transport, setDesktopQualityProc, request);
+}
+
+export function selectExistingDesktop(transport: WebTransport, request: SelectExistingDesktopReq): Promise<DesktopConfiguration> {
+  return callUnary(transport, selectExistingDesktopProc, request);
 }

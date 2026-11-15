@@ -102,7 +102,7 @@ impl Runtime {
     ) -> Result<DesktopConfiguration, Error> {
         self.mutate(|d| {
             d.authorize(auth, connection, id, now)?;
-            if !d.attachments[id].server_viewports {
+            if d.attachments[id].mode == AttachmentMode::Legacy {
                 return Err(Error::Unsupported);
             }
             let config = self.configuration(id).ok_or(Error::Stale)?;
@@ -306,6 +306,7 @@ impl Runtime {
             },
             true,
             Some((revision(config), policy, new_policy)),
+            None,
         )
     }
     pub(crate) fn record_delivery(&self, id: &str, track: &DesktopTrack, slow: bool) {

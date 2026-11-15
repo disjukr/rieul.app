@@ -283,7 +283,10 @@ impl HostRpcHandler {
                     previous_layout = layout;
                     previous_cursor = None;
                 }
-                if existing {
+                let config_id = id.clone();
+                let automatic = blocking(self.desktop.clone(), move |r| r.automatically_configured(&config_id))
+                    .await.map_err(|e| anyhow::anyhow!("{e:?}"))?;
+                if automatic {
                     let config_id = id.clone();
                     let missing = blocking(self.desktop.clone(), move |r| {
                         Ok(r.configuration(&config_id).is_none())
@@ -314,7 +317,7 @@ impl HostRpcHandler {
                         }
                     }
                 }
-                if existing && quality_tick {
+                if automatic && quality_tick {
                     let (auth, connection, _) = self
                         .desktop_auth()
                         .await
@@ -406,6 +409,27 @@ impl HostRpcHandler {
                     previous = current;
                 }
             }
+        })
+    }
+    pub(super) fn select_existing_desktop_rpc<'a>(
+        &'a mut self,
+        request: SelectExistingDesktopReq,
+    ) -> RpcHandlerFuture<'a, Result<UnaryRpcOutcome>> {
+        Box::pin(async move {
+            let result = match self.desktop_auth().await {
+                Ok((auth, connection, _)) => {
+                    let work = self.desktop.capture_work();
+                    blocking(self.desktop.clone(), move |r| {
+                        let _work = work.ok_or(desktop::Error::Busy)?;
+                        r.select_existing(&auth, connection, now_ms(), request)
+                    }).await
+                }
+                Err(e) => Err(e),
+            };
+            Ok(match result {
+                Ok(value) => RpcResponse::SelectExistingDesktop(value).into(),
+                Err(e) => UnaryRpcOutcome::Message(failure(ProcId::SelectExistingDesktop, e, false)),
+            })
         })
     }
     pub(super) fn query_desktop_quality_support_rpc<'a>(

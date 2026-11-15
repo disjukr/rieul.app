@@ -74,10 +74,10 @@ const rustBaseline = {
   wire: "ef71c3825e1750fea98e7734423be01aec84aa0642765c7fe05d9388c1befd1a",
   "socket-wire":
     "72af8be28ae16e56d51180ab97c92e6884d7f25a810570e02e7bacf8b3b61109",
-  // Additive codec and terminal recovery fields; existing tags stay unchanged.
-  rpc: "b245b9459fe9ccb164754617415c3f36af267762a9b8044f345308ab154d01f1",
-  // Imported optional stripe geometry; private command tags/fields unchanged.
-  ipc: "d4aaadf1e932ddd88a71a1688a0d7f8f1b3481cc6ca2072faff3e97c732e7827",
+  // Additive selected-display RPC; existing tags stay unchanged.
+  rpc: "70861353feed7c082768651fe0e841645cdfcfd7b452c5e8d1a207af476e6f2a",
+  // Imported selected-display types; private command tags/fields unchanged.
+  ipc: "adbb215549ae91cadff40367b4f8687008fbb24641c6c84864e5da46014259c8",
 };
 for (const [schema, hash] of Object.entries(rustBaseline))
   test(`Node Rust codegen preserves ${schema} baseline and is deterministic`, async () =>

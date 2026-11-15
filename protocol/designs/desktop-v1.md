@@ -410,3 +410,26 @@ Synthetic regression fixtures cover negotiation and fallback without capturing a
 user display. Actual encoder throughput, decoded output and browser/platform
 interoperability still require hardware validation; compile/tests alone do not
 establish that HEVC is faster or more efficient on a particular device.
+
+## Selected existing display
+
+`SelectExistingDesktop` (107) is discovered separately through supportedProcIds.
+The client first uses `AttachDesktop` (67) as an authenticated, leased topology
+stream without configuring video. Selection sends only the attachment ID, current
+layout epoch and an exact display ID, or explicit Clear. The host derives one
+full-display viewport without changing OS geometry. Selected attachments use the
+existing quality query/policy procedures (105/106); legacy viewport configuration
+is rejected after selection or Clear. `AttachExistingDesktop` (104) retains its
+all-display behavior and cannot be converted through 107.
+
+Switching or clearing selection releases only that attachment's control and held
+input. Clear emits an empty configuration and retains topology discovery without
+restoring capture or control. Topology changes release selected control; if the
+selected display disappears, the attachment becomes topology-only and never
+substitutes another display or resumes on replug. Selection/probe changes are
+epoch/revision fenced and require renewed quality discovery. Each request remains
+bound to the authenticated connection and existing OS permissions. Discovery via
+67 still requires compatible capture/codec/input-mode negotiation; this addition
+does not advertise permission-independent topology discovery. Older daemons may
+use 67/68 for selected legacy viewports without claiming adaptive quality; 104
+must never be used as a hidden all-display fallback for selected-only viewing.

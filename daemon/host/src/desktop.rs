@@ -12,6 +12,9 @@ use std::{
 
 #[path = "desktop_quality.rs"]
 mod quality;
+#[cfg(test)]
+#[path = "desktop_selection_tests.rs"]
+mod selection_tests;
 pub use quality::validate_video_probe;
 
 pub const PROFILE: u64 = 1;
@@ -50,6 +53,17 @@ pub trait Input {
         self.send(event)
     }
 }
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum AttachmentMode {
+    Legacy,
+    ExistingAll,
+    ExistingOne(String),
+    TopologyOnly,
+}
+struct ModeChange {
+    expected: Option<AttachmentMode>,
+    next: AttachmentMode,
+}
 struct Attachment {
     profile: u64,
     connection: u64,
@@ -58,7 +72,7 @@ struct Attachment {
     deadline: u64,
     sequence: u64,
     viewports: BTreeMap<String, DesktopViewport>,
-    server_viewports: bool,
+    mode: AttachmentMode,
     _work: WorkGuard,
 }
 pub struct Desktop<I> {
@@ -129,7 +143,7 @@ impl<I: Input> Desktop<I> {
                 deadline: now.saturating_add(LEASE_MS),
                 sequence: 0,
                 viewports: BTreeMap::new(),
-                server_viewports: false,
+                mode: AttachmentMode::Legacy,
                 _work: work,
             },
         );
@@ -245,6 +259,7 @@ impl<I: Input> Desktop<I> {
                 }
             }
             DesktopControlAction::Acquire | DesktopControlAction::Takeover => {
+                if self.attachments[id].mode == AttachmentMode::TopologyOnly { return Err(Error::Invalid); }
                 if self.holder.as_deref() == Some(id) {
                     return Ok(());
                 }
@@ -1235,8 +1250,12 @@ impl Runtime {
                 return Ok(());
             }
             if previous.is_some() {
-                if d.holder.is_some() {
-                    d.release_held()?;
+                if let Some(holder) = d.holder.as_ref() {
+                    if matches!(d.attachments[holder].mode, AttachmentMode::ExistingOne(_) | AttachmentMode::TopologyOnly) {
+                        d.release()?;
+                    } else {
+                        d.release_held()?;
+                    }
                 }
                 d.layout_changed()?;
                 self.configurations
@@ -1438,6 +1457,42 @@ impl Runtime {
         now: u64,
         id: &str,
     ) -> Result<rieul_daemon_core::generated::rpc::DesktopConfiguration, Error> {
+        let mode = self.state.lock().map_err(|_| Error::Backend)?
+            .attachments.get(id).ok_or(Error::NotFound)?.mode.clone();
+        let next = match &mode {
+            AttachmentMode::Legacy => AttachmentMode::ExistingAll,
+            mode => mode.clone(),
+        };
+        self.configure_existing_mode(auth, connection, now, id, None, next, Some(mode))
+    }
+    pub(crate) fn automatically_configured(&self, id: &str) -> Result<bool, Error> {
+        Ok(self.state.lock().map_err(|_| Error::Backend)?.attachments
+            .get(id).ok_or(Error::NotFound)?.mode != AttachmentMode::Legacy)
+    }
+    pub(crate) fn select_existing(
+        &self, auth: &impl Credentials, connection: u64, now: u64,
+        request: rieul_daemon_core::generated::rpc::SelectExistingDesktopReq,
+    ) -> Result<rieul_daemon_core::generated::rpc::DesktopConfiguration, Error> {
+        use rieul_daemon_core::generated::rpc::DesktopDisplaySelection;
+        self.mutate(|d| d.authorize(auth, connection, &request.attach_id, now))?;
+        self.refresh_layout()?;
+        let mode = match request.selection {
+            DesktopDisplaySelection::Clear {} => AttachmentMode::TopologyOnly,
+            DesktopDisplaySelection::Display { display_id } => {
+                if self.capabilities().capture != rieul_daemon_core::generated::rpc::DesktopAvailability::Available {
+                    return Err(Error::Unsupported);
+                }
+                if display_id.is_empty() || display_id.len() > 128 { return Err(Error::Invalid); }
+                AttachmentMode::ExistingOne(display_id)
+            }
+        };
+        self.configure_existing_mode(auth, connection, now, &request.attach_id,
+            Some(request.expected_layout_epoch), mode, None)
+    }
+    fn configure_existing_mode(
+        &self, auth: &impl Credentials, connection: u64, now: u64, id: &str,
+        expected_epoch: Option<u64>, mut mode: AttachmentMode, expected_mode: Option<AttachmentMode>,
+    ) -> Result<rieul_daemon_core::generated::rpc::DesktopConfiguration, Error> {
         use rieul_daemon_core::generated::rpc::*;
         // Preserve the legacy viewer's bounded video defaults until runtime quality
         // negotiation exists. These are encoding limits, never OS display settings.
@@ -1451,6 +1506,19 @@ impl Runtime {
         } = self.layout_event()?
         else {
             unreachable!()
+        };
+        if expected_epoch.is_some_and(|epoch| epoch != layout_epoch) { return Err(Error::Stale); }
+        let displays = match &mode {
+            AttachmentMode::ExistingOne(id) => {
+                let selected: Vec<_> = displays.into_iter().filter(|d| &d.display_id == id).collect();
+                if selected.is_empty() {
+                    if expected_epoch.is_some() { return Err(Error::NotFound); }
+                    mode = AttachmentMode::TopologyOnly;
+                }
+                selected
+            }
+            AttachmentMode::TopologyOnly => Vec::new(),
+            _ => displays,
         };
         // Never silently omit a display or describe a subset as the whole desktop.
         if displays.len() > MAX_VIEWPORTS || budget < displays.len() as u64 {
@@ -1492,6 +1560,7 @@ impl Runtime {
             },
             true,
             None,
+            Some(ModeChange { expected: expected_mode, next: mode }),
         )
     }
     pub(crate) fn configure(
@@ -1501,7 +1570,7 @@ impl Runtime {
         now: u64,
         request: rieul_daemon_core::generated::rpc::ConfigureDesktopViewportsReq,
     ) -> Result<rieul_daemon_core::generated::rpc::DesktopConfiguration, Error> {
-        self.configure_impl(auth, connection, now, request, false, None)
+        self.configure_impl(auth, connection, now, request, false, None, None)
     }
     fn configure_impl(
         &self,
@@ -1511,12 +1580,27 @@ impl Runtime {
         request: rieul_daemon_core::generated::rpc::ConfigureDesktopViewportsReq,
         server_owned: bool,
         quality_change: Option<(u64, DesktopQualityPolicy, bool)>,
+        mode_change: Option<ModeChange>,
     ) -> Result<rieul_daemon_core::generated::rpc::DesktopConfiguration, Error> {
         use rieul_daemon_core::generated::rpc::*;
         let backend = self.backend.as_ref().ok_or(Error::Unsupported)?;
         let displays = backend.displays();
         self.mutate(|d| {
             d.authorize(auth, connection, &request.attach_id, now)?;
+            if request.layout_epoch != d.layout_epoch {
+                return Err(Error::Stale);
+            }
+            if mode_change.as_ref().and_then(|m| m.expected.as_ref()).is_some_and(|expected| *expected != d.attachments[&request.attach_id].mode) {
+                return Err(Error::Stale);
+            }
+            if mode_change.as_ref().is_some_and(|m| m.next != AttachmentMode::ExistingAll) {
+                if d.attachments[&request.attach_id].mode == AttachmentMode::ExistingAll {
+                    return Err(Error::Invalid);
+                }
+                if d.holder.as_deref() == Some(&request.attach_id) {
+                    d.release()?;
+                }
+            }
             if let Some((revision, _, _)) = &quality_change {
                 let current = self.configuration(&request.attach_id).ok_or(Error::Stale)?;
                 if quality::revision(&current) != *revision
@@ -1529,7 +1613,7 @@ impl Runtime {
                     return Err(Error::Stale);
                 }
             }
-            if !server_owned && d.attachments[&request.attach_id].server_viewports {
+            if !server_owned && (d.attachments[&request.attach_id].mode != AttachmentMode::Legacy) {
                 return Err(Error::Invalid);
             }
             if d.attachments[&request.attach_id].profile == 2 {
@@ -1592,10 +1676,11 @@ impl Runtime {
                 request.viewports.clone(),
                 request.total_bitrate,
             )?;
-            d.attachments
-                .get_mut(&request.attach_id)
-                .unwrap()
-                .server_viewports = server_owned;
+            if let Some(mode) = mode_change {
+                d.attachments.get_mut(&request.attach_id).unwrap().mode = mode.next;
+                self.quality.lock().map_err(|_| Error::Backend)?.remove(&request.attach_id);
+                self.quality_samples.lock().map_err(|_| Error::Backend)?.retain(|(id, _), _| id != &request.attach_id);
+            }
             let configuration = DesktopConfiguration {
                 layout_epoch: request.layout_epoch,
                 total_bitrate: request.total_bitrate,
