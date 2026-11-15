@@ -286,7 +286,10 @@ test("Screen workbench opens the catalog without manual connection controls", as
     }),
   ).toHaveCount(0);
   await expect(page.getByRole("button", { name: /control/i })).toHaveCount(0);
-  await expect(
-    page.getByRole("region", { name: "Screen" }).getByRole("status"),
-  ).toContainText("Select a paired daemon to connect");
+  const screen = page.getByRole("region", { name: "Screen" });
+  await expect(screen.locator(":scope > p")).toHaveCount(0);
+  await screen.getByLabel("Connection status", { exact: true }).click();
+  await expect(screen.getByRole("status")).toContainText(
+    "Select a paired daemon to connect",
+  );
 });
