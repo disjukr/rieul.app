@@ -1,4 +1,5 @@
 import "../../src/solid/scopes.ts";
+import "../../src/state/machine.tsx";
 import "../../src/theme.css";
 import { TestBunjaStoreProvider } from "./bunja-store.tsx";
 import { bunja, override } from "bunja";
