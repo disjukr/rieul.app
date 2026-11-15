@@ -6,6 +6,7 @@ import { TestBunjaStoreProvider } from "./bunja-store.tsx";
 import { rpcSessionStub } from "../helpers/rpc-session.ts";
 import { rpcSessionBunja } from "../../src/state/rpc-session.ts";
 import { ClusterSection } from "../../src/view/workbench/tool/daemon/cluster.tsx";
+import { ClusterAccessSection } from "../../src/view/workbench/tool/daemon/cluster-access.tsx";
 import type { ClusterStatus } from "../../src/cluster/connection.ts";
 import "../../src/theme.css";
 import { fixture, id } from "../helpers/cluster-history.ts";
@@ -76,6 +77,9 @@ render(
       ]}
     >
       <ClusterSection />
+      <section aria-label="Clients">
+        <ClusterAccessSection />
+      </section>
     </TestBunjaStoreProvider>
   ),
   document.getElementById("root")!,

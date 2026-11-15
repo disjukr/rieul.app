@@ -14,7 +14,6 @@ import {
   leaveCluster,
   cancelJoin,
   transferPrimary,
-  revokeClusterGrant,
 } from "../../../../cluster/manage.ts";
 import { Button } from "../../../ui/button.tsx";
 import { style, theme } from "../../../../zyzz.config.ts";
@@ -24,10 +23,9 @@ export function ClusterSection() {
   const [busy, setBusy] = createSignal(false),
     [error, setError] = createSignal<string>(),
     [confirmation, setConfirmation] = createSignal<
-      "create" | "join" | "leave" | "cancelJoin" | "transfer" | "revoke"
+      "create" | "join" | "leave" | "cancelJoin" | "transfer"
     >(),
     [source, setSource] = createSignal(""),
-    [grant, setGrant] = createSignal(""),
     [verified, setVerified] = createSignal<VerifiedCluster>();
   createEffect(
     () => machines().selectedId(),
@@ -74,7 +72,6 @@ export function ClusterSection() {
           : machine.cluster.admissionId ===
               hex(current.head.primaryAdmissionId);
       });
-  const grants = () => Array.from(verified()?.grants.entries() ?? []);
   const managementMessage = () =>
     transition() === "active"
       ? "This daemon is the primary. Membership changes require it to be online."
@@ -121,17 +118,6 @@ export function ClusterSection() {
         if (!selected) throw new Error("Choose the verified transfer target");
         await transferPrimary(transport, selected);
       }
-      if (action === "revoke") {
-        const selected = grants().find(([id]) => id === grant());
-        if (!selected)
-          throw new Error("The cluster approval is no longer current");
-        await revokeClusterGrant(
-          transport,
-          Uint8Array.from(selected[0].match(/../g)!, (byte) =>
-            parseInt(byte, 16),
-          ),
-        );
-      }
       if (targetId && membership?.type === "member") {
         const cluster = {
           id: hex(membership.head.clusterId),
@@ -167,48 +153,7 @@ export function ClusterSection() {
                 : "Primary cancellation is pending."}
             </p>
           ))}
-          {memberState() ? (
-            <>
-              <p>{managementMessage()}</p>
-              <h4>Cluster approvals</h4>
-              <p>
-                These approvals grant access across the cluster. Local pairings
-                are managed separately. Revocation reaches offline replicas when
-                they synchronize.
-              </p>
-              {grants().map(([id, approval]) => (
-                <div {...styles.confirm()}>
-                  <span {...styles.identifier()}>
-                    Approval {id}
-                    {id ===
-                    (status().record?.grantId
-                      ? hex(status().record!.grantId!)
-                      : "")
-                      ? " (this browser)"
-                      : ""}
-                  </span>
-                  <span>
-                    Issuer admission: {hex(approval.issuer).slice(0, 12)}
-                  </span>
-                  <span>
-                    {approval.expires * 1000 <= Date.now()
-                      ? "Expired"
-                      : "Expires"}
-                    : {new Date(approval.expires * 1000).toLocaleString()}
-                  </span>
-                  <Button
-                    disabled={busy()}
-                    onClick={() => {
-                      setGrant(id);
-                      setConfirmation("revoke");
-                    }}
-                  >
-                    Revoke cluster approval…
-                  </Button>
-                </div>
-              ))}
-            </>
-          ) : null}
+          {memberState() ? <p>{managementMessage()}</p> : null}
           <div {...styles.actions()}>
             {transition() === "active" ||
             transition() === "sealed" ||
@@ -286,12 +231,6 @@ export function ClusterSection() {
                   . Once sealed, the previous primary cannot resume writes. If
                   the target is offline, activation remains pending; there is no
                   automatic promotion.
-                </p>
-              ) : confirmation() === "revoke" ? (
-                <p {...styles.identifier()}>
-                  Revoke cluster approval {grant()} across all members. This
-                  does not remove a local pairing. Revoking this browser’s
-                  approval can disconnect its cluster sessions.
                 </p>
               ) : confirmation() === "cancelJoin" ? (
                 <p>

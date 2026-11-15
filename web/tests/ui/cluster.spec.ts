@@ -129,7 +129,7 @@ test("another tab's revocation fences automatic expired-grant renewal", async ({
   await other.close();
 });
 
-test("management phases, approval scope, and unresolved removal remain distinct", async ({
+test("Cluster overview omits approvals while Clients retains cluster-scoped revocation", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
@@ -149,18 +149,43 @@ test("management phases, approval scope, and unresolved removal remain distinct"
       ).clusterFixture.management(phase);
     }, phase);
     await expect(region).toContainText(message);
-    await expect(region).toContainText("(this browser)");
-    await expect(region).toContainText("Local pairings are managed separately");
+    await expect(region).not.toContainText("(this browser)");
+    await expect(
+      region.getByRole("button", { name: "Revoke cluster approval…" }),
+    ).toHaveCount(0);
   }
-  const revoke = region.getByRole("button", {
+  const access = page.getByRole("region", {
+    name: "Cluster access",
+    exact: true,
+  });
+  const summary = access.locator("summary");
+  await summary.focus();
+  await expect(summary).toBeFocused();
+  await summary.hover();
+  await expect(access.getByRole("button")).toHaveCount(0);
+  await summary.click();
+  await expect(access).toContainText("(this browser)");
+  await expect(access).toContainText("Local pairings are managed separately");
+  const revoke = access.getByRole("button", {
     name: "Revoke cluster approval…",
   });
   await revoke.focus();
   await expect(revoke).toBeFocused();
   await revoke.hover();
   await revoke.click();
-  await expect(region).toContainText("This does not remove a local pairing");
-  await region.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(access).toContainText("This does not remove a local pairing");
+  await expect(access).toContainText("can disconnect its cluster sessions");
+  await access.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(
+    access.getByRole("button", { name: "Confirm", exact: true }),
+  ).toHaveCount(0);
+  await revoke.click();
+  await access.getByRole("button", { name: "Cancel", exact: true }).click();
+  expect(
+    await access.evaluate((node) => node.scrollWidth <= node.clientWidth),
+  ).toBe(true);
+  await summary.click();
+  await expect(revoke).toBeHidden();
   await page.evaluate(() =>
     (
       window as unknown as { clusterFixture: { unresolved(): void } }
@@ -169,6 +194,7 @@ test("management phases, approval scope, and unresolved removal remain distinct"
   await expect(region.getByRole("alert")).toContainText(
     "removed issuer cannot finish cancellation automatically",
   );
+  await expect(access).toHaveCount(0);
   expect(
     await region.evaluate((node) => node.scrollWidth <= node.clientWidth),
   ).toBe(true);

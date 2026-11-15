@@ -1,3 +1,4 @@
+import { ClusterAccessSection } from "./cluster-access.tsx";
 import { ClusterSection } from "./cluster.tsx";
 import { style } from "../../../../zyzz.config.ts";
 import { DaemonVersionRow } from "./updates.tsx";
@@ -726,6 +727,7 @@ function ClientsPage(props: ClientsPageProps) {
               onOpenClient={props.onOpenClient}
               onRemoveClient={props.onRemoveClient}
             />
+            <ClusterAccessSection />
           </section>
         );
       })()}
