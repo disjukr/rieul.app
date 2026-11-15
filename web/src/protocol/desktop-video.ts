@@ -1,5 +1,6 @@
 import type { DesktopCodec, DesktopConfiguration } from "./generated/rpc.ts";
 import { DesktopVideoEngine } from "./desktop-video-engine.ts";
+import { DesktopMediaGate } from "./desktop-video-gate.ts";
 import { desktopMediaPort } from "./desktop-media-router.ts";
 export type { DesktopVideoStats } from "./desktop-video-engine.ts";
 /** Client policy only; never infer hardware use from WebCodecs preference hints.
@@ -56,12 +57,14 @@ export async function supportedDesktopCodecs(
  * drawing stays with its DOM owner. Unsupported worker APIs retain the engine. */
 export class DesktopVideoReceiver {
   private mediaPort: ReturnType<typeof desktopMediaPort>;
+  private mediaGate: DesktopMediaGate;
   private inner?:
     | DesktopVideoEngine
     | import("./desktop-video-worker-client.ts").WorkerVideoReceiver;
   private closed = false;
   private initializing?: import("./desktop-video-worker-client.ts").WorkerVideoReceiver;
   private ready: Promise<void>;
+  private configurationKey = "";
   workerFailure?: string;
   get execution(): "starting" | "worker" | "main" | "closed" {
     return this.closed
@@ -74,7 +77,12 @@ export class DesktopVideoReceiver {
   }
   constructor(...args: ConstructorParameters<typeof DesktopVideoEngine>) {
     this.mediaPort = desktopMediaPort(args[0], args[1]);
-    args[0] = this.mediaPort.transport;
+    this.mediaGate = new DesktopMediaGate(
+      this.mediaPort.transport.incomingUnidirectionalStreams,
+    );
+    args[0] = {
+      incomingUnidirectionalStreams: this.mediaGate.streams,
+    } as WebTransport;
     this.ready = (async () => {
       let worker:
         | import("./desktop-video-worker-client.ts").WorkerVideoReceiver
@@ -111,15 +119,34 @@ export class DesktopVideoReceiver {
       worker?.start();
     })();
   }
+  prepareConfiguration(): void {
+    this.mediaGate.prepare();
+  }
   async configure(configuration: DesktopConfiguration): Promise<void> {
-    await this.ready;
-    if (!this.closed) await this.inner!.configure(configuration);
+    const revision = this.mediaGate.prepare();
+    try {
+      await this.ready;
+      if (this.closed) return;
+      const key = JSON.stringify(configuration);
+      if (key !== this.configurationKey)
+        await this.inner!.configure(configuration);
+      if (this.mediaGate.current(revision)) {
+        this.configurationKey = key;
+        this.mediaGate.release(revision);
+      }
+    } catch (error) {
+      if (this.mediaGate.current(revision)) {
+        this.close();
+        throw error;
+      }
+    }
   }
   requestRefresh(viewportId: string): void {
     if (!this.closed) this.inner?.requestRefresh(viewportId);
   }
   close(): void {
     this.closed = true;
+    this.mediaGate.close();
     this.mediaPort.close();
     this.initializing?.close();
     this.inner?.close();

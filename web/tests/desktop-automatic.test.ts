@@ -170,6 +170,7 @@ mock.module("../src/protocol/desktop-video.ts", {
       ) {
         renderFrame = render;
       }
+      prepareConfiguration() {}
       requestRefresh(id: string) {
         refreshes.push(id);
       }

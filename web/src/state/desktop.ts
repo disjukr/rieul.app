@@ -360,7 +360,11 @@ export const desktopBunja = bunja(() => {
     const nextCodecEpoch = Math.max(0, ...next.tracks.map((t) => t.codecEpoch));
     if (next.tracks.length && nextCodecEpoch < newestCodecEpoch) return;
     const key = JSON.stringify(next);
-    if (key === configKey) return;
+    if (key === configKey) {
+      if (configuration() && JSON.stringify(configuration()) === key)
+        await video?.configure(next);
+      return;
+    }
     const previous = configuration();
     if (
       previous &&
@@ -395,7 +399,17 @@ export const desktopBunja = bunja(() => {
     if (next.tracks.some((t) => !offeredCodecs.includes(t.codec.codec)))
       throw new Error("Daemon selected an unoffered screen codec");
     currentCodec = next.tracks[0]?.codec.codec ?? "";
-    await video?.configure(next);
+    try {
+      await video?.configure(next);
+    } catch (error) {
+      if (
+        token !== generation ||
+        applyRevision !== configurationRevision ||
+        selectedRevision !== selectionRevision
+      )
+        return;
+      throw error;
+    }
     if (
       token !== generation ||
       applyRevision !== configurationRevision ||
@@ -449,22 +463,32 @@ export const desktopBunja = bunja(() => {
     const current = () =>
       token === generation &&
       selectedRevision === selectionRevision &&
-      selectedConfiguration === configuration() &&
       requestRevision === qualityRevision;
     setQualityBusy(true);
     setQualityMessage(undefined);
     try {
-      await setDesktopQuality(transport, {
+      video?.prepareConfiguration();
+      const next = await setDesktopQuality(transport, {
         attachId: attachId()!,
         layoutEpoch: support.layoutEpoch,
         revision: support.revision,
         policy,
       });
       if (!current()) return;
+      await applyConfiguration(next, token);
+      if (!current()) return;
       setQualityPolicy(policy);
       setQualitySupport(undefined);
     } catch (error) {
       if (current()) {
+        if (selectedConfiguration) {
+          try {
+            await video?.configure(selectedConfiguration);
+          } catch (restoreError) {
+            if (current()) failed(restoreError);
+          }
+        }
+        if (!current()) return;
         setQualityMessage(
           `${String(error)}. Check support again before retrying.`,
         );
@@ -492,6 +516,7 @@ export const desktopBunja = bunja(() => {
         .filter((d) => ids.includes(d.displayId))
         .slice(0, maxViewports());
       const totalBitrate = 20_000_000;
+      video?.prepareConfiguration();
       const next =
         catalogMode() && scopedSelectionSupported()
           ? await selectExistingDesktop(transport, {

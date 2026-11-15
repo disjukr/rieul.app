@@ -154,6 +154,7 @@ mock.module("../src/protocol/desktop-video.ts", {
           ? [h264]
           : [av1, h264],
     DesktopVideoReceiver: class {
+      prepareConfiguration() {}
       constructor(
         _t: unknown,
         _id: string,

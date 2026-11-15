@@ -231,6 +231,7 @@ mock.module("../src/protocol/desktop-video.ts", {
         receiverCount++;
         renderers.set(attachId, render);
       }
+      prepareConfiguration() {}
       requestRefresh() {}
       async configure(configuration: DesktopConfiguration) {
         await configureReceiver?.(configuration);
@@ -740,6 +741,7 @@ for (const failure of ["release", "flush"]) {
       const session = ownerView.value,
         owner = Symbol("owner"),
         mirror = Symbol("mirror");
+      assert.equal(mirrorView.value, session);
       const removeOwner = session.registerViewer(owner),
         removeMirror = session.registerViewer(mirror);
       await session.acquire(owner);
